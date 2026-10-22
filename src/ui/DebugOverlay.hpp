@@ -41,6 +41,7 @@ struct OverlayStats {
     bool mipmappingEnabled{true};
     bool shadowsEnabled{true};
     bool reflectionsEnabled{true};
+    bool ambientOcclusionEnabled{true};
     bool occlusionCullingEnabled{true};
 };
 

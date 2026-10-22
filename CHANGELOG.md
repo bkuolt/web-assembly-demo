@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-10-22
+
+### Added
+- **HDR Render Target (RGBA16Float) & Tonemapping Post-Processing:**
+  - Implemented 4x MSAA `WGPUTextureFormat_RGBA16Float` HDR scene rendering resolved to `hdrResolveTexture_`, followed by a fullscreen tonemapping pass onto the swapchain surface (`BeginPostProcessPass()`).
+  - Added selectable tonemappers with real-time exposure control: **Khronos PBR Neutral**, **AgX** (Blender 4.0 curve), and **ACES Filmic**, with automatic linear-to-sRGB conversion when rendering to linear swapchains.
+- **HDR Environment Maps (.hdr / .exr) & True IBL:**
+  - Added Radiance `.hdr` (RGBE with adaptive RLE) and OpenEXR `.exr` (FP16/FP32 scanline) image decoders (`TextureDecoder::DecodeHDR`, `TextureDecoder::DecodeEXR`).
+  - Implemented $L_2$ Spherical Harmonics (9 coefficients) CPU diffuse irradiance reconstruction and convolved sun/sky extraction.
+  - Added WebGPU Compute Shaders (`@compute`):
+    - `kBrdfLutComputeWGSL`: computes the $128\times 128$ `RGBA16Float` Split-Sum BRDF LUT.
+    - `kGgxPrefilterComputeWGSL`: computes GGX importance-sampled specular cubemap mip chains across roughness levels into `texture_storage_2d_array<rgba16float, write>`.
+- **Selectable & Rotatable HDR Environments:**
+  - Added 4 built-in procedural HDR environments (*Mediterranean Courtyard*, *Sunset Studio*, *Overcast Atelier*, *Night Neon*) plus custom `.hdr`/`.exr` loading via drag & drop and CLI.
+  - Added environment rotation (`envRotation`) affecting IBL diffuse/specular reflections and rotating the directional sun shadow map.
+  - Skybox background modes: **Sharp** (Mip 0), **Blurred** (prefiltered specular LOD), and **Hidden** (dark studio background with active IBL).
+- **glTF KHR_lights_punctual & Clustered Forward+ Shading:**
+  - Parsed `asset.lights` and `node.lightIndex` in `FastGltfLoader` for Directional, Point, and Spot lights.
+  - Implemented a Forward+ 3D frustum cluster grid ($16 \times 8 \times 8 = 1024$ clusters) with per-cluster 32-bit light masks and angular spot falloff in WGSL.
+- **Native Block-Compressed GPU Textures:**
+  - Enabled `WGPUFeatureName_TextureCompressionBC`, `WGPUFeatureName_TextureCompressionASTC`, and `WGPUFeatureName_TextureCompressionETC2`.
+  - Transcoded KTX2 Basis Universal textures directly into hardware formats (`BC7_RGBA`, `ASTC_4x4_RGBA`, `ETC2_RGBA8`) with full 4x4 block-aligned mip chains uploaded straight to WebGPU.
+- **Ambient Occlusion & Micro-Cavity Control:**
+  - Added glTF ambient occlusion support with real-time toggle hotkey `[U]` and HUD telemetry display.
+
+---
+
 ## [0.7.2] - 2026-10-22
 
 ### Fixed

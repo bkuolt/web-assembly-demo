@@ -63,6 +63,7 @@ public:
     void ToggleMipmapping() { pipelineManager_.ToggleMipmapping(activeScene_.get()); }
     void ToggleShadows() noexcept { pipelineManager_.ToggleShadows(); }
     void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
+    void ToggleAmbientOcclusion() noexcept { pipelineManager_.ToggleAmbientOcclusion(); }
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
@@ -73,6 +74,7 @@ public:
     [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return pipelineManager_.IsMipmappingEnabled(); }
     [[nodiscard]] bool IsShadowsEnabled() const noexcept { return pipelineManager_.IsShadowsEnabled(); }
     [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return pipelineManager_.IsReflectionsEnabled(); }
+    [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept { return pipelineManager_.IsAmbientOcclusionEnabled(); }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);

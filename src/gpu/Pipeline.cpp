@@ -394,7 +394,7 @@ std::vector<float> PipelineManager::ConvertEquirectHdrToCubemapFace(const scene:
 
             auto fetchTexel = [&](uint32_t px, uint32_t py) -> glm::vec3 {
                 const size_t idx{(static_cast<size_t>(py) * hdrImg.width + px) * 4};
-                return glm::vec3{hdrImg.rgba[idx + 0], hdrImg.rgba[idx + 1], hdrImg.rgba[idx + 2]};
+                return glm::vec3{hdrImg.rgbaFloat[idx + 0], hdrImg.rgbaFloat[idx + 1], hdrImg.rgbaFloat[idx + 2]};
             };
 
             const glm::vec3 c00{fetchTexel(x0, y0)};
@@ -572,7 +572,7 @@ void PipelineManager::BuildClusteredLightGrid(
         if (lightType == 0u) {
             // Directional light affects all clusters
             for (auto& vecMask : outClusterMasks) {
-                vecMask |= glm::uvec4{bitMask};
+                vecMask = vecMask | glm::uvec4{bitMask};
             }
             continue;
         }
@@ -1807,7 +1807,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         if (img.width == 0 || img.height == 0 || img.rgba.empty()) continue;
         if (i >= scene.gpuTextures.size() || scene.gpuTextures[i].view != nullptr) continue;
 
-        if (img.isCompressed && img.compressionFormat != 0) {
+        if (img.isCompressed && img.compressionFormat != scene::KtxTranscodeTarget::Rgba32) {
             WGPUTextureFormat wgpuFmt{WGPUTextureFormat_BC7RGBAUnorm};
             std::string_view fmtName{"BC7"};
             switch (static_cast<scene::KtxTranscodeTarget>(img.compressionFormat)) {
@@ -1830,7 +1830,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             // Count valid 4x4 block-aligned mip levels
             uint32_t validCompressedMips{0};
             for (const auto& mip : img.mipLevels) {
-                if ((mip.width % 4u) == 0u && (mip.height % 4u) == 0u && !mip.bytes.empty()) {
+                if ((mip.width % 4u) == 0u && (mip.height % 4u) == 0u && !mip.data.empty()) {
                     ++validCompressedMips;
                 } else {
                     break;
@@ -1851,7 +1851,11 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             for (uint32_t level{0}; level < validCompressedMips; ++level) {
                 const uint32_t mipW{(level < img.mipLevels.size()) ? img.mipLevels[level].width : img.width};
                 const uint32_t mipH{(level < img.mipLevels.size()) ? img.mipLevels[level].height : img.height};
-                std::span<const uint8_t> mipBytes{(level < img.mipLevels.size()) ? std::span<const uint8_t>{img.mipLevels[level].bytes} : std::span<const uint8_t>{img.rgba}};
+                std::span<const uint8_t> mipBytes{
+                    (level < img.mipLevels.size())
+                        ? std::span<const uint8_t>{img.mipLevels[level].data.data(), img.mipLevels[level].data.size()}
+                        : std::span<const uint8_t>{img.rgba.data(), img.rgba.size()}
+                };
 
                 const uint32_t blocksX{std::max(1u, (mipW + 3u) / 4u)};
                 const uint32_t blocksY{std::max(1u, (mipH + 3u) / 4u)};
@@ -2262,10 +2266,11 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     uniforms.envMipCount = static_cast<float>(envMipLevels_);
 
     uint32_t flags{0};
-    if (bumpMappingEnabled_) flags |= MaterialFlags::EnableBumpMapping;
-    if (mipmappingEnabled_)  flags |= MaterialFlags::EnableMipmapping;
-    if (shadowsEnabled_)     flags |= MaterialFlags::EnableShadows;
-    if (reflectionsEnabled_) flags |= MaterialFlags::EnableReflections;
+    if (bumpMappingEnabled_)      flags |= MaterialFlags::EnableBumpMapping;
+    if (mipmappingEnabled_)       flags |= MaterialFlags::EnableMipmapping;
+    if (shadowsEnabled_)          flags |= MaterialFlags::EnableShadows;
+    if (reflectionsEnabled_)      flags |= MaterialFlags::EnableReflections;
+    if (ambientOcclusionEnabled_) flags |= MaterialFlags::EnableAmbientOcclusion;
 
     bool isDoubleSided{false};
     if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {

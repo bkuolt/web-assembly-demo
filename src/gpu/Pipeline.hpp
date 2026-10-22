@@ -55,6 +55,7 @@ namespace MaterialFlags {
     constexpr uint32_t EnableMipmapping        = 1u << 11;
     constexpr uint32_t EnableShadows           = 1u << 12;
     constexpr uint32_t EnableReflections       = 1u << 13;
+    constexpr uint32_t EnableAmbientOcclusion  = 1u << 14;
 }
 
 struct alignas(16) PrimitiveUniforms {
@@ -115,7 +116,7 @@ struct alignas(16) SceneLightingUniforms {
     glm::vec4 envParams{0.0f, 0.0f, 1.0f, 1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
     glm::mat4 viewMatrix{1.0f};
 };
-static_assert(sizeof(SceneLightingUniforms) == 5280, "SceneLightingUniforms must be 5280 bytes");
+static_assert(sizeof(SceneLightingUniforms) == 5360, "SceneLightingUniforms must be 5360 bytes");
 
 struct alignas(16) TonemapUniforms {
     float exposure{1.0f};
@@ -247,6 +248,10 @@ public:
     void ToggleReflections() noexcept { reflectionsEnabled_ = !reflectionsEnabled_; }
     [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return reflectionsEnabled_; }
 
+    void SetAmbientOcclusionEnabled(bool enabled) noexcept { ambientOcclusionEnabled_ = enabled; }
+    void ToggleAmbientOcclusion() noexcept { ambientOcclusionEnabled_ = !ambientOcclusionEnabled_; }
+    [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept { return ambientOcclusionEnabled_; }
+
     void SetOcclusionCullingEnabled(bool enabled) noexcept { occlusionCullingEnabled_ = enabled; }
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
@@ -293,6 +298,7 @@ private:
     bool mipmappingEnabled_{true};
     bool shadowsEnabled_{true};
     bool reflectionsEnabled_{true};
+    bool ambientOcclusionEnabled_{true};
     bool occlusionCullingEnabled_{true};
     bool shadowMapDirty_{true};
 

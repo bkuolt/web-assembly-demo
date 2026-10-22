@@ -767,11 +767,13 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let transFactor = clamp(transmission, 0.0, 1.0);
 
     var ao = 1.0;
-    if ((ubo.flags & 16u) != 0u) {
-        let occSample = occTexSample.r;
-        ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
+    if ((ubo.flags & 16384u) != 0u) { // Bit 14 = EnableAmbientOcclusion
+        if ((ubo.flags & 16u) != 0u) {
+            let occSample = occTexSample.r;
+            ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
+        }
+        ao = clamp(ao * bumpCavity, 0.0, 1.0);
     }
-    ao = clamp(ao * bumpCavity, 0.0, 1.0);
 
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
     if ((ubo.flags & 8u) != 0u) {

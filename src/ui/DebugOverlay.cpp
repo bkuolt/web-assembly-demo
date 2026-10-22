@@ -129,12 +129,13 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawText(toggleText, textX, textY, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
     textY += lineSpacing;
 
-    // Line 7: PBR Feature Toggles (Bump, Mips, Shadows, Reflections)
-    std::string pbrToggleText = std::format("[V] Bump: {}  [L] Mips: {}  [M] Shadows: {}  [R] Refl: {}",
+    // Line 7: PBR Feature Toggles (Bump, Mips, Shadows, Reflections, AO)
+    std::string pbrToggleText = std::format("[V] Bump: {} [L] Mip: {} [M] Shdw: {} [R] Refl: {} [U] AO: {}",
                                             currentStats_.bumpMappingEnabled ? "ON" : "OFF",
                                             currentStats_.mipmappingEnabled ? "ON" : "OFF",
                                             currentStats_.shadowsEnabled ? "ON" : "OFF",
-                                            currentStats_.reflectionsEnabled ? "ON" : "OFF");
+                                            currentStats_.reflectionsEnabled ? "ON" : "OFF",
+                                            currentStats_.ambientOcclusionEnabled ? "ON" : "OFF");
     textRenderer_.DrawText(pbrToggleText, textX, textY, glm::vec4(0.68f, 0.62f, 0.98f, 1.0f));
     textY += lineSpacing;
 

@@ -164,6 +164,9 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_r) {
                     ToggleReflections();
                     BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+                } else if (event.key.keysym.sym == SDLK_u) {
+                    ToggleAmbientOcclusion();
+                    BGL_LOG_INFO("Toggled Ambient Occlusion & Micro-Cavities: {}", pipelineManager_.IsAmbientOcclusionEnabled());
                 } else if (event.key.keysym.sym == SDLK_c) {
                     ToggleOcclusionCulling();
                     BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling: {}", pipelineManager_.IsOcclusionCullingEnabled());
@@ -243,6 +246,7 @@ void Application::Update(float deltaTime) {
     stats.mipmappingEnabled = pipelineManager_.IsMipmappingEnabled();
     stats.shadowsEnabled = pipelineManager_.IsShadowsEnabled();
     stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
+    stats.ambientOcclusionEnabled = pipelineManager_.IsAmbientOcclusionEnabled();
     stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
 
     if (quadtree_) {
