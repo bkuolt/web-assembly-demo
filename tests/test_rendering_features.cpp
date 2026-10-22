@@ -6,9 +6,19 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <numeric>
+#include <filesystem>
+#include <fstream>
+#include <thread>
+#if defined(__linux__)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "core/Types.hpp"
+#include "core/NetworkFetcher.hpp"
 #include "scene/Scene.hpp"
 #include "gpu/Pipeline.hpp"
 #include "app/Application.hpp"
@@ -325,5 +335,227 @@ TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
     EXPECT_FALSE(pm.IsReflectionsEnabled());
     pm.SetReflectionsEnabled(true);
     EXPECT_TRUE(pm.IsReflectionsEnabled());
+}
+
+// ============================================================================
+// 5. NetworkFetcher URL Support, Relative URI Resolution & External glTF Assets
+// ============================================================================
+
+TEST(RenderingFeaturesTest, NetworkFetcherUriClassificationAndSanitization) {
+    EXPECT_TRUE(core::NetworkFetcher::IsCurlSupported());
+    EXPECT_TRUE(core::NetworkFetcher::IsHttpUrl("https://example.com/models/Sponza.glb"));
+    EXPECT_TRUE(core::NetworkFetcher::IsHttpUrl("HTTP://example.com/scene.gltf"));
+    EXPECT_FALSE(core::NetworkFetcher::IsHttpUrl("assets/Sponza.glb"));
+    EXPECT_TRUE(core::NetworkFetcher::IsFileUrl("file:///tmp/model.glb"));
+    EXPECT_TRUE(core::NetworkFetcher::IsDataUri("data:application/octet-stream;base64,AAECAw=="));
+    EXPECT_TRUE(core::NetworkFetcher::IsUrl("https://example.com/a.glb"));
+    EXPECT_TRUE(core::NetworkFetcher::IsUrl("file:///tmp/a.glb"));
+    EXPECT_TRUE(core::NetworkFetcher::IsUrl("data:text/plain,hello"));
+    EXPECT_FALSE(core::NetworkFetcher::IsUrl("/home/user/model.glb"));
+
+    // Sanitize text/uri-list drag-and-drop payload with comments and CRLF
+    const std::string rawDropList{"# KDE/GNOME URI list\r\nhttps://example.com/assets/Toy%20Car.glb?raw=true#view\r\n"};
+    EXPECT_EQ(core::NetworkFetcher::SanitizeUri(rawDropList),
+              "https://example.com/assets/Toy%20Car.glb?raw=true#view");
+    EXPECT_EQ(core::NetworkFetcher::ExtractDisplayName(rawDropList), "Toy Car.glb");
+}
+
+TEST(RenderingFeaturesTest, NetworkFetcherRelativeUriResolution) {
+    const std::string baseHttp{"https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/glTF/ToyCar.gltf?token=abc"};
+
+    // Relative binary buffer in same directory
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri(baseHttp, "ToyCar.bin"),
+              "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/glTF/ToyCar.bin");
+
+    // Parent directory traversal for shared textures
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri(baseHttp, "../textures/baseColor.png"),
+              "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/textures/baseColor.png");
+
+    // Root-relative URI
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri("https://cdn.example.com:8443/models/v1/scene.gltf", "/shared/env.ktx2"),
+              "https://cdn.example.com:8443/shared/env.ktx2");
+
+    // Absolute URL inside glTF buffer/image URI overrides base URL
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri(baseHttp, "https://assets.example.org/tex/normal.png"),
+              "https://assets.example.org/tex/normal.png");
+
+    // Local filesystem base path resolution
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri("assets/models/gltf/scene.gltf", "../textures/albedo.png"),
+              "assets/models/textures/albedo.png");
+}
+
+TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
+    // 1. Test RFC 2397 base64 data: URI decoding
+    const auto dataRes{core::NetworkFetcher::FetchSync("data:application/octet-stream;base64,SGVsbG8gV2ViR1BV")};
+    ASSERT_TRUE(dataRes.has_value());
+    const std::string decodedStr{dataRes->begin(), dataRes->end()};
+    EXPECT_EQ(decodedStr, "Hello WebGPU");
+
+    // 2. Test external .gltf + external .bin buffer + external .png image resolution
+    const std::filesystem::path tmpDir{std::filesystem::temp_directory_path() / "bgl_gltf_uri_test"};
+    std::filesystem::create_directories(tmpDir / "textures");
+
+    // Write minimal 3-vertex triangle binary buffer (3 * vec3<float> = 36 bytes)
+    const std::array<float, 9> trianglePositions{
+        0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f
+    };
+    const std::filesystem::path binPath{tmpDir / "geometry.bin"};
+    {
+        std::ofstream binOut{binPath, std::ios::binary};
+        binOut.write(reinterpret_cast<const char*>(trianglePositions.data()), sizeof(trianglePositions));
+    }
+
+    // Write a valid 1x1 RGBA PNG file into textures/albedo.png
+    const std::array<uint8_t, 68> minimalPng{
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0B, 0x49, 0x44, 0x41,
+        0x54, 0x08, 0xD7, 0x63, 0x60, 0x00, 0x02, 0x00,
+        0x00, 0x05, 0x00, 0x01, 0xE2, 0x26, 0x05, 0x9B,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+        0xAE, 0x42, 0x60, 0x82
+    };
+    const std::filesystem::path pngPath{tmpDir / "textures" / "albedo.png"};
+    {
+        std::ofstream pngOut{pngPath, std::ios::binary};
+        pngOut.write(reinterpret_cast<const char*>(minimalPng.data()), minimalPng.size());
+    }
+
+    // Write glTF 2.0 JSON referencing external "geometry.bin" and "textures/albedo.png"
+    const std::string gltfJson{R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "name": "ExternalTriangle", "mesh": 0 }],
+  "meshes": [{
+    "primitives": [{
+      "attributes": { "POSITION": 0 },
+      "material": 0
+    }]
+  }],
+  "materials": [{
+    "name": "ExternalTexMat",
+    "pbrMetallicRoughness": {
+      "baseColorTexture": { "index": 0 }
+    }
+  }],
+  "textures": [{ "source": 0 }],
+  "images": [{ "uri": "textures/albedo.png" }],
+  "accessors": [{
+    "bufferView": 0,
+    "componentType": 5126,
+    "count": 3,
+    "type": "VEC3",
+    "min": [0.0, 0.0, 0.0],
+    "max": [1.0, 1.0, 0.0]
+  }],
+  "bufferViews": [{
+    "buffer": 0,
+    "byteOffset": 0,
+    "byteLength": 36
+  }],
+  "buffers": [{
+    "uri": "geometry.bin",
+    "byteLength": 36
+  }]
+})"};
+
+    const std::filesystem::path gltfPath{tmpDir / "external_scene.gltf"};
+    {
+        std::ofstream gltfOut{gltfPath, std::ios::binary};
+        gltfOut.write(gltfJson.data(), static_cast<std::streamsize>(gltfJson.size()));
+    }
+
+    scene::AssetManager assetMgr{};
+    scene::FastGltfLoader loader{assetMgr};
+
+    // Load via file:// URL to test both URL ingestion and relative URI resolution for buffer + texture
+    const std::string fileUrl{"file://" + gltfPath.string()};
+    const auto sceneRes{loader.LoadFromFile(fileUrl)};
+    ASSERT_TRUE(sceneRes.has_value()) << sceneRes.error();
+
+    const auto& loadedScene{*sceneRes};
+    ASSERT_EQ(loadedScene->rootNodes.size(), 1u);
+    ASSERT_EQ(loadedScene->rootNodes[0]->primitives.size(), 1u);
+    EXPECT_EQ(loadedScene->rootNodes[0]->primitives[0].vertices.size(), 3u);
+    ASSERT_EQ(loadedScene->cpuImages.size(), 1u);
+    EXPECT_EQ(loadedScene->cpuImages[0].width, 1u);
+    EXPECT_EQ(loadedScene->cpuImages[0].height, 1u);
+    EXPECT_EQ(loadedScene->cpuImages[0].rgba.size(), 4u);
+
+    std::error_code ec{};
+    std::filesystem::remove_all(tmpDir, ec);
+
+#if defined(__linux__) && defined(BGL_HAS_CURL)
+    // 3. Real HTTP/1.1 libcurl test over ephemeral loopback socket (127.0.0.1)
+    //    Tests downloading a remote .gltf that references relative HTTP .bin and .png URLs
+    const int serverFd{::socket(AF_INET, SOCK_STREAM, 0)};
+    ASSERT_GE(serverFd, 0);
+
+    int optVal{1};
+    ::setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(optVal));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0; // Ephemeral port
+    ASSERT_EQ(::bind(serverFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(::listen(serverFd, 8), 0);
+
+    socklen_t addrLen{sizeof(addr)};
+    ASSERT_EQ(::getsockname(serverFd, reinterpret_cast<sockaddr*>(&addr), &addrLen), 0);
+    const uint16_t port{ntohs(addr.sin_port)};
+
+    // Serve 3 sequential HTTP requests: /models/scene.gltf, /models/geometry.bin, /models/textures/albedo.png
+    std::jthread httpServer{[serverFd, &gltfJson, &trianglePositions, &minimalPng]() {
+        for (int reqCount{0}; reqCount < 3; ++reqCount) {
+            const int clientFd{::accept(serverFd, nullptr, nullptr)};
+            if (clientFd < 0) break;
+
+            std::array<char, 1024> reqBuf{};
+            const ssize_t n{::recv(clientFd, reqBuf.data(), reqBuf.size() - 1, 0)};
+            std::string_view reqView{reqBuf.data(), n > 0 ? static_cast<size_t>(n) : 0u};
+
+            std::vector<uint8_t> body{};
+            std::string contentType{"application/octet-stream"};
+            if (reqView.find("GET /models/scene.gltf") != std::string_view::npos) {
+                body.assign(gltfJson.begin(), gltfJson.end());
+                contentType = "model/gltf+json";
+            } else if (reqView.find("GET /models/geometry.bin") != std::string_view::npos) {
+                const auto* ptr{reinterpret_cast<const uint8_t*>(trianglePositions.data())};
+                body.assign(ptr, ptr + sizeof(trianglePositions));
+            } else if (reqView.find("GET /models/textures/albedo.png") != std::string_view::npos) {
+                body.assign(minimalPng.begin(), minimalPng.end());
+                contentType = "image/png";
+            }
+
+            const std::string header{
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: " + contentType + "\r\n"
+                "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                "Connection: close\r\n\r\n"
+            };
+            (void)::send(clientFd, header.data(), header.size(), 0);
+            if (!body.empty()) {
+                (void)::send(clientFd, body.data(), body.size(), 0);
+            }
+            ::close(clientFd);
+        }
+        ::close(serverFd);
+    }};
+
+    const std::string httpModelUrl{"http://127.0.0.1:" + std::to_string(port) + "/models/scene.gltf"};
+    const auto httpSceneRes{loader.LoadFromFile(httpModelUrl)};
+    ASSERT_TRUE(httpSceneRes.has_value()) << httpSceneRes.error();
+    EXPECT_EQ((*httpSceneRes)->rootNodes.size(), 1u);
+    EXPECT_EQ((*httpSceneRes)->rootNodes[0]->primitives[0].vertices.size(), 3u);
+    ASSERT_EQ((*httpSceneRes)->cpuImages.size(), 1u);
+    EXPECT_EQ((*httpSceneRes)->cpuImages[0].width, 1u);
+    EXPECT_EQ((*httpSceneRes)->cpuImages[0].height, 1u);
+#endif
 }
 

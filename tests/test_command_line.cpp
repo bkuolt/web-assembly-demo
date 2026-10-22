@@ -58,6 +58,13 @@ TEST(CommandLineTest, CustomAssetAndResolution) {
     EXPECT_EQ(opt.width, 1920u);
     EXPECT_EQ(opt.height, 1080u);
     EXPECT_EQ(opt.logLevel, "debug");
+
+    const std::array<const char*, 2> urlArgs{
+        "bgl_viewer",
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Box/glTF-Binary/Box.glb"
+    };
+    const auto urlOpt{CliOptions::Parse(std::span<const char* const>{urlArgs})};
+    EXPECT_EQ(urlOpt.assetPath, "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Box/glTF-Binary/Box.glb");
 }
 
 TEST(CommandLineTest, FeatureToggles) {

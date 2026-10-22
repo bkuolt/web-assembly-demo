@@ -1,9 +1,9 @@
-# WebAssembly an WebGPU Demo (bgl-Engine v0.6.8)
+# WebAssembly an WebGPU Demo (bgl-Engine v0.7.0)
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-60_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-65_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.7.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
@@ -22,15 +22,16 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
-| **Bump & Normal Mapping** | MikkTSpace/Lengyel tangent generation, Gram-Schmidt orthogonalization, tangent-space normal maps + screen-space height derivatives (`dpdx`/`dpdy`) | `[V]` / `--no-bump` |
+| **Bump & Normal Mapping** | MikkTSpace/Lengyel tangent generation, scale-invariant `getTBN`, tangent-space normal maps + UV-texel-space central-difference height gradients (`textureSampleGrad`) | `[V]` / `--no-bump` |
 | **Anisotropic Mipmapping** | Full CPU mip pyramid ($1\times 1$), 3D vector renormalization for normal maps, multithreaded `std::jthread` generation, live 16× Aniso vs. Mip-0 switching | `[L]` / `--no-mipmaps` |
-| **Directional Shadow Mapping** | $2048\times 2048$ `Depth32Float` pre-pass, scene-fitted `orthoRH_ZO` light matrix, hardware slope-scale depth bias, 9-tap $3\times 3$ PCF soft shadows | `[M]` / `--no-shadows` |
+| **Directional Shadow Mapping** | $2048\times 2048$ `Depth32Float` pre-pass (cached for static scenes), scene-fitted `orthoRH_ZO` light matrix, hardware slope-scale depth bias, 9-tap $3\times 3$ PCF soft shadows | `[M]` / `--no-shadows` |
 | **Environment Reflections (IBL)** | 6-face pre-filtered roughness cubemap ($64\times 64\times 6$, 7 mip levels), Karis split-sum analytic `envBRDFApprox`, clearcoat specular reflections | `[R]` / `--no-reflections` |
-| **Spatial Quadtree Culling** | 4-way XZ-plane partitioning, strict `ContainsXZ` + `looseBounds_`, 60%–82% Sponza primitive culling, single-draw batched 3D wireframes | `[Q]` / `--quadtree` |
-| **3D Bounding Boxes (AABBs)** | Hierarchical world-space AABBs (Gold for scene root, Cyan for mesh primitives) rendered in 1 batched GPU draw call | `[B]` / `--no-bounds` |
+| **Spatial Quadtree & Occlusion Culling** | 4-way XZ-plane partitioning, Front-to-Back traversal, $32\times 16$ Hi-Z `OcclusionBuffer` & sub-pixel culling, single-draw batched 3D wireframes | `[C]` / `[Q]` / `--no-occlusion` |
+| **URL & Remote Asset Streaming** | Direct `http://`, `https://`, `file://`, and `data:` model loading via **`libcurl`** (native) and Fetch API (Wasm), URL Drag-and-Drop, and external `.gltf` buffer/texture URI resolution | `--asset <url>` / Drag & Drop |
+| **3D Bounding Boxes (AABBs)** | Pre-cached hierarchical world-space AABBs (Gold for scene root, Cyan for mesh primitives) rendered in 1 batched GPU draw call | `[B]` / `--no-bounds` |
 | **Atmospheric Skybox** | Rayleigh-inspired zenith-to-horizon scattering, solar disk & corona, ground hemisphere bounce, far-plane depth clamping | `[K]` / `--no-skybox` |
 | **HarfBuzz & FreeType 2 HUD** | Dynamic $1024\times 1024$ RGBA8 shelf-packed font atlas, Unicode shaping, zero-dependency embedded TTF fallback, live telemetry overlay | `[O]` / `[F3]` / `--no-hud` |
-| **Multithreaded Asset Pipeline** | Lock-free `std::jthread` + `std::atomic` glTF texture decoding & mip generation (~245 MB/s on 1 GB / 5.25M-triangle stress test), KTX2 Basis Universal transcoding | `--formats` |
+| **Multithreaded Asset Pipeline** | Lock-free `std::jthread` + `std::atomic` glTF texture fetching/decoding & mip generation (~245 MB/s on 1 GB / 5.25M-triangle stress test), KTX2 Basis Universal transcoding | `--formats` |
 
 ### Key Architecture Highlights
 
@@ -337,8 +338,9 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 # Query compiled texture and asset format support
 ./build/Release/bgl_viewer --formats
 
-# Load a specific glTF / GLB model at custom resolution
+# Load a specific glTF / GLB model from a local path or remote HTTP/HTTPS URL
 ./build/Release/bgl_viewer --asset assets/ToyCar.glb -w 1600 -H 900 --log-level debug
+./build/Release/bgl_viewer https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoxTextured/glTF/BoxTextured.gltf
 
 # Start with 3D Quadtree partition boundaries visible
 ./build/Release/bgl_viewer --quadtree
@@ -351,9 +353,9 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `0.6.8` |
-| `--formats` | — | Query compiled texture decoders and format availability | — |
-| `-a`, `--asset` | `<path>` | Load specified `.glb` or `.gltf` model path | Auto-detect |
+| `-v`, `--version` | — | Print engine version string | `0.7.0` |
+| `--formats` | — | Query compiled texture decoders and `libcurl` streaming availability | — |
+| `-a`, `--asset` | `<path\|url>` | Load specified `.glb` or `.gltf` model from local path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
 | `-H`, `--height` | `<pixels>` | Initial window height | `720` |
 | `-l`, `--log-level` | `<level>` | Logging level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
@@ -365,6 +367,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | `--no-mipmaps` / `--mipmaps` | — | Toggle 16x Anisotropic Trilinear Mipmapping vs Mip-0 | `Enabled` |
 | `--no-shadows` / `--shadows` | — | Toggle Directional Shadow Mapping (2048x2048 3x3 PCF) | `Enabled` |
 | `--no-reflections` / `--reflections` | — | Toggle Environment Cubemap Specular Reflections (IBL) | `Enabled` |
+| `--no-occlusion` / `--occlusion` | — | Toggle Quadtree Hierarchical Occlusion Culling (Hi-Z + Sub-Pixel) | `Enabled` |
 | `--test-crash` | `[segv\|abrt\|fpe]` | Trigger intentional crash to verify signal handler and stacktrace | `segv` |
 
 #### Interactive Desktop Controls:
@@ -375,11 +378,12 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 - **L Key**: Toggle Texture Mipmapping (`16x Anisotropic Trilinear` vs `Base Mip 0`).
 - **M Key**: Toggle Directional Shadow Mapping (`2048x2048 3x3 PCF Soft Shadows`).
 - **R Key**: Toggle Environment Cubemap Reflections (`Pre-filtered Roughness Cubemap IBL`).
+- **C Key**: Toggle Quadtree Hierarchical Occlusion Culling (`Front-to-Back Hi-Z + Sub-Pixel`).
 - **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs (Gold for scene root, Cyan for mesh primitives).
 - **Q Key**: Toggle 3D Quadtree spatial ground partition boundaries (Emerald green).
 - **K Key**: Toggle Procedural Atmospheric Skybox with solar corona.
 - **O / F3 Key**: Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay HUD.
-- **File Drag-and-Drop**: Drop any `.glb` or `.gltf` model directly into the native viewer window.
+- **File & URL Drag-and-Drop**: Drop any local `.glb`/`.gltf` file or HTTP/HTTPS URL link directly onto the window.
 - **ESC**: Exit viewer.
 
 ---

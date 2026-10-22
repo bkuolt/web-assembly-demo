@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased / 0.7.0] - 2026-10-22
+## [0.7.0] - 2026-10-22
 
 ### Added
+- **HTTP/HTTPS URL Support & External glTF URI Streaming via `libcurl` (`bgl::core::NetworkFetcher`):**
+  - Integrated **`libcurl`** (`BGL_HAS_CURL`) on native desktop and Fetch API on WebAssembly to stream `.glb` and `.gltf` models directly from `http://`, `https://`, `file://`, and `data:` URIs via CLI (`--asset <url>` or positional argument) and programmatic APIs (`Application::LoadSceneFromUri()`).
+  - **URL Drag-and-Drop:** Added support for dragging and dropping URLs (`SDL_DROPFILE` / `SDL_DROPTEXT` on native SDL2 desktop and `text/uri-list` / `text/plain` in `web/app.js`, plus `?model=<url>` browser query parameter).
+  - **External glTF Buffer & Texture URI Resolution:** Upgraded `FastGltfLoader::LoadFromMemory()` to parse both binary `.glb` and JSON `.gltf` files (`parser_.loadGltf`) and automatically resolve relative or absolute external URIs (`NetworkFetcher::ResolveRelativeUri`) for binary geometry buffers (`.bin`) and external textures (`.png`, `.jpg`, `.webp`, `.ktx2`), downloading textures concurrently across `std::jthread` worker threads via thread-safe `libcurl` handles.
+- **Quadtree Hierarchical Occlusion Culling & Performance Optimizations (`[C]` / `--no-occlusion` / `--occlusion`):**
+  - Implemented `bgl::scene::OcclusionBuffer` (an L1-cache-resident $32\times 16$ screen-space Hierarchical-Z depth tile buffer), Front-to-Back child quadrant and primitive distance sorting, and sub-pixel screen-space contribution culling in `Quadtree::QueryVisible()`.
+  - Added static shadow map caching (`shadowMapDirty_` in `PipelineManager::RenderShadowPass()`), hardware back-face culling (`opaqueBackCulledPipeline_` with `WGPUCullMode_Back`) for single-sided meshes, pre-cached AABB wireframe geometry (`cachedSceneAabbVertices_`), and unlocked present mode (`WGPUPresentMode_Immediate` / `Mailbox` without artificial sleep throttling).
 - **Bump & Tangent-Space Normal Mapping (`[V]` / `--no-bump` / `--bump`):**
-  - Automatic MikkTSpace / Lengyel triangle tangent & bitangent basis generation (`MeshPrimitive::ComputeTangents()`) with Gram-Schmidt orthogonalization and handedness sign (`tangent.w`) whenever a glTF primitive omits explicit `TANGENT` attributes.
-  - Multithreaded per-vertex tangent orthogonalization (`std::jthread`) for large meshes ($\ge 8\,192$ vertices).
-  - Dual normal perturbation in `kPbrShaderWGSL`: combines tangent-space normal maps (`normalTexture`) with screen-space derivative height bump mapping (`dpdx`, `dpdy`, scaled by `ubo.bumpScale`).
+  - Automatic MikkTSpace / Lengyel triangle tangent & bitangent basis generation (`MeshPrimitive::ComputeTangents()`) with Gram-Schmidt orthogonalization and handedness sign (`tangent.w`) whenever a glTF primitive omits explicit `TANGENT` attributes or provides degenerate tangents.
+  - Scale-invariant `getTBN` normalization in `vs_main` and `fs_main` (preserving unit-length tangents on scaled scenes such as `Sponza.glb` with `scale = 0.008`), paired with true UV-texel-space central-difference height gradients (`dHdU`, `dHdV`) via `textureSampleGrad` on `baseColorTexture` and `occlusionTexture`, `bumpCavity` self-occlusion, and courtyard fill lighting (`L_fill`).
 - **Advanced Mipmapping Support (`[L]` / `--no-mipmaps` / `--mipmaps`):**
   - 3D vector-renormalized normal map mip downsampling (`PipelineManager::GenerateNextMipLevel(..., isNormalMap = true)`) that decodes $2\times 2$ normal texels into $[-1, 1]^3$, averages, renormalizes to unit length, and re-packs to `RGBA8Unorm` to preserve specular fidelity across mip levels.
   - Multithreaded CPU mip-pyramid generation across all scene textures in `PipelineManager::PrepareScene()` using lock-free `std::atomic<size_t>` work-stealing across `std::jthread` workers, plus row-parallel downsampling for high-resolution textures.
@@ -26,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Environment Cubemap Reflections & Specular IBL (`[R]` / `--no-reflections` / `--reflections`):**
   - Pre-filtered 6-face atmospheric environment cubemap (`64×64×6`, `WGPUTextureViewDimension_Cube`) with 7 roughness-convolved mip levels (`PipelineManager::GenerateEnvCubemapFaceMip()`), generated in parallel across 6 `std::jthread` worker threads.
   - Analytic Karis split-sum BRDF approximation (`envBRDFApprox`) and roughness-based mip LOD sampling (`textureSampleLevel`) for metallic, dielectric, and clearcoat reflections.
-- **Dedicated Rendering Features Unit Test Suite (`tests/test_rendering_features.cpp`):**
-  - Added 10 specialized unit tests covering tangent generation on all 6 axis-aligned cube faces, mirrored UV handedness flipping, degenerate UV fallback, POT/NPOT mip level counts, full mip pyramid color conservation, normal-map unit vector preservation, 8-corner shadow matrix containment, depth ordering, cubemap sky/ground luminance, and 352-byte UBO layout.
+- **Expanded Unit Test Suite (`65` Total Tests across 12 Suites):**
+  - Added comprehensive tests in `tests/test_rendering_features.cpp`, `tests/test_quadtree_lod.cpp`, and `tests/test_command_line.cpp` covering Bump Mapping (including scaled model matrix TBN invariance), Mipmapping, Shadow Mapping, Environment Cubemap Reflections, Quadtree Hierarchical Occlusion Culling, `NetworkFetcher` URI classification/resolution, `data:`/`file://` fetching, and end-to-end HTTP/1.1 `libcurl` streaming of external `.gltf` + `.bin` + `.png` assets.
 
 ### Changed
 - **Application Branding:** Renamed application display title across native SDL2 window, In-Engine Debug Overlay HUD, CLI `--help`/`--version`, and Web UI to **"WebAssembly an WebGPU Demo"**.
