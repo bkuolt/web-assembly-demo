@@ -463,7 +463,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
     // 8. Print ASCII Hierarchy Tree Diagram
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
-    BGL_LOG_INFO("[glTF Loader] Scene Graph Baumdiagramm (Root Scene):");
+    BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
     auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
         if (!n) return;
         std::string nodeInfo = n->name.empty() ? "(Unnamed Node)" : n->name;

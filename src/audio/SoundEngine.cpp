@@ -47,8 +47,9 @@ core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::strin
     if (!initialized_) return std::unexpected("SoundEngine not initialized");
 
     std::string id(soundId);
+    std::string path(filePath);
     ma_sound sound;
-    ma_result res = ma_sound_init_from_file(&engine_, filePath.data(), 0, nullptr, nullptr, &sound);
+    ma_result res = ma_sound_init_from_file(&engine_, path.c_str(), 0, nullptr, nullptr, &sound);
     if (res != MA_SUCCESS) {
         return std::unexpected("Failed to load sound file: " + std::string(filePath));
     }
