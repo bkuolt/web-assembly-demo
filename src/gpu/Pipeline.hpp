@@ -1,24 +1,44 @@
 /**
  * @file Pipeline.hpp
- * @brief Hardware WebGPU RenderPipeline, Shadow Mapping, Environment Reflections,
- *        Bump/Normal Mapping, Trilinear Mipmapping, and glTF mesh rendering.
+ * @brief Hardware WebGPU RenderPipeline, HDR RGBA16Float Post-Processing Tonemapping
+ *        (Khronos PBR Neutral, AgX, ACES), True HDR IBL (L2 Spherical Harmonics,
+ *        Compute GGX Prefiltered Cubemap, Compute Split-Sum BRDF LUT),
+ *        Clustered Forward+ KHR_lights_punctual, and Native GPU Compressed Textures (BC7/ASTC/ETC2).
  */
 #pragma once
 
 #include <webgpu/webgpu.h>
 #include <glm/glm.hpp>
+#include <array>
 #include <vector>
 #include <span>
+#include <string_view>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 
 namespace bgl::scene {
 struct Scene;
 class SceneNode;
 struct MeshPrimitive;
 class Quadtree;
+struct DecodedHdrImage;
 }
 
 namespace bgl::gpu {
+
+enum class ToneMapOperator : uint32_t {
+    KhronosPbrNeutral = 0,
+    AgX               = 1,
+    ACES              = 2
+};
+
+enum class EnvironmentPreset : uint32_t {
+    MediterraneanCourtyard = 0,
+    SunsetStudio           = 1,
+    OvercastAtelier        = 2,
+    NightNeon              = 3,
+    CustomHdr              = 4
+};
 
 namespace MaterialFlags {
     constexpr uint32_t HasBaseColorTex         = 1u << 0;
@@ -79,6 +99,40 @@ struct alignas(16) PrimitiveUniforms {
 };
 static_assert(sizeof(PrimitiveUniforms) == 352, "PrimitiveUniforms must be exactly 352 bytes (16-byte aligned)");
 
+struct alignas(16) GpuPunctualLight {
+    glm::vec4 posOrDir{0.0f};  // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
+    glm::vec4 colorInt{0.0f};  // xyz = color * intensity, w = range (0 = infinite)
+    glm::vec4 spotParams{0.0f, -1.0f, 0.0f, 0.0f}; // xyz = spotDirection (light-to-target), w = reserved
+};
+static_assert(sizeof(GpuPunctualLight) == 48, "GpuPunctualLight must be 48 bytes");
+
+struct alignas(16) SceneLightingUniforms {
+    std::array<glm::vec4, 9> shIrradiance{};
+    std::array<GpuPunctualLight, 16> lights{};
+    std::array<glm::vec4, 16> spotAngles{};      // x = lightAngleScale, y = lightAngleOffset, z = castsShadow, w = pad
+    std::array<glm::uvec4, 256> clusterMasks{};  // 1024 uint32_t bitmasks for 16 x 8 x 8 Forward+ frustum clusters
+    glm::vec4 gridParams{1280.0f, 720.0f, 0.1f, 500.0f}; // x = viewportW, y = viewportH, z = zNear, w = zFar
+    glm::vec4 envParams{0.0f, 0.0f, 1.0f, 1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
+    glm::mat4 viewMatrix{1.0f};
+};
+static_assert(sizeof(SceneLightingUniforms) == 5280, "SceneLightingUniforms must be 5280 bytes");
+
+struct alignas(16) TonemapUniforms {
+    float exposure{1.0f};
+    uint32_t operatorId{0};
+    uint32_t isSrgbSurface{1};
+    uint32_t _pad{0};
+};
+static_assert(sizeof(TonemapUniforms) == 16, "TonemapUniforms must be 16 bytes");
+
+struct alignas(16) PrefilterComputeParams {
+    float roughness{0.0f};
+    uint32_t faceSize{64};
+    float sourceSize{64.0f};
+    uint32_t sampleCount{64};
+};
+static_assert(sizeof(PrefilterComputeParams) == 16, "PrefilterComputeParams must be 16 bytes");
+
 struct alignas(16) AabbUniforms {
     glm::mat4 viewProj{1.0f};
 };
@@ -94,7 +148,12 @@ static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 class PipelineManager {
 public:
     static constexpr uint32_t kShadowMapSize{2048};
-    static constexpr uint32_t kEnvCubemapSize{64};
+    static constexpr uint32_t kEnvCubemapSize{128};
+    static constexpr uint32_t kBrdfLutSize{128};
+    static constexpr uint32_t kClusterCountX{16};
+    static constexpr uint32_t kClusterCountY{8};
+    static constexpr uint32_t kClusterCountZ{8};
+    static constexpr uint32_t kTotalClusters{kClusterCountX * kClusterCountY * kClusterCountZ};
 
     PipelineManager() = default;
     ~PipelineManager();
@@ -106,7 +165,8 @@ public:
     void RebuildMaterialBindGroups(scene::Scene& scene);
 
     void RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex = nullptr);
-    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr);
+    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr, const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f}, uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+    void RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView);
     void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
     void BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
     void BatchQuadtreeBounds(const scene::Quadtree& quadtree);
@@ -114,6 +174,56 @@ public:
     void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
     void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);
     void FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj);
+
+    // Environment & IBL Management
+    void SetEnvironmentPreset(EnvironmentPreset preset, scene::Scene* activeScene = nullptr);
+    void CycleEnvironmentPreset(scene::Scene* activeScene = nullptr);
+    [[nodiscard]] EnvironmentPreset GetEnvironmentPreset() const noexcept { return currentEnvPreset_; }
+    [[nodiscard]] static constexpr std::string_view GetEnvironmentPresetName(EnvironmentPreset preset) noexcept {
+        switch (preset) {
+            case EnvironmentPreset::MediterraneanCourtyard: return "Mediterranean Courtyard";
+            case EnvironmentPreset::SunsetStudio:           return "Sunset Studio";
+            case EnvironmentPreset::OvercastAtelier:        return "Overcast Atelier";
+            case EnvironmentPreset::NightNeon:              return "Night Neon";
+            case EnvironmentPreset::CustomHdr:              return "Custom HDR/EXR";
+        }
+        return "Mediterranean Courtyard";
+    }
+    bool LoadCustomHdrEnvironment(const scene::DecodedHdrImage& hdrImage, scene::Scene* activeScene = nullptr);
+
+    void SetEnvironmentRotation(float radians) noexcept {
+        if (std::abs(envRotation_ - radians) > 1e-4f) {
+            envRotation_ = radians;
+            shadowMapDirty_ = true;
+        }
+    }
+    [[nodiscard]] float GetEnvironmentRotation() const noexcept { return envRotation_; }
+
+    [[nodiscard]] WGPUTextureView GetEnvironmentCubemapView() const noexcept { return envCubemapView_.Get(); }
+    [[nodiscard]] WGPUSampler GetDefaultSampler() const noexcept { return defaultSampler_.Get(); }
+    [[nodiscard]] const std::array<glm::vec4, 9>& GetSphericalHarmonics() const noexcept { return shIrradiance_; }
+
+    // Tonemapping & Exposure Controls
+    void SetToneMapOperator(ToneMapOperator op) noexcept { toneMapOperator_ = op; }
+    void CycleToneMapOperator() noexcept {
+        switch (toneMapOperator_) {
+            case ToneMapOperator::KhronosPbrNeutral: toneMapOperator_ = ToneMapOperator::AgX; break;
+            case ToneMapOperator::AgX:               toneMapOperator_ = ToneMapOperator::ACES; break;
+            case ToneMapOperator::ACES:              toneMapOperator_ = ToneMapOperator::KhronosPbrNeutral; break;
+        }
+    }
+    [[nodiscard]] ToneMapOperator GetToneMapOperator() const noexcept { return toneMapOperator_; }
+    [[nodiscard]] static constexpr std::string_view GetToneMapOperatorName(ToneMapOperator op) noexcept {
+        switch (op) {
+            case ToneMapOperator::KhronosPbrNeutral: return "Khronos PBR Neutral";
+            case ToneMapOperator::AgX:               return "AgX";
+            case ToneMapOperator::ACES:              return "ACES Filmic";
+        }
+        return "Khronos PBR Neutral";
+    }
+
+    void SetExposure(float exposure) noexcept { exposure_ = std::clamp(exposure, 0.05f, 16.0f); }
+    [[nodiscard]] float GetExposure() const noexcept { return exposure_; }
 
     // Feature Toggles (Bump Mapping, Mipmapping, Shadow Mapping, Environment Reflections)
     void SetBumpMappingEnabled(bool enabled) noexcept { bumpMappingEnabled_ = enabled; }
@@ -143,16 +253,37 @@ public:
 
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
     [[nodiscard]] size_t GetOccludedPrimitiveCount() const noexcept { return lastOccludedPrimitiveCount_; }
+    [[nodiscard]] uint32_t GetActivePunctualLightCount() const noexcept { return activePunctualLightCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
-    // Pure CPU helpers for Mipmap Generation, Shadow Matrices, and Cubemap Prefiltering (also used by unit tests)
+    // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also used by unit tests)
     [[nodiscard]] static uint32_t CalculateMipLevels(uint32_t width, uint32_t height) noexcept;
     [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
     [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
     [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds, const glm::vec3& lightDir) noexcept;
     [[nodiscard]] static std::vector<uint8_t> GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize, float roughness, const glm::vec3& sunDir);
+    [[nodiscard]] static std::vector<float> GenerateProceduralHdrCubemapFace(uint32_t faceIndex, uint32_t faceSize, EnvironmentPreset preset, const glm::vec3& sunDir);
+    [[nodiscard]] static std::vector<float> ConvertEquirectHdrToCubemapFace(const scene::DecodedHdrImage& hdrImg, uint32_t faceIndex, uint32_t faceSize);
+    [[nodiscard]] static std::array<glm::vec4, 9> ComputeSphericalHarmonicsL2(const std::array<std::vector<float>, 6>& cubemapFaces, uint32_t faceSize) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateSphericalHarmonicsL2(const std::array<glm::vec4, 9>& shCoeffs, const glm::vec3& normal) noexcept;
+    [[nodiscard]] static glm::vec3 ApplyToneMappingCPU(const glm::vec3& linearHdr, float exposure, ToneMapOperator op) noexcept;
+    static void BuildClusteredLightGrid(
+        std::span<const GpuPunctualLight> lights,
+        uint32_t lightCount,
+        const glm::mat4& viewMatrix,
+        const glm::mat4& projMatrix,
+        float zNear,
+        float zFar,
+        std::array<glm::uvec4, 256>& outClusterMasks
+    ) noexcept;
 
 private:
+    void InitializeComputeIBLPipelines();
+    void InitializeTonemapPipeline();
+    void DispatchBrdfLutCompute();
+    void BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces, uint32_t faceSize);
+    void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH, float zNear, float zFar);
+
     void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline);
     void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
     void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform);
@@ -165,59 +296,83 @@ private:
     bool occlusionCullingEnabled_{true};
     bool shadowMapDirty_{true};
 
+    ToneMapOperator toneMapOperator_{ToneMapOperator::KhronosPbrNeutral};
+    EnvironmentPreset currentEnvPreset_{EnvironmentPreset::MediterraneanCourtyard};
+    float exposure_{1.0f};
+    float envRotation_{0.0f};
+    uint32_t activePunctualLightCount_{0};
+
     uint32_t sampleCount_{4};
-    uint32_t envMipLevels_{7};
+    uint32_t envMipLevels_{8};
     size_t lastVisiblePrimitiveCount_{0};
     size_t lastOccludedPrimitiveCount_{0};
     const scene::Scene* lastShadowScene_{nullptr};
     glm::vec3 lastShadowLightDir_{0.0f};
     glm::mat4 currentLightViewProj_{1.0f};
     glm::vec3 currentLightDir_{0.35f, 1.0f, 0.25f};
+    std::array<glm::vec4, 9> shIrradiance_{};
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
+    WGPUTextureFormat hdrFormat_{WGPUTextureFormat_RGBA16Float};
 
-    WGPURenderPipeline opaquePipeline_{nullptr};
-    WGPURenderPipeline opaqueBackCulledPipeline_{nullptr};
-    WGPURenderPipeline wireframePipeline_{nullptr};
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
+    RenderPipelineHandle opaquePipeline_{};
+    RenderPipelineHandle opaqueBackCulledPipeline_{};
+    RenderPipelineHandle wireframePipeline_{};
+    BindGroupLayoutHandle bindGroupLayout_{};
 
     // Directional Shadow Mapping Resources
-    WGPURenderPipeline shadowPipeline_{nullptr};
-    WGPUBindGroupLayout shadowBindGroupLayout_{nullptr};
-    WGPUTexture shadowDepthTexture_{nullptr};
-    WGPUTextureView shadowDepthView_{nullptr};
-    WGPUSampler shadowSampler_{nullptr};
+    RenderPipelineHandle shadowPipeline_{};
+    BindGroupLayoutHandle shadowBindGroupLayout_{};
+    TextureHandle shadowDepthTexture_{};
+    TextureViewHandle shadowDepthView_{};
+    SamplerHandle shadowSampler_{};
 
-    // Pre-filtered Environment Cubemap Resources
-    WGPUTexture envCubemapTexture_{nullptr};
-    WGPUTextureView envCubemapView_{nullptr};
+    // True HDR IBL Resources (RGBA16Float Cubemap + Compute GGX Prefilter + Compute BRDF LUT + SceneLightingUniforms)
+    TextureHandle envCubemapTexture_{};
+    TextureViewHandle envCubemapView_{};
+    TextureHandle brdfLutTexture_{};
+    TextureViewHandle brdfLutView_{};
+    ComputePipelineHandle brdfLutComputePipeline_{};
+    BindGroupLayoutHandle brdfLutComputeBgl_{};
+    ComputePipelineHandle ggxPrefilterComputePipeline_{};
+    BindGroupLayoutHandle ggxPrefilterComputeBgl_{};
+    BufferHandle ggxPrefilterUniformBuffer_{};
+    BufferHandle sceneLightingBuffer_{};
+
+    // Fullscreen HDR Tonemapping Post-Process Resources
+    RenderPipelineHandle tonemapPipeline_{};
+    BindGroupLayoutHandle tonemapBindGroupLayout_{};
+    BufferHandle tonemapUniformBuffer_{};
+    SamplerHandle tonemapSampler_{};
+    WGPUTextureView cachedHdrResolveView_{nullptr};
+    BindGroupHandle tonemapBindGroup_{};
 
     // AABB Wireframe Resources
-    WGPURenderPipeline aabbPipeline_{nullptr};
-    WGPUBindGroupLayout aabbBindGroupLayout_{nullptr};
-    WGPUBuffer aabbVertexBuffer_{nullptr};
-    WGPUBuffer aabbUniformBuffer_{nullptr};
-    WGPUBindGroup aabbBindGroup_{nullptr};
+    RenderPipelineHandle aabbPipeline_{};
+    BindGroupLayoutHandle aabbBindGroupLayout_{};
+    BufferHandle aabbVertexBuffer_{};
+    BufferHandle aabbUniformBuffer_{};
+    BindGroupHandle aabbBindGroup_{};
     size_t aabbVertexBufferSize_{0};
     size_t aabbFrameByteOffset_{0};
     std::vector<AabbVertex> batchedAabbVertices_{};
     std::vector<AabbVertex> cachedSceneAabbVertices_{};
 
     // Default 1x1 Fallback Textures
-    WGPUTexture defaultWhiteTexture_{nullptr};
-    WGPUTextureView defaultWhiteTextureView_{nullptr};
+    TextureHandle defaultWhiteTexture_{};
+    TextureViewHandle defaultWhiteTextureView_{};
 
-    WGPUTexture defaultNormalTexture_{nullptr};
-    WGPUTextureView defaultNormalTextureView_{nullptr};
+    TextureHandle defaultNormalTexture_{};
+    TextureViewHandle defaultNormalTextureView_{};
 
-    WGPUTexture defaultBlackTexture_{nullptr};
-    WGPUTextureView defaultBlackTextureView_{nullptr};
+    TextureHandle defaultBlackTexture_{};
+    TextureViewHandle defaultBlackTextureView_{};
 
     // Samplers (Trilinear 16x Aniso vs Nearest Mip-0)
-    WGPUSampler defaultSampler_{nullptr};
-    WGPUSampler noMipSampler_{nullptr};
+    SamplerHandle defaultSampler_{};
+    SamplerHandle noMipSampler_{};
 };
 
 } // namespace bgl::gpu

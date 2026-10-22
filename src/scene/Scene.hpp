@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 #include <webgpu/webgpu.h>
 #include "core/Types.hpp"
+#include "scene/TextureDecoder.hpp"
 
 namespace bgl::scene {
 
@@ -28,6 +29,33 @@ struct CpuImage {
     uint32_t width{0};
     uint32_t height{0};
     std::vector<uint8_t> rgba{};
+    bool isCompressed{false};
+    KtxTranscodeTarget compressionFormat{KtxTranscodeTarget::Rgba32};
+    std::vector<DecodedMipLevel> mipLevels{};
+};
+
+/**
+ * @enum LightType
+ * @brief Punctual light source type from glTF 2.0 KHR_lights_punctual extension.
+ */
+enum class LightType : uint32_t {
+    Directional = 0,
+    Point       = 1,
+    Spot        = 2
+};
+
+/**
+ * @struct PunctualLight
+ * @brief Punctual light source definition (KHR_lights_punctual).
+ */
+struct PunctualLight {
+    std::string name{};
+    LightType type{LightType::Directional};
+    glm::vec3 color{1.0f, 0.98f, 0.95f};
+    float intensity{1.0f};          ///< Illuminance in lux (Directional) or luminous intensity in candela (Point/Spot)
+    float range{0.0f};              ///< Cutoff distance (>0) or 0 for infinite range
+    float innerConeAngle{0.0f};     ///< Spot light inner cone half-angle in radians
+    float outerConeAngle{0.785398f};///< Spot light outer cone half-angle in radians (default pi/4)
 };
 
 enum class AlphaMode : uint32_t {
@@ -124,6 +152,7 @@ public:
     glm::mat4 localTransform{1.0f};
     glm::mat4 worldTransform{1.0f};
     core::AABB worldAABB{};
+    int lightIndex{-1}; ///< Optional index into Scene::lights (KHR_lights_punctual)
     std::vector<MeshPrimitive> primitives{};
     std::vector<std::shared_ptr<SceneNode>> children{};
 
@@ -132,11 +161,12 @@ public:
 
 /**
  * @struct Scene
- * @brief Root scene representation containing node hierarchy and textures.
+ * @brief Root scene representation containing node hierarchy, materials, lights, and textures.
  */
 struct Scene {
     std::vector<std::shared_ptr<SceneNode>> rootNodes{};
     std::vector<Material> materials{};
+    std::vector<PunctualLight> lights{};
     std::vector<CpuImage> cpuImages{};
     std::vector<TextureGpuResource> gpuTextures{};
     core::AABB sceneAABB{};

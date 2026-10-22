@@ -5,8 +5,10 @@
 #include "app/Application.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
+#include <array>
 #include <filesystem>
 #include <algorithm>
+#include <ranges>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <SDL2/SDL.h>
@@ -86,19 +88,19 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
     // Resolve model asset path from config or auto-detect Sponza.glb (primary) / ToyCar.glb (fallback)
-    std::string assetPathToLoad = config.assetPath;
+    std::string assetPathToLoad{config.assetPath};
     if (assetPathToLoad.empty()) {
-        const std::vector<std::string> searchPaths = {
+        static constexpr std::array<std::string_view, 4> kSearchPaths{
             "assets/Sponza.glb",
             "../assets/Sponza.glb",
             "assets/ToyCar.glb",
             "../assets/ToyCar.glb"
         };
-        for (const auto& path : searchPaths) {
-            if (std::filesystem::exists(path)) {
-                assetPathToLoad = path;
-                break;
-            }
+        const auto it = std::ranges::find_if(kSearchPaths, [](std::string_view path) {
+            return std::filesystem::exists(path);
+        });
+        if (it != kSearchPaths.end()) {
+            assetPathToLoad = std::string{*it};
         }
     }
 
@@ -398,19 +400,22 @@ void Application::CacheSceneMetrics() {
     totalIndices_ = 0;
     if (!activeScene_) return;
 
-    auto countStats = [&](auto& self, const scene::SceneNode& node) -> void {
+    size_t& primCount{totalPrimitives_};
+    size_t& vertCount{totalVertices_};
+    size_t& idxCount{totalIndices_};
+    auto countStats = [&](this auto&& self, const scene::SceneNode& node) -> void {
         for (const auto& prim : node.primitives) {
-            totalPrimitives_++;
-            totalVertices_ += prim.vertices.size();
-            totalIndices_ += prim.indices.size();
+            primCount++;
+            vertCount += prim.vertices.size();
+            idxCount += prim.indices.size();
         }
         for (const auto& child : node.children) {
-            if (child) self(self, *child);
+            if (child) self(*child);
         }
     };
 
     for (const auto& rootNode : activeScene_->rootNodes) {
-        if (rootNode) countStats(countStats, *rootNode);
+        if (rootNode) countStats(*rootNode);
     }
     BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices",
                  currentModelName_, totalPrimitives_, totalVertices_, totalIndices_);

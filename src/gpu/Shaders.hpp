@@ -1,13 +1,320 @@
 /**
  * @file Shaders.hpp
- * @brief Embedded WGSL Full glTF 2.0 PBR, Shadow Mapping, Environment Cubemap Reflections,
- *        Bump/Normal Mapping, and Wireframe/Bounding-Box Shaders.
+ * @brief Embedded WGSL Shaders:
+ *        - Compute Split-Sum BRDF LUT (`kBrdfLutComputeWGSL`)
+ *        - Compute GGX Prefiltered Environment Cubemap (`kGgxPrefilterComputeWGSL`)
+ *        - Full glTF 2.0 PBR + Spherical Harmonics (SH) Irradiance + BRDF LUT + Clustered Forward+ `KHR_lights_punctual` (`kPbrShaderWGSL`)
+ *        - Fullscreen HDR Tonemapping Post-Processing (`kTonemapShaderWGSL`: Khronos PBR Neutral, AgX, ACES)
+ *        - Directional Shadow Mapping (`kShadowShaderWGSL`) & Wireframe/AABB Shaders
  */
 #pragma once
 
 #include <string_view>
 
 namespace bgl::gpu {
+
+/**
+ * @brief WebGPU Compute Shader for 2D Split-Sum BRDF Integration LUT (RGBA16Float, 128x128).
+ */
+inline constexpr std::string_view kBrdfLutComputeWGSL = R"(
+@group(0) @binding(0) var brdfLut : texture_storage_2d<rgba16float, write>;
+
+fn radicalInverseVdC(bitsIn : u32) -> f32 {
+    var bits = bitsIn;
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return f32(bits) * 2.3283064365386963e-10;
+}
+
+fn hammersley(i : u32, N : u32) -> vec2<f32> {
+    return vec2<f32>(f32(i) / f32(N), radicalInverseVdC(i));
+}
+
+fn importanceSampleGGX(Xi : vec2<f32>, roughness : f32) -> vec3<f32> {
+    let a = roughness * roughness;
+    let phi = 6.28318530718 * Xi.x;
+    let cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+    let sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+    return vec3<f32>(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
+fn geometrySchlickGGX_IBL(NdotV : f32, roughness : f32) -> f32 {
+    let a = roughness;
+    let k = (a * a) * 0.5;
+    return NdotV / max(NdotV * (1.0 - k) + k, 1e-4);
+}
+
+fn geometrySmith_IBL(NdotV : f32, NdotL : f32, roughness : f32) -> f32 {
+    return geometrySchlickGGX_IBL(NdotV, roughness) * geometrySchlickGGX_IBL(NdotL, roughness);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn cs_brdf_lut(@builtin(global_invocation_id) id : vec3<u32>) {
+    let dims = textureDimensions(brdfLut);
+    if (id.x >= dims.x || id.y >= dims.y) {
+        return;
+    }
+
+    let NdotV = max((f32(id.x) + 0.5) / f32(dims.x), 0.001);
+    let roughness = max((f32(id.y) + 0.5) / f32(dims.y), 0.001);
+
+    let V = vec3<f32>(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
+    var A = 0.0;
+    var B = 0.0;
+
+    let sampleCount : u32 = 128u;
+    for (var i : u32 = 0u; i < sampleCount; i = i + 1u) {
+        let Xi = hammersley(i, sampleCount);
+        let H = importanceSampleGGX(Xi, roughness);
+        let L = normalize(2.0 * dot(V, H) * H - V);
+
+        let NdotL = max(L.z, 0.0);
+        let NdotH = max(H.z, 0.0);
+        let VdotH = max(dot(V, H), 0.0);
+
+        if (NdotL > 0.0) {
+            let G = geometrySmith_IBL(NdotV, NdotL, roughness);
+            let G_Vis = (G * VdotH) / max(NdotH * NdotV, 1e-4);
+            let Fc = pow(1.0 - VdotH, 5.0);
+
+            A = A + (1.0 - Fc) * G_Vis;
+            B = B + Fc * G_Vis;
+        }
+    }
+
+    A = A / f32(sampleCount);
+    B = B / f32(sampleCount);
+
+    textureStore(brdfLut, vec2<i32>(i32(id.x), i32(id.y)), vec4<f32>(A, B, 0.0, 1.0));
+}
+)";
+
+/**
+ * @brief WebGPU Compute Shader for GGX Importance-Sampled Environment Cubemap Prefiltering.
+ */
+inline constexpr std::string_view kGgxPrefilterComputeWGSL = R"(
+struct PrefilterParams {
+    roughness : f32,
+    faceSize : u32,
+    sourceSize : f32,
+    sampleCount : u32,
+};
+
+@group(0) @binding(0) var<uniform> params : PrefilterParams;
+@group(0) @binding(1) var envSampler : sampler;
+@group(0) @binding(2) var srcCubemap : texture_cube<f32>;
+@group(0) @binding(3) var dstMipFaces : texture_storage_2d_array<rgba16float, write>;
+
+fn radicalInverseVdC(bitsIn : u32) -> f32 {
+    var bits = bitsIn;
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return f32(bits) * 2.3283064365386963e-10;
+}
+
+fn hammersley(i : u32, N : u32) -> vec2<f32> {
+    return vec2<f32>(f32(i) / f32(N), radicalInverseVdC(i));
+}
+
+fn cubeFaceDir(face : u32, u : f32, v : f32) -> vec3<f32> {
+    switch (face) {
+        case 0u: { return normalize(vec3<f32>( 1.0,   -v,   -u)); }
+        case 1u: { return normalize(vec3<f32>(-1.0,   -v,    u)); }
+        case 2u: { return normalize(vec3<f32>(   u,  1.0,    v)); }
+        case 3u: { return normalize(vec3<f32>(   u, -1.0,   -v)); }
+        case 4u: { return normalize(vec3<f32>(   u,   -v,  1.0)); }
+        default: { return normalize(vec3<f32>(  -u,   -v, -1.0)); }
+    }
+}
+
+fn distributionGGX_Prefilter(NdotH : f32, roughness : f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let d = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    return a2 / max(3.14159265359 * d * d, 1e-6);
+}
+
+fn importanceSampleGGX_World(Xi : vec2<f32>, N : vec3<f32>, roughness : f32) -> vec3<f32> {
+    let a = roughness * roughness;
+    let phi = 6.28318530718 * Xi.x;
+    let cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+    let sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+
+    let H_tan = vec3<f32>(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(N.z) < 0.999);
+    let T = normalize(cross(up, N));
+    let B = cross(N, T);
+    return normalize(T * H_tan.x + B * H_tan.y + N * H_tan.z);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn cs_ggx_prefilter(@builtin(global_invocation_id) id : vec3<u32>) {
+    if (id.x >= params.faceSize || id.y >= params.faceSize || id.z >= 6u) {
+        return;
+    }
+
+    let u = ((f32(id.x) + 0.5) / f32(params.faceSize)) * 2.0 - 1.0;
+    let v = ((f32(id.y) + 0.5) / f32(params.faceSize)) * 2.0 - 1.0;
+    let N = cubeFaceDir(id.z, u, v);
+    let R = N;
+    let V = R;
+
+    var prefilteredColor = vec3<f32>(0.0);
+    var totalWeight = 0.0;
+
+    let sampleCount = max(params.sampleCount, 16u);
+    for (var i : u32 = 0u; i < sampleCount; i = i + 1u) {
+        let Xi = hammersley(i, sampleCount);
+        let H = importanceSampleGGX_World(Xi, N, params.roughness);
+        let L = normalize(2.0 * dot(V, H) * H - V);
+
+        let NdotL = max(dot(N, L), 0.0);
+        if (NdotL > 0.0) {
+            let sampleCol = min(textureSampleLevel(srcCubemap, envSampler, L, 0.0).rgb, vec3<f32>(64.0));
+            prefilteredColor = prefilteredColor + sampleCol * NdotL;
+            totalWeight = totalWeight + NdotL;
+        }
+    }
+
+    prefilteredColor = prefilteredColor / max(totalWeight, 1e-4);
+    textureStore(dstMipFaces, vec2<i32>(i32(id.x), i32(id.y)), i32(id.z), vec4<f32>(prefilteredColor, 1.0));
+}
+)";
+
+/**
+ * @brief Fullscreen HDR Tonemapping Post-Processing WGSL Shader.
+ *        Supports Khronos PBR Neutral (0), AgX (1), and ACES Filmic (2) with Exposure control and sRGB conversion.
+ */
+inline constexpr std::string_view kTonemapShaderWGSL = R"(
+struct TonemapUniforms {
+    exposure : f32,
+    operatorId : u32,
+    isSrgbSurface : u32,
+    _pad : u32,
+};
+
+@group(0) @binding(0) var<uniform> ubo : TonemapUniforms;
+@group(0) @binding(1) var hdrSampler : sampler;
+@group(0) @binding(2) var hdrTexture : texture_2d<f32>;
+
+struct VertexOutput {
+    @builtin(position) clipPos : vec4<f32>,
+    @location(0) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_tonemap(@builtin(vertex_index) vIdx : u32) -> VertexOutput {
+    var out : VertexOutput;
+    let x = f32(i32(vIdx << 1u) & 2) * 2.0 - 1.0;
+    let y = f32(i32(vIdx & 2u)) * 2.0 - 1.0;
+    out.clipPos = vec4<f32>(x, y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, 0.5 - y * 0.5);
+    return out;
+}
+
+// 0: Khronos PBR Neutral Tonemapper (Official Khronos specification)
+fn tonemapKhronosPbrNeutral(colorIn : vec3<f32>) -> vec3<f32> {
+    var color = max(colorIn, vec3<f32>(0.0));
+    let startCompression : f32 = 0.8 - 0.04;
+    let desaturation : f32 = 0.15;
+
+    let x = min(color.r, min(color.g, color.b));
+    let offset = select(0.04, x - 6.25 * x * x, x < 0.08);
+    color = color - vec3<f32>(offset);
+
+    let peak = max(color.r, max(color.g, color.b));
+    if (peak < startCompression) {
+        return color;
+    }
+
+    let d = 1.0 - startCompression;
+    let newPeak = 1.0 - d * d / (peak + d - startCompression);
+    color = color * (newPeak / max(peak, 1e-6));
+
+    let g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return mix(color, vec3<f32>(newPeak), g);
+}
+
+// 1: AgX Tonemapper (Troy Sobotka / Blender 4.0)
+fn agxDefaultContrastApprox(x : vec3<f32>) -> vec3<f32> {
+    let x2 = x * x;
+    let x4 = x2 * x2;
+    return 15.5 * x4 * x2
+         - 40.14 * x4 * x
+         + 31.96 * x4
+         - 6.868 * x2 * x
+         + 0.4298 * x2
+         + 0.1191 * x
+         - 0.00232;
+}
+
+fn tonemapAgX(colorIn : vec3<f32>) -> vec3<f32> {
+    let agxMat = mat3x3<f32>(
+        vec3<f32>(0.842479062253094,  0.0423282422610123, 0.0423756549057051),
+        vec3<f32>(0.0784335999999992, 0.878468636469772,  0.0784336),
+        vec3<f32>(0.0792237451477643, 0.0791661274605434, 0.879142973793104)
+    );
+    let agxMatInv = mat3x3<f32>(
+        vec3<f32>( 1.19687900512017,   -0.0528968517574562, -0.0529716355144438),
+        vec3<f32>(-0.0980208811401368,  1.15190312990417,   -0.0980434501171241),
+        vec3<f32>(-0.0990297440797205, -0.0989611768448433,  1.15107367264116)
+    );
+
+    let minEv : f32 = -12.47393;
+    let maxEv : f32 = 4.026069;
+
+    var val = agxMat * max(colorIn, vec3<f32>(1e-10));
+    val = clamp(log2(val), vec3<f32>(minEv), vec3<f32>(maxEv));
+    val = (val - vec3<f32>(minEv)) / (maxEv - minEv);
+    val = agxDefaultContrastApprox(val);
+    val = agxMatInv * val;
+    return clamp(pow(max(val, vec3<f32>(0.0)), vec3<f32>(2.2)), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// 2: ACES Filmic Tonemapper (Stephen Hill RRT+ODT fit)
+fn tonemapACES(colorIn : vec3<f32>) -> vec3<f32> {
+    let x = max(colorIn, vec3<f32>(0.0));
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn linearToSrgb(linearCol : vec3<f32>) -> vec3<f32> {
+    let c = clamp(linearCol, vec3<f32>(0.0), vec3<f32>(1.0));
+    let lo = c * 12.92;
+    let hi = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(hi, lo, c <= vec3<f32>(0.0031308));
+}
+
+@fragment
+fn fs_tonemap(in : VertexOutput) -> @location(0) vec4<f32> {
+    let hdrSample = textureSample(hdrTexture, hdrSampler, in.uv);
+    let exposed = hdrSample.rgb * ubo.exposure;
+
+    var mapped = exposed;
+    if (ubo.operatorId == 0u) {
+        mapped = tonemapKhronosPbrNeutral(exposed);
+    } else if (ubo.operatorId == 1u) {
+        mapped = tonemapAgX(exposed);
+    } else {
+        mapped = tonemapACES(exposed);
+    }
+
+    if (ubo.isSrgbSurface == 0u) {
+        mapped = linearToSrgb(mapped);
+    }
+    return vec4<f32>(mapped, 1.0);
+}
+)";
 
 /**
  * @brief Depth-only directional Shadow Map WGSL shader.
@@ -60,7 +367,9 @@ fn vs_shadow(in : VertexInput) -> @builtin(position) vec4<f32> {
 /**
  * @brief Complete WGSL PBR (Physically Based Rendering) shader code supporting all glTF 2.0
  * and KHR extensions (Clearcoat, Transmission, Sheen, Specular, Emissive Strength, Normal,
- * Derivative Bump Mapping, Trilinear Mipmapping, PCF Shadow Mapping, and Cubemap Environment Reflections).
+ * Derivative Bump Mapping, Trilinear Mipmapping, PCF Shadow Mapping, True HDR IBL with
+ * L2 Spherical Harmonics Irradiance + GGX Prefiltered Cubemap + Split-Sum BRDF LUT, and
+ * Clustered Forward+ KHR_lights_punctual).
  */
 inline constexpr std::string_view kPbrShaderWGSL = R"(
 struct Uniforms {
@@ -91,6 +400,22 @@ struct Uniforms {
     envMipCount : f32,
 };
 
+struct GpuPunctualLight {
+    posOrDir : vec4<f32>,  // xyz = position (Point/Spot) or directionToLight (Directional), w = lightType (0=Dir, 1=Point, 2=Spot)
+    colorInt : vec4<f32>,  // xyz = color * intensity, w = range (0 = infinite)
+    spotParams : vec4<f32> // xyz = spotDirection (light-to-target), w = packed angleScale / angleOffset
+};
+
+struct SceneLightingUniforms {
+    shIrradiance : array<vec4<f32>, 9>,
+    lights : array<GpuPunctualLight, 16>,
+    spotAngles : array<vec4<f32>, 16>, // x = lightAngleScale, y = lightAngleOffset, z = castsShadow, w = pad
+    clusterMasks : array<vec4<u32>, 256>, // 1024 u32 bitmasks for 16 x 8 x 8 Forward+ frustum clusters
+    gridParams : vec4<f32>, // x = viewportW, y = viewportH, z = zNear, w = zFar
+    envParams : vec4<f32>,  // x = envRotation (rad), y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
+    viewMatrix : mat4x4<f32>,
+};
+
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
 @group(0) @binding(1) var defaultSampler : sampler;
 @group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
@@ -104,6 +429,8 @@ struct Uniforms {
 @group(0) @binding(10) var envCubemap : texture_cube<f32>;
 @group(0) @binding(11) var shadowMap : texture_depth_2d;
 @group(0) @binding(12) var shadowSampler : sampler_comparison;
+@group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
+@group(0) @binding(14) var<uniform> sceneLighting : SceneLightingUniforms;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
@@ -120,6 +447,53 @@ struct VertexOutput {
     @location(3) uv : vec2<f32>,
 };
 
+fn rotateY(v : vec3<f32>, angle : f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return vec3<f32>(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+}
+
+fn evaluateSHIrradiance(n : vec3<f32>) -> vec3<f32> {
+    // Ramamoorthi & Hanrahan L2 Spherical Harmonics irradiance reconstruction
+    var irr = sceneLighting.shIrradiance[0].xyz * 0.886227
+            + sceneLighting.shIrradiance[1].xyz * (1.023327 * n.y)
+            + sceneLighting.shIrradiance[2].xyz * (1.023327 * n.z)
+            + sceneLighting.shIrradiance[3].xyz * (1.023327 * n.x)
+            + sceneLighting.shIrradiance[4].xyz * (0.858086 * n.x * n.y)
+            + sceneLighting.shIrradiance[5].xyz * (0.858086 * n.y * n.z)
+            + sceneLighting.shIrradiance[6].xyz * (0.247708 * (3.0 * n.z * n.z - 1.0))
+            + sceneLighting.shIrradiance[7].xyz * (0.858086 * n.x * n.z)
+            + sceneLighting.shIrradiance[8].xyz * (0.429043 * (n.x * n.x - n.y * n.y));
+    return max(irr, vec3<f32>(0.0));
+}
+
+fn getClusterLightMask(fragCoord : vec4<f32>, worldPos : vec3<f32>) -> u32 {
+    if (sceneLighting.envParams.z < 0.5) {
+        return 0xFFFFFFFFu;
+    }
+    let vpW = max(sceneLighting.gridParams.x, 1.0);
+    let vpH = max(sceneLighting.gridParams.y, 1.0);
+    let zNear = max(sceneLighting.gridParams.z, 0.05);
+    let zFar = max(sceneLighting.gridParams.w, zNear + 1.0);
+
+    let tileX = clamp(u32((fragCoord.x / vpW) * 16.0), 0u, 15u);
+    let tileY = clamp(u32((fragCoord.y / vpH) * 8.0), 0u, 7u);
+
+    let viewPos = sceneLighting.viewMatrix * vec4<f32>(worldPos, 1.0);
+    let viewZ = max(-viewPos.z, zNear);
+    let logRatio = log(viewZ / zNear) / max(log(zFar / zNear), 1e-4);
+    let sliceZ = clamp(u32(clamp(logRatio, 0.0, 0.9999) * 8.0), 0u, 7u);
+
+    let clusterIdx = (sliceZ * 8u + tileY) * 16u + tileX;
+    let vecIdx = clusterIdx >> 2u;
+    let compIdx = clusterIdx & 3u;
+    let maskVec = sceneLighting.clusterMasks[vecIdx];
+    if (compIdx == 0u) { return maskVec.x; }
+    if (compIdx == 1u) { return maskVec.y; }
+    if (compIdx == 2u) { return maskVec.z; }
+    return maskVec.w;
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -127,7 +501,6 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     out.worldPos = world.xyz;
     out.clipPos = ubo.viewProj * world;
 
-    // Transform normal by transpose(inverse(mat3x3(ubo.model))) via cofactor/adjugate vectors
     let m0 = ubo.model[0].xyz;
     let m1 = ubo.model[1].xyz;
     let m2 = ubo.model[2].xyz;
@@ -152,7 +525,6 @@ fn vs_main(in : VertexInput) -> VertexOutput {
 
 fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>, dp1 : vec3<f32>, dp2 : vec3<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> mat3x3<f32> {
     let N = normalize(geomNormal);
-    // Gram-Schmidt orthogonalize vertex tangent against geometric normal
     let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
     let orthoLenSq = dot(orthoT, orthoT);
     if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-6) {
@@ -160,7 +532,6 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent 
         let B = normalize(cross(N, T) * sign(tangent.w));
         return mat3x3<f32>(T, B, N);
     }
-    // Screen-space cotangent frame fallback (scale-invariant normalization)
     let dp2perp = cross(dp2, N);
     let dp1perp = cross(N, dp1);
     let T = dp2perp * duv1.x + dp1perp * duv2.x;
@@ -195,13 +566,8 @@ fn fresnelSchlick(VdotH : f32, F0 : vec3<f32>) -> vec3<f32> {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
 }
 
-fn envBRDFApprox(F0 : vec3<f32>, roughness : f32, NdotV : f32) -> vec3<f32> {
-    let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
-    let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
-    let r = roughness * c0 + c1;
-    let a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
-    let AB = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
-    return F0 * AB.x + vec3<f32>(AB.y);
+fn fresnelSchlickRoughness(cosTheta : f32, F0 : vec3<f32>, roughness : f32) -> vec3<f32> {
+    return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
@@ -228,15 +594,67 @@ fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
     }
     shadow = shadow / 9.0;
 
-    // Smooth fade near shadow frustum boundary
     let edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     let borderFade = smoothstep(0.0, 0.04, edgeDist);
     return mix(1.0, shadow, borderFade);
 }
 
+fn evaluateDirectLobe(
+    L : vec3<f32>,
+    V : vec3<f32>,
+    N : vec3<f32>,
+    radiance : vec3<f32>,
+    F0 : vec3<f32>,
+    diffuseColor : vec3<f32>,
+    roughness : f32,
+    metallic : f32,
+    transFactor : f32,
+    ccFactor : f32,
+    ccRoughness : f32,
+    sheenColor : vec3<f32>,
+    sheenRoughness : f32,
+    bumpCavity : f32
+) -> vec3<f32> {
+    let NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let NdotV = max(dot(N, V), 0.001);
+    let H = normalize(L + V);
+    let NdotH = max(dot(N, H), 0.0);
+    let VdotH = max(dot(V, H), 0.0);
+
+    let D = distributionGGX(NdotH, roughness);
+    let Vis = visibilitySmithGGX(NdotL, NdotV, roughness);
+    let F = fresnelSchlick(VdotH, F0);
+    let specularBRDF = D * Vis * F;
+
+    let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
+    let diffuseBRDF = kD * (diffuseColor / 3.14159265359) * (1.0 - transFactor);
+
+    var contrib = (diffuseBRDF + specularBRDF) * radiance * NdotL * bumpCavity;
+
+    if (ccFactor > 0.001) {
+        let Dcc = distributionGGX(NdotH, ccRoughness);
+        let VisCc = visibilitySmithGGX(NdotL, NdotV, ccRoughness);
+        let clearcoatF = fresnelSchlick(VdotH, vec3<f32>(0.04));
+        let clearcoatLobe = vec3<f32>(Dcc * VisCc) * clearcoatF * ccFactor;
+        contrib = contrib * (1.0 - clearcoatF * ccFactor) + clearcoatLobe * radiance * NdotL;
+    }
+
+    if (length(sheenColor) > 0.001) {
+        let invAlpha = 1.0 / sheenRoughness;
+        let sin2 = max(1.0 - NdotH * NdotH, 0.0);
+        let Dcharlie = (2.0 + invAlpha) / (2.0 * 3.14159265359) * pow(sin2, invAlpha * 0.5);
+        let sheenLobe = sheenColor * Dcharlie / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 0.001);
+        contrib = contrib + sheenLobe * radiance * NdotL;
+    }
+
+    return contrib;
+}
+
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
-    // Pre-sample textures and screen-space derivatives in uniform control flow (before discard)
     let dp1 = dpdx(in.worldPos);
     let dp2 = dpdy(in.worldPos);
     let duv1 = dpdx(in.uv);
@@ -251,7 +669,6 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let transTexSample = textureSample(transmissionTexture, defaultSampler, in.uv);
     let sheenTexSample = textureSample(sheenTexture, defaultSampler, in.uv);
 
-    // Compute UV-space central-difference height gradients for true texture-space bump mapping
     let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
     let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
     let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
@@ -272,23 +689,19 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         dHdV = dHdV + (occU - occD) * 0.75;
     }
 
-    // 1. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags & 1u) != 0u) {
         baseColor = baseColor * baseTexSample;
     }
 
-    // Alpha Cutoff (AlphaMode::Mask == 1u)
     if (ubo.alphaMode == 1u && baseColor.a < ubo.alphaCutoff) {
         discard;
     }
 
-    // KHR_materials_unlit
     if ((ubo.flags & 256u) != 0u) {
         return baseColor;
     }
 
-    // 2. Normal & Bump Mapping Calculation
     var geomN = normalize(in.normal);
     let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
     if ((ubo.flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
@@ -297,24 +710,20 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     var N = geomN;
     var bumpCavity = 1.0;
-    // Flag bit 10 (1024u) = EnableBumpMapping
     if ((ubo.flags & 1024u) != 0u) {
         let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
         var tangentXY = vec2<f32>(0.0, 0.0);
         var tangentZ = 1.0;
         if ((ubo.flags & 4u) != 0u) {
-            // Pure glTF 2.0 tangent-space normal mapping (no artificial baseColor derivative bleed)
             let normTex = normTexSample.xyz * 2.0 - 1.0;
             tangentXY = normTex.xy * (ubo.normalScale * ubo.bumpScale);
             tangentZ = max(normTex.z, 0.15);
         } else if ((ubo.flags & 16u) != 0u) {
-            // Separate height/cavity relief slot when occlusion/height map is present without a normal map
             tangentXY = vec2<f32>(-dHdU, -dHdV) * 2.0 * ubo.bumpScale;
             tangentZ = 1.0;
         }
         let scaledNorm = normalize(vec3<f32>(tangentXY, tangentZ));
         N = normalize(tbn * scaledNorm);
-        // Ensure perturbed normal stays in visible hemisphere to prevent black artifacts
         if (dot(N, geomN) < 0.05) {
             N = normalize(mix(geomN, N, 0.65));
         }
@@ -322,7 +731,6 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         bumpCavity = clamp(1.0 - 0.15 * slopeSq, 0.65, 1.0);
     }
 
-    // 3. Metallic & Roughness
     var roughness = ubo.roughnessFactor;
     var metallic = ubo.metallicFactor;
     if ((ubo.flags & 2u) != 0u) {
@@ -332,33 +740,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     roughness = clamp(roughness, 0.04, 1.0);
     metallic = clamp(metallic, 0.0, 1.0);
 
-    // 4. Specular & Dielectric F0
     let ior = max(ubo.ior, 1.0);
     let f0_dielectric = pow((ior - 1.0) / (ior + 1.0), 2.0);
     let specularColor = ubo.specularFactor * ubo.specularColorFactor.rgb;
     let F0 = mix(vec3<f32>(f0_dielectric) * specularColor, baseColor.rgb, metallic);
     let diffuseColor = baseColor.rgb * (1.0 - metallic);
 
-    // 5. Lighting vectors
-    let V = viewDir;
-    let L = normalize(ubo.lightDir.xyz);
-    let H = normalize(L + V);
-
-    let NdotL = max(dot(N, L), 0.0);
-    let NdotV = max(dot(N, V), 0.001);
-    let NdotH = max(dot(N, H), 0.0);
-    let VdotH = max(dot(V, H), 0.0);
-
-    // 6. Cook-Torrance BRDF
-    let D = distributionGGX(NdotH, roughness);
-    let Vis = visibilitySmithGGX(NdotL, NdotV, roughness);
-    let F = fresnelSchlick(VdotH, F0);
-    let specularBRDF = D * Vis * F;
-
-    let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
-    let diffuseBRDF = kD * (diffuseColor / 3.14159265359);
-
-    // 7. Clearcoat (KHR_materials_clearcoat)
     var ccFactor = ubo.clearcoatFactor;
     var ccRoughness = ubo.clearcoatRoughness;
     if ((ubo.flags & 32u) != 0u) {
@@ -367,37 +754,18 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     ccRoughness = clamp(ccRoughness, 0.04, 1.0);
 
-    var clearcoatLobe = vec3<f32>(0.0);
-    var clearcoatF = vec3<f32>(0.0);
-    if (ccFactor > 0.001) {
-        let Dcc = distributionGGX(NdotH, ccRoughness);
-        let VisCc = visibilitySmithGGX(NdotL, NdotV, ccRoughness);
-        clearcoatF = fresnelSchlick(VdotH, vec3<f32>(0.04));
-        clearcoatLobe = vec3<f32>(Dcc * VisCc) * clearcoatF * ccFactor;
-    }
-
-    // 8. Sheen (KHR_materials_sheen)
     var sheenColor = ubo.sheenColorFactor.rgb;
     let sheenRoughness = clamp(ubo.sheenColorFactor.w, 0.04, 1.0);
     if ((ubo.flags & 128u) != 0u) {
         sheenColor = sheenColor * sheenTexSample.rgb;
     }
-    var sheenLobe = vec3<f32>(0.0);
-    if (length(sheenColor) > 0.001) {
-        let invAlpha = 1.0 / sheenRoughness;
-        let sin2 = max(1.0 - NdotH * NdotH, 0.0);
-        let Dcharlie = (2.0 + invAlpha) / (2.0 * 3.14159265359) * pow(sin2, invAlpha * 0.5);
-        sheenLobe = sheenColor * Dcharlie / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 0.001);
-    }
 
-    // 9. Transmission (KHR_materials_transmission)
     var transmission = ubo.transmissionFactor;
     if ((ubo.flags & 64u) != 0u) {
         transmission = transmission * transTexSample.r;
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
-    // 10. Ambient Occlusion & Micro-Cavity Self-Shadowing
     var ao = 1.0;
     if ((ubo.flags & 16u) != 0u) {
         let occSample = occTexSample.r;
@@ -405,74 +773,124 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     ao = clamp(ao * bumpCavity, 0.0, 1.0);
 
-    // 11. Emissive (KHR_materials_emissive_strength)
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
     if ((ubo.flags & 8u) != 0u) {
         emissive = emissive * emTexSample.rgb;
     }
 
-    // 12. Directional Shadow Mapping (Flag bit 12 = 4096u = EnableShadows)
+    let V = viewDir;
+    let NdotV = max(dot(N, V), 0.001);
+    let envRot = sceneLighting.envParams.x;
+
+    // 1. Primary Sun Light (Rotated with Environment) + Shadow Map
+    let sunL = rotateY(normalize(ubo.lightDir.xyz), -envRot);
     var shadowFactor = 1.0;
     if ((ubo.flags & 4096u) != 0u) {
-        shadowFactor = computePCFShadow(in.worldPos, geomN, L);
+        shadowFactor = computePCFShadow(in.worldPos, geomN, sunL);
     }
 
-    // 13. Direct Sun Lighting + Architectural Courtyard Fill Light (reveals bump/normal relief in shadowed areas)
-    let lightColor = vec3<f32>(1.0, 0.98, 0.95);
-    let directDiffuse = diffuseBRDF * (1.0 - transFactor);
-    var directLighting = (directDiffuse + specularBRDF) * lightColor * NdotL * 3.14159265359 * bumpCavity;
-
-    if (ccFactor > 0.001) {
-        directLighting = directLighting * (1.0 - clearcoatF * ccFactor) + clearcoatLobe * lightColor * NdotL * 3.14159265359;
+    var directLighting = vec3<f32>(0.0);
+    if (sceneLighting.envParams.w > 0.5) {
+        let sunRadiance = vec3<f32>(1.0, 0.98, 0.95) * 3.14159265359;
+        directLighting = evaluateDirectLobe(
+            sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
+            transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, bumpCavity
+        ) * shadowFactor;
     }
-    directLighting = (directLighting + sheenLobe * lightColor * NdotL) * shadowFactor;
 
-    // Courtyard Sky & View Fill Light (active in shadowed arcades so normal/bump relief remains crisp)
-    let L_fill = normalize(V * 0.55 + vec3<f32>(0.25, 0.85, 0.20));
-    let H_fill = normalize(L_fill + V);
-    let NdotL_fill = max(dot(N, L_fill), 0.0);
-    let NdotH_fill = max(dot(N, H_fill), 0.0);
-    let VdotH_fill = max(dot(V, H_fill), 0.0);
-    let D_fill = distributionGGX(NdotH_fill, max(roughness * 0.85, 0.08));
-    let Vis_fill = visibilitySmithGGX(NdotL_fill, NdotV, max(roughness * 0.85, 0.08));
-    let F_fill = fresnelSchlick(VdotH_fill, F0);
-    let fillSpec = D_fill * Vis_fill * F_fill;
-    let fillDiff = (vec3<f32>(1.0) - F_fill) * (1.0 - metallic) * (diffuseColor / 3.14159265359) * (1.0 - transFactor);
-    let fillLightColor = vec3<f32>(0.62, 0.70, 0.82);
-    let fillLighting = (fillDiff * 0.85 + fillSpec * 1.35) * fillLightColor * NdotL_fill * 3.14159265359 * ao;
+    // 2. KHR_lights_punctual Evaluated via Clustered Forward+ Frustum Culling
+    let punctualCount = min(u32(sceneLighting.envParams.y), 16u);
+    if (punctualCount > 0u) {
+        let clusterMask = getClusterLightMask(in.clipPos, in.worldPos);
+        for (var li : u32 = 0u; li < punctualCount; li = li + 1u) {
+            let light = sceneLighting.lights[li];
+            let lightType = u32(light.posOrDir.w + 0.5);
 
-    // 14. Environment Cubemap Reflections & IBL (Flag bit 13 = 8192u = EnableReflections)
-    let skyColor = vec3<f32>(0.38, 0.48, 0.62);
-    let groundColor = vec3<f32>(0.26, 0.22, 0.18);
-    let hemiFactor = N.y * 0.5 + 0.5;
-    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 0.95;
+            var L_p = vec3<f32>(0.0, 1.0, 0.0);
+            var attenuation = 1.0;
 
-    var ambientDiffuse = diffuseColor * ambientLight * ao * (1.0 - transFactor);
+            if (lightType == 0u) {
+                // Directional light (always active across all clusters)
+                L_p = normalize(light.posOrDir.xyz);
+            } else {
+                // Point or Spot light: check Forward+ 3D cluster mask first
+                if ((clusterMask & (1u << li)) == 0u) {
+                    continue;
+                }
+                let toLight = light.posOrDir.xyz - in.worldPos;
+                let distSq = dot(toLight, toLight);
+                let dist = sqrt(max(distSq, 1e-6));
+                L_p = toLight / dist;
+
+                let range = light.colorInt.w;
+                var rangeAtten = 1.0 / max(distSq, 0.01 * 0.01);
+                if (range > 0.0) {
+                    let ratio = dist / range;
+                    let ratio4 = ratio * ratio * ratio * ratio;
+                    let window = clamp(1.0 - ratio4, 0.0, 1.0);
+                    rangeAtten = rangeAtten * (window * window);
+                }
+                attenuation = rangeAtten;
+
+                if (lightType == 2u) {
+                    // Spot light angular falloff (KHR_lights_punctual spec)
+                    let spotDir = normalize(light.spotParams.xyz);
+                    let cd = dot(spotDir, -L_p);
+                    let angleScale = sceneLighting.spotAngles[li].x;
+                    let angleOffset = sceneLighting.spotAngles[li].y;
+                    let angularAtten = clamp(cd * angleScale + angleOffset, 0.0, 1.0);
+                    attenuation = attenuation * (angularAtten * angularAtten);
+                }
+            }
+
+            if (attenuation > 1e-5) {
+                let lightRadiance = light.colorInt.xyz * attenuation;
+                var pShadow = 1.0;
+                if (lightType == 0u && sceneLighting.spotAngles[li].z > 0.5) {
+                    pShadow = shadowFactor;
+                }
+                directLighting = directLighting + evaluateDirectLobe(
+                    L_p, V, N, lightRadiance, F0, diffuseColor, roughness, metallic,
+                    transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, bumpCavity
+                ) * pShadow;
+            }
+        }
+    }
+
+    // 3. True HDR Image-Based Lighting (IBL):
+    //    - Diffuse Irradiance via L2 Spherical Harmonics (9 coefficients)
+    //    - Specular IBL via Compute GGX Prefiltered Cubemap + Split-Sum 2D BRDF LUT
+    let rotN = rotateY(N, envRot);
+    let R = rotateY(reflect(-V, N), envRot);
+
+    let shIrradiance = evaluateSHIrradiance(rotN);
+    let brdfSample = textureSampleLevel(brdfLutTexture, defaultSampler, vec2<f32>(NdotV, roughness), 0.0).rg;
+    let F_ibl = fresnelSchlickRoughness(NdotV, F0, roughness);
+    let kD_ibl = (vec3<f32>(1.0) - F_ibl) * (1.0 - metallic);
+
+    var ambientDiffuse = kD_ibl * diffuseColor * shIrradiance * ao * (1.0 - transFactor);
     var ambientSpecular = vec3<f32>(0.0);
 
     if ((ubo.flags & 8192u) != 0u) {
         let maxMip = max(ubo.envMipCount - 1.0, 0.0);
-        let R = reflect(-V, N);
         let specMip = clamp(roughness * maxMip, 0.0, maxMip);
         let prefilteredEnv = textureSampleLevel(envCubemap, defaultSampler, R, specMip).rgb;
-        let envIrradiance = textureSampleLevel(envCubemap, defaultSampler, N, maxMip).rgb;
-        let envBrdf = envBRDFApprox(F0, roughness, NdotV);
-
-        ambientDiffuse = diffuseColor * mix(ambientLight, envIrradiance * 1.15, 0.55) * ao * (1.0 - transFactor);
-        ambientSpecular = prefilteredEnv * envBrdf * ubo.reflectionIntensity * mix(0.35, 1.0, ao);
+        let specBrdf = F_ibl * brdfSample.x + vec3<f32>(brdfSample.y);
+        ambientSpecular = prefilteredEnv * specBrdf * ubo.reflectionIntensity * mix(0.35, 1.0, ao);
 
         if (ccFactor > 0.001) {
-            let R_cc = reflect(-V, geomN);
+            let R_cc = rotateY(reflect(-V, geomN), envRot);
             let ccMip = clamp(ccRoughness * maxMip, 0.0, maxMip);
             let ccEnv = textureSampleLevel(envCubemap, defaultSampler, R_cc, ccMip).rgb;
-            let ccFresnel = fresnelSchlick(NdotV, vec3<f32>(0.04));
+            let ccBrdf = textureSampleLevel(brdfLutTexture, defaultSampler, vec2<f32>(NdotV, ccRoughness), 0.0).rg;
+            let ccFresnel = vec3<f32>(0.04) * ccBrdf.x + vec3<f32>(ccBrdf.y);
             ambientSpecular = ambientSpecular * (1.0 - ccFresnel * ccFactor) + ccEnv * ccFresnel * ccFactor * ubo.reflectionIntensity;
         }
     } else {
-        ambientSpecular = mix(F0, vec3<f32>(1.0), pow(1.0 - NdotV, 5.0)) * ambientLight * (1.0 - roughness) * 0.25 * ao;
+        ambientSpecular = (F_ibl * brdfSample.x + vec3<f32>(brdfSample.y)) * shIrradiance * (1.0 - roughness) * 0.25 * ao;
     }
 
-    let finalColor = directLighting + fillLighting + ambientDiffuse + ambientSpecular + emissive;
+    let finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
     var outAlpha = baseColor.a;
     if (transFactor > 0.001) {
@@ -563,6 +981,8 @@ struct Uniforms {
 @group(0) @binding(10) var envCubemap : texture_cube<f32>;
 @group(0) @binding(11) var shadowMap : texture_depth_2d;
 @group(0) @binding(12) var shadowSampler : sampler_comparison;
+@group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
+@group(0) @binding(14) var<uniform> sceneLighting : array<vec4<f32>, 305>;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,

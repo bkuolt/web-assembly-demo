@@ -4,6 +4,7 @@
  */
 #include "gpu/Context.hpp"
 #include "core/Log.hpp"
+#include <vector>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <SDL2/SDL.h>
@@ -22,42 +23,23 @@ Context::~Context() {
 void Context::Shutdown() noexcept {
     if (!initialized_ && !instance_) return;
 #if defined(BGL_PLATFORM_NATIVE)
-    if (msaaColorView_) {
-        wgpuTextureViewRelease(msaaColorView_);
-        msaaColorView_ = nullptr;
+    encoder_.Reset();
+    currentView_.Reset();
+    if (surfaceTexture_.texture) {
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
     }
-    if (msaaColorTexture_) {
-        wgpuTextureRelease(msaaColorTexture_);
-        msaaColorTexture_ = nullptr;
-    }
-    if (depthView_) {
-        wgpuTextureViewRelease(depthView_);
-        depthView_ = nullptr;
-    }
-    if (depthTexture_) {
-        wgpuTextureRelease(depthTexture_);
-        depthTexture_ = nullptr;
-    }
-    if (queue_) {
-        wgpuQueueRelease(queue_);
-        queue_ = nullptr;
-    }
-    if (device_) {
-        wgpuDeviceRelease(device_);
-        device_ = nullptr;
-    }
-    if (surface_) {
-        wgpuSurfaceRelease(surface_);
-        surface_ = nullptr;
-    }
-    if (adapter_) {
-        wgpuAdapterRelease(adapter_);
-        adapter_ = nullptr;
-    }
-    if (instance_) {
-        wgpuInstanceRelease(instance_);
-        instance_ = nullptr;
-    }
+    hdrResolveView_.Reset();
+    hdrResolveTexture_.Reset();
+    msaaColorView_.Reset();
+    msaaColorTexture_.Reset();
+    depthView_.Reset();
+    depthTexture_.Reset();
+    queue_.Reset();
+    device_.Reset();
+    surface_.Reset();
+    adapter_.Reset();
+    instance_.Reset();
 #endif
     initialized_ = false;
     BGL_LOG_INFO("Native WebGPU Context cleanly shut down.");
@@ -65,37 +47,41 @@ void Context::Shutdown() noexcept {
 
 void Context::CreateRenderBuffers() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (msaaColorView_) {
-        wgpuTextureViewRelease(msaaColorView_);
-        msaaColorView_ = nullptr;
-    }
-    if (msaaColorTexture_) {
-        wgpuTextureRelease(msaaColorTexture_);
-        msaaColorTexture_ = nullptr;
-    }
-    if (depthView_) {
-        wgpuTextureViewRelease(depthView_);
-        depthView_ = nullptr;
-    }
-    if (depthTexture_) {
-        wgpuTextureRelease(depthTexture_);
-        depthTexture_ = nullptr;
-    }
+    hdrResolveView_.Reset();
+    hdrResolveTexture_.Reset();
+    msaaColorView_.Reset();
+    msaaColorTexture_.Reset();
+    depthView_.Reset();
+    depthTexture_.Reset();
 
-    // 1. Create 4x MSAA Color Texture & View (if multisampling enabled)
+    // 1. Create 4x MSAA Linear HDR (RGBA16Float) Color Texture & View
     if (sampleCount_ > 1) {
         WGPUTextureDescriptor msaaDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
         msaaDesc.usage = WGPUTextureUsage_RenderAttachment;
         msaaDesc.dimension = WGPUTextureDimension_2D;
         msaaDesc.size = WGPUExtent3D{ width_, height_, 1 };
-        msaaDesc.format = format_;
+        msaaDesc.format = WGPUTextureFormat_RGBA16Float;
         msaaDesc.mipLevelCount = 1;
         msaaDesc.sampleCount = sampleCount_;
-        msaaDesc.label = WGPUStringView{ "MSAAColorTexture", strlen("MSAAColorTexture") };
+        msaaDesc.label = ToWgpuStringView("HDR_MSAAColorTexture_RGBA16F");
         msaaColorTexture_ = wgpuDeviceCreateTexture(device_, &msaaDesc);
         if (msaaColorTexture_) {
             msaaColorView_ = wgpuTextureCreateView(msaaColorTexture_, nullptr);
         }
+    }
+
+    // 1b. Create 1x Linear HDR (RGBA16Float) Resolve & Sampled Texture for Tonemapping Post-Process
+    WGPUTextureDescriptor hdrResolveDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    hdrResolveDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    hdrResolveDesc.dimension = WGPUTextureDimension_2D;
+    hdrResolveDesc.size = WGPUExtent3D{ width_, height_, 1 };
+    hdrResolveDesc.format = WGPUTextureFormat_RGBA16Float;
+    hdrResolveDesc.mipLevelCount = 1;
+    hdrResolveDesc.sampleCount = 1;
+    hdrResolveDesc.label = ToWgpuStringView("HDR_ResolveTexture_RGBA16F");
+    hdrResolveTexture_ = wgpuDeviceCreateTexture(device_, &hdrResolveDesc);
+    if (hdrResolveTexture_) {
+        hdrResolveView_ = wgpuTextureCreateView(hdrResolveTexture_, nullptr);
     }
 
     // 2. Create Depth Buffer (with matching sample count)
@@ -106,13 +92,13 @@ void Context::CreateRenderBuffers() {
     depthDesc.format = WGPUTextureFormat_Depth24Plus;
     depthDesc.mipLevelCount = 1;
     depthDesc.sampleCount = sampleCount_;
-    depthDesc.label = WGPUStringView{ "DepthBuffer", strlen("DepthBuffer") };
+    depthDesc.label = ToWgpuStringView("DepthBuffer");
     depthTexture_ = wgpuDeviceCreateTexture(device_, &depthDesc);
     if (depthTexture_) {
         depthView_ = wgpuTextureCreateView(depthTexture_, nullptr);
     }
 
-    BGL_LOG_INFO("WebGPU Render Buffers created ({}x{}, Depth: Depth24Plus, MSAA: {}x)", width_, height_, sampleCount_);
+    BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_, height_, sampleCount_);
 #endif
 }
 
@@ -211,9 +197,30 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
                  adapterInfo.description.data ? adapterInfo.description.data : "Unknown Driver",
                  static_cast<int>(adapterInfo.backendType));
 
-    // 4. Request Device
+    // 4. Query Hardware Texture Compression Features (BC7 / ASTC / ETC2) & Request Device
+    std::vector<WGPUFeatureName> requestedFeatures{};
+    if (wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TextureCompressionBC)) {
+        requestedFeatures.push_back(WGPUFeatureName_TextureCompressionBC);
+        supportsBC_ = true;
+    }
+    if (wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TextureCompressionASTC)) {
+        requestedFeatures.push_back(WGPUFeatureName_TextureCompressionASTC);
+        supportsASTC_ = true;
+    }
+    if (wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TextureCompressionETC2)) {
+        requestedFeatures.push_back(WGPUFeatureName_TextureCompressionETC2);
+        supportsETC2_ = true;
+    }
+
+    BGL_LOG_INFO("WebGPU Hardware Texture Compression Support: BC7={} | ASTC_4x4={} | ETC2={}",
+                 supportsBC_ ? "YES" : "NO",
+                 supportsASTC_ ? "YES" : "NO",
+                 supportsETC2_ ? "YES" : "NO");
+
     WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
-    devDesc.label = WGPUStringView{ "BglDevice", strlen("BglDevice") };
+    devDesc.label = ToWgpuStringView("BglDevice");
+    devDesc.requiredFeatureCount = requestedFeatures.size();
+    devDesc.requiredFeatures = requestedFeatures.empty() ? nullptr : requestedFeatures.data();
 
     struct DeviceData {
         WGPUDevice device = nullptr;
@@ -384,7 +391,15 @@ WGPURenderPassEncoder Context::BeginFrame() {
     }
 
     WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    if (sampleCount_ > 1 && msaaColorView_) {
+    if (sampleCount_ > 1 && msaaColorView_ && hdrResolveView_) {
+        colorAttachment.view = msaaColorView_;
+        colorAttachment.resolveTarget = hdrResolveView_;
+        colorAttachment.storeOp = WGPUStoreOp_Discard;
+    } else if (hdrResolveView_) {
+        colorAttachment.view = hdrResolveView_;
+        colorAttachment.resolveTarget = nullptr;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+    } else if (sampleCount_ > 1 && msaaColorView_) {
         colorAttachment.view = msaaColorView_;
         colorAttachment.resolveTarget = currentView_;
         colorAttachment.storeOp = WGPUStoreOp_Discard;
@@ -395,11 +410,12 @@ WGPURenderPassEncoder Context::BeginFrame() {
     }
     colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     colorAttachment.loadOp = WGPULoadOp_Clear;
-    colorAttachment.clearValue = WGPUColor{ 0.12, 0.15, 0.20, 1.0 }; // Studio neutral slate-gray
+    colorAttachment.clearValue = WGPUColor{ 0.04, 0.06, 0.09, 1.0 }; // Linear HDR dark studio slate
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.colorAttachmentCount = 1;
     passDesc.colorAttachments = &colorAttachment;
+    passDesc.label = ToWgpuStringView("HDR_SceneRenderPass");
 
     WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
     if (depthView_) {
@@ -417,6 +433,37 @@ WGPURenderPassEncoder Context::BeginFrame() {
 #endif
 }
 
+WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPass) {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (hdrPass) {
+        wgpuRenderPassEncoderEnd(hdrPass);
+        wgpuRenderPassEncoderRelease(hdrPass);
+    }
+    if (!encoder_ || !currentView_) {
+        return nullptr;
+    }
+
+    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAttachment.view = currentView_;
+    colorAttachment.resolveTarget = nullptr;
+    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    colorAttachment.loadOp = WGPULoadOp_Clear;
+    colorAttachment.storeOp = WGPUStoreOp_Store;
+    colorAttachment.clearValue = WGPUColor{ 0.05, 0.07, 0.11, 1.0 };
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+    passDesc.depthStencilAttachment = nullptr;
+    passDesc.label = ToWgpuStringView("SwapchainTonemapAndHudPass");
+
+    return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
+#else
+    (void)hdrPass;
+    return nullptr;
+#endif
+}
+
 void Context::EndFrame(WGPURenderPassEncoder pass) {
 #if defined(BGL_PLATFORM_NATIVE)
     if (pass) {
@@ -425,22 +472,18 @@ void Context::EndFrame(WGPURenderPassEncoder pass) {
     }
 
     if (encoder_) {
-        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder_, nullptr);
-        wgpuCommandEncoderRelease(encoder_);
-        encoder_ = nullptr;
+        CommandBufferHandle cmdBuf{wgpuCommandEncoderFinish(encoder_, nullptr)};
+        encoder_.Reset();
 
-        wgpuQueueSubmit(queue_, 1, &cmdBuf);
-        wgpuCommandBufferRelease(cmdBuf);
+        WGPUCommandBuffer rawCmd{cmdBuf.Get()};
+        wgpuQueueSubmit(queue_, 1, &rawCmd);
     }
 
     if (surface_) {
         wgpuSurfacePresent(surface_);
     }
 
-    if (currentView_) {
-        wgpuTextureViewRelease(currentView_);
-        currentView_ = nullptr;
-    }
+    currentView_.Reset();
 
     if (surfaceTexture_.texture) {
         wgpuTextureRelease(surfaceTexture_.texture);

@@ -44,7 +44,7 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
     std::optional<RayHit> closestHit{};
     float minDistance{1e30f};
 
-    auto traverseNode = [&](auto& self, const std::shared_ptr<SceneNode>& node, const glm::mat4& parentTransform) -> void {
+    auto traverseNode = [&](this auto&& self, const std::shared_ptr<SceneNode>& node, const glm::mat4& parentTransform) -> void {
         if (!node) return;
         const glm::mat4 worldMat{parentTransform * node->localTransform};
 
@@ -118,12 +118,12 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
         }
 
         for (const auto& child : node->children) {
-            self(self, child, worldMat);
+            self(child, worldMat);
         }
     };
 
     for (const auto& rootNode : rootNodes) {
-        traverseNode(traverseNode, rootNode, glm::mat4{1.0f});
+        traverseNode(rootNode, glm::mat4{1.0f});
     }
 
     return closestHit;

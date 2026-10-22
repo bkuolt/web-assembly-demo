@@ -46,6 +46,7 @@ FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
       parser_(fastgltf::Extensions::EXT_texture_webp |
               fastgltf::Extensions::KHR_texture_basisu |
               fastgltf::Extensions::KHR_texture_transform |
+              fastgltf::Extensions::KHR_lights_punctual |
               fastgltf::Extensions::KHR_materials_clearcoat |
               fastgltf::Extensions::KHR_materials_transmission |
               fastgltf::Extensions::KHR_materials_sheen |
@@ -266,11 +267,16 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                             scene->cpuImages[texIdx] = CpuImage{
                                 .width = decoded->width,
                                 .height = decoded->height,
-                                .rgba = std::move(decoded->rgbaData)
+                                .rgba = std::move(decoded->rgbaData),
+                                .isCompressed = decoded->isCompressed,
+                                .compressionFormat = decoded->compressionFormat,
+                                .mipLevels = std::move(decoded->mipLevels)
                             };
-                            BGL_LOG_INFO("  * Texture #{} (Image #{}, BufferView #{}): '{}' -> Decoded RGBA8 {}x{} (Decoded: {:.2f} MB)",
+                            BGL_LOG_INFO("  * Texture #{} (Image #{}, BufferView #{}): '{}' -> Decoded {} {}x{} (Mips: {}, Payload: {:.2f} MB)",
                                          texIdx, imgIdx, sourceBvIdx, imgName,
+                                         TextureDecoder::GetKtxTargetName(scene->cpuImages[texIdx].compressionFormat),
                                          decoded->width, decoded->height,
+                                         std::max<size_t>(1, scene->cpuImages[texIdx].mipLevels.size()),
                                          scene->cpuImages[texIdx].rgba.size() / (1024.0 * 1024.0));
                         } else {
                             BGL_LOG_ERROR("  * Texture #{} (Image #{}): Failed to decode: {}", texIdx, imgIdx, decoded.error());
@@ -434,6 +440,37 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
+    // 3b. Decode KHR_lights_punctual Lights
+    if (!asset.lights.empty()) {
+        BGL_LOG_INFO("[glTF Loader] --- KHR_lights_punctual ({} lights) ---", asset.lights.size());
+        scene->lights.reserve(asset.lights.size());
+        for (size_t lIdx{0}; lIdx < asset.lights.size(); ++lIdx) {
+            const auto& gltfLight = asset.lights[lIdx];
+            PunctualLight pLight{};
+            pLight.name = gltfLight.name.empty() ? ("Light_" + std::to_string(lIdx)) : std::string{gltfLight.name};
+            switch (gltfLight.type) {
+                case fastgltf::LightType::Directional: pLight.type = LightType::Directional; break;
+                case fastgltf::LightType::Point:       pLight.type = LightType::Point; break;
+                case fastgltf::LightType::Spot:        pLight.type = LightType::Spot; break;
+            }
+            pLight.color = glm::vec3{
+                static_cast<float>(gltfLight.color[0]),
+                static_cast<float>(gltfLight.color[1]),
+                static_cast<float>(gltfLight.color[2])
+            };
+            pLight.intensity = static_cast<float>(gltfLight.intensity);
+            pLight.range = gltfLight.range.has_value() ? static_cast<float>(*gltfLight.range) : 0.0f;
+            pLight.innerConeAngle = gltfLight.innerConeAngle.has_value() ? static_cast<float>(*gltfLight.innerConeAngle) : 0.0f;
+            pLight.outerConeAngle = gltfLight.outerConeAngle.has_value() ? static_cast<float>(*gltfLight.outerConeAngle) : 0.785398163f;
+
+            BGL_LOG_INFO("  * Light #{}: '{}' Type={} Color=[{:.2f}, {:.2f}, {:.2f}] Intensity={:.2f} Range={:.2f}",
+                         lIdx, pLight.name,
+                         pLight.type == LightType::Directional ? "Directional" : (pLight.type == LightType::Point ? "Point" : "Spot"),
+                         pLight.color.r, pLight.color.g, pLight.color.b, pLight.intensity, pLight.range);
+            scene->lights.push_back(std::move(pLight));
+        }
+    }
+
     // 5. Process all nodes and their meshes in parallel
     std::vector<std::shared_ptr<SceneNode>> loadedNodes(asset.nodes.size());
     BGL_LOG_INFO("[glTF Loader] --- Scene Nodes Hierarchy ({} nodes total, parallel parsing) ---", asset.nodes.size());
@@ -452,6 +489,9 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                     const auto& gltfNode = asset.nodes[nodeIdx];
                     auto node = std::make_shared<SceneNode>();
                     node->name = gltfNode.name.empty() ? ("Node_" + std::to_string(nodeIdx)) : std::string(gltfNode.name);
+                    if (gltfNode.lightIndex.has_value() && *gltfNode.lightIndex < asset.lights.size()) {
+                        node->lightIndex = static_cast<int>(*gltfNode.lightIndex);
+                    }
 
                     if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
                         const auto& trs = std::get<fastgltf::TRS>(gltfNode.transform);
@@ -594,12 +634,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     // 8. Print ASCII Hierarchy Tree Diagram
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
     BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
-    auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
+    auto printTree = [&](this auto&& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
         if (!n) return;
-        std::string nodeInfo = n->name.empty() ? "(Unnamed Node)" : n->name;
+        std::string nodeInfo{n->name.empty() ? "(Unnamed Node)" : n->name};
         if (!n->primitives.empty()) {
-            size_t totalVerts = 0;
-            size_t totalIndices = 0;
+            size_t totalVerts{0};
+            size_t totalIndices{0};
             for (const auto& p : n->primitives) {
                 totalVerts += p.vertices.size();
                 totalIndices += p.indices.size();
@@ -608,13 +648,13 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                         std::to_string(totalVerts) + " verts, " + std::to_string(totalIndices / 3) + " tris]";
         }
         BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", nodeInfo);
-        for (size_t c = 0; c < n->children.size(); ++c) {
-            bool childLast = (c + 1 == n->children.size());
-            self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
+        for (size_t c{0}; c < n->children.size(); ++c) {
+            const bool childLast{c + 1 == n->children.size()};
+            self(n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
         }
     };
-    for (size_t r = 0; r < scene->rootNodes.size(); ++r) {
-        printTree(printTree, scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
+    for (size_t r{0}; r < scene->rootNodes.size(); ++r) {
+        printTree(scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
     }
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
 

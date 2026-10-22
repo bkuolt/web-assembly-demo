@@ -5,10 +5,18 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
+#include <string_view>
 #include <utility>
 #include <concepts>
 
 namespace bgl::gpu {
+
+/**
+ * @brief Converts a C++ `std::string_view` to a `WGPUStringView` at compile time without `strlen`.
+ */
+[[nodiscard]] constexpr WGPUStringView ToWgpuStringView(std::string_view str) noexcept {
+    return WGPUStringView{str.data(), str.size()};
+}
 
 /**
  * @class Handle
@@ -66,6 +74,10 @@ public:
         return handle_;
     }
 
+    [[nodiscard]] constexpr const T* AddressOf() const noexcept {
+        return &handle_;
+    }
+
     [[nodiscard]] constexpr operator T() const noexcept {
         return handle_;
     }
@@ -97,12 +109,14 @@ using TextureViewHandle       = Handle<WGPUTextureView, wgpuTextureViewRelease>;
 using SamplerHandle           = Handle<WGPUSampler, wgpuSamplerRelease>;
 using BindGroupHandle         = Handle<WGPUBindGroup, wgpuBindGroupRelease>;
 using BindGroupLayoutHandle   = Handle<WGPUBindGroupLayout, wgpuBindGroupLayoutRelease>;
-using PipelineLayoutHandle    = Handle<WGPUPipelineLayout, wgpuPipelineLayoutRelease>;
-using RenderPipelineHandle    = Handle<WGPURenderPipeline, wgpuRenderPipelineRelease>;
-using ShaderModuleHandle      = Handle<WGPUShaderModule, wgpuShaderModuleRelease>;
-using CommandEncoderHandle    = Handle<WGPUCommandEncoder, wgpuCommandEncoderRelease>;
-using RenderPassEncoderHandle = Handle<WGPURenderPassEncoder, wgpuRenderPassEncoderRelease>;
-using CommandBufferHandle     = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
+using PipelineLayoutHandle     = Handle<WGPUPipelineLayout, wgpuPipelineLayoutRelease>;
+using RenderPipelineHandle     = Handle<WGPURenderPipeline, wgpuRenderPipelineRelease>;
+using ComputePipelineHandle    = Handle<WGPUComputePipeline, wgpuComputePipelineRelease>;
+using ShaderModuleHandle       = Handle<WGPUShaderModule, wgpuShaderModuleRelease>;
+using CommandEncoderHandle     = Handle<WGPUCommandEncoder, wgpuCommandEncoderRelease>;
+using RenderPassEncoderHandle  = Handle<WGPURenderPassEncoder, wgpuRenderPassEncoderRelease>;
+using ComputePassEncoderHandle = Handle<WGPUComputePassEncoder, wgpuComputePassEncoderRelease>;
+using CommandBufferHandle      = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
 
 } // namespace bgl::gpu
 
