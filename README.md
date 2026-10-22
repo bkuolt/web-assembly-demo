@@ -350,3 +350,4 @@ The engine includes a comprehensive test suite with **46 tests across 11 test su
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+# web-assembly-demo
