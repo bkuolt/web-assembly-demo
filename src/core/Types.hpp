@@ -6,10 +6,12 @@
 
 #include <expected>
 #include <string>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <cmath>
 #include <span>
 #include <vector>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::core {
 
@@ -40,21 +42,21 @@ struct AABB {
     glm::vec3 minBound{1e30f};
     glm::vec3 maxBound{-1e30f};
 
-    void Expand(const glm::vec3& p) noexcept {
+    constexpr void Expand(const glm::vec3& p) noexcept {
         minBound = glm::min(minBound, p);
         maxBound = glm::max(maxBound, p);
     }
 
-    void Expand(const AABB& other) noexcept {
+    constexpr void Expand(const AABB& other) noexcept {
         minBound = glm::min(minBound, other.minBound);
         maxBound = glm::max(maxBound, other.maxBound);
     }
 
-    [[nodiscard]] glm::vec3 Center() const noexcept {
+    [[nodiscard]] constexpr glm::vec3 Center() const noexcept {
         return (minBound + maxBound) * 0.5f;
     }
 
-    [[nodiscard]] glm::vec3 Extents() const noexcept {
+    [[nodiscard]] constexpr glm::vec3 Extents() const noexcept {
         return (maxBound - minBound) * 0.5f;
     }
 
@@ -62,7 +64,7 @@ struct AABB {
         float tmin = 0.0f;
         float tmax = 1e30f;
         for (int i = 0; i < 3; ++i) {
-            float invD = 1.0f / (std::abs(ray.direction[i]) > 1e-8f ? ray.direction[i] : 1e-8f);
+            const float invD = 1.0f / (std::abs(ray.direction[i]) > 1e-8f ? ray.direction[i] : 1e-8f);
             float t0 = (minBound[i] - ray.origin[i]) * invD;
             float t1 = (maxBound[i] - ray.origin[i]) * invD;
             if (invD < 0.0f) std::swap(t0, t1);
@@ -77,18 +79,19 @@ struct AABB {
 };
 
 /**
- * @struct Vertex
- * @brief 3D PBR standard vertex layout aligned to 4-byte boundaries.
+ * @struct alignas(16) Vertex
+ * @brief 3D PBR standard vertex layout aligned to 64 bytes (cache-line friendly).
  */
-struct Vertex {
+struct alignas(16) Vertex {
     glm::vec3 position{0.0f};
     float _pad0 = 0.0f;
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
     float _pad1 = 0.0f;
     glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f};
-    glm::vec2 _pad2 = glm::vec2(0.0f);
+    glm::vec2 _pad2{0.0f};
 };
+static_assert(sizeof(Vertex) == 64, "Vertex struct must be exactly 64 bytes (cache-line aligned)");
 
 /**
  * @struct alignas(16) GlobalUniforms
@@ -102,4 +105,3 @@ struct alignas(16) GlobalUniforms {
 };
 
 } // namespace bgl::core
-

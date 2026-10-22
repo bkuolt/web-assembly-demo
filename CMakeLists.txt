@@ -1,49 +1,61 @@
 cmake_minimum_required(VERSION 3.28)
 project(bgl_engine VERSION 0.6.2 LANGUAGES C CXX)
 
+# Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Automatic RPATH configuration for native desktop execution
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_INSTALL_RPATH
+    "$ORIGIN"
+    "$ORIGIN/../../third_party/wgpu-native/lib"
+    "$ORIGIN/third_party/wgpu-native/lib"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib"
+)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 # Options
-option(BGL_ENABLE_FORMAT_PNG   "Enable PNG decoding via libpng"         ON)
-option(BGL_ENABLE_FORMAT_JPEG  "Enable JPEG decoding via libjpeg-turbo" ON)
-option(BGL_ENABLE_FORMAT_WEBP  "Enable WebP decoding via libwebp"       ON)
-option(BGL_ENABLE_FORMAT_KTX2  "Enable KTX2/BasisU decoding via libktx" ON)
-option(BGL_ENABLE_AUDIO        "Enable 3D Audio via miniaudio"          ON)
+option(BGL_ENABLE_AUDIO        "Enable 3D Spatial Audio via miniaudio"  ON)
 option(BGL_ENABLE_GAMEPAD      "Enable Gamepad controller support"      ON)
-option(BGL_ENABLE_SKYBOX       "Enable Skybox and IBL reflections"      ON)
+option(BGL_ENABLE_SKYBOX       "Enable Skybox and reflections"          ON)
 option(BGL_ENABLE_MODEL_TOYCAR "Include default ToyCar.glb model"       ON)
 option(BGL_BUILD_TESTING       "Build GTest unit test suite"            ON)
 
-# Find Packages: First try Conan-generated packages, then fall back to system
-find_package(fastgltf QUIET)
-find_package(glm QUIET)
-if(NOT TARGET glm::glm AND NOT TARGET glm::glm-header-only)
-    find_package(glm REQUIRED)
+# Compiler Optimization and Warning Flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wno-unused-parameter
+    )
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_compile_options(-O3 -fno-math-errno)
+    endif()
 endif()
 
-find_package(spdlog QUIET)
-if(NOT TARGET spdlog::spdlog AND NOT TARGET spdlog::spdlog_header_only)
-    find_package(spdlog REQUIRED)
-endif()
+# Find Conan-managed Dependencies
+find_package(fastgltf REQUIRED CONFIG)
+find_package(glm REQUIRED CONFIG)
+find_package(spdlog REQUIRED CONFIG)
+find_package(PNG REQUIRED)
+find_package(libjpeg-turbo REQUIRED CONFIG)
+find_package(WebP REQUIRED CONFIG)
+find_package(miniaudio REQUIRED CONFIG)
 
-find_package(miniaudio QUIET)
-find_package(PNG QUIET)
-find_package(libjpeg-turbo QUIET)
-find_package(WebP QUIET)
-
-# Determine correct targets from Conan or System
+# Determine correct Conan Targets
 if(TARGET spdlog::spdlog_header_only)
     set(BGL_SPDLOG_TARGET spdlog::spdlog_header_only)
-elseif(TARGET spdlog::spdlog)
+else()
     set(BGL_SPDLOG_TARGET spdlog::spdlog)
 endif()
 
 if(TARGET glm::glm-header-only)
     set(BGL_GLM_TARGET glm::glm-header-only)
-elseif(TARGET glm::glm)
+else()
     set(BGL_GLM_TARGET glm::glm)
 endif()
 
@@ -56,13 +68,6 @@ else()
     find_package(OpenGL REQUIRED)
 endif()
 
-# Global includes
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include
-)
-
 # 1. libbgl_core.so
 add_library(bgl_core SHARED
     src/core/Log.cpp
@@ -70,6 +75,10 @@ add_library(bgl_core SHARED
     src/core/NetworkFetcher.cpp
     src/core/Gamepad.cpp
     src/core/Camera.cpp
+)
+target_include_directories(bgl_core PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>
 )
 target_link_libraries(bgl_core PUBLIC ${BGL_SPDLOG_TARGET} ${BGL_GLM_TARGET})
 if(NOT EMSCRIPTEN)
@@ -83,6 +92,10 @@ add_library(bgl_gpu SHARED
     src/gpu/Skybox.cpp
     src/gpu/Pipeline.cpp
 )
+target_include_directories(bgl_gpu PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include>
+)
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_gpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so OpenGL::GL)
@@ -92,10 +105,10 @@ endif()
 add_library(bgl_audio SHARED
     src/audio/SoundEngine.cpp
 )
-target_link_libraries(bgl_audio PUBLIC bgl_core)
-if(TARGET miniaudio::miniaudio)
-    target_link_libraries(bgl_audio PUBLIC miniaudio::miniaudio)
-endif()
+target_include_directories(bgl_audio PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
+target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
 
 # 4. libbgl_scene.so
 add_library(bgl_scene SHARED
@@ -105,41 +118,42 @@ add_library(bgl_scene SHARED
     src/scene/Quadtree.cpp
     src/scene/RayPicker.cpp
 )
-target_link_libraries(bgl_scene PUBLIC bgl_core bgl_gpu bgl_audio)
+target_include_directories(bgl_scene PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
+target_link_libraries(bgl_scene PUBLIC
+    bgl_core
+    bgl_gpu
+    bgl_audio
+    fastgltf::fastgltf
+    PNG::PNG
+    libjpeg-turbo::libjpeg-turbo
+    libwebp::libwebp
+)
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_scene PUBLIC OpenGL::GL)
-endif()
-if(TARGET fastgltf::fastgltf)
-    target_link_libraries(bgl_scene PUBLIC fastgltf::fastgltf)
-endif()
-if(TARGET PNG::PNG)
-    target_link_libraries(bgl_scene PRIVATE PNG::PNG)
-endif()
-if(TARGET libjpeg-turbo::libjpeg-turbo)
-    target_link_libraries(bgl_scene PRIVATE libjpeg-turbo::libjpeg-turbo)
-endif()
-if(TARGET WebP::webpdecoder OR TARGET libwebp::libwebp)
-    if(TARGET libwebp::libwebp)
-        target_link_libraries(bgl_scene PRIVATE libwebp::libwebp)
-    else()
-        target_link_libraries(bgl_scene PRIVATE WebP::webpdecoder)
-    endif()
 endif()
 
 # 5. libbgl_app.so
 add_library(bgl_app SHARED
     src/app/Application.cpp
 )
+target_include_directories(bgl_app PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
 target_link_libraries(bgl_app PUBLIC bgl_scene)
 
-# Viewer Executable
+# 6. Native Viewer Executable
 add_executable(bgl_viewer src/main.cpp)
+target_include_directories(bgl_viewer PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+)
 target_link_libraries(bgl_viewer PRIVATE bgl_app)
 
-# Unit Testing
+# 7. Unit Testing Suite
 if(BGL_BUILD_TESTING)
     enable_testing()
-    find_package(GTest REQUIRED)
+    find_package(GTest REQUIRED CONFIG)
     add_executable(bgl_unit_tests
         tests/test_main.cpp
         tests/test_memory_pool.cpp
@@ -147,9 +161,12 @@ if(BGL_BUILD_TESTING)
         tests/test_quadtree_lod.cpp
         tests/test_ray_picker.cpp
     )
+    target_include_directories(bgl_unit_tests PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    )
     if(TARGET GTest::gtest)
         target_link_libraries(bgl_unit_tests PRIVATE bgl_app GTest::gtest GTest::gtest_main)
-    elseif(TARGET gtest::gtest)
+    else()
         target_link_libraries(bgl_unit_tests PRIVATE bgl_app gtest::gtest gtest::gtest_main)
     endif()
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
