@@ -11,12 +11,15 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+<<<<<<< HEAD
 #include <array>
 #include <span>
 #include <atomic>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
 #endif
+=======
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::gpu {
@@ -117,9 +120,15 @@ PipelineManager::~PipelineManager() {
 }
 
 uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) noexcept {
+<<<<<<< HEAD
     const uint32_t maxDim{std::max(width, height)};
     if (maxDim == 0) return 1;
     uint32_t levels{1};
+=======
+    uint32_t maxDim = std::max(width, height);
+    if (maxDim == 0) return 1;
+    uint32_t levels = 1;
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     while ((maxDim >> levels) > 0) {
         levels++;
     }
@@ -127,6 +136,7 @@ uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) no
 }
 
 std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap) {
+<<<<<<< HEAD
     if (!src || srcW == 0 || srcH == 0) {
         return std::vector<uint8_t>(static_cast<size_t>(dstW) * dstH * 4);
     }
@@ -208,6 +218,56 @@ std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8
 #else
     processRows(0, dstH);
 #endif
+=======
+    std::vector<uint8_t> dst(dstW * dstH * 4);
+    if (!src || srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0) return dst;
+
+    for (uint32_t y = 0; y < dstH; ++y) {
+        for (uint32_t x = 0; x < dstW; ++x) {
+            uint32_t srcX0 = std::min(x * 2, srcW - 1);
+            uint32_t srcX1 = std::min(x * 2 + 1, srcW - 1);
+            uint32_t srcY0 = std::min(y * 2, srcH - 1);
+            uint32_t srcY1 = std::min(y * 2 + 1, srcH - 1);
+
+            const uint8_t* p00 = src + (srcY0 * srcW + srcX0) * 4;
+            const uint8_t* p10 = src + (srcY0 * srcW + srcX1) * 4;
+            const uint8_t* p01 = src + (srcY1 * srcW + srcX0) * 4;
+            const uint8_t* p11 = src + (srcY1 * srcW + srcX1) * 4;
+
+            size_t dstIdx = (y * dstW + x) * 4;
+            if (isNormalMap) {
+                // Vector-renormalized normal map downsampling to preserve surface normal length
+                auto unpackN = [](const uint8_t* p) -> glm::vec3 {
+                    return glm::vec3(
+                        (static_cast<float>(p[0]) / 255.0f) * 2.0f - 1.0f,
+                        (static_cast<float>(p[1]) / 255.0f) * 2.0f - 1.0f,
+                        (static_cast<float>(p[2]) / 255.0f) * 2.0f - 1.0f
+                    );
+                };
+                glm::vec3 avgN = unpackN(p00) + unpackN(p10) + unpackN(p01) + unpackN(p11);
+                float len = glm::length(avgN);
+                if (len > 1e-5f) {
+                    avgN /= len;
+                } else {
+                    avgN = glm::vec3(0.0f, 0.0f, 1.0f);
+                }
+                dst[dstIdx + 0] = static_cast<uint8_t>(std::clamp((avgN.x * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                dst[dstIdx + 1] = static_cast<uint8_t>(std::clamp((avgN.y * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                dst[dstIdx + 2] = static_cast<uint8_t>(std::clamp((avgN.z * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                uint32_t sumA = static_cast<uint32_t>(p00[3]) + p10[3] + p01[3] + p11[3];
+                dst[dstIdx + 3] = static_cast<uint8_t>((sumA + 2) / 4);
+            } else {
+                for (int c = 0; c < 4; ++c) {
+                    uint32_t sum = static_cast<uint32_t>(p00[c]) +
+                                   static_cast<uint32_t>(p10[c]) +
+                                   static_cast<uint32_t>(p01[c]) +
+                                   static_cast<uint32_t>(p11[c]);
+                    dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
+                }
+            }
+        }
+    }
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     return dst;
 }
 
@@ -678,7 +738,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wgpuCommandBufferRelease(initCmd);
     }
 
+<<<<<<< HEAD
     // 10. Create Pre-filtered Environment Cubemap (6 faces, 7 mip levels for roughness IBL, multithreaded across faces)
+=======
+    // 10. Create Pre-filtered Environment Cubemap (6 faces, 7 mip levels for roughness IBL)
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     envMipLevels_ = CalculateMipLevels(kEnvCubemapSize, kEnvCubemapSize);
     WGPUTextureDescriptor cubeDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     cubeDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -690,6 +754,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     cubeDesc.label = WGPUStringView{ "EnvironmentCubemap", strlen("EnvironmentCubemap") };
     envCubemapTexture_ = wgpuDeviceCreateTexture(device_, &cubeDesc);
 
+<<<<<<< HEAD
     std::array<std::vector<std::vector<uint8_t>>, 6> faceMipData{};
     for (auto& faceVec : faceMipData) {
         faceVec.resize(envMipLevels_);
@@ -721,6 +786,14 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         const uint32_t mipSize{std::max(1u, kEnvCubemapSize >> mip)};
         for (uint32_t face{0}; face < 6; ++face) {
             std::span<const uint8_t> facePixels{faceMipData[face][mip]};
+=======
+    for (uint32_t mip = 0; mip < envMipLevels_; ++mip) {
+        uint32_t mipSize = std::max(1u, kEnvCubemapSize >> mip);
+        float roughness = (envMipLevels_ > 1) ? static_cast<float>(mip) / static_cast<float>(envMipLevels_ - 1) : 0.0f;
+
+        for (uint32_t face = 0; face < 6; ++face) {
+            std::vector<uint8_t> facePixels = GenerateEnvCubemapFaceMip(face, mipSize, roughness, currentLightDir_);
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
             WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
             copyDst.texture = envCubemapTexture_;
@@ -733,7 +806,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
             dataLayout.bytesPerRow = mipSize * 4;
             dataLayout.rowsPerImage = mipSize;
 
+<<<<<<< HEAD
             WGPUExtent3D writeSize{ mipSize, mipSize, 1 };
+=======
+            WGPUExtent3D writeSize = { mipSize, mipSize, 1 };
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
             wgpuQueueWriteTexture(queue_, &copyDst, facePixels.data(), facePixels.size(), &dataLayout, &writeSize);
         }
     }
@@ -748,8 +825,13 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     cubeViewDesc.aspect = WGPUTextureAspect_All;
     envCubemapView_ = wgpuTextureCreateView(envCubemapTexture_, &cubeViewDesc);
 
+<<<<<<< HEAD
     // 11. Helper to create 1x1 fallback textures using std::span
     auto create1x1Texture = [&](std::span<const uint8_t, 4> rgba, std::string_view label) -> std::pair<WGPUTexture, WGPUTextureView> {
+=======
+    // 11. Helper to create 1x1 fallback textures
+    auto create1x1Texture = [&](const uint8_t rgba[4], const char* label) -> std::pair<WGPUTexture, WGPUTextureView> {
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
         texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
         texDesc.dimension = WGPUTextureDimension_2D;
@@ -778,17 +860,29 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         return { tex, view };
     };
 
+<<<<<<< HEAD
     constexpr std::array<uint8_t, 4> whitePixels{ 255, 255, 255, 255 };
+=======
+    const uint8_t whitePixels[4] = { 255, 255, 255, 255 };
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     auto [whiteTex, whiteView] = create1x1Texture(whitePixels, "DefaultWhiteTexture");
     defaultWhiteTexture_ = whiteTex;
     defaultWhiteTextureView_ = whiteView;
 
+<<<<<<< HEAD
     constexpr std::array<uint8_t, 4> normalPixels{ 128, 128, 255, 255 };
+=======
+    const uint8_t normalPixels[4] = { 128, 128, 255, 255 };
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     auto [normTex, normView] = create1x1Texture(normalPixels, "DefaultNormalTexture");
     defaultNormalTexture_ = normTex;
     defaultNormalTextureView_ = normView;
 
+<<<<<<< HEAD
     constexpr std::array<uint8_t, 4> blackPixels{ 0, 0, 0, 255 };
+=======
+    const uint8_t blackPixels[4] = { 0, 0, 0, 255 };
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     auto [blackTex, blackView] = create1x1Texture(blackPixels, "DefaultBlackTexture");
     defaultBlackTexture_ = blackTex;
     defaultBlackTextureView_ = blackView;
@@ -957,6 +1051,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         }
     }
 
+<<<<<<< HEAD
     // Pre-generate full CPU mip pyramids in parallel across worker threads before GPU upload
     struct MipLevelBuffer {
         uint32_t width{0};
@@ -1020,11 +1115,19 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
     // 1. Upload CPU decoded images and precomputed mip pyramids to WebGPU Textures
     for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
+=======
+    // 1. Upload CPU decoded images to WebGPU Textures with full mipmap pyramid
+    for (size_t i = 0; i < scene.cpuImages.size(); ++i) {
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
         const auto& img = scene.cpuImages[i];
         if (img.width == 0 || img.height == 0 || img.rgba.empty()) continue;
 
         if (i < scene.gpuTextures.size() && scene.gpuTextures[i].view == nullptr) {
+<<<<<<< HEAD
             const uint32_t mipLevels{CalculateMipLevels(img.width, img.height)};
+=======
+            uint32_t mipLevels = CalculateMipLevels(img.width, img.height);
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
             WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
             texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -1052,11 +1155,24 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             std::span<const uint8_t> mip0Span{img.rgba};
             wgpuQueueWriteTexture(queue_, &copyDst, mip0Span.data(), mip0Span.size(), &dataLayout, &writeSize);
 
+<<<<<<< HEAD
             // Upload precomputed downsampled mips to GPU
             std::span<const MipLevelBuffer> mipChain{precomputedMips[i]};
             for (size_t mIdx{0}; mIdx < mipChain.size(); ++mIdx) {
                 const auto& mipBuf = mipChain[mIdx];
                 const uint32_t level{static_cast<uint32_t>(mIdx + 1)};
+=======
+            // Generate downsampled mips and upload to GPU
+            std::vector<uint8_t> prevMip = img.rgba;
+            uint32_t prevW = img.width;
+            uint32_t prevH = img.height;
+
+            for (uint32_t level = 1; level < mipLevels; ++level) {
+                uint32_t curW = std::max(1u, prevW / 2);
+                uint32_t curH = std::max(1u, prevH / 2);
+
+                std::vector<uint8_t> curMip = GenerateNextMipLevel(prevMip.data(), prevW, prevH, curW, curH, isNormalTexture[i]);
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
                 WGPUTexelCopyTextureInfo mipCopyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
                 mipCopyDst.texture = tex;

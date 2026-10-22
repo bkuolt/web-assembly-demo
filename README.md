@@ -1,6 +1,13 @@
 # WebAssembly an WebGPU Demo (bgl-Engine v0.6.8)
 
+[![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
+[![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
+
+> **🚀 Live Web Application (Run Directly in Browser):**
+> - **GitHub Pages:** [https://bkuolt.github.io/web-assembly-demo/web/index.html](https://bkuolt.github.io/web-assembly-demo/web/index.html) *(or root [https://bkuolt.github.io/web-assembly-demo/](https://bkuolt.github.io/web-assembly-demo/))*
+> - **Direct Branch Preview (No Setup Required):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 
 ---
 
@@ -361,7 +368,13 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 
 ## WebAssembly Browser Viewer & Minimal Web App Packaging
 
-### Launching the Web Viewer
+### Live Demo on GitHub
+
+You can launch the WebAssembly & WebGPU viewer directly in your browser without installing any local tools:
+- **GitHub Pages:** [https://bkuolt.github.io/web-assembly-demo/web/index.html](https://bkuolt.github.io/web-assembly-demo/web/index.html)
+- **Instant Branch Preview (raw.githack):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+
+### Launching the Web Viewer Locally
 
 Serve the `web/` directory with any static HTTP server:
 

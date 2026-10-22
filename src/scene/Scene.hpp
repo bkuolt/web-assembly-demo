@@ -50,11 +50,19 @@ struct Material {
     int metallicRoughnessTextureIndex{-1};
 
     // 2. Normal, Bump & Occlusion
+<<<<<<< HEAD
     int normalTextureIndex{-1};
     float normalScale{1.0f};
     float bumpScale{1.0f};
     int occlusionTextureIndex{-1};
     float occlusionStrength{1.0f};
+=======
+    int normalTextureIndex = -1;
+    float normalScale = 1.0f;
+    float bumpScale = 1.0f;
+    int occlusionTextureIndex = -1;
+    float occlusionStrength = 1.0f;
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
     // 3. Emissive & Extensions
     glm::vec3 emissiveFactor{0.0f};
@@ -98,16 +106,25 @@ struct MeshPrimitive {
     core::AABB boundingBox{};
     int materialIndex{-1};
 
+<<<<<<< HEAD
     WGPUBuffer gpuVertexBuffer{nullptr};
     WGPUBuffer gpuIndexBuffer{nullptr};
     WGPUBuffer gpuUniformBuffer{nullptr};
     WGPUBindGroup gpuBindGroup{nullptr};
     WGPUBindGroup gpuShadowBindGroup{nullptr};
+=======
+    WGPUBuffer gpuVertexBuffer = nullptr;
+    WGPUBuffer gpuIndexBuffer = nullptr;
+    WGPUBuffer gpuUniformBuffer = nullptr;
+    WGPUBindGroup gpuBindGroup = nullptr;
+    WGPUBindGroup gpuShadowBindGroup = nullptr;
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
     explicit MeshPrimitive(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
         : vertices{mr}, indices{mr} {}
 
     MeshPrimitive(MeshPrimitive&& other) noexcept
+<<<<<<< HEAD
         : vertices{std::move(other.vertices)},
           indices{std::move(other.indices)},
           boundingBox{other.boundingBox},
@@ -117,6 +134,17 @@ struct MeshPrimitive {
           gpuUniformBuffer{other.gpuUniformBuffer},
           gpuBindGroup{other.gpuBindGroup},
           gpuShadowBindGroup{other.gpuShadowBindGroup} {
+=======
+        : vertices(std::move(other.vertices)),
+          indices(std::move(other.indices)),
+          boundingBox(other.boundingBox),
+          materialIndex(other.materialIndex),
+          gpuVertexBuffer(other.gpuVertexBuffer),
+          gpuIndexBuffer(other.gpuIndexBuffer),
+          gpuUniformBuffer(other.gpuUniformBuffer),
+          gpuBindGroup(other.gpuBindGroup),
+          gpuShadowBindGroup(other.gpuShadowBindGroup) {
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
         other.gpuVertexBuffer = nullptr;
         other.gpuIndexBuffer = nullptr;
         other.gpuUniformBuffer = nullptr;
@@ -180,6 +208,7 @@ struct MeshPrimitive {
         std::vector<glm::vec3> tan1(vertices.size(), glm::vec3(0.0f));
         std::vector<glm::vec3> tan2(vertices.size(), glm::vec3(0.0f));
 
+<<<<<<< HEAD
         std::span<core::Vertex> vertSpan{vertices.data(), vertices.size()};
         std::span<const uint32_t> idxSpan{indices.data(), indices.size()};
 
@@ -203,22 +232,54 @@ struct MeshPrimitive {
                 const float r{1.0f / det};
                 const glm::vec3 sdir{(e1 * duv2.y - e2 * duv1.y) * r};
                 const glm::vec3 tdir{(e2 * duv1.x - e1 * duv2.x) * r};
+=======
+        auto processTri = [&](size_t i0, size_t i1, size_t i2) {
+            if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size()) return;
+            const glm::vec3& p0 = vertices[i0].position;
+            const glm::vec3& p1 = vertices[i1].position;
+            const glm::vec3& p2 = vertices[i2].position;
+
+            const glm::vec2& uv0 = vertices[i0].uv;
+            const glm::vec2& uv1 = vertices[i1].uv;
+            const glm::vec2& uv2 = vertices[i2].uv;
+
+            glm::vec3 e1 = p1 - p0;
+            glm::vec3 e2 = p2 - p0;
+            glm::vec2 duv1 = uv1 - uv0;
+            glm::vec2 duv2 = uv2 - uv0;
+
+            float det = duv1.x * duv2.y - duv2.x * duv1.y;
+            if (std::abs(det) > 1e-8f) {
+                float r = 1.0f / det;
+                glm::vec3 sdir = (e1 * duv2.y - e2 * duv1.y) * r;
+                glm::vec3 tdir = (e2 * duv1.x - e1 * duv2.x) * r;
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
                 tan1[i0] += sdir; tan1[i1] += sdir; tan1[i2] += sdir;
                 tan2[i0] += tdir; tan2[i1] += tdir; tan2[i2] += tdir;
             }
         };
 
+<<<<<<< HEAD
         if (!idxSpan.empty()) {
             for (size_t i{0}; i + 2 < idxSpan.size(); i += 3) {
                 processTri(idxSpan[i], idxSpan[i + 1], idxSpan[i + 2]);
             }
         } else {
             for (size_t i{0}; i + 2 < vertSpan.size(); i += 3) {
+=======
+        if (!indices.empty()) {
+            for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+                processTri(indices[i], indices[i + 1], indices[i + 2]);
+            }
+        } else {
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
                 processTri(i, i + 1, i + 2);
             }
         }
 
+<<<<<<< HEAD
         auto orthogonalizeRange = [&](size_t beginIdx, size_t endIdx) {
             for (size_t i{beginIdx}; i < endIdx; ++i) {
                 const glm::vec3& n{vertSpan[i].normal};
@@ -255,6 +316,22 @@ struct MeshPrimitive {
 #else
         orthogonalizeRange(0, vertSpan.size());
 #endif
+=======
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            const glm::vec3& n = vertices[i].normal;
+            const glm::vec3& t = tan1[i];
+            glm::vec3 orthoT = t - n * glm::dot(n, t);
+            float lenSq = glm::dot(orthoT, orthoT);
+            if (lenSq > 1e-10f) {
+                orthoT *= (1.0f / std::sqrt(lenSq));
+                float w = (glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f;
+                vertices[i].tangent = glm::vec4(orthoT, w);
+            } else {
+                glm::vec3 up = (std::abs(n.y) < 0.999f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+                vertices[i].tangent = glm::vec4(glm::normalize(glm::cross(up, n)), 1.0f);
+            }
+        }
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     }
 };
 

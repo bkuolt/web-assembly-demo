@@ -139,10 +139,17 @@ TEST(RenderingFeaturesTest, MipmapFullPyramidGenerationPreservesAverageColor) {
         }
     }
 
+<<<<<<< HEAD
     for (uint32_t mip{1}; mip < levels; ++mip) {
         const uint32_t nextW{std::max(1u, w >> 1u)};
         const uint32_t nextH{std::max(1u, h >> 1u)};
         currentMip = gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{currentMip}, w, h, nextW, nextH, false);
+=======
+    for (uint32_t mip = 1; mip < levels; ++mip) {
+        uint32_t nextW = std::max(1u, w >> 1u);
+        uint32_t nextH = std::max(1u, h >> 1u);
+        currentMip = gpu::PipelineManager::GenerateNextMipLevel(currentMip.data(), w, h, nextW, nextH, false);
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
         ASSERT_EQ(currentMip.size(), static_cast<size_t>(nextW * nextH * 4));
         w = nextW;
         h = nextH;
@@ -169,7 +176,11 @@ TEST(RenderingFeaturesTest, NormalMapMipDownsamplingMaintainsUnitLengthVectors) 
         normalMip0[i * 4 + 3] = 255;
     }
 
+<<<<<<< HEAD
     auto normalMip1{gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{normalMip0}, 4, 4, 2, 2, true)};
+=======
+    auto normalMip1 = gpu::PipelineManager::GenerateNextMipLevel(normalMip0.data(), 4, 4, 2, 2, true);
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     ASSERT_EQ(normalMip1.size(), 2u * 2u * 4u);
 
     for (size_t i = 0; i < 4; ++i) {

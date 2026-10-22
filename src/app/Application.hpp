@@ -26,6 +26,7 @@ namespace bgl::app {
  * @brief Startup parameters and initial rendering states.
  */
 struct ApplicationConfig {
+<<<<<<< HEAD
     uint32_t width{1280};
     uint32_t height{720};
     std::string assetPath{};
@@ -37,6 +38,19 @@ struct ApplicationConfig {
     bool enableMipmapping{true};
     bool enableShadows{true};
     bool enableReflections{true};
+=======
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    std::string assetPath = "";
+    bool enableSkybox = true;
+    bool enableBoundingBoxes = true;
+    bool enableQuadtreeBounds = false;
+    bool enableDebugOverlay = true;
+    bool enableBumpMapping = true;
+    bool enableMipmapping = true;
+    bool enableShadows = true;
+    bool enableReflections = true;
+>>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 };
 
 /**
