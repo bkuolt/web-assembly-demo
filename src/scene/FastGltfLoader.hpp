@@ -9,6 +9,8 @@
 #include <span>
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/glm_element_traits.hpp>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
 #include "scene/AssetManager.hpp"

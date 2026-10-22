@@ -55,10 +55,40 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
+    // Auto-load ToyCar.glb if present in assets/
+    if (std::filesystem::exists("assets/ToyCar.glb")) {
+        BGL_LOG_INFO("Found default asset 'assets/ToyCar.glb', loading scene...");
+        auto sceneRes = gltfLoader_->LoadFromFile("assets/ToyCar.glb");
+        if (sceneRes) {
+            activeScene_ = *sceneRes;
+            // Frame camera around ToyCar AABB
+            glm::vec3 center = activeScene_->sceneAABB.Center();
+            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
+            camera_ = core::Camera(center, std::max(radius * 2.5f, 2.0f));
+            BGL_LOG_INFO("ToyCar.glb successfully loaded and camera centered at [{:.2f}, {:.2f}, {:.2f}]", center.x, center.y, center.z);
+        } else {
+            BGL_LOG_WARN("Could not load assets/ToyCar.glb: {}", sceneRes.error());
+        }
+    } else if (std::filesystem::exists("../assets/ToyCar.glb")) {
+        auto sceneRes = gltfLoader_->LoadFromFile("../assets/ToyCar.glb");
+        if (sceneRes) {
+            activeScene_ = *sceneRes;
+            glm::vec3 center = activeScene_->sceneAABB.Center();
+            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
+            camera_ = core::Camera(center, std::max(radius * 2.5f, 2.0f));
+            BGL_LOG_INFO("ToyCar.glb loaded from parent path and camera framed.");
+        }
+    }
+
     core::AABB worldBounds;
     worldBounds.minBound = glm::vec3(-100.0f);
     worldBounds.maxBound = glm::vec3(100.0f);
     quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
+    if (activeScene_) {
+        for (const auto& rootNode : activeScene_->rootNodes) {
+            quadtree_->Insert(rootNode);
+        }
+    }
 
     running_ = true;
     BGL_LOG_INFO("bgl Engine initialized successfully.");
