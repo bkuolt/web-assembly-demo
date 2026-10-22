@@ -70,6 +70,13 @@ void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) 
         g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));
     }
 }
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_load_url(const char* url) {
+    if (g_pApp && url) {
+        (void)g_pApp->LoadSceneFromUri(url);
+    }
+}
 }
 
 int main() {

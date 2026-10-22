@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.6.8 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.7.0 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -21,6 +21,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 option(BGL_ENABLE_AUDIO        "Enable 3D Spatial Audio via miniaudio"  ON)
 option(BGL_ENABLE_GAMEPAD      "Enable Gamepad controller support"      ON)
 option(BGL_ENABLE_SKYBOX       "Enable Skybox and reflections"          ON)
+option(BGL_ENABLE_CURL         "Enable HTTP/HTTPS URL fetching (libcurl)" ON)
 option(BGL_ENABLE_MODEL_TOYCAR "Include default ToyCar.glb model"       ON)
 option(BGL_BUILD_TESTING       "Build GTest unit test suite"            ON)
 
@@ -94,6 +95,9 @@ else()
     add_compile_definitions(BGL_PLATFORM_NATIVE)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
+    if(BGL_ENABLE_CURL)
+        pkg_check_modules(CURL REQUIRED libcurl)
+    endif()
     find_package(OpenGL REQUIRED)
 endif()
 
@@ -114,6 +118,11 @@ target_link_libraries(bgl_core PUBLIC ${BGL_SPDLOG_TARGET} ${BGL_GLM_TARGET})
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_core PUBLIC ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
     target_include_directories(bgl_core PUBLIC ${SDL2_INCLUDE_DIRS})
+    if(BGL_ENABLE_CURL AND CURL_FOUND)
+        target_link_libraries(bgl_core PUBLIC ${CURL_LIBRARIES})
+        target_include_directories(bgl_core PUBLIC ${CURL_INCLUDE_DIRS})
+        target_compile_definitions(bgl_core PUBLIC BGL_HAS_CURL)
+    endif()
 
     # C++23 std::stacktrace detection
     include(CheckCXXSourceCompiles)

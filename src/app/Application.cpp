@@ -3,6 +3,7 @@
  * @brief Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration.
  */
 #include "app/Application.hpp"
+#include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
 #include <filesystem>
 #include <algorithm>
@@ -29,7 +30,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     const uint32_t width{config.width};
     const uint32_t height{config.height};
-    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.6.8 ({}x{})...", width, height);
+    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.7.0 ({}x{})...", width, height);
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;
@@ -47,7 +48,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     )};
     if (window) {
         nativeWindow_ = window;
-        BGL_LOG_INFO("Created native SDL2 window {}x{}", width, height);
+        SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+        SDL_EventState(SDL_DROPTEXT, SDL_ENABLE);
+        BGL_LOG_INFO("Created native SDL2 window {}x{} (Drag & Drop enabled for files and URLs)", width, height);
     }
 #endif
 
@@ -100,43 +103,8 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     }
 
     if (!assetPathToLoad.empty()) {
-        BGL_LOG_INFO("Loading glTF/GLB asset '{}'...", assetPathToLoad);
-        auto sceneRes = gltfLoader_->LoadFromFile(assetPathToLoad);
-        if (sceneRes) {
-            activeScene_ = *sceneRes;
-            currentModelName_ = std::filesystem::path(assetPathToLoad).filename().string();
-            CacheSceneMetrics();
-            pipelineManager_.PrepareScene(*activeScene_);
-
-            glm::vec3 center = activeScene_->sceneAABB.Center();
-            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-
-            if (assetPathToLoad.find("Sponza") != std::string::npos || assetPathToLoad.find("sponza") != std::string::npos) {
-                // Sponza atrium camera perspective: centered in courtyard at human eye-level
-                glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
-                float camDistance = 10.0f;
-                camera_ = core::Camera(courtyardCenter, camDistance);
-                camera_.Orbit(1.2f, 0.15f);
-                BGL_LOG_INFO("Sponza.glb loaded: courtyardCenter=[{:.2f}, {:.2f}, {:.2f}], camDistance={:.2f}",
-                             courtyardCenter.x, courtyardCenter.y, courtyardCenter.z, camDistance);
-            } else {
-                float targetDistance = std::max(radius * 2.5f, 0.15f);
-                camera_ = core::Camera(center, targetDistance);
-                camera_.Orbit(0.8f, 0.4f);
-                BGL_LOG_INFO("{} loaded: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                             assetPathToLoad, center.x, center.y, center.z, radius, targetDistance);
-            }
-
-            // Build Quadtree spatial partitioning structure fitted to scene AABB
-            core::AABB worldBounds{activeScene_->sceneAABB};
-            const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
-            worldBounds.minBound -= margin;
-            worldBounds.maxBound += margin;
-            quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-            quadtree_->InsertNodes(activeScene_->rootNodes);
-            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
-        } else {
-            BGL_LOG_WARN("Could not load {}: {}", assetPathToLoad, sceneRes.error());
+        if (auto loadRes = LoadSceneFromUri(assetPathToLoad); !loadRes) {
+            BGL_LOG_WARN("Could not load '{}': {}", assetPathToLoad, loadRes.error());
         }
     }
 
@@ -205,41 +173,16 @@ void Application::Update(float deltaTime) {
             } else if (event.type == SDL_MOUSEWHEEL) {
                 float zoomStep = camera_.GetDistance() * 0.12f;
                 camera_.Zoom(event.wheel.y * zoomStep);
-            } else if (event.type == SDL_DROPFILE) {
-                char* droppedFile = event.drop.file;
-                if (droppedFile) {
-                    BGL_LOG_INFO("File dropped via OS: {}", droppedFile);
-                    auto sceneRes = gltfLoader_->LoadFromFile(droppedFile);
-                    if (sceneRes) {
-                        activeScene_ = *sceneRes;
-                        currentModelName_ = std::filesystem::path(droppedFile).filename().string();
-                        CacheSceneMetrics();
-                        pipelineManager_.PrepareScene(*activeScene_);
-                        glm::vec3 center = activeScene_->sceneAABB.Center();
-                        float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-
-                        std::string pathStr(droppedFile);
-                        if (pathStr.find("Sponza") != std::string::npos || pathStr.find("sponza") != std::string::npos) {
-                            glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
-                            camera_ = core::Camera(courtyardCenter, 10.0f);
-                            camera_.Orbit(1.2f, 0.15f);
-                        } else {
-                            float targetDistance = std::max(radius * 2.5f, 0.15f);
-                            camera_ = core::Camera(center, targetDistance);
-                            camera_.Orbit(0.8f, 0.4f);
-                        }
-
-                        core::AABB worldBounds{activeScene_->sceneAABB};
-                        const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
-                        worldBounds.minBound -= margin;
-                        worldBounds.maxBound += margin;
-                        quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-                        quadtree_->InsertNodes(activeScene_->rootNodes);
-                        cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
-
-                        BGL_LOG_INFO("Successfully loaded dropped model: {}", droppedFile);
+            } else if (event.type == SDL_DROPFILE || event.type == SDL_DROPTEXT) {
+                char* droppedStr{event.drop.file};
+                if (droppedStr) {
+                    const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
+                    BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
+                                 event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE", sanitized);
+                    if (auto loadRes = LoadSceneFromUri(sanitized); !loadRes) {
+                        BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", sanitized, loadRes.error());
                     }
-                    SDL_free(droppedFile);
+                    SDL_free(droppedStr);
                 }
             }
         }
@@ -332,40 +275,70 @@ void Application::Render() {
     gpuContext_.EndFrame(pass);
 }
 
+void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri) {
+    if (!scene) return;
+    activeScene_ = std::move(scene);
+    currentModelName_ = core::NetworkFetcher::ExtractDisplayName(sourceUri);
+    CacheSceneMetrics();
+    pipelineManager_.PrepareScene(*activeScene_);
+
+    const glm::vec3 center{activeScene_->sceneAABB.Center()};
+    const float radius{glm::length(activeScene_->sceneAABB.Extents()) * 0.5f};
+
+    if (sourceUri.find("Sponza") != std::string_view::npos || sourceUri.find("sponza") != std::string_view::npos) {
+        const glm::vec3 courtyardCenter{center.x, 2.0f, center.z};
+        constexpr float camDistance{10.0f};
+        camera_ = core::Camera{courtyardCenter, camDistance};
+        camera_.Orbit(1.2f, 0.15f);
+        BGL_LOG_INFO("Sponza scene activated: courtyardCenter=[{:.2f}, {:.2f}, {:.2f}], camDistance={:.2f}",
+                     courtyardCenter.x, courtyardCenter.y, courtyardCenter.z, camDistance);
+    } else {
+        const float targetDistance{std::max(radius * 2.5f, 0.15f)};
+        camera_ = core::Camera{center, targetDistance};
+        camera_.Orbit(0.8f, 0.4f);
+        BGL_LOG_INFO("Scene '{}' activated: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
+                     currentModelName_, center.x, center.y, center.z, radius, targetDistance);
+    }
+
+    core::AABB worldBounds{activeScene_->sceneAABB};
+    const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
+    worldBounds.minBound -= margin;
+    worldBounds.maxBound += margin;
+    quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
+    quadtree_->InsertNodes(activeScene_->rootNodes);
+    cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
+}
+
+core::Result<void> Application::LoadSceneFromUri(std::string_view uri) {
+    const std::string sanitizedUri{core::NetworkFetcher::SanitizeUri(uri)};
+    if (sanitizedUri.empty()) {
+        return std::unexpected("Cannot load empty asset URI");
+    }
+    if (!gltfLoader_) {
+        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
+    }
+
+    BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...",
+                 core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path", sanitizedUri);
+    auto sceneRes = gltfLoader_->LoadFromFile(sanitizedUri);
+    if (!sceneRes) {
+        return std::unexpected(sceneRes.error());
+    }
+    ActivateScene(*sceneRes, sanitizedUri);
+    return {};
+}
+
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
-    BGL_LOG_INFO("Ingesting drag-and-dropped file '{}' ({} bytes)", filename, data.size());
-    if (filename.ends_with(".glb") || filename.ends_with(".gltf")) {
-        auto res = gltfLoader_->LoadFromMemory(data, filename);
-        if (res) {
-            activeScene_ = *res;
-            currentModelName_ = std::string(filename);
-            CacheSceneMetrics();
-            pipelineManager_.PrepareScene(*activeScene_);
-            glm::vec3 center = activeScene_->sceneAABB.Center();
-            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-
-            if (filename.find("Sponza") != std::string_view::npos || filename.find("sponza") != std::string_view::npos) {
-                glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
-                camera_ = core::Camera(courtyardCenter, 10.0f);
-                camera_.Orbit(1.2f, 0.15f);
-            } else {
-                float targetDistance = std::max(radius * 2.5f, 0.15f);
-                camera_ = core::Camera(center, targetDistance);
-                camera_.Orbit(0.8f, 0.4f);
-            }
-
-            core::AABB worldBounds{activeScene_->sceneAABB};
-            const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
-            worldBounds.minBound -= margin;
-            worldBounds.maxBound += margin;
-            quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-            quadtree_->InsertNodes(activeScene_->rootNodes);
-            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
-
-            BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
-        } else {
-            BGL_LOG_ERROR("Failed to load dropped glTF file: {}", res.error());
-        }
+    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
+    if (!gltfLoader_) {
+        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
+    }
+    auto res = gltfLoader_->LoadFromMemory(data, filename);
+    if (res) {
+        ActivateScene(*res, filename);
+        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
+    } else {
+        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", filename, res.error());
     }
 }
 

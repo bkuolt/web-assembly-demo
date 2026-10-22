@@ -3,6 +3,7 @@
  * @brief Implementation of command-line parsing and CLI utilities.
  */
 #include "app/CommandLine.hpp"
+#include "core/NetworkFetcher.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <iostream>
 #include <format>
@@ -102,20 +103,21 @@ void CliOptions::PrintHelp(std::string_view programName) {
 
     std::cout <<
 R"(================================================================================
-WebAssembly an WebGPU Demo (bgl_viewer v0.6.8)
+WebAssembly an WebGPU Demo (bgl_viewer v0.7.0)
 ================================================================================
 
 USAGE:
-  )" << exec << R"( [OPTIONS] [ASSET_PATH]
+  )" << exec << R"( [OPTIONS] [ASSET_PATH_OR_URL]
 
 ARGUMENTS:
-  [ASSET_PATH]                  Path to .glb or .gltf model to load (e.g. assets/Sponza.glb)
+  [ASSET_PATH_OR_URL]           Local path or HTTP/HTTPS URL to .glb/.gltf model
+                                (e.g. assets/Sponza.glb or https://.../Model.glb)
 
 GENERAL OPTIONS:
   -h, --help                    Show this help message and exit
   -v, --version                 Print engine version information and exit
   --formats                     Display compiled texture decoders and asset support
-  -a, --asset <path>            Explicit path to glTF/GLB asset file
+  -a, --asset <path|url>        Explicit path or HTTP/HTTPS URL to glTF/GLB asset
   -w, --width <pixels>          Window width in pixels (default: 1280)
   -H, --height <pixels>         Window height in pixels (default: 720)
   -l, --log-level <level>       Set log level: trace, debug, info, warn, error (default: info)
@@ -149,13 +151,13 @@ INTERACTIVE CONTROLS:
   R                             Toggle Environment Cubemap Reflections & Specular IBL
   O / F3                        Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay
   ESC                           Exit viewer
-  Drag & Drop                   Drop any .glb/.gltf file directly onto the window
+  Drag & Drop                   Drop any .glb/.gltf file or HTTP/HTTPS URL onto the window
 ================================================================================
 )";
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.6.8) [C++23 WebGPU glTF 2.1 Engine]\n";
+    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.7.0) [C++23 WebGPU glTF 2.1 Engine]\n";
 }
 
 void CliOptions::PrintFormats() {
@@ -163,6 +165,7 @@ void CliOptions::PrintFormats() {
               << "bgl-Engine Compiled Asset & Texture Decoders:\n"
               << "================================================================================\n"
               << "  - glTF 2.0 / 2.1 (.gltf, .glb): [ENABLED] (fastgltf SIMD parser)\n"
+              << "  - HTTP/HTTPS Asset Streaming:  " << (core::NetworkFetcher::IsCurlSupported() ? "[ENABLED] (libcurl / Fetch API)" : "[DISABLED]") << "\n"
               << "  - PNG textures:                " << (scene::TextureDecoder::IsPngSupported() ? "[ENABLED] (libpng)" : "[DISABLED]") << "\n"
               << "  - JPEG textures:               " << (scene::TextureDecoder::IsJpegSupported() ? "[ENABLED] (libjpeg-turbo)" : "[DISABLED]") << "\n"
               << "  - WebP textures:               " << (scene::TextureDecoder::IsWebpSupported() ? "[ENABLED] (libwebp)" : "[DISABLED]") << "\n"

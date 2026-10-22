@@ -687,7 +687,7 @@
       }
     });
 
-    window.addEventListener('drop', (e) => {
+    window.addEventListener('drop', async (e) => {
       e.preventDefault();
       dropZone.classList.remove('active');
       if (dropText) dropText.style.display = 'none';
@@ -699,14 +699,47 @@
           ingestModel(file.name, evt.target.result);
         };
         reader.readAsArrayBuffer(file);
+      } else if (e.dataTransfer) {
+        const rawUri = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '').trim();
+        const urlLine = rawUri.split(/\r?\n/).find(line => line.trim() && !line.trim().startsWith('#'));
+        if (urlLine && (/^https?:\/\//i.test(urlLine.trim()) || /^data:/i.test(urlLine.trim()))) {
+          await loadModelFromUrl(urlLine.trim());
+        }
       }
     });
   }
 
   /**
-   * Auto-fetch default model on startup (Sponza.glb, fallback to ToyCar.glb).
+   * Fetch and ingest a remote 3D model (.glb / .gltf) from an HTTP/HTTPS or data: URL.
+   */
+  async function loadModelFromUrl(url) {
+    try {
+      updateLoadProgress(20, `Downloading model from ${url}...`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} (${response.statusText})`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const cleanName = url.split(/[?#]/)[0].split('/').pop() || url;
+      ingestModel(cleanName, arrayBuffer);
+      updateLoadProgress(100, `Loaded ${cleanName} from URL.`);
+    } catch (err) {
+      console.error(`Failed to load model from URL '${url}':`, err);
+      updateLoadProgress(100, `Failed to load URL: ${err.message}`);
+    }
+  }
+  window.loadModelFromUrl = loadModelFromUrl;
+
+  /**
+   * Auto-fetch default model on startup (supports ?model=<url> or ?asset=<url>, else Sponza.glb / ToyCar.glb).
    */
   async function loadDefaultModel() {
+    const params = new URLSearchParams(window.location.search);
+    const customUrl = params.get('model') || params.get('asset') || params.get('url');
+    if (customUrl) {
+      await loadModelFromUrl(customUrl);
+      return;
+    }
     try {
       let response = await fetch("assets/Sponza.glb");
       let name = "Sponza.glb";

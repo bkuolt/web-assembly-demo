@@ -76,6 +76,7 @@ public:
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
+    core::Result<void> LoadSceneFromUri(std::string_view uri);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
     void RequestClose() noexcept { running_ = false; }
 
@@ -86,6 +87,7 @@ public:
     [[nodiscard]] ui::DebugOverlay& GetDebugOverlay() noexcept { return debugOverlay_; }
 
 private:
+    void ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri);
     void CacheSceneMetrics();
 
     bool running_{false};
