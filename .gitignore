@@ -12,6 +12,9 @@ dist/
 *.zip
 conan*env*.sh
 deactivate_conan*.sh
+assets/stress_test/
+*.large.glb
+*.large.gltf
 
 
 
