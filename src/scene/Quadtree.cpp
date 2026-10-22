@@ -1,6 +1,6 @@
 /**
  * @file Quadtree.cpp
- * @brief Implementation of Quadtree spatial hierarchy and LOD selection.
+ * @brief Implementation of Quadtree spatial hierarchy, view frustum culling, and LOD selection.
  */
 #include "scene/Quadtree.hpp"
 
@@ -56,46 +56,122 @@ bool QuadtreeNode::Insert(const QuadtreeItem& item) {
     return true;
 }
 
-void QuadtreeNode::QueryFrustum(const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const {
-    for (auto item : items_) {
-        float dist = glm::distance(camPos, item.aabb.Center());
-        if (dist < 15.0f) {
-            item.currentLOD = LODLevel::LOD0;
-        } else if (dist < 50.0f) {
-            item.currentLOD = LODLevel::LOD1;
-        } else {
-            item.currentLOD = LODLevel::LOD2;
-        }
-        visibleItemsOut.push_back(item);
+void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const {
+    // 1. Broad-phase test: cull whole quadtree quadrant if outside frustum
+    if (!frustum.IntersectsAABB(bounds_)) {
+        return;
     }
 
+    // 2. Narrow-phase test for items in this node
+    for (auto item : items_) {
+        if (frustum.IntersectsAABB(item.aabb)) {
+            const float radius = std::max(0.001f, glm::length(item.aabb.Extents()) * 0.5f);
+            const float dist = glm::distance(camPos, item.aabb.Center());
+            const float relativeDist = dist / radius;
+            if (relativeDist < 8.0f) {
+                item.currentLOD = LODLevel::LOD0;
+            } else if (relativeDist < 25.0f) {
+                item.currentLOD = LODLevel::LOD1;
+            } else {
+                item.currentLOD = LODLevel::LOD2;
+            }
+            visibleItemsOut.push_back(item);
+        }
+    }
+
+    // 3. Recurse into children
     if (!isLeaf_) {
         for (const auto& child : children_) {
-            child->QueryFrustum(camPos, visibleItemsOut);
+            if (child) {
+                child->QueryFrustum(frustum, camPos, visibleItemsOut);
+            }
         }
     }
 }
 
 Quadtree::Quadtree(const core::AABB& worldBounds)
-    : root_(std::make_unique<QuadtreeNode>(worldBounds)) {}
+    : worldBounds_(worldBounds),
+      root_(std::make_unique<QuadtreeNode>(worldBounds)) {}
 
 void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
     if (!node) return;
-    QuadtreeItem item;
-    item.node = node;
-    item.aabb = node->worldAABB;
-    root_->Insert(item);
+    auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n) -> void {
+        if (!n) return;
+        if (n->primitives.empty()) {
+            if (n->worldAABB.minBound.x <= n->worldAABB.maxBound.x) {
+                QuadtreeItem item;
+                item.node = n;
+                item.primitiveIndex = 0;
+                item.aabb = n->worldAABB;
+                if (!root_->Insert(item)) {
+                    root_->ForceInsert(item);
+                }
+            }
+        } else {
+            for (size_t pIdx = 0; pIdx < n->primitives.size(); ++pIdx) {
+                const auto& prim = n->primitives[pIdx];
+                if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+                    QuadtreeItem item;
+                    item.node = n;
+                    item.primitiveIndex = pIdx;
+
+                    // Compute primitive world-space bounding box
+                    core::AABB primWorldAABB;
+                    glm::vec3 c = prim.boundingBox.Center();
+                    glm::vec3 e = prim.boundingBox.Extents();
+                    glm::vec3 corners[8] = {
+                        c + glm::vec3(-e.x, -e.y, -e.z),
+                        c + glm::vec3( e.x, -e.y, -e.z),
+                        c + glm::vec3(-e.x,  e.y, -e.z),
+                        c + glm::vec3( e.x,  e.y, -e.z),
+                        c + glm::vec3(-e.x, -e.y,  e.z),
+                        c + glm::vec3( e.x, -e.y,  e.z),
+                        c + glm::vec3(-e.x,  e.y,  e.z),
+                        c + glm::vec3( e.x,  e.y,  e.z)
+                    };
+                    for (const auto& corner : corners) {
+                        glm::vec4 worldCorner = n->worldTransform * glm::vec4(corner, 1.0f);
+                        primWorldAABB.Expand(glm::vec3(worldCorner));
+                    }
+                    item.aabb = primWorldAABB;
+                    if (!root_->Insert(item)) {
+                        root_->ForceInsert(item);
+                    }
+                }
+            }
+        }
+
+        for (const auto& child : n->children) {
+            self(self, child);
+        }
+    };
+    insertRecursive(insertRecursive, node);
 }
 
-void Quadtree::UpdateLOD(const glm::vec3& cameraPos) {
-    (void)cameraPos;
+void Quadtree::Clear() {
+    root_ = std::make_unique<QuadtreeNode>(worldBounds_);
 }
 
-std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos) const {
+void Quadtree::Reset(const core::AABB& worldBounds) {
+    worldBounds_ = worldBounds;
+    root_ = std::make_unique<QuadtreeNode>(worldBounds_);
+}
+
+std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const {
     std::vector<QuadtreeItem> results;
-    root_->QueryFrustum(cameraPos, results);
+    if (root_) {
+        root_->QueryFrustum(frustum, cameraPos, results);
+    }
     return results;
 }
 
-} // namespace bgl::scene
+std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos) const {
+    core::Frustum infiniteFrustum;
+    for (auto& plane : infiniteFrustum.planes) {
+        plane.normal = glm::vec3(0.0f);
+        plane.distance = 1e30f;
+    }
+    return QueryVisible(infiniteFrustum, cameraPos);
+}
 
+} // namespace bgl::scene

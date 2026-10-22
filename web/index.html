@@ -395,7 +395,7 @@
         <span>🌳</span>
         <div>
           <div>glTF Scene Graph</div>
-          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">ToyCar.glb</div>
+          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">Sponza.glb</div>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 6px;">
@@ -435,7 +435,7 @@
     let wasmExports = null;
     let wasmMemory = null;
     let currentGltf = null;
-    let currentModelName = "ToyCar.glb";
+    let currentModelName = "Sponza.glb";
     let selectedNodeIndex = null;
 
     window.updateLoadProgress = function(percent, msg) {
@@ -905,15 +905,20 @@
 
     async function loadDefaultModel() {
       try {
-        const response = await fetch("assets/ToyCar.glb");
+        let response = await fetch("assets/Sponza.glb");
+        let name = "Sponza.glb";
+        if (!response.ok) {
+          response = await fetch("assets/ToyCar.glb");
+          name = "ToyCar.glb";
+        }
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
           const gltf = extractGltfJson(arrayBuffer);
           currentGltf = gltf;
-          renderTreeAndJson(gltf, "ToyCar.glb");
+          renderTreeAndJson(gltf, name);
         }
       } catch (e) {
-        console.warn("Could not auto-fetch ToyCar.glb for tree inspector:", e);
+        console.warn("Could not auto-fetch model for tree inspector:", e);
       }
     }
 

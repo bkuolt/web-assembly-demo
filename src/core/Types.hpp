@@ -1,6 +1,6 @@
 /**
  * @file Types.hpp
- * @brief Fundamental mathematical types, AABB, Ray, Vertex, Uniforms, and Result<T>.
+ * @brief Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result<T>.
  */
 #pragma once
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <span>
 #include <vector>
 #include <glm/glm.hpp>
@@ -74,6 +75,82 @@ struct AABB {
         }
         tMinOut = tmin;
         tMaxOut = tmax;
+        return true;
+    }
+};
+
+/**
+ * @struct Plane
+ * @brief 3D plane in Hesse normal form (dot(normal, p) + distance = 0).
+ */
+struct Plane {
+    glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    float distance = 0.0f;
+
+    void Normalize() noexcept {
+        const float len = glm::length(normal);
+        if (len > 1e-6f) {
+            normal /= len;
+            distance /= len;
+        }
+    }
+
+    [[nodiscard]] float DistanceToPoint(const glm::vec3& p) const noexcept {
+        return glm::dot(normal, p) + distance;
+    }
+};
+
+/**
+ * @struct Frustum
+ * @brief 6 clipping planes extracted from a View-Projection matrix for frustum culling.
+ */
+struct Frustum {
+    std::array<Plane, 6> planes;
+
+    /**
+     * @brief Extract 6 frustum planes from a WebGPU RH_ZO (0..1 depth) view-projection matrix.
+     */
+    static Frustum FromViewProjection(const glm::mat4& vp) noexcept {
+        Frustum f;
+        // Left plane
+        f.planes[0].normal = glm::vec3(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0]);
+        f.planes[0].distance = vp[3][3] + vp[3][0];
+        // Right plane
+        f.planes[1].normal = glm::vec3(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0]);
+        f.planes[1].distance = vp[3][3] - vp[3][0];
+        // Bottom plane
+        f.planes[2].normal = glm::vec3(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1]);
+        f.planes[2].distance = vp[3][3] + vp[3][1];
+        // Top plane
+        f.planes[3].normal = glm::vec3(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1]);
+        f.planes[3].distance = vp[3][3] - vp[3][1];
+        // Near plane (WebGPU 0..1 depth)
+        f.planes[4].normal = glm::vec3(vp[0][2], vp[1][2], vp[2][2]);
+        f.planes[4].distance = vp[3][2];
+        // Far plane
+        f.planes[5].normal = glm::vec3(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2]);
+        f.planes[5].distance = vp[3][3] - vp[3][2];
+
+        for (auto& plane : f.planes) {
+            plane.Normalize();
+        }
+        return f;
+    }
+
+    /**
+     * @brief Test whether an AABB is inside or intersects the view frustum.
+     */
+    [[nodiscard]] bool IntersectsAABB(const AABB& box) const noexcept {
+        for (const auto& plane : planes) {
+            glm::vec3 p = box.minBound;
+            if (plane.normal.x >= 0.0f) p.x = box.maxBound.x;
+            if (plane.normal.y >= 0.0f) p.y = box.maxBound.y;
+            if (plane.normal.z >= 0.0f) p.z = box.maxBound.z;
+
+            if (plane.DistanceToPoint(p) < 0.0f) {
+                return false;
+            }
+        }
         return true;
     }
 };

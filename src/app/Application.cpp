@@ -21,7 +21,7 @@ Application::~Application() {
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     core::InitLogging();
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.3...");
+    BGL_LOG_INFO("Initializing bgl Engine v0.6.4...");
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -49,49 +49,73 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
         return res;
     }
 
-    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat()); !res) {
+    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         return res;
     }
 
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
-    // Auto-load ToyCar.glb if present
-    std::string toyCarPath = "";
-    if (std::filesystem::exists("assets/ToyCar.glb")) {
-        toyCarPath = "assets/ToyCar.glb";
-    } else if (std::filesystem::exists("../assets/ToyCar.glb")) {
-        toyCarPath = "../assets/ToyCar.glb";
+    // Auto-load Sponza.glb (primary) or ToyCar.glb (fallback) if present
+    std::string defaultAssetPath = "";
+    const std::vector<std::string> searchPaths = {
+        "assets/Sponza.glb",
+        "../assets/Sponza.glb",
+        "assets/ToyCar.glb",
+        "../assets/ToyCar.glb"
+    };
+    for (const auto& path : searchPaths) {
+        if (std::filesystem::exists(path)) {
+            defaultAssetPath = path;
+            break;
+        }
     }
 
-    if (!toyCarPath.empty()) {
-        BGL_LOG_INFO("Found default asset '{}', loading scene...", toyCarPath);
-        auto sceneRes = gltfLoader_->LoadFromFile(toyCarPath);
+    if (!defaultAssetPath.empty()) {
+        BGL_LOG_INFO("Found default asset '{}', loading scene...", defaultAssetPath);
+        auto sceneRes = gltfLoader_->LoadFromFile(defaultAssetPath);
         if (sceneRes) {
             activeScene_ = *sceneRes;
             pipelineManager_.PrepareScene(*activeScene_);
 
-            // Frame camera around ToyCar world AABB
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-            float targetDistance = std::max(radius * 3.0f, 0.15f);
-            camera_ = core::Camera(center, targetDistance);
-            camera_.Orbit(0.8f, 0.4f); // 3/4 isometric perspective
-            BGL_LOG_INFO("ToyCar.glb loaded: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                         center.x, center.y, center.z, radius, targetDistance);
+
+            if (defaultAssetPath.find("Sponza") != std::string::npos) {
+                // Sponza atrium camera perspective: centered in courtyard
+                glm::vec3 courtyardCenter = glm::vec3(-60.0f, 250.0f, -38.0f);
+                float camDistance = 800.0f;
+                camera_ = core::Camera(courtyardCenter, camDistance);
+                camera_.Orbit(1.2f, 0.25f);
+                BGL_LOG_INFO("Sponza.glb loaded: courtyardCenter=[{:.2f}, {:.2f}, {:.2f}], camDistance={:.2f}",
+                             courtyardCenter.x, courtyardCenter.y, courtyardCenter.z, camDistance);
+            } else {
+                float targetDistance = std::max(radius * 2.5f, 0.15f);
+                camera_ = core::Camera(center, targetDistance);
+                camera_.Orbit(0.8f, 0.4f);
+                BGL_LOG_INFO("{} loaded: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
+                             defaultAssetPath, center.x, center.y, center.z, radius, targetDistance);
+            }
+
+            // Build Quadtree spatial partitioning structure fitted to scene AABB
+            core::AABB worldBounds = activeScene_->sceneAABB;
+            glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+            worldBounds.minBound -= margin;
+            worldBounds.maxBound += margin;
+            quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
+            for (const auto& rootNode : activeScene_->rootNodes) {
+                quadtree_->Insert(rootNode);
+            }
         } else {
-            BGL_LOG_WARN("Could not load {}: {}", toyCarPath, sceneRes.error());
+            BGL_LOG_WARN("Could not load {}: {}", defaultAssetPath, sceneRes.error());
         }
     }
 
-    core::AABB worldBounds;
-    worldBounds.minBound = glm::vec3(-100.0f);
-    worldBounds.maxBound = glm::vec3(100.0f);
-    quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-    if (activeScene_) {
-        for (const auto& rootNode : activeScene_->rootNodes) {
-            quadtree_->Insert(rootNode);
-        }
+    if (!quadtree_) {
+        core::AABB worldBounds;
+        worldBounds.minBound = glm::vec3(-100.0f);
+        worldBounds.maxBound = glm::vec3(100.0f);
+        quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
     }
 
     running_ = true;
@@ -141,6 +165,16 @@ void Application::Update(float deltaTime) {
                         float targetDistance = std::max(radius * 3.0f, 0.15f);
                         camera_ = core::Camera(center, targetDistance);
                         camera_.Orbit(0.8f, 0.4f);
+
+                        core::AABB worldBounds = activeScene_->sceneAABB;
+                        glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+                        worldBounds.minBound -= margin;
+                        worldBounds.maxBound += margin;
+                        quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
+                        for (const auto& rootNode : activeScene_->rootNodes) {
+                            quadtree_->Insert(rootNode);
+                        }
+
                         BGL_LOG_INFO("Successfully loaded dropped model: {}", droppedFile);
                     }
                     SDL_free(droppedFile);
@@ -173,10 +207,10 @@ void Application::Render() {
     skybox_.Render(vp);
 
     if (activeScene_) {
-        pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), false);
+        pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), false, quadtree_.get());
 
         if (showBoundingBoxes_) {
-            pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), true);
+            pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), true, quadtree_.get());
         }
     }
 
@@ -195,6 +229,16 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
             float targetDistance = std::max(radius * 3.0f, 0.15f);
             camera_ = core::Camera(center, targetDistance);
             camera_.Orbit(0.8f, 0.4f);
+
+            core::AABB worldBounds = activeScene_->sceneAABB;
+            glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+            worldBounds.minBound -= margin;
+            worldBounds.maxBound += margin;
+            quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
+            for (const auto& rootNode : activeScene_->rootNodes) {
+                quadtree_->Insert(rootNode);
+            }
+
             BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
         } else {
             BGL_LOG_ERROR("Failed to load dropped glTF file: {}", res.error());

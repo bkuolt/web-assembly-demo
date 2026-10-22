@@ -11,6 +11,8 @@
 namespace bgl::scene {
 struct Scene;
 class SceneNode;
+struct MeshPrimitive;
+class Quadtree;
 }
 
 namespace bgl::gpu {
@@ -68,17 +70,19 @@ public:
     PipelineManager() = default;
     ~PipelineManager();
 
-    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat);
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount = 4);
 
     void PrepareScene(scene::Scene& scene);
-    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false);
+    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr);
 
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
 private:
-    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe);
+    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe);
+    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum);
 
     bool initialized_ = false;
+    uint32_t sampleCount_ = 4;
     WGPUDevice device_ = nullptr;
     WGPUQueue queue_ = nullptr;
     WGPUTextureFormat surfaceFormat_ = WGPUTextureFormat_BGRA8Unorm;

@@ -73,7 +73,6 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
     const auto& asset = gltf.get();
     auto scene = std::make_shared<Scene>();
-    auto* mr = assetManager_.GetScratchArena().GetResource();
 
     // 1. Detailed Logging: Buffers & BufferViews
     BGL_LOG_INFO("[glTF Loader] --- Buffers ({} total) ---", asset.buffers.size());
@@ -367,7 +366,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
             for (const auto& prim : mesh.primitives) {
                 if (prim.type != fastgltf::PrimitiveType::Triangles) continue;
 
-                MeshPrimitive meshPrim(mr);
+                MeshPrimitive meshPrim;
                 if (prim.materialIndex.has_value()) {
                     meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
                 }

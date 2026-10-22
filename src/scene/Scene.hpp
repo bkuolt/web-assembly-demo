@@ -97,7 +97,7 @@ struct MeshPrimitive {
     WGPUBuffer gpuUniformBuffer = nullptr;
     WGPUBindGroup gpuBindGroup = nullptr;
 
-    explicit MeshPrimitive(std::pmr::memory_resource* mr)
+    explicit MeshPrimitive(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
         : vertices(mr), indices(mr) {}
 
     MeshPrimitive(MeshPrimitive&& other) noexcept

@@ -5,8 +5,10 @@
 #include "gpu/Pipeline.hpp"
 #include "gpu/Shaders.hpp"
 #include "scene/Scene.hpp"
+#include "scene/Quadtree.hpp"
 #include "core/Log.hpp"
 #include <cstring>
+#include <cmath>
 #include <algorithm>
 
 namespace bgl::gpu {
@@ -54,10 +56,11 @@ PipelineManager::~PipelineManager() {
     }
 }
 
-core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat) {
+core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount) {
     device_ = device;
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;
+    sampleCount_ = sampleCount;
     if (!device_ || !queue_) {
         return std::unexpected("Cannot initialize PipelineManager without valid WGPUDevice and WGPUQueue");
     }
@@ -187,6 +190,9 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     rpDesc.primitive.cullMode = WGPUCullMode_None;
     rpDesc.depthStencil = &depthStencil;
+    rpDesc.multisample.count = sampleCount_;
+    rpDesc.multisample.mask = 0xFFFFFFFF;
+    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
     opaquePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
 
@@ -211,6 +217,9 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wfRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
         wfRpDesc.primitive.cullMode = WGPUCullMode_None;
         wfRpDesc.depthStencil = &wfDepthStencil;
+        wfRpDesc.multisample.count = sampleCount_;
+        wfRpDesc.multisample.mask = 0xFFFFFFFF;
+        wfRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
         wireframePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
         wgpuShaderModuleRelease(wfShaderModule);
@@ -267,7 +276,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     defaultBlackTexture_ = blackTex;
     defaultBlackTextureView_ = blackView;
 
-    // 10. Create Default Filtering Sampler
+    // 10. Create Default Filtering Sampler (16x Anisotropic + Trilinear Mipmap Filtering)
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     sampDesc.addressModeU = WGPUAddressMode_Repeat;
     sampDesc.addressModeV = WGPUAddressMode_Repeat;
@@ -275,6 +284,9 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     sampDesc.magFilter = WGPUFilterMode_Linear;
     sampDesc.minFilter = WGPUFilterMode_Linear;
     sampDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+    sampDesc.lodMinClamp = 0.0f;
+    sampDesc.lodMaxClamp = 32.0f;
+    sampDesc.maxAnisotropy = 16;
     defaultSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
     initialized_ = (opaquePipeline_ != nullptr);
@@ -282,24 +294,59 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     return {};
 }
 
+static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH) {
+    std::vector<uint8_t> dst(dstW * dstH * 4);
+    for (uint32_t y = 0; y < dstH; ++y) {
+        for (uint32_t x = 0; x < dstW; ++x) {
+            uint32_t srcX0 = std::min(x * 2, srcW - 1);
+            uint32_t srcX1 = std::min(x * 2 + 1, srcW - 1);
+            uint32_t srcY0 = std::min(y * 2, srcH - 1);
+            uint32_t srcY1 = std::min(y * 2 + 1, srcH - 1);
+
+            const uint8_t* p00 = src + (srcY0 * srcW + srcX0) * 4;
+            const uint8_t* p10 = src + (srcY0 * srcW + srcX1) * 4;
+            const uint8_t* p01 = src + (srcY1 * srcW + srcX0) * 4;
+            const uint8_t* p11 = src + (srcY1 * srcW + srcX1) * 4;
+
+            size_t dstIdx = (y * dstW + x) * 4;
+            for (int c = 0; c < 4; ++c) {
+                uint32_t sum = static_cast<uint32_t>(p00[c]) +
+                               static_cast<uint32_t>(p10[c]) +
+                               static_cast<uint32_t>(p01[c]) +
+                               static_cast<uint32_t>(p11[c]);
+                dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
+            }
+        }
+    }
+    return dst;
+}
+
 void PipelineManager::PrepareScene(scene::Scene& scene) {
     if (!device_ || !queue_ || !bindGroupLayout_) return;
 
-    // 1. Upload CPU decoded images to WebGPU Textures
+    // 1. Upload CPU decoded images to WebGPU Textures with full mipmap pyramid
     for (size_t i = 0; i < scene.cpuImages.size(); ++i) {
         const auto& img = scene.cpuImages[i];
         if (img.width == 0 || img.height == 0 || img.rgba.empty()) continue;
 
         if (i < scene.gpuTextures.size() && scene.gpuTextures[i].view == nullptr) {
+            uint32_t maxDim = std::max(img.width, img.height);
+            uint32_t mipLevels = 1;
+            while ((maxDim >> mipLevels) > 0) {
+                mipLevels++;
+            }
+
             WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
             texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
             texDesc.dimension = WGPUTextureDimension_2D;
             texDesc.size = WGPUExtent3D{ img.width, img.height, 1 };
             texDesc.format = WGPUTextureFormat_RGBA8Unorm;
-            texDesc.mipLevelCount = 1;
+            texDesc.mipLevelCount = mipLevels;
             texDesc.sampleCount = 1;
+            texDesc.label = WGPUStringView{ "glTF_Texture", strlen("glTF_Texture") };
             WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
 
+            // Mip 0 upload
             WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
             copyDst.texture = tex;
             copyDst.mipLevel = 0;
@@ -314,6 +361,36 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             WGPUExtent3D writeSize = { img.width, img.height, 1 };
             wgpuQueueWriteTexture(queue_, &copyDst, img.rgba.data(), img.rgba.size(), &dataLayout, &writeSize);
 
+            // Generate downsampled mips and upload to GPU
+            std::vector<uint8_t> prevMip = img.rgba;
+            uint32_t prevW = img.width;
+            uint32_t prevH = img.height;
+
+            for (uint32_t level = 1; level < mipLevels; ++level) {
+                uint32_t curW = std::max(1u, prevW / 2);
+                uint32_t curH = std::max(1u, prevH / 2);
+
+                std::vector<uint8_t> curMip = GenerateNextMipLevel(prevMip.data(), prevW, prevH, curW, curH);
+
+                WGPUTexelCopyTextureInfo mipCopyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+                mipCopyDst.texture = tex;
+                mipCopyDst.mipLevel = level;
+                mipCopyDst.origin = WGPUOrigin3D{ 0, 0, 0 };
+                mipCopyDst.aspect = WGPUTextureAspect_All;
+
+                WGPUTexelCopyBufferLayout mipDataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+                mipDataLayout.offset = 0;
+                mipDataLayout.bytesPerRow = curW * 4;
+                mipDataLayout.rowsPerImage = curH;
+
+                WGPUExtent3D mipWriteSize = { curW, curH, 1 };
+                wgpuQueueWriteTexture(queue_, &mipCopyDst, curMip.data(), curMip.size(), &mipDataLayout, &mipWriteSize);
+
+                prevMip = std::move(curMip);
+                prevW = curW;
+                prevH = curH;
+            }
+
             WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
 
             scene.gpuTextures[i].texture = tex;
@@ -321,8 +398,8 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm), wrote {} bytes to GPU (Handle: {:p})",
-                         i, img.width, img.height, img.rgba.size(), static_cast<void*>(tex));
+            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm, {} Mip Levels, 16x Aniso), wrote {} bytes to GPU (Handle: {:p})",
+                         i, img.width, img.height, mipLevels, img.rgba.size(), static_cast<void*>(tex));
         }
     }
 
@@ -474,80 +551,99 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
     }
 }
 
-void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe) {
+void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, const scene::Quadtree* spatialIndex) {
     if (!pass || !initialized_) return;
 
     WGPURenderPipeline activePipeline = wireframe && wireframePipeline_ ? wireframePipeline_ : opaquePipeline_;
     wgpuRenderPassEncoderSetPipeline(pass, activePipeline);
 
-    for (const auto& rootNode : scene.rootNodes) {
-        if (rootNode) {
-            RenderNode(pass, scene, *rootNode, viewProj, glm::mat4(1.0f), cameraPos, wireframe);
+    core::Frustum frustum = core::Frustum::FromViewProjection(viewProj);
+
+    if (spatialIndex) {
+        auto visibleItems = spatialIndex->QueryVisible(frustum, cameraPos);
+        for (const auto& item : visibleItems) {
+            if (!item.node || item.primitiveIndex >= item.node->primitives.size()) continue;
+            auto& prim = item.node->primitives[item.primitiveIndex];
+            RenderPrimitive(pass, scene, prim, item.node->worldTransform, viewProj, cameraPos, wireframe);
+        }
+    } else {
+        for (const auto& rootNode : scene.rootNodes) {
+            if (rootNode) {
+                RenderNode(pass, scene, *rootNode, viewProj, glm::mat4(1.0f), cameraPos, wireframe, frustum);
+            }
         }
     }
 }
 
-void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe) {
+void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum) {
     glm::mat4 worldMat = parentTransform * node.localTransform;
 
+    if (node.worldAABB.minBound.x <= node.worldAABB.maxBound.x && !frustum.IntersectsAABB(node.worldAABB)) {
+        return; // Hierarchical frustum culling
+    }
+
     for (auto& prim : node.primitives) {
-        if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer) continue;
-
-        PrimitiveUniforms uniforms;
-        uniforms.viewProj = viewProj;
-        uniforms.model = worldMat;
-        uniforms.cameraPos = glm::vec4(cameraPos, 1.0f);
-        uniforms.lightDir = glm::normalize(glm::vec4(0.5f, 1.0f, 0.8f, 0.0f));
-
-        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-            const auto& mat = scene.materials[prim.materialIndex];
-            uniforms.baseColorFactor = mat.baseColorFactor;
-            uniforms.metallicFactor = mat.metallicFactor;
-            uniforms.roughnessFactor = mat.roughnessFactor;
-            uniforms.normalScale = mat.normalScale;
-            uniforms.occlusionStrength = mat.occlusionStrength;
-            uniforms.emissiveFactor = glm::vec4(mat.emissiveFactor, mat.emissiveStrength);
-            uniforms.alphaCutoff = mat.alphaCutoff;
-            uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
-            uniforms.ior = mat.ior;
-            uniforms.clearcoatFactor = mat.clearcoatFactor;
-            uniforms.clearcoatRoughness = mat.clearcoatRoughnessFactor;
-            uniforms.transmissionFactor = mat.transmissionFactor;
-            uniforms.specularFactor = mat.specularFactor;
-            uniforms.sheenColorFactor = glm::vec4(mat.sheenColorFactor, mat.sheenRoughnessFactor);
-            uniforms.specularColorFactor = glm::vec4(mat.specularColorFactor, 0.0f);
-
-            uint32_t flags = 0;
-            if (mat.baseColorTextureIndex >= 0) flags |= MaterialFlags::HasBaseColorTex;
-            if (mat.metallicRoughnessTextureIndex >= 0) flags |= MaterialFlags::HasMetallicRoughnessTex;
-            if (mat.normalTextureIndex >= 0) flags |= MaterialFlags::HasNormalTex;
-            if (mat.emissiveTextureIndex >= 0) flags |= MaterialFlags::HasEmissiveTex;
-            if (mat.occlusionTextureIndex >= 0) flags |= MaterialFlags::HasOcclusionTex;
-            if (mat.clearcoatTextureIndex >= 0) flags |= MaterialFlags::HasClearcoatTex;
-            if (mat.transmissionTextureIndex >= 0) flags |= MaterialFlags::HasTransmissionTex;
-            if (mat.sheenColorTextureIndex >= 0) flags |= MaterialFlags::HasSheenTex;
-            if (mat.unlit) flags |= MaterialFlags::Unlit;
-            if (mat.doubleSided) flags |= MaterialFlags::DoubleSided;
-            uniforms.flags = flags;
-        }
-
-        wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
-
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
-        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
-
-        if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-            wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
-            wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
-        } else {
-            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
-        }
+        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe);
     }
 
     for (const auto& child : node.children) {
         if (child) {
-            RenderNode(pass, scene, *child, viewProj, worldMat, cameraPos, wireframe);
+            RenderNode(pass, scene, *child, viewProj, worldMat, cameraPos, wireframe, frustum);
         }
+    }
+}
+
+void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe) {
+    if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer) return;
+
+    PrimitiveUniforms uniforms;
+    uniforms.viewProj = viewProj;
+    uniforms.model = worldMat;
+    uniforms.cameraPos = glm::vec4(cameraPos, 1.0f);
+    uniforms.lightDir = glm::normalize(glm::vec4(0.5f, 1.0f, 0.8f, 0.0f));
+
+    if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+        const auto& mat = scene.materials[prim.materialIndex];
+        uniforms.baseColorFactor = mat.baseColorFactor;
+        uniforms.metallicFactor = mat.metallicFactor;
+        uniforms.roughnessFactor = mat.roughnessFactor;
+        uniforms.normalScale = mat.normalScale;
+        uniforms.occlusionStrength = mat.occlusionStrength;
+        uniforms.emissiveFactor = glm::vec4(mat.emissiveFactor, mat.emissiveStrength);
+        uniforms.alphaCutoff = mat.alphaCutoff;
+        uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
+        uniforms.ior = mat.ior;
+        uniforms.clearcoatFactor = mat.clearcoatFactor;
+        uniforms.clearcoatRoughness = mat.clearcoatRoughnessFactor;
+        uniforms.transmissionFactor = mat.transmissionFactor;
+        uniforms.specularFactor = mat.specularFactor;
+        uniforms.sheenColorFactor = glm::vec4(mat.sheenColorFactor, mat.sheenRoughnessFactor);
+        uniforms.specularColorFactor = glm::vec4(mat.specularColorFactor, 0.0f);
+
+        uint32_t flags = 0;
+        if (mat.baseColorTextureIndex >= 0) flags |= MaterialFlags::HasBaseColorTex;
+        if (mat.metallicRoughnessTextureIndex >= 0) flags |= MaterialFlags::HasMetallicRoughnessTex;
+        if (mat.normalTextureIndex >= 0) flags |= MaterialFlags::HasNormalTex;
+        if (mat.emissiveTextureIndex >= 0) flags |= MaterialFlags::HasEmissiveTex;
+        if (mat.occlusionTextureIndex >= 0) flags |= MaterialFlags::HasOcclusionTex;
+        if (mat.clearcoatTextureIndex >= 0) flags |= MaterialFlags::HasClearcoatTex;
+        if (mat.transmissionTextureIndex >= 0) flags |= MaterialFlags::HasTransmissionTex;
+        if (mat.sheenColorTextureIndex >= 0) flags |= MaterialFlags::HasSheenTex;
+        if (mat.unlit) flags |= MaterialFlags::Unlit;
+        if (mat.doubleSided) flags |= MaterialFlags::DoubleSided;
+        uniforms.flags = flags;
+    }
+
+    wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
+
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
+
+    if (prim.gpuIndexBuffer && !prim.indices.empty()) {
+        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
+        wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
+    } else {
+        wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
     }
 }
 

@@ -1,6 +1,6 @@
 /**
  * @file Quadtree.hpp
- * @brief Spatial XZ-plane partitioning, frustum culling, and LOD selection.
+ * @brief Spatial XZ-plane partitioning, view frustum culling, and LOD selection.
  */
 #pragma once
 
@@ -25,6 +25,7 @@ enum class LODLevel : uint8_t {
  */
 struct QuadtreeItem {
     std::shared_ptr<SceneNode> node;
+    size_t primitiveIndex = 0;
     core::AABB aabb;
     LODLevel currentLOD = LODLevel::LOD0;
 };
@@ -41,9 +42,12 @@ public:
     QuadtreeNode(const core::AABB& bounds, size_t depth = 0);
 
     bool Insert(const QuadtreeItem& item);
-    void QueryFrustum(const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const;
+    void ForceInsert(const QuadtreeItem& item) { items_.push_back(item); }
+    void QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const;
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
+    [[nodiscard]] const std::vector<QuadtreeItem>& GetItems() const noexcept { return items_; }
+    [[nodiscard]] bool IsLeaf() const noexcept { return isLeaf_; }
 
 private:
     void Subdivide();
@@ -57,19 +61,22 @@ private:
 
 /**
  * @class Quadtree
- * @brief Root spatial manager for scene LOD selection and culling.
+ * @brief Root spatial manager for scene frustum culling and LOD selection.
  */
 class Quadtree {
 public:
     explicit Quadtree(const core::AABB& worldBounds);
 
     void Insert(std::shared_ptr<SceneNode> node);
-    void UpdateLOD(const glm::vec3& cameraPos);
+    void Clear();
+    void Reset(const core::AABB& worldBounds);
+
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
 
 private:
+    core::AABB worldBounds_;
     std::unique_ptr<QuadtreeNode> root_;
 };
 
 } // namespace bgl::scene
-

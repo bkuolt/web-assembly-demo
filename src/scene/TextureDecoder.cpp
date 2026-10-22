@@ -171,21 +171,48 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> data, std::string_view mimeOrPath) {
-    if (mimeOrPath.ends_with(".webp") || mimeOrPath.find("webp") != std::string_view::npos) {
+    if (data.empty()) {
+        return std::unexpected("Cannot decode empty image buffer");
+    }
+
+    // 1. Content-based magic byte detection (uniquely robust regardless of glTF naming)
+    // PNG magic: 0x89 'P' 'N' 'G' 0x0D 0x0A 0x1A 0x0A
+    if (data.size() >= 8 && png_check_sig(data.data(), 8)) {
+        return DecodePNG(data);
+    }
+    // JPEG magic: 0xFF 0xD8 0xFF
+    if (data.size() >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) {
+        return DecodeJPEG(data);
+    }
+    // WebP magic: 'RIFF' .... 'WEBP'
+    if (data.size() >= 12 &&
+        data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F' &&
+        data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P') {
         return DecodeWebP(data);
     }
+    // KTX2 magic: 0xAB 'K' 'T' 'X' ' ' '2' '0' 0xBB 0x0D 0x0A 0x1A 0x0A
+    if (data.size() >= 12 && data[0] == 0xAB && data[1] == 'K' && data[2] == 'T' && data[3] == 'X') {
+        return DecodeKTX2(data);
+    }
+
+    // 2. MIME type or file extension hints
     if (mimeOrPath.ends_with(".png") || mimeOrPath.find("png") != std::string_view::npos) {
         return DecodePNG(data);
     }
     if (mimeOrPath.ends_with(".jpg") || mimeOrPath.ends_with(".jpeg") || mimeOrPath.find("jpeg") != std::string_view::npos) {
         return DecodeJPEG(data);
     }
+    if (mimeOrPath.ends_with(".webp") || mimeOrPath.find("webp") != std::string_view::npos) {
+        return DecodeWebP(data);
+    }
     if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.find("ktx") != std::string_view::npos) {
         return DecodeKTX2(data);
     }
-    if (data.size() >= 8 && png_check_sig(data.data(), 8)) {
-        return DecodePNG(data);
-    }
+
+    // 3. Fallback attempts: try JPEG first, then WebP
+    auto jpegRes = DecodeJPEG(data);
+    if (jpegRes) return jpegRes;
+
     return DecodeWebP(data);
 }
 
