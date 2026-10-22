@@ -1,6 +1,6 @@
 /**
  * @file Shaders.hpp
- * @brief Embedded WGSL PBR, IBL, and Wireframe/Bounding-Box Shaders.
+ * @brief Embedded WGSL PBR and Wireframe/Bounding-Box Shaders.
  */
 #pragma once
 
@@ -17,6 +17,7 @@ struct Uniforms {
     model : mat4x4<f32>,
     cameraPos : vec4<f32>,
     lightDir : vec4<f32>,
+    baseColorFactor : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -55,13 +56,16 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let V = normalize(ubo.cameraPos.xyz - in.worldPos);
     let H = normalize(L + V);
 
-    let NdotL = max(dot(N, L), 0.1);
+    // Two-sided lighting
+    let NdotL = max(abs(dot(N, L)), 0.25);
     let NdotH = max(dot(N, H), 0.0);
-    let spec = pow(NdotH, 32.0) * 0.4;
+    let spec = pow(NdotH, 32.0) * 0.35;
 
-    let baseColor = textureSample(baseColorTexture, baseColorSampler, in.uv);
-    let diffuse = baseColor.rgb * NdotL;
-    let finalColor = diffuse + vec3<f32>(spec);
+    let texColor = textureSample(baseColorTexture, baseColorSampler, in.uv);
+    let baseColor = texColor * ubo.baseColorFactor;
+    let ambient = baseColor.rgb * 0.35;
+    let diffuse = baseColor.rgb * NdotL * 0.65;
+    let finalColor = ambient + diffuse + vec3<f32>(spec);
 
     return vec4<f32>(finalColor, baseColor.a);
 }
@@ -76,55 +80,45 @@ struct Uniforms {
     model : mat4x4<f32>,
     cameraPos : vec4<f32>,
     lightDir : vec4<f32>,
+    baseColorFactor : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
+@group(0) @binding(1) var baseColorTexture : texture_2d<f32>;
+@group(0) @binding(2) var baseColorSampler : sampler;
+
+struct VertexInput {
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) tangent : vec4<f32>,
+    @location(3) uv : vec2<f32>,
+};
 
 @vertex
-fn vs_main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
-    return ubo.viewProj * ubo.model * vec4<f32>(position, 1.0);
+fn vs_main(in : VertexInput) -> @builtin(position) vec4<f32> {
+    return ubo.viewProj * ubo.model * vec4<f32>(in.position, 1.0);
 }
 
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
-    return vec4<f32>(0.2, 0.9, 0.3, 1.0); // Vibrant neon green wireframe
+    return vec4<f32>(0.2, 0.95, 0.3, 1.0);
 }
 )";
 
-/**
- * @brief Skybox cube shader with environmental reflection.
- */
 inline constexpr std::string_view kSkyboxShaderWGSL = R"(
 struct Uniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
-    cameraPos : vec4<f32>,
-    lightDir : vec4<f32>,
 };
-
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
-@group(0) @binding(1) var skyboxTexture : texture_cube<f32>;
-@group(0) @binding(2) var skyboxSampler : sampler;
-
-struct VertexOutput {
-    @builtin(position) position : vec4<f32>,
-    @location(0) uvw : vec3<f32>,
-};
-
 @vertex
-fn vs_main(@location(0) position : vec3<f32>) -> VertexOutput {
-    var out : VertexOutput;
-    out.uvw = position;
-    var p = ubo.viewProj * vec4<f32>(position, 0.0);
-    out.position = p.xyww; // Force depth to 1.0 (far plane)
-    return out;
+fn vs_main(@location(0) position : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return ubo.viewProj * vec4<f32>(position, 1.0);
 }
-
 @fragment
-fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(skyboxTexture, skyboxSampler, in.uvw);
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.1, 0.12, 0.18, 1.0);
 }
 )";
 
 } // namespace bgl::gpu
-

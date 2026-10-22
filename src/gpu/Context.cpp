@@ -17,6 +17,14 @@ Context::Context() = default;
 
 Context::~Context() {
 #if defined(BGL_PLATFORM_NATIVE)
+    if (depthView_) {
+        wgpuTextureViewRelease(depthView_);
+        depthView_ = nullptr;
+    }
+    if (depthTexture_) {
+        wgpuTextureRelease(depthTexture_);
+        depthTexture_ = nullptr;
+    }
     if (queue_) {
         wgpuQueueRelease(queue_);
         queue_ = nullptr;
@@ -40,6 +48,34 @@ Context::~Context() {
 #endif
     initialized_ = false;
     BGL_LOG_INFO("Native WebGPU Context cleanly shut down.");
+}
+
+void Context::CreateDepthBuffer() {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (depthView_) {
+        wgpuTextureViewRelease(depthView_);
+        depthView_ = nullptr;
+    }
+    if (depthTexture_) {
+        wgpuTextureRelease(depthTexture_);
+        depthTexture_ = nullptr;
+    }
+    if (!device_ || width_ == 0 || height_ == 0) return;
+
+    WGPUTextureDescriptor depthDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    depthDesc.usage = WGPUTextureUsage_RenderAttachment;
+    depthDesc.dimension = WGPUTextureDimension_2D;
+    depthDesc.size = WGPUExtent3D{ width_, height_, 1 };
+    depthDesc.format = WGPUTextureFormat_Depth24Plus;
+    depthDesc.mipLevelCount = 1;
+    depthDesc.sampleCount = 1;
+
+    depthTexture_ = wgpuDeviceCreateTexture(device_, &depthDesc);
+    if (depthTexture_) {
+        depthView_ = wgpuTextureCreateView(depthTexture_, nullptr);
+        BGL_LOG_INFO("WebGPU Depth Buffer created ({}x{}, format: Depth24Plus)", width_, height_);
+    }
+#endif
 }
 
 core::Result<void> Context::Initialize(const ContextConfig& config) {
@@ -171,6 +207,8 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         wgpuSurfaceConfigure(surface_, &configSurface);
         BGL_LOG_INFO("WebGPU Surface configured ({}x{}, format: {})", width_, height_, static_cast<int>(format_));
     }
+
+    CreateDepthBuffer();
 #endif
 
     initialized_ = true;
@@ -179,6 +217,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
 }
 
 void Context::Resize(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) return;
     width_ = width;
     height_ = height;
 #if defined(BGL_PLATFORM_NATIVE)
@@ -193,52 +232,100 @@ void Context::Resize(uint32_t width, uint32_t height) {
         configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
         wgpuSurfaceConfigure(surface_, &configSurface);
     }
+    CreateDepthBuffer();
 #endif
     BGL_LOG_INFO("WebGPU Surface resized to {}x{}", width, height);
 }
 
-void Context::BeginFrame() {
-    // Frame pass begun
+WGPURenderPassEncoder Context::BeginFrame() {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!surface_ || !device_ || !queue_) return nullptr;
+
+    surfaceTexture_ = {};
+    wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
+    if (surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Timeout ||
+        surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
+        WGPUSurfaceConfiguration configSurface = {};
+        configSurface.device = device_;
+        configSurface.format = format_;
+        configSurface.usage = WGPUTextureUsage_RenderAttachment;
+        configSurface.width = width_;
+        configSurface.height = height_;
+        configSurface.presentMode = WGPUPresentMode_Fifo;
+        configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
+        wgpuSurfaceConfigure(surface_, &configSurface);
+        return nullptr;
+    }
+
+    if (surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+        surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+        return nullptr;
+    }
+
+    currentView_ = wgpuTextureCreateView(surfaceTexture_.texture, nullptr);
+    if (!currentView_) {
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
+        return nullptr;
+    }
+
+    encoder_ = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+
+    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAttachment.view = currentView_;
+    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    colorAttachment.loadOp = WGPULoadOp_Clear;
+    colorAttachment.storeOp = WGPUStoreOp_Store;
+    colorAttachment.clearValue = WGPUColor{ 0.12, 0.15, 0.20, 1.0 }; // Studio neutral slate-gray
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+
+    WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    if (depthView_) {
+        depthAttachment.view = depthView_;
+        depthAttachment.depthLoadOp = WGPULoadOp_Clear;
+        depthAttachment.depthStoreOp = WGPUStoreOp_Store;
+        depthAttachment.depthClearValue = 1.0f;
+        depthAttachment.depthReadOnly = WGPU_FALSE;
+        passDesc.depthStencilAttachment = &depthAttachment;
+    }
+
+    return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
+#else
+    return nullptr;
+#endif
 }
 
-void Context::EndFrame() {
+void Context::EndFrame(WGPURenderPassEncoder pass) {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (surface_ && device_ && queue_) {
-        WGPUSurfaceTexture surfaceTexture = {};
-        wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture);
-        if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
-            surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+    if (pass) {
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+    }
 
-            WGPUTextureView currentView = wgpuTextureCreateView(surfaceTexture.texture, nullptr);
-            if (currentView) {
-                WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+    if (encoder_) {
+        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder_, nullptr);
+        wgpuCommandEncoderRelease(encoder_);
+        encoder_ = nullptr;
 
-                WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-                colorAttachment.view = currentView;
-                colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-                colorAttachment.loadOp = WGPULoadOp_Clear;
-                colorAttachment.storeOp = WGPUStoreOp_Store;
-                colorAttachment.clearValue = WGPUColor{ 0.08, 0.12, 0.18, 1.0 };
+        wgpuQueueSubmit(queue_, 1, &cmdBuf);
+        wgpuCommandBufferRelease(cmdBuf);
+    }
 
-                WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-                passDesc.colorAttachmentCount = 1;
-                passDesc.colorAttachments = &colorAttachment;
+    if (surface_) {
+        wgpuSurfacePresent(surface_);
+    }
 
-                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-                wgpuRenderPassEncoderEnd(pass);
-                wgpuRenderPassEncoderRelease(pass);
+    if (currentView_) {
+        wgpuTextureViewRelease(currentView_);
+        currentView_ = nullptr;
+    }
 
-                WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, nullptr);
-                wgpuCommandEncoderRelease(encoder);
-
-                wgpuQueueSubmit(queue_, 1, &cmdBuf);
-                wgpuCommandBufferRelease(cmdBuf);
-                wgpuTextureViewRelease(currentView);
-            }
-
-            wgpuTextureRelease(surfaceTexture.texture);
-            wgpuSurfacePresent(surface_);
-        }
+    if (surfaceTexture_.texture) {
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
     }
 #endif
 }

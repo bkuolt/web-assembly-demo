@@ -28,6 +28,7 @@ public:
     [[nodiscard]] glm::mat4 GetViewProjectionMatrix() const noexcept { return projMatrix_ * viewMatrix_; }
     [[nodiscard]] glm::vec3 GetPosition() const noexcept { return position_; }
     [[nodiscard]] glm::vec3 GetTarget() const noexcept { return target_; }
+    [[nodiscard]] float GetDistance() const noexcept { return distance_; }
 
     /**
      * @brief Unproject screen coordinates (normalized 0..1) into a 3D ray in world space.
@@ -49,4 +50,3 @@ private:
 };
 
 } // namespace bgl::core
-

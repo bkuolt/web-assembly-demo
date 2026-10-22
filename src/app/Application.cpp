@@ -1,9 +1,11 @@
 /**
  * @file Application.cpp
- * @brief Implementation of Application runtime loop.
+ * @brief Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration.
  */
 #include "app/Application.hpp"
 #include "core/Log.hpp"
+#include <filesystem>
+#include <algorithm>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <SDL2/SDL.h>
@@ -18,25 +20,23 @@ Application::~Application() {
 }
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
-    core::InitLogging("info");
+    core::InitLogging();
     BGL_LOG_INFO("Initializing bgl Engine v0.6.0...");
 
 #if defined(BGL_PLATFORM_NATIVE)
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
-        BGL_LOG_WARN("SDL_Init warning: {}", SDL_GetError());
-    } else {
-        SDL_Window* window = SDL_CreateWindow(
-            "bgl_viewer - C++23 WebGPU & glTF 2.1",
-            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            static_cast<int>(width), static_cast<int>(height),
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL
-        );
-        if (window) {
-            nativeWindow_ = window;
-            BGL_LOG_INFO("Created native SDL2 window {}x{}", width, height);
-        } else {
-            BGL_LOG_WARN("Could not create SDL window: {}", SDL_GetError());
-        }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
+        return std::unexpected(std::string("Failed to initialize SDL2: ") + SDL_GetError());
+    }
+
+    SDL_Window* window = SDL_CreateWindow(
+        "bgl_viewer - C++23 WebGPU & glTF 2.1",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        static_cast<int>(width), static_cast<int>(height),
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
+    if (window) {
+        nativeWindow_ = window;
+        BGL_LOG_INFO("Created native SDL2 window {}x{}", width, height);
     }
 #endif
 
@@ -44,43 +44,43 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     cfg.width = width;
     cfg.height = height;
     cfg.nativeWindowHandle = nativeWindow_;
+
     if (auto res = gpuContext_.Initialize(cfg); !res) {
         return res;
     }
 
-    if (auto res = pipelineManager_.Initialize(); !res) {
+    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat()); !res) {
         return res;
     }
 
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
-    // Auto-load ToyCar.glb if present in assets/
+    // Auto-load ToyCar.glb if present
+    std::string toyCarPath = "";
     if (std::filesystem::exists("assets/ToyCar.glb")) {
-        BGL_LOG_INFO("Found default asset 'assets/ToyCar.glb', loading scene...");
-        auto sceneRes = gltfLoader_->LoadFromFile("assets/ToyCar.glb");
+        toyCarPath = "assets/ToyCar.glb";
+    } else if (std::filesystem::exists("../assets/ToyCar.glb")) {
+        toyCarPath = "../assets/ToyCar.glb";
+    }
+
+    if (!toyCarPath.empty()) {
+        BGL_LOG_INFO("Found default asset '{}', loading scene...", toyCarPath);
+        auto sceneRes = gltfLoader_->LoadFromFile(toyCarPath);
         if (sceneRes) {
             activeScene_ = *sceneRes;
+            pipelineManager_.PrepareScene(*activeScene_);
+
             // Frame camera around ToyCar world AABB
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
             float targetDistance = std::max(radius * 3.0f, 0.15f);
             camera_ = core::Camera(center, targetDistance);
+            camera_.Orbit(0.8f, 0.4f); // 3/4 isometric perspective
             BGL_LOG_INFO("ToyCar.glb loaded: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
                          center.x, center.y, center.z, radius, targetDistance);
         } else {
-            BGL_LOG_WARN("Could not load assets/ToyCar.glb: {}", sceneRes.error());
-        }
-    } else if (std::filesystem::exists("../assets/ToyCar.glb")) {
-        auto sceneRes = gltfLoader_->LoadFromFile("../assets/ToyCar.glb");
-        if (sceneRes) {
-            activeScene_ = *sceneRes;
-            glm::vec3 center = activeScene_->sceneAABB.Center();
-            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-            float targetDistance = std::max(radius * 3.0f, 0.15f);
-            camera_ = core::Camera(center, targetDistance);
-            BGL_LOG_INFO("ToyCar.glb loaded from parent: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                         center.x, center.y, center.z, radius, targetDistance);
+            BGL_LOG_WARN("Could not load {}: {}", toyCarPath, sceneRes.error());
         }
     }
 
@@ -109,6 +109,10 @@ void Application::Update(float deltaTime) {
             if (event.type == SDL_QUIT) {
                 running_ = false;
                 return;
+            } else if (event.type == SDL_WINDOWEVENT) {
+                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                    gpuContext_.Resize(static_cast<uint32_t>(event.window.data1), static_cast<uint32_t>(event.window.data2));
+                }
             } else if (event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
                     running_ = false;
@@ -120,14 +124,25 @@ void Application::Update(float deltaTime) {
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
-                camera_.Pan(-event.motion.xrel * 0.01f, event.motion.yrel * 0.01f);
+                camera_.Pan(-event.motion.xrel * 0.0005f * camera_.GetDistance(), event.motion.yrel * 0.0005f * camera_.GetDistance());
             } else if (event.type == SDL_MOUSEWHEEL) {
-                float zoomStep = std::max(camera_.GetPosition().length() * 0.1f, 1.0f);
+                float zoomStep = camera_.GetDistance() * 0.12f;
                 camera_.Zoom(event.wheel.y * zoomStep);
             } else if (event.type == SDL_DROPFILE) {
                 char* droppedFile = event.drop.file;
                 if (droppedFile) {
                     BGL_LOG_INFO("File dropped via OS: {}", droppedFile);
+                    auto sceneRes = gltfLoader_->LoadFromFile(droppedFile);
+                    if (sceneRes) {
+                        activeScene_ = *sceneRes;
+                        pipelineManager_.PrepareScene(*activeScene_);
+                        glm::vec3 center = activeScene_->sceneAABB.Center();
+                        float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
+                        float targetDistance = std::max(radius * 3.0f, 0.15f);
+                        camera_ = core::Camera(center, targetDistance);
+                        camera_.Orbit(0.8f, 0.4f);
+                        BGL_LOG_INFO("Successfully loaded dropped model: {}", droppedFile);
+                    }
                     SDL_free(droppedFile);
                 }
             }
@@ -139,9 +154,9 @@ void Application::Update(float deltaTime) {
     const auto& gp = gamepad_.GetState();
 
     if (gp.connected) {
-        camera_.Pan(gp.leftStick.x * deltaTime * 5.0f, gp.leftStick.y * deltaTime * 5.0f);
+        camera_.Pan(gp.leftStick.x * deltaTime * camera_.GetDistance(), gp.leftStick.y * deltaTime * camera_.GetDistance());
         camera_.Orbit(gp.rightStick.x * deltaTime * 2.0f, gp.rightStick.y * deltaTime * 2.0f);
-        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * 8.0f);
+        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance());
     }
 
     camera_.Update(16.0f / 9.0f);
@@ -151,20 +166,21 @@ void Application::Update(float deltaTime) {
 void Application::Render() {
     if (!running_) return;
 
-    gpuContext_.BeginFrame();
+    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
+    if (!pass) return;
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     skybox_.Render(vp);
 
     if (activeScene_) {
-        pipelineManager_.RenderScene(*activeScene_, vp, camera_.GetPosition(), false);
+        pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), false);
 
         if (showBoundingBoxes_) {
-            pipelineManager_.RenderScene(*activeScene_, vp, camera_.GetPosition(), true);
+            pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), true);
         }
     }
 
-    gpuContext_.EndFrame();
+    gpuContext_.EndFrame(pass);
 }
 
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
@@ -173,6 +189,12 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
         auto res = gltfLoader_->LoadFromMemory(data, filename);
         if (res) {
             activeScene_ = *res;
+            pipelineManager_.PrepareScene(*activeScene_);
+            glm::vec3 center = activeScene_->sceneAABB.Center();
+            float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
+            float targetDistance = std::max(radius * 3.0f, 0.15f);
+            camera_ = core::Camera(center, targetDistance);
+            camera_.Orbit(0.8f, 0.4f);
             BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
         } else {
             BGL_LOG_ERROR("Failed to load dropped glTF file: {}", res.error());
@@ -196,4 +218,3 @@ void Application::Shutdown() {
 }
 
 } // namespace bgl::app
-

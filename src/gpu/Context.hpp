@@ -23,7 +23,7 @@ struct ContextConfig {
 
 /**
  * @class Context
- * @brief RAII Manager for WebGPU Instance, Adapter, Device, Queue, and Surface.
+ * @brief RAII Manager for WebGPU Instance, Adapter, Device, Queue, Surface, and RenderPass.
  */
 class Context {
 public:
@@ -43,10 +43,12 @@ public:
     [[nodiscard]] WGPUTextureFormat GetPreferredFormat() const noexcept { return format_; }
 
     void Resize(uint32_t width, uint32_t height);
-    void BeginFrame();
-    void EndFrame();
+    WGPURenderPassEncoder BeginFrame();
+    void EndFrame(WGPURenderPassEncoder pass);
 
 private:
+    void CreateDepthBuffer();
+
     bool initialized_ = false;
     uint32_t width_ = 1280;
     uint32_t height_ = 720;
@@ -58,7 +60,13 @@ private:
     WGPUSurface surface_ = nullptr;
     WGPUTextureFormat format_ = WGPUTextureFormat_BGRA8Unorm;
 
-    void* nativeContext_ = nullptr;
+    WGPUTexture depthTexture_ = nullptr;
+    WGPUTextureView depthView_ = nullptr;
+
+    WGPUSurfaceTexture surfaceTexture_ = {};
+    WGPUTextureView currentView_ = nullptr;
+    WGPUCommandEncoder encoder_ = nullptr;
+
     void* nativeWindow_ = nullptr;
 };
 

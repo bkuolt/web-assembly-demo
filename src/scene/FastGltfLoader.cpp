@@ -1,15 +1,12 @@
 /**
  * @file FastGltfLoader.cpp
- * @brief Implementation of glTF 2.1 loader with fastgltf accessor parsing, embedded image decoding, and GPU textures.
+ * @brief Implementation of glTF 2.1 loader with fastgltf accessor parsing and embedded image decoding.
  */
 #include "scene/FastGltfLoader.hpp"
+#include "scene/TextureDecoder.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
 #include <glm/gtc/type_ptr.hpp>
-
-#if defined(BGL_PLATFORM_NATIVE)
-#include <GL/gl.h>
-#endif
 
 namespace bgl::scene {
 
@@ -33,8 +30,10 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     auto scene = std::make_shared<Scene>();
     auto* mr = assetManager_.GetScratchArena().GetResource();
 
-    // 1. Decode Embedded Images & Upload to OpenGL Textures
-    scene->gpuTextures.resize(asset.textures.size(), 0);
+    // 1. Decode Embedded Images into CPU buffers
+    scene->gpuTextures.resize(asset.textures.size());
+    scene->cpuImages.resize(asset.textures.size());
+
     for (size_t texIdx = 0; texIdx < asset.textures.size(); ++texIdx) {
         const auto& texture = asset.textures[texIdx];
         if (!texture.imageIndex.has_value()) continue;
@@ -43,6 +42,8 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         if (imgIdx >= asset.images.size()) continue;
 
         const auto& image = asset.images[imgIdx];
+        std::span<const uint8_t> rawBytes;
+
         if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
             const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
             if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
@@ -51,26 +52,38 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                     const auto& buffer = asset.buffers[bufferView.bufferIndex];
                     if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
                         const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
-                        const uint8_t* rawBytes = array.bytes.data() + bufferView.byteOffset;
-                        size_t byteCount = bufferView.byteLength;
-
-                        auto decoded = TextureDecoder::DecodePNG(std::span<const uint8_t>(rawBytes, byteCount));
-                        if (decoded) {
-#if defined(BGL_PLATFORM_NATIVE)
-                            GLuint texId = 0;
-                            glGenTextures(1, &texId);
-                            glBindTexture(GL_TEXTURE_2D, texId);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, decoded->width, decoded->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, decoded->rgbaData.data());
-                            scene->gpuTextures[texIdx] = texId;
-                            BGL_LOG_INFO("Uploaded embedded texture #{} ({}x{}) to GPU ID {}", texIdx, decoded->width, decoded->height, texId);
-#endif
-                        }
+                        rawBytes = std::span<const uint8_t>(array.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
+                    } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
+                        const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
+                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
+                    } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
+                        const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
+                        rawBytes = std::span<const uint8_t>(vec.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
                     }
                 }
+            }
+        } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
+            const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
+            rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size());
+        } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
+            const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
+            rawBytes = std::span<const uint8_t>(vec.bytes.data(), vec.bytes.size());
+        } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
+            const auto& arr = std::get<fastgltf::sources::Array>(image.data);
+            rawBytes = std::span<const uint8_t>(arr.bytes.data(), arr.bytes.size());
+        }
+
+        if (!rawBytes.empty()) {
+            auto decoded = TextureDecoder::DecodeAuto(rawBytes, image.name);
+            if (decoded) {
+                scene->cpuImages[texIdx] = CpuImage{
+                    .width = decoded->width,
+                    .height = decoded->height,
+                    .rgba = std::move(decoded->rgbaData)
+                };
+                BGL_LOG_INFO("Decoded glTF texture #{} ({}x{}, {} bytes)", texIdx, decoded->width, decoded->height, scene->cpuImages[texIdx].rgba.size());
+            } else {
+                BGL_LOG_WARN("Failed to decode glTF texture #{}: {}", texIdx, decoded.error());
             }
         }
     }
@@ -198,8 +211,8 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     }
 
     scene->Update();
-    BGL_LOG_INFO("glTF 2.1 loader parsed {} nodes, {} meshes, {} materials, {} textures. Scene bounds: [{:.2f}, {:.2f}, {:.2f}] to [{:.2f}, {:.2f}, {:.2f}]",
-                 asset.nodes.size(), asset.meshes.size(), scene->materials.size(), scene->gpuTextures.size(),
+    BGL_LOG_INFO("glTF 2.1 loader parsed {} nodes, {} meshes, {} materials, {} textures. Scene bounds: [{:.4f}, {:.4f}, {:.4f}] to [{:.4f}, {:.4f}, {:.4f}]",
+                 asset.nodes.size(), asset.meshes.size(), scene->materials.size(), scene->cpuImages.size(),
                  scene->sceneAABB.minBound.x, scene->sceneAABB.minBound.y, scene->sceneAABB.minBound.z,
                  scene->sceneAABB.maxBound.x, scene->sceneAABB.maxBound.y, scene->sceneAABB.maxBound.z);
 

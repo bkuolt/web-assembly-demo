@@ -38,7 +38,8 @@ void Camera::Update(float aspectRatio) noexcept {
     viewMatrix_ = glm::lookAt(position_, target_, glm::vec3(0.0f, 1.0f, 0.0f));
     float dynamicNear = std::min(nearPlane_, distance_ * 0.01f);
     float dynamicFar = std::max(farPlane_, distance_ * 10.0f);
-    projMatrix_ = glm::perspective(fovY_, aspectRatio, dynamicNear, dynamicFar);
+    // Use WebGPU 0..1 depth clip space
+    projMatrix_ = glm::perspectiveRH_ZO(fovY_, aspectRatio, dynamicNear, dynamicFar);
 }
 
 Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, float screenHeight) const noexcept {
@@ -46,7 +47,7 @@ Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, fl
     float ndcY = 1.0f - (2.0f * screenY) / screenHeight;
 
     glm::mat4 invVP = glm::inverse(projMatrix_ * viewMatrix_);
-    glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
     glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
 
     nearPoint /= nearPoint.w;
@@ -59,4 +60,3 @@ Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, fl
 }
 
 } // namespace bgl::core
-
