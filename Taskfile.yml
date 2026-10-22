@@ -3,6 +3,7 @@ version: '3'
 vars:
   BUILD_DIR: build/Release
   CONAN_HOME_DIR: /tmp/conan_bgl
+  WEB_PORT: 8080
 
 tasks:
   setup:
@@ -15,21 +16,38 @@ tasks:
     desc: Configure CMake using Conan toolchain and presets
     deps: [setup]
     cmds:
+      - cp -f ConanPresets.json CMakePresets.json 2>/dev/null || true
       - cmake --preset conan-release -DBGL_BUILD_TESTING=ON
 
   build:
-    desc: Build all native shared libraries and executables
-    deps: [configure]
+    desc: Build all native shared libraries, webgpu viewer and test executables
     cmds:
       - cmake --build {{.BUILD_DIR}} -j$(nproc)
+      - mkdir -p build-native
+      - cp -f {{.BUILD_DIR}}/bgl_viewer build-native/ 2>/dev/null || true
+      - cp -f {{.BUILD_DIR}}/libbgl_*.so build-native/ 2>/dev/null || true
+      - cp -f third_party/wgpu-native/lib/libwgpu_native.so build-native/ 2>/dev/null || true
 
   test:
-    desc: Run GTest test suites
+    desc: Run GTest unit test suites
     deps: [build]
     cmds:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
-  clean:
-    desc: Clean build directories
+  run-native:
+    desc: Run native WebGPU desktop viewer (bgl_viewer)
+    deps: [build]
     cmds:
-      - rm -rf build build-native build-wasm ConanPresets.json CMakeUserPresets.json
+      - LD_LIBRARY_PATH={{.BUILD_DIR}}:third_party/wgpu-native/lib:/tmp/conan_bgl/p/b/fmt15617d0094854/p/lib ./{{.BUILD_DIR}}/bgl_viewer
+
+  run-web:
+    desc: Start local HTTP web server for the WebAssembly WebGPU viewer
+    cmds:
+      - echo "Serving bgl-engine WebAssembly viewer at http://localhost:{{.WEB_PORT}}"
+      - echo "Press Ctrl+C to stop the server."
+      - python3 -m http.server {{.WEB_PORT}} --directory web
+
+  clean:
+    desc: Clean build directories and generated presets
+    cmds:
+      - rm -rf build build-native build-wasm CMakePresets.json
