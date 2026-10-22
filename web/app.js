@@ -295,13 +295,17 @@
       const icon = document.createElement('span');
       icon.className = 'tree-node-icon';
       if (node.mesh !== undefined) {
-        icon.textContent = '🚗';
+        icon.textContent = '◈';
+        icon.title = 'Mesh Geometry';
       } else if (node.camera !== undefined) {
-        icon.textContent = '📷';
+        icon.textContent = '◬';
+        icon.title = 'Camera Node';
       } else if (hasChildren) {
-        icon.textContent = '📦';
+        icon.textContent = '◆';
+        icon.title = 'Group Node';
       } else {
-        icon.textContent = '📍';
+        icon.textContent = '⊹';
+        icon.title = 'Transform Node';
       }
       row.appendChild(icon);
 
@@ -659,13 +663,13 @@
    * Instantiate WebAssembly Runtime.
    */
   async function initWasm() {
-    updateLoadProgress(30, "Fetching Wasm module...");
+    updateLoadProgress(30, "Fetching WebAssembly runtime module...");
     try {
       const memory = new WebAssembly.Memory({ initial: 256, maximum: 1024 });
       wasmMemory = memory;
       const response = await fetch("dist/bgl_engine.wasm");
       const bytes = await response.arrayBuffer();
-      updateLoadProgress(70, "Compiling Wasm...");
+      updateLoadProgress(70, "Compiling WebAssembly module...");
       const result = await WebAssembly.instantiate(bytes, {
         env: {
           memory: memory
@@ -675,11 +679,11 @@
       if (wasmExports && wasmExports.bgl_init) {
         wasmExports.bgl_init(window.innerWidth, window.innerHeight);
       }
-      updateLoadProgress(100, "WebAssembly engine active.");
+      updateLoadProgress(100, "WebAssembly engine initialized and ready.");
       console.log("[Wasm] bgl-engine initialized successfully");
     } catch (err) {
       console.error("Wasm initialization error:", err);
-      updateLoadProgress(100, "Wasm loaded.");
+      updateLoadProgress(100, "WebAssembly runtime loaded.");
     }
   }
 
@@ -687,3 +691,4 @@
   initWasm();
   loadDefaultModel();
 })();
+
