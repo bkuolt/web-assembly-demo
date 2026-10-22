@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.2] - 2026-10-22
+
+### Fixed
+- **Audio Engine (`bgl::audio::SoundEngine`):** Stored `ma_sound` instances as `std::unique_ptr<ma_sound>` in `activeSounds_` (preventing dangling internal miniaudio pointers caused by value-copying) and properly stopped/uninitialized existing sounds before reusing an ID.
+- **Web Inspector Security (`web/app.js`):** Replaced `innerHTML` assignments in `showNodeDetails` with DOM elements and `textContent` to eliminate XSS vectors, escaped node search queries via `CSS.escape()` in `filterNodes`, and ignored keyboard shortcuts when `Ctrl`/`Alt`/`Meta` modifiers are held.
+- **Wireframe Buffer Synchronization (`bgl::gpu::PipelineManager`):** Added `BatchSceneAABBs()`, `BatchQuadtreeBounds()`, and per-frame aligned dynamic vertex buffer offsets (`aabbFrameByteOffset_`) in `FlushAABBLines()` so simultaneously active Scene AABBs and Quadtree Bounds are rendered in a single batch without overwriting offset 0.
+- **Texture Decoder Hardening (`bgl::scene::TextureDecoder`):**
+  - Isolated `setjmp`/`longjmp` error-recovery scopes in `DecodePNG` and `DecodeJPEG` from C++ objects with non-trivial destructors (`std::vector`, `DecodedImage`).
+  - Added `png_set_add_alpha` for palette PNGs (`PNG_COLOR_TYPE_PALETTE`) without `tRNS` chunks so 8-bit palette textures reliably expand to 4-byte RGBA.
+  - Enforced 64-bit `size_t` dimension arithmetic and `16384x16384` dimension bounds across PNG, JPEG, WebP, and KTX2 decoders, and queried `ktxTexture_GetImageOffset` for level-0 KTX2 mip data.
+- **Ray-Picking World-Space AABB & Index Safety (`bgl::scene::RayPicker`):** Fixed `RayPicker::Pick()` to transform primitive AABBs by `worldMat` before testing ray intersection, added index buffer bounds validation, and wired interactive ray-picking (middle-click / double-click) into `Application::Update()`.
+
+### Changed
+- **glTF 2.0 Color Space, Normal Matrix & Extensions (`bgl::gpu::PipelineManager`, `bgl::scene::FastGltfLoader`):**
+  - Uploaded `baseColor`, `emissive`, and `sheen` textures as `WGPUTextureFormat_RGBA8UnormSrgb` while keeping `normal`, `metallicRoughness`, and `occlusion` maps linear (`WGPUTextureFormat_RGBA8Unorm`).
+  - Transformed vertex normals in `vs_main` using the $3\times 3$ cofactor/inverse-transpose matrix of `ubo.model` for accurate shading under non-uniform scaling, restricted backface normal flipping to `DoubleSided` materials, and removed artificial `baseColor` luminance derivative noise from materials with tangent-space normal maps.
+  - Added support for `KHR_texture_basisu` (`basisuImageIndex`) and `EXT_texture_webp` (`webpImageIndex`), enabled `fastgltf::Options::LoadExternalBuffers`, respected `asset.defaultScene`, and added `bufferView` slice bounds checks.
+- **Modern C++23 Refactoring (`bgl::gpu::Handle`, `bgl::app::Application`, `bgl::core::Gamepad`):**
+  - Introduced `bgl::gpu::Handle<T, Deleter>` in [`src/gpu/Handle.hpp`](src/gpu/Handle.hpp) for zero-overhead RAII management of WebGPU handles.
+  - Centralized scene loading in `Application::LoadScene()`, ordered `Application::Shutdown()` so WebGPU resources are released before `SDL_DestroyWindow()`, and implemented native SDL2 `SDL_GameController` polling in `Gamepad::Update()`.
+
+---
+
 ## [0.7.1] - 2026-10-22
 
 ### Changed

@@ -76,6 +76,7 @@ public:
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
+    core::Result<void> LoadScene(std::span<const uint8_t> data, std::string_view baseUri);
     core::Result<void> LoadSceneFromUri(std::string_view uri);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
     void RequestClose() noexcept { running_ = false; }

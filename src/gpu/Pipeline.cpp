@@ -22,6 +22,10 @@
 namespace bgl::gpu {
 
 PipelineManager::~PipelineManager() {
+    Shutdown();
+}
+
+void PipelineManager::Shutdown() noexcept {
     if (noMipSampler_) {
         wgpuSamplerRelease(noMipSampler_);
         noMipSampler_ = nullptr;
@@ -118,6 +122,7 @@ PipelineManager::~PipelineManager() {
         wgpuBindGroupLayoutRelease(bindGroupLayout_);
         bindGroupLayout_ = nullptr;
     }
+    initialized_ = false;
 }
 
 uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) noexcept {
@@ -957,11 +962,29 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 void PipelineManager::PrepareScene(scene::Scene& scene) {
     if (!device_ || !queue_ || !bindGroupLayout_) return;
 
-    // Identify which textures are used as normal maps for vector-renormalized mipmap filtering
+    // Identify which textures are used as normal maps (linear vector-renormalized mipmaps)
+    // and which textures are color maps in sRGB space (BaseColor, Emissive, Sheen) vs linear data maps
     std::vector<bool> isNormalTexture(scene.cpuImages.size(), false);
+    std::vector<bool> isSrgbTexture(scene.cpuImages.size(), false);
     for (const auto& mat : scene.materials) {
+        if (mat.baseColorTextureIndex >= 0 && static_cast<size_t>(mat.baseColorTextureIndex) < isSrgbTexture.size()) {
+            isSrgbTexture[mat.baseColorTextureIndex] = true;
+        }
+        if (mat.emissiveTextureIndex >= 0 && static_cast<size_t>(mat.emissiveTextureIndex) < isSrgbTexture.size()) {
+            isSrgbTexture[mat.emissiveTextureIndex] = true;
+        }
+        if (mat.sheenColorTextureIndex >= 0 && static_cast<size_t>(mat.sheenColorTextureIndex) < isSrgbTexture.size()) {
+            isSrgbTexture[mat.sheenColorTextureIndex] = true;
+        }
         if (mat.normalTextureIndex >= 0 && static_cast<size_t>(mat.normalTextureIndex) < isNormalTexture.size()) {
             isNormalTexture[mat.normalTextureIndex] = true;
+            isSrgbTexture[mat.normalTextureIndex] = false;
+        }
+        if (mat.metallicRoughnessTextureIndex >= 0 && static_cast<size_t>(mat.metallicRoughnessTextureIndex) < isSrgbTexture.size()) {
+            isSrgbTexture[mat.metallicRoughnessTextureIndex] = false;
+        }
+        if (mat.occlusionTextureIndex >= 0 && static_cast<size_t>(mat.occlusionTextureIndex) < isSrgbTexture.size()) {
+            isSrgbTexture[mat.occlusionTextureIndex] = false;
         }
     }
 
@@ -1038,7 +1061,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
             texDesc.dimension = WGPUTextureDimension_2D;
             texDesc.size = WGPUExtent3D{ img.width, img.height, 1 };
-            texDesc.format = WGPUTextureFormat_RGBA8Unorm;
+            texDesc.format = isSrgbTexture[i] ? WGPUTextureFormat_RGBA8UnormSrgb : WGPUTextureFormat_RGBA8Unorm;
             texDesc.mipLevelCount = mipLevels;
             texDesc.sampleCount = 1;
             texDesc.label = WGPUStringView{ "glTF_Texture", strlen("glTF_Texture") };
@@ -1088,8 +1111,10 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm, {} Mip Levels, NormalMap={}), wrote {} bytes to GPU",
-                         i, img.width, img.height, mipLevels, isNormalTexture[i] ? "Yes" : "No", img.rgba.size());
+            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote {} bytes to GPU",
+                         i, img.width, img.height,
+                         isSrgbTexture[i] ? "RGBA8UnormSrgb" : "RGBA8Unorm",
+                         mipLevels, isNormalTexture[i] ? "Yes" : "No", img.rgba.size());
         }
     }
 
@@ -1263,6 +1288,7 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
 
 void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, const scene::Quadtree* spatialIndex) {
     if (!pass || !initialized_) return;
+    aabbFrameByteOffset_ = 0;
 
     WGPURenderPipeline currentBoundPipeline{wireframe && wireframePipeline_ ? wireframePipeline_ : (opaqueBackCulledPipeline_ ? opaqueBackCulledPipeline_ : opaquePipeline_)};
     wgpuRenderPassEncoderSetPipeline(pass, currentBoundPipeline);
@@ -1415,31 +1441,36 @@ void PipelineManager::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4
         return;
     }
 
-    const size_t requiredBytes = batchedAabbVertices_.size() * sizeof(AabbVertex);
-    if (requiredBytes > aabbVertexBufferSize_ || !aabbVertexBuffer_) {
+    const size_t requiredBytes{batchedAabbVertices_.size() * sizeof(AabbVertex)};
+    size_t writeOffset{aabbFrameByteOffset_};
+    const size_t totalNeeded{writeOffset + requiredBytes};
+
+    if (totalNeeded > aabbVertexBufferSize_ || !aabbVertexBuffer_) {
         if (aabbVertexBuffer_) {
             wgpuBufferRelease(aabbVertexBuffer_);
             aabbVertexBuffer_ = nullptr;
         }
-        aabbVertexBufferSize_ = std::max(requiredBytes * 2, size_t(512 * 1024));
+        aabbVertexBufferSize_ = std::max(totalNeeded * 2, size_t(512 * 1024));
         WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
         vbDesc.size = aabbVertexBufferSize_;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         vbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
         aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
+        writeOffset = 0;
     }
 
-    wgpuQueueWriteBuffer(queue_, aabbVertexBuffer_, 0, batchedAabbVertices_.data(), requiredBytes);
+    wgpuQueueWriteBuffer(queue_, aabbVertexBuffer_, writeOffset, batchedAabbVertices_.data(), requiredBytes);
 
-    AabbUniforms uniforms;
+    AabbUniforms uniforms{};
     uniforms.viewProj = viewProj;
     wgpuQueueWriteBuffer(queue_, aabbUniformBuffer_, 0, &uniforms, sizeof(uniforms));
 
     wgpuRenderPassEncoderSetPipeline(pass, aabbPipeline_);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, aabbBindGroup_, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, 0, requiredBytes);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, writeOffset, requiredBytes);
     wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(batchedAabbVertices_.size()), 1, 0, 0);
 
+    aabbFrameByteOffset_ = (writeOffset + requiredBytes + 255u) & ~size_t(255u);
     batchedAabbVertices_.clear();
 }
 
@@ -1448,12 +1479,9 @@ void PipelineManager::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& a
     FlushAABBLines(pass, viewProj);
 }
 
-void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB, bool showPrimitiveAABBs) {
-    if (!pass || !aabbPipeline_) return;
-
+void PipelineManager::BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB, bool showPrimitiveAABBs) {
     if (showSceneAABB && showPrimitiveAABBs && !cachedSceneAabbVertices_.empty()) {
         batchedAabbVertices_.insert(batchedAabbVertices_.end(), cachedSceneAabbVertices_.begin(), cachedSceneAabbVertices_.end());
-        FlushAABBLines(pass, viewProj);
         return;
     }
 
@@ -1478,19 +1506,25 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
             if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f});
         }
     }
+}
 
+void PipelineManager::BatchQuadtreeBounds(const scene::Quadtree& quadtree) {
+    std::vector<core::AABB> bounds{};
+    quadtree.GetNodeBounds(bounds);
+    for (const auto& b : bounds) {
+        AppendAABBLines(b, glm::vec4{0.25f, 0.95f, 0.45f, 0.7f});
+    }
+}
+
+void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB, bool showPrimitiveAABBs) {
+    if (!pass || !aabbPipeline_) return;
+    BatchSceneAABBs(scene, showSceneAABB, showPrimitiveAABBs);
     FlushAABBLines(pass, viewProj);
 }
 
 void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj) {
     if (!pass || !aabbPipeline_) return;
-
-    std::vector<core::AABB> bounds;
-    quadtree.GetNodeBounds(bounds);
-    for (const auto& b : bounds) {
-        AppendAABBLines(b, glm::vec4(0.25f, 0.95f, 0.45f, 0.7f));
-    }
-
+    BatchQuadtreeBounds(quadtree);
     FlushAABBLines(pass, viewProj);
 }
 

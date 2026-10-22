@@ -100,6 +100,7 @@ public:
     ~PipelineManager();
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount = 4);
+    void Shutdown() noexcept;
 
     void PrepareScene(scene::Scene& scene);
     void RebuildMaterialBindGroups(scene::Scene& scene);
@@ -107,6 +108,8 @@ public:
     void RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex = nullptr);
     void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr);
     void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
+    void BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
+    void BatchQuadtreeBounds(const scene::Quadtree& quadtree);
     void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
     void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
     void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);
@@ -198,6 +201,7 @@ private:
     WGPUBuffer aabbUniformBuffer_{nullptr};
     WGPUBindGroup aabbBindGroup_{nullptr};
     size_t aabbVertexBufferSize_{0};
+    size_t aabbFrameByteOffset_{0};
     std::vector<AabbVertex> batchedAabbVertices_{};
     std::vector<AabbVertex> cachedSceneAabbVertices_{};
 

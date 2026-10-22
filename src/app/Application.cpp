@@ -30,7 +30,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     const uint32_t width{config.width};
     const uint32_t height{config.height};
-    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.7.1 ({}x{})...", width, height);
+    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.7.2 ({}x{})...", width, height);
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;
@@ -166,6 +166,28 @@ void Application::Update(float deltaTime) {
                     ToggleOcclusionCulling();
                     BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling: {}", pipelineManager_.IsOcclusionCullingEnabled());
                 }
+            } else if (event.type == SDL_MOUSEBUTTONDOWN &&
+                       (event.button.button == SDL_BUTTON_MIDDLE ||
+                        (event.button.button == SDL_BUTTON_LEFT && event.button.clicks == 2))) {
+                if (activeScene_ && gpuContext_.GetWidth() > 0 && gpuContext_.GetHeight() > 0) {
+                    const float ndcX{(2.0f * static_cast<float>(event.button.x)) / static_cast<float>(gpuContext_.GetWidth()) - 1.0f};
+                    const float ndcY{1.0f - (2.0f * static_cast<float>(event.button.y)) / static_cast<float>(gpuContext_.GetHeight())};
+                    const glm::mat4 invVP{glm::inverse(camera_.GetViewProjectionMatrix())};
+                    const glm::vec4 nearPt{invVP * glm::vec4{ndcX, ndcY, 0.0f, 1.0f}};
+                    const glm::vec4 farPt{invVP * glm::vec4{ndcX, ndcY, 1.0f, 1.0f}};
+                    const glm::vec3 worldNear{ glm::vec3{nearPt} / nearPt.w };
+                    const glm::vec3 worldFar{ glm::vec3{farPt} / farPt.w };
+                    const core::Ray pickRay{
+                        .origin = camera_.GetPosition(),
+                        .direction = glm::normalize(worldFar - worldNear)
+                    };
+                    if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
+                        BGL_LOG_INFO("[RayPicker] Picked Node '{}' (Triangle #{}) at distance {:.3f}m, worldPos=[{:.3f}, {:.3f}, {:.3f}]",
+                                     hit->hitNode ? hit->hitNode->name : "Unnamed",
+                                     hit->triangleIndex, hit->distance,
+                                     hit->hitPoint.x, hit->hitPoint.y, hit->hitPoint.z);
+                    }
+                }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
@@ -258,14 +280,15 @@ void Application::Render() {
         // 2. Hardware 4x MSAA PBR Scene Rendering (16x Aniso + Quadtree Frustum Culling)
         pipelineManager_.RenderScene(pass, *activeScene_, vp, camPos, false, quadtree_.get());
 
-        // 3. 3D Wireframe Bounding Boxes / AABBs (Gold for scene, Cyan for primitives)
+        // 3. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
         if (showBoundingBoxes_) {
-            pipelineManager_.RenderSceneAABBs(pass, *activeScene_, vp, true, true);
+            pipelineManager_.BatchSceneAABBs(*activeScene_, true, true);
         }
-
-        // 4. 3D Quadtree Spatial Partition Bounds (Emerald green for ground quadrants)
         if (showQuadtreeBounds_ && quadtree_) {
-            pipelineManager_.RenderQuadtreeBounds(pass, *quadtree_, vp);
+            pipelineManager_.BatchQuadtreeBounds(*quadtree_);
+        }
+        if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_)) {
+            pipelineManager_.FlushAABBLines(pass, vp);
         }
     }
 
@@ -309,33 +332,39 @@ void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string
     cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
 }
 
+core::Result<void> Application::LoadScene(std::span<const uint8_t> data, std::string_view baseUri) {
+    if (data.empty()) {
+        return std::unexpected("Cannot load glTF scene from empty byte buffer");
+    }
+    if (!gltfLoader_) {
+        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
+    }
+    auto sceneRes = gltfLoader_->LoadFromMemory(data, baseUri);
+    if (!sceneRes) {
+        return std::unexpected(sceneRes.error());
+    }
+    ActivateScene(*sceneRes, baseUri);
+    return {};
+}
+
 core::Result<void> Application::LoadSceneFromUri(std::string_view uri) {
     const std::string sanitizedUri{core::NetworkFetcher::SanitizeUri(uri)};
     if (sanitizedUri.empty()) {
         return std::unexpected("Cannot load empty asset URI");
     }
-    if (!gltfLoader_) {
-        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
-    }
 
     BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...",
                  core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path", sanitizedUri);
-    auto sceneRes = gltfLoader_->LoadFromFile(sanitizedUri);
-    if (!sceneRes) {
-        return std::unexpected(sceneRes.error());
+    auto fetchRes = core::NetworkFetcher::FetchSync(sanitizedUri);
+    if (!fetchRes) {
+        return std::unexpected("Failed to fetch glTF asset '" + sanitizedUri + "': " + fetchRes.error());
     }
-    ActivateScene(*sceneRes, sanitizedUri);
-    return {};
+    return LoadScene(*fetchRes, sanitizedUri);
 }
 
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
     BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
-    if (!gltfLoader_) {
-        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
-    }
-    auto res = gltfLoader_->LoadFromMemory(data, filename);
-    if (res) {
-        ActivateScene(*res, filename);
+    if (auto res = LoadScene(data, filename); res) {
         BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
     } else {
         BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", filename, res.error());
@@ -344,7 +373,13 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
 
 void Application::Shutdown() {
     if (running_ || nativeWindow_) {
+        activeScene_.reset();
+        quadtree_.reset();
+        gltfLoader_.reset();
+        skybox_.Shutdown();
+        pipelineManager_.Shutdown();
         soundEngine_.Shutdown();
+        gpuContext_.Shutdown();
 #if defined(BGL_PLATFORM_NATIVE)
         if (nativeWindow_) {
             SDL_DestroyWindow(static_cast<SDL_Window*>(nativeWindow_));

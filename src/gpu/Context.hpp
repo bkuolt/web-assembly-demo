@@ -35,6 +35,7 @@ public:
     Context& operator=(const Context&) = delete;
 
     core::Result<void> Initialize(const ContextConfig& config);
+    void Shutdown() noexcept;
 
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
     [[nodiscard]] uint32_t GetWidth() const noexcept { return width_; }

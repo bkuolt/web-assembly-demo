@@ -56,8 +56,9 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
 
         for (const auto& prim : node->primitives) {
             float t0{0.0f}, t1{0.0f};
-            if (!prim.boundingBox.Intersects(ray, t0, t1)) {
-                // Skip primitive if ray misses AABB
+            const core::AABB worldPrimAABB{prim.boundingBox.Transformed(worldMat)};
+            if (worldPrimAABB.minBound.x <= worldPrimAABB.maxBound.x && !worldPrimAABB.Intersects(ray, t0, t1)) {
+                // Skip primitive if ray misses world-space AABB
                 continue;
             }
 
@@ -91,6 +92,9 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
                     const uint32_t idx0{idxSpan[i]};
                     const uint32_t idx1{idxSpan[i + 1]};
                     const uint32_t idx2{idxSpan[i + 2]};
+                    if (idx0 >= vertSpan.size() || idx1 >= vertSpan.size() || idx2 >= vertSpan.size()) {
+                        continue;
+                    }
 
                     const glm::vec3 v0{worldMat * glm::vec4{vertSpan[idx0].position, 1.0f}};
                     const glm::vec3 v1{worldMat * glm::vec4{vertSpan[idx1].position, 1.0f}};

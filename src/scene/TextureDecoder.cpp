@@ -54,6 +54,138 @@ static void JpegErrorExit(j_common_ptr cinfo) {
 
 namespace bgl::scene {
 
+static constexpr size_t kMaxTextureDimension{16384};
+
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
+static bool ReadPngStreamIsolateSetjmp(
+    png_structp png_ptr,
+    png_infop info_ptr,
+    std::span<const uint8_t> data,
+    DecodedImage& outImg,
+    std::vector<png_bytep>& rowPointers) {
+
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        return false;
+    }
+
+    png_set_user_limits(png_ptr, static_cast<png_uint_32>(kMaxTextureDimension), static_cast<png_uint_32>(kMaxTextureDimension));
+
+    PngMemoryReader reader{data.data(), data.size(), 8};
+    png_set_read_fn(png_ptr, &reader, PngReadCallback);
+    png_set_sig_bytes(png_ptr, 8);
+
+    png_read_info(png_ptr, info_ptr);
+
+    png_uint_32 width{0};
+    png_uint_32 height{0};
+    int bit_depth{0};
+    int color_type{0};
+    png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, nullptr, nullptr, nullptr);
+
+    if (width == 0 || height == 0 || width > kMaxTextureDimension || height > kMaxTextureDimension) {
+        return false;
+    }
+
+    if (bit_depth == 16) {
+        png_set_strip_16(png_ptr);
+    }
+    if (color_type == PNG_COLOR_TYPE_PALETTE) {
+        png_set_palette_to_rgb(png_ptr);
+    }
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) {
+        png_set_expand_gray_1_2_4_to_8(png_ptr);
+    }
+    if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
+        png_set_tRNS_to_alpha(png_ptr);
+    } else if (color_type == PNG_COLOR_TYPE_RGB ||
+               color_type == PNG_COLOR_TYPE_GRAY ||
+               color_type == PNG_COLOR_TYPE_PALETTE) {
+        png_set_add_alpha(png_ptr, 0xFF, PNG_FILLER_AFTER);
+    }
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
+        png_set_gray_to_rgb(png_ptr);
+    }
+
+    png_read_update_info(png_ptr, info_ptr);
+
+    const size_t totalBytes{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
+    outImg.width = width;
+    outImg.height = height;
+    outImg.channels = 4;
+    outImg.rgbaData.resize(totalBytes);
+
+    rowPointers.resize(height);
+    for (size_t y{0}; y < height; ++y) {
+        rowPointers[y] = &outImg.rgbaData[y * static_cast<size_t>(width) * 4u];
+    }
+
+    png_read_image(png_ptr, rowPointers.data());
+    return true;
+}
+#endif
+
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_JPEG)
+static bool ReadJpegStreamIsolateSetjmp(
+    std::span<const uint8_t> data,
+    DecodedImage& outImg,
+    std::vector<uint8_t>& rowBuffer) {
+
+    struct jpeg_decompress_struct cinfo{};
+    CustomJpegErrorMgr jerr{};
+
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = JpegErrorExit;
+
+    if (setjmp(jerr.setjmp_buffer)) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    jpeg_create_decompress(&cinfo);
+    jpeg_mem_src(&cinfo, const_cast<unsigned char*>(data.data()), data.size());
+
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    cinfo.out_color_space = JCS_RGB;
+    jpeg_start_decompress(&cinfo);
+
+    if (cinfo.output_width == 0 || cinfo.output_height == 0 ||
+        cinfo.output_width > kMaxTextureDimension || cinfo.output_height > kMaxTextureDimension) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    const size_t width{cinfo.output_width};
+    const size_t height{cinfo.output_height};
+    outImg.width = cinfo.output_width;
+    outImg.height = cinfo.output_height;
+    outImg.channels = 4;
+    outImg.rgbaData.resize(width * height * 4u);
+
+    rowBuffer.resize(width * 3u);
+    JSAMPROW rowPtr{rowBuffer.data()};
+
+    size_t y{0};
+    while (cinfo.output_scanline < cinfo.output_height) {
+        jpeg_read_scanlines(&cinfo, &rowPtr, 1);
+        for (size_t x{0}; x < width; ++x) {
+            outImg.rgbaData[(y * width + x) * 4u + 0u] = rowBuffer[x * 3u + 0u];
+            outImg.rgbaData[(y * width + x) * 4u + 1u] = rowBuffer[x * 3u + 1u];
+            outImg.rgbaData[(y * width + x) * 4u + 2u] = rowBuffer[x * 3u + 2u];
+            outImg.rgbaData[(y * width + x) * 4u + 3u] = 255;
+        }
+        ++y;
+    }
+
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+    return true;
+}
+#endif
+
 core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> data) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
     static constexpr uint8_t kPngMagic[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
@@ -70,44 +202,14 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
         return std::unexpected("Failed to create png info struct");
     }
 
-    if (setjmp(png_jmpbuf(png_ptr))) {
-        png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
-        return std::unexpected("Error occurred during PNG decoding");
-    }
-
-    PngMemoryReader reader{data.data(), data.size(), 8};
-    png_set_read_fn(png_ptr, &reader, PngReadCallback);
-    png_set_sig_bytes(png_ptr, 8);
-
-    png_read_info(png_ptr, info_ptr);
-
-    png_uint_32 width = 0, height = 0;
-    int bit_depth = 0, color_type = 0;
-    png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, nullptr, nullptr, nullptr);
-
-    if (bit_depth == 16) png_set_strip_16(png_ptr);
-    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png_ptr);
-    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png_ptr);
-    if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png_ptr);
-    if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY) png_set_add_alpha(png_ptr, 0xFF, PNG_FILLER_AFTER);
-    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png_ptr);
-
-    png_read_update_info(png_ptr, info_ptr);
-
-    DecodedImage img;
-    img.width = width;
-    img.height = height;
-    img.channels = 4;
-    img.rgbaData.resize(width * height * 4);
-
-    std::vector<png_bytep> row_pointers(height);
-    for (size_t y = 0; y < height; ++y) {
-        row_pointers[y] = &img.rgbaData[y * width * 4];
-    }
-
-    png_read_image(png_ptr, row_pointers.data());
+    DecodedImage img{};
+    std::vector<png_bytep> rowPointers{};
+    const bool ok{ReadPngStreamIsolateSetjmp(png_ptr, info_ptr, data, img, rowPointers)};
     png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
 
+    if (!ok) {
+        return std::unexpected("Error occurred during PNG decoding");
+    }
     return img;
 #elif defined(BGL_PLATFORM_NATIVE)
     (void)data;
@@ -126,16 +228,24 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     if (data.empty()) {
         return std::unexpected("WebP data is empty");
     }
-    int width = 0, height = 0;
-    uint8_t* decoded = WebPDecodeRGBA(data.data(), data.size(), &width, &height);
+    int width{0};
+    int height{0};
+    uint8_t* decoded{WebPDecodeRGBA(data.data(), data.size(), &width, &height)};
     if (!decoded) {
         return std::unexpected("Failed to decode WebP stream");
     }
-    DecodedImage img;
+    if (width <= 0 || height <= 0 ||
+        static_cast<size_t>(width) > kMaxTextureDimension ||
+        static_cast<size_t>(height) > kMaxTextureDimension) {
+        WebPFree(decoded);
+        return std::unexpected("WebP image dimensions exceed maximum allowed limits");
+    }
+    const size_t totalBytes{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
+    DecodedImage img{};
     img.width = static_cast<uint32_t>(width);
     img.height = static_cast<uint32_t>(height);
     img.channels = 4;
-    img.rgbaData.assign(decoded, decoded + (width * height * 4));
+    img.rgbaData.assign(decoded, decoded + totalBytes);
     WebPFree(decoded);
     return img;
 #elif defined(BGL_PLATFORM_NATIVE)
@@ -156,51 +266,11 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
         return std::unexpected("JPEG data too small or empty");
     }
 
-    struct jpeg_decompress_struct cinfo;
-    CustomJpegErrorMgr jerr;
-
-    cinfo.err = jpeg_std_error(&jerr.pub);
-    jerr.pub.error_exit = JpegErrorExit;
-
-    if (setjmp(jerr.setjmp_buffer)) {
-        jpeg_destroy_decompress(&cinfo);
+    DecodedImage img{};
+    std::vector<uint8_t> rowBuffer{};
+    if (!ReadJpegStreamIsolateSetjmp(data, img, rowBuffer)) {
         return std::unexpected("libjpeg decompression error");
     }
-
-    jpeg_create_decompress(&cinfo);
-    jpeg_mem_src(&cinfo, const_cast<unsigned char*>(data.data()), data.size());
-
-    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
-        jpeg_destroy_decompress(&cinfo);
-        return std::unexpected("Failed to read JPEG header");
-    }
-
-    cinfo.out_color_space = JCS_RGB;
-    jpeg_start_decompress(&cinfo);
-
-    DecodedImage img;
-    img.width = cinfo.output_width;
-    img.height = cinfo.output_height;
-    img.channels = 4;
-    img.rgbaData.resize(img.width * img.height * 4);
-
-    std::vector<uint8_t> rowBuffer(img.width * 3);
-    JSAMPROW rowPtr = rowBuffer.data();
-
-    size_t y = 0;
-    while (cinfo.output_scanline < cinfo.output_height) {
-        jpeg_read_scanlines(&cinfo, &rowPtr, 1);
-        for (size_t x = 0; x < img.width; ++x) {
-            img.rgbaData[(y * img.width + x) * 4 + 0] = rowBuffer[x * 3 + 0];
-            img.rgbaData[(y * img.width + x) * 4 + 1] = rowBuffer[x * 3 + 1];
-            img.rgbaData[(y * img.width + x) * 4 + 2] = rowBuffer[x * 3 + 2];
-            img.rgbaData[(y * img.width + x) * 4 + 3] = 255;
-        }
-        y++;
-    }
-
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
     return img;
 #elif defined(BGL_PLATFORM_NATIVE)
     (void)data;
@@ -244,23 +314,27 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         }
     }
 
-    const uint32_t width = kTexture->baseWidth;
-    const uint32_t height = kTexture->baseHeight;
-    const ktx_size_t imageSize = ktxTexture_GetImageSize(kTexture, 0);
-    const ktx_uint8_t* imageBytes = ktxTexture_GetData(kTexture);
+    const uint32_t width{kTexture->baseWidth};
+    const uint32_t height{kTexture->baseHeight};
+    const ktx_size_t imageSize{ktxTexture_GetImageSize(kTexture, 0)};
+    ktx_size_t level0Offset{0};
+    ktxTexture_GetImageOffset(kTexture, 0, 0, 0, &level0Offset);
+    const ktx_uint8_t* baseDataPtr{ktxTexture_GetData(kTexture)};
 
-    if (!imageBytes || imageSize == 0 || width == 0 || height == 0) {
+    if (!baseDataPtr || imageSize == 0 || width == 0 || height == 0 ||
+        width > kMaxTextureDimension || height > kMaxTextureDimension) {
         ktxTexture_Destroy(kTexture);
         return std::unexpected("KTX texture contains no image data or invalid dimensions");
     }
+    const ktx_uint8_t* imageBytes{baseDataPtr + level0Offset};
 
-    DecodedImage img;
+    DecodedImage img{};
     img.width = width;
     img.height = height;
     img.channels = 4;
 
-    const size_t expectedRgbaSize = static_cast<size_t>(width) * height * 4;
-    const size_t expectedRgbSize = static_cast<size_t>(width) * height * 3;
+    const size_t expectedRgbaSize{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
+    const size_t expectedRgbSize{static_cast<size_t>(width) * static_cast<size_t>(height) * 3u};
 
     if (imageSize >= expectedRgbaSize) {
         img.rgbaData.resize(expectedRgbaSize);
@@ -320,18 +394,19 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
     }
 
     // 2. MIME type or file extension hints
-    if (mimeOrPath.ends_with(".png") || mimeOrPath.find("png") != std::string_view::npos) {
+    if (mimeOrPath.ends_with(".png") || mimeOrPath.ends_with(".PNG") || mimeOrPath == "image/png") {
         return DecodePNG(data);
     }
-    if (mimeOrPath.ends_with(".jpg") || mimeOrPath.ends_with(".jpeg") || mimeOrPath.find("jpeg") != std::string_view::npos) {
+    if (mimeOrPath.ends_with(".jpg") || mimeOrPath.ends_with(".jpeg") ||
+        mimeOrPath.ends_with(".JPG") || mimeOrPath.ends_with(".JPEG") || mimeOrPath == "image/jpeg") {
         return DecodeJPEG(data);
     }
-    if (mimeOrPath.ends_with(".webp") || mimeOrPath.find("webp") != std::string_view::npos) {
+    if (mimeOrPath.ends_with(".webp") || mimeOrPath.ends_with(".WEBP") || mimeOrPath == "image/webp") {
         return DecodeWebP(data);
     }
     if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.ends_with(".ktx") ||
-        mimeOrPath.find("ktx") != std::string_view::npos ||
-        mimeOrPath.find("basisu") != std::string_view::npos) {
+        mimeOrPath.ends_with(".KTX2") || mimeOrPath.ends_with(".KTX") ||
+        mimeOrPath == "image/ktx2" || mimeOrPath == "image/ktx") {
         return DecodeKTX2(data);
     }
 

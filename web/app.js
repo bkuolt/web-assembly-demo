@@ -448,7 +448,12 @@
     function addRow(k, v) {
       const row = document.createElement('div');
       row.className = 'footer-kv';
-      row.innerHTML = `<span>${k}:</span><span>${v}</span>`;
+      const kSpan = document.createElement('span');
+      kSpan.textContent = `${k}:`;
+      const vSpan = document.createElement('span');
+      vSpan.textContent = String(v);
+      row.appendChild(kSpan);
+      row.appendChild(vSpan);
       props.appendChild(row);
     }
 
@@ -494,12 +499,13 @@
    */
   function filterNodes(query) {
     const q = query.trim().toLowerCase();
+    const escapedQ = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(q) : q.replace(/["\\]/g, '\\$&');
     const wrappers = document.querySelectorAll('.tree-node-wrapper');
     wrappers.forEach(w => {
       if (!q || w.dataset.name.includes(q)) {
         w.style.display = '';
       } else {
-        const hasMatchingChild = w.querySelector(`.tree-node-wrapper[data-name*="${q}"]`);
+        const hasMatchingChild = w.querySelector(`.tree-node-wrapper[data-name*="${escapedQ}"]`);
         w.style.display = hasMatchingChild ? '' : 'none';
       }
     });
@@ -650,7 +656,8 @@
 
   // Keyboard Navigation
   window.addEventListener('keydown', (e) => {
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
     if (e.key === 'b' || e.key === 'B') {
       toggleBBox();
     } else if (e.key === 'q' || e.key === 'Q') {

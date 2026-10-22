@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include <string_view>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 
 namespace bgl::gpu {
 
@@ -27,6 +28,7 @@ public:
     ~Skybox();
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount = 4);
+    void Shutdown() noexcept;
     void Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir);
 
     void SetEnabled(bool enabled) noexcept { enabled_ = enabled; }
@@ -40,10 +42,10 @@ private:
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
-    WGPURenderPipeline pipeline_{nullptr};
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
-    WGPUBindGroup bindGroup_{nullptr};
-    WGPUBuffer uniformBuffer_{nullptr};
+    RenderPipelineHandle pipeline_{};
+    BindGroupLayoutHandle bindGroupLayout_{};
+    BindGroupHandle bindGroup_{};
+    BufferHandle uniformBuffer_{};
 };
 
 } // namespace bgl::gpu

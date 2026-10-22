@@ -8,6 +8,7 @@
 #include <string_view>
 #include <string>
 #include <unordered_map>
+#include <memory>
 #include <glm/glm.hpp>
 #include "core/Types.hpp"
 
@@ -39,7 +40,7 @@ public:
 private:
     bool initialized_{false};
     ma_engine engine_{};
-    std::unordered_map<std::string, ma_sound> activeSounds_{};
+    std::unordered_map<std::string, std::unique_ptr<ma_sound>> activeSounds_{};
 };
 
 } // namespace bgl::audio

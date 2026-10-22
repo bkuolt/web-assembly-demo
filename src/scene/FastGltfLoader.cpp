@@ -68,14 +68,21 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     }
 
     std::filesystem::path baseDir{std::filesystem::current_path()};
+    fastgltf::Options parseOptions{
+        fastgltf::Options::LoadGLBBuffers |
+        fastgltf::Options::DecomposeNodeMatrices
+    };
     if (!baseUri.empty() && !core::NetworkFetcher::IsUrl(baseUri)) {
         const std::filesystem::path localParent{std::filesystem::path{baseUri}.parent_path()};
         if (!localParent.empty()) {
             baseDir = localParent;
         }
+        if (std::filesystem::exists(baseDir)) {
+            parseOptions |= fastgltf::Options::LoadExternalBuffers;
+        }
     }
 
-    auto gltf = parser_.loadGltf(&dataBuffer, baseDir, fastgltf::Options::LoadGLBBuffers | fastgltf::Options::DecomposeNodeMatrices);
+    auto gltf = parser_.loadGltf(&dataBuffer, baseDir, parseOptions);
     if (gltf.error() != fastgltf::Error::None) {
         return std::unexpected(std::string{"fastgltf failed to parse glTF/GLB data: "} + std::string{fastgltf::getErrorMessage(gltf.error())});
     }
@@ -152,12 +159,18 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                     if (texIdx >= numTextures) break;
 
                     const auto& texture = asset.textures[texIdx];
-                    if (!texture.imageIndex.has_value()) {
-                        BGL_LOG_WARN("  * Texture #{}: No imageIndex associated", texIdx);
+                    fastgltf::Optional<size_t> resolvedImgIdx{texture.imageIndex};
+                    if (texture.basisuImageIndex.has_value()) {
+                        resolvedImgIdx = texture.basisuImageIndex;
+                    } else if (texture.webpImageIndex.has_value()) {
+                        resolvedImgIdx = texture.webpImageIndex;
+                    }
+                    if (!resolvedImgIdx.has_value()) {
+                        BGL_LOG_WARN("  * Texture #{}: No imageIndex (standard, KTX2/BasisU, or WebP) associated", texIdx);
                         continue;
                     }
 
-                    size_t imgIdx = *texture.imageIndex;
+                    const size_t imgIdx{*resolvedImgIdx};
                     if (imgIdx >= asset.images.size()) {
                         BGL_LOG_WARN("  * Texture #{}: Invalid imageIndex {} >= {}", texIdx, imgIdx, asset.images.size());
                         continue;
@@ -166,11 +179,30 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                     const auto& image = asset.images[imgIdx];
                     std::span<const uint8_t> rawBytes{};
                     std::vector<uint8_t> fetchedUriBytes{};
-                    std::string decodeHint{image.name};
+                    std::string decodeHint{};
                     size_t sourceBvIdx{0};
+
+                    auto extractSafeSlice = [](const void* basePtr, size_t totalSize, size_t offset, size_t length) -> std::span<const uint8_t> {
+                        if (!basePtr || offset > totalSize || length > (totalSize - offset)) {
+                            return {};
+                        }
+                        return std::span<const uint8_t>{static_cast<const uint8_t*>(basePtr) + offset, length};
+                    };
+
+                    auto mimeTypeToString = [](fastgltf::MimeType mime) -> std::string {
+                        switch (mime) {
+                            case fastgltf::MimeType::JPEG: return "image/jpeg";
+                            case fastgltf::MimeType::PNG:  return "image/png";
+                            case fastgltf::MimeType::KTX2: return "image/ktx2";
+                            case fastgltf::MimeType::GltfBuffer:
+                            case fastgltf::MimeType::OctetStream:
+                            default: return {};
+                        }
+                    };
 
                     if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
                         const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
+                        decodeHint = mimeTypeToString(bvSource.mimeType);
                         sourceBvIdx = bvSource.bufferViewIndex;
                         if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
                             const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
@@ -178,28 +210,32 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                                 const auto& buffer = asset.buffers[bufferView.bufferIndex];
                                 if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
                                     const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
-                                    rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(array.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
+                                    rawBytes = extractSafeSlice(array.bytes.data(), array.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
                                 } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
                                     const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
-                                    rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
+                                    rawBytes = extractSafeSlice(bv.bytes.data(), bv.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
                                 } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
                                     const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
-                                    rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(vec.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
+                                    rawBytes = extractSafeSlice(vec.bytes.data(), vec.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
                                 }
                             }
                         }
                     } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
                         const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
-                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size());
+                        decodeHint = mimeTypeToString(bv.mimeType);
+                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size()};
                     } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
                         const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
-                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(vec.bytes.data()), vec.bytes.size());
+                        decodeHint = mimeTypeToString(vec.mimeType);
+                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(vec.bytes.data()), vec.bytes.size()};
                     } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
                         const auto& arr = std::get<fastgltf::sources::Array>(image.data);
-                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(arr.bytes.data()), arr.bytes.size());
+                        decodeHint = mimeTypeToString(arr.mimeType);
+                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(arr.bytes.data()), arr.bytes.size()};
                     } else if (std::holds_alternative<fastgltf::sources::URI>(image.data)) {
                         const auto& uriSource = std::get<fastgltf::sources::URI>(image.data);
                         const std::string rawUriStr{uriSource.uri.string()};
+                        decodeHint = mimeTypeToString(uriSource.mimeType);
                         if (decodeHint.empty()) {
                             decodeHint = rawUriStr;
                         }
@@ -214,6 +250,10 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                             BGL_LOG_ERROR("  * Texture #{} (Image #{}): Failed to fetch external image URI '{}': {}",
                                           texIdx, imgIdx, resolvedUri, fetchRes.error());
                         }
+                    }
+
+                    if (decodeHint.empty() && !image.name.empty()) {
+                        decodeHint = std::string{image.name};
                     }
 
                     std::string imgName = image.name.empty()
@@ -517,21 +557,35 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 6. Build parent-child relationships
+    // 6. Build parent-child relationships (with cycle prevention)
     std::vector<bool> isChild(asset.nodes.size(), false);
-    for (size_t i = 0; i < asset.nodes.size(); ++i) {
+    for (size_t i{0}; i < asset.nodes.size(); ++i) {
         for (size_t childIdx : asset.nodes[i].children) {
-            if (childIdx < loadedNodes.size()) {
+            if (childIdx < loadedNodes.size() && childIdx != i && !isChild[childIdx]) {
                 loadedNodes[i]->children.push_back(loadedNodes[childIdx]);
                 isChild[childIdx] = true;
             }
         }
     }
 
-    // 7. Register root nodes
-    for (size_t i = 0; i < loadedNodes.size(); ++i) {
-        if (!isChild[i]) {
-            scene->rootNodes.push_back(loadedNodes[i]);
+    // 7. Register root nodes from the default glTF scene (or fallback to parentless nodes)
+    if (!asset.scenes.empty()) {
+        const size_t activeSceneIdx{
+            (asset.defaultScene.has_value() && *asset.defaultScene < asset.scenes.size())
+                ? *asset.defaultScene
+                : 0u
+        };
+        for (size_t rootNodeIdx : asset.scenes[activeSceneIdx].nodeIndices) {
+            if (rootNodeIdx < loadedNodes.size() && loadedNodes[rootNodeIdx]) {
+                scene->rootNodes.push_back(loadedNodes[rootNodeIdx]);
+            }
+        }
+    }
+    if (scene->rootNodes.empty()) {
+        for (size_t i{0}; i < loadedNodes.size(); ++i) {
+            if (!isChild[i] && loadedNodes[i]) {
+                scene->rootNodes.push_back(loadedNodes[i]);
+            }
         }
     }
 

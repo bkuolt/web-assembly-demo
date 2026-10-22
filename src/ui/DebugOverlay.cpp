@@ -84,7 +84,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     const float lineSpacing = 24.0f;
 
     // Line 1: Header / Engine Info
-    textRenderer_.DrawText("WebAssembly an WebGPU Demo v0.7.1 [4x MSAA - 16x Aniso]",
+    textRenderer_.DrawText("WebAssembly an WebGPU Demo v0.7.2 [4x MSAA - 16x Aniso]",
                            textX, textY, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
     textY += lineSpacing;
 

@@ -20,6 +20,9 @@
 #include "core/Types.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "scene/Scene.hpp"
+#include "scene/RayPicker.hpp"
+#include "scene/TextureDecoder.hpp"
+#include "gpu/Handle.hpp"
 #include "gpu/Pipeline.hpp"
 #include "app/Application.hpp"
 
@@ -558,4 +561,71 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
     EXPECT_EQ((*httpSceneRes)->cpuImages[0].height, 1u);
 #endif
 }
+
+// ============================================================================
+// 6. Modern C++23 RAII Handle, Transformed RayPicker & Decoder Hardening Tests
+// ============================================================================
+
+namespace {
+int g_dummyReleaseCount = 0;
+struct DummyWgpuResource { int id{42}; };
+void ReleaseDummyWgpuResource(DummyWgpuResource* ptr) {
+    if (ptr) {
+        ++g_dummyReleaseCount;
+        delete ptr;
+    }
+}
+using DummyHandle = gpu::Handle<DummyWgpuResource*, ReleaseDummyWgpuResource>;
+} // namespace
+
+TEST(RenderingFeaturesTest, ModernCpp23RaiiHandleLifecycle) {
+    g_dummyReleaseCount = 0;
+    {
+        DummyHandle h1{new DummyWgpuResource{7}};
+        EXPECT_TRUE(static_cast<bool>(h1));
+        EXPECT_EQ(h1.Get()->id, 7);
+
+        DummyHandle h2{std::move(h1)};
+        EXPECT_FALSE(static_cast<bool>(h1));
+        EXPECT_TRUE(static_cast<bool>(h2));
+        EXPECT_EQ(g_dummyReleaseCount, 0);
+
+        h2.Reset(new DummyWgpuResource{9});
+        EXPECT_EQ(g_dummyReleaseCount, 1);
+    }
+    EXPECT_EQ(g_dummyReleaseCount, 2);
+}
+
+TEST(RenderingFeaturesTest, RayPickerHitsTranslatedAndScaledPrimitiveAABB) {
+    auto node = std::make_shared<scene::SceneNode>();
+    node->name = "TranslatedTarget";
+    node->localTransform = glm::translate(glm::mat4{1.0f}, glm::vec3{50.0f, 0.0f, 0.0f});
+
+    scene::MeshPrimitive prim{};
+    core::Vertex v0{}, v1{}, v2{};
+    v0.position = glm::vec3{-1.0f, -1.0f, 0.0f};
+    v1.position = glm::vec3{ 1.0f, -1.0f, 0.0f};
+    v2.position = glm::vec3{ 0.0f,  1.0f, 0.0f};
+    prim.vertices = {v0, v1, v2};
+    prim.indices = {0, 1, 2, 999, 999, 999}; // Includes out-of-bounds indices to test bounds safety
+    prim.boundingBox.Expand(v0.position);
+    prim.boundingBox.Expand(v1.position);
+    prim.boundingBox.Expand(v2.position);
+    node->primitives.push_back(std::move(prim));
+
+    scene::Scene scene{};
+    scene.rootNodes.push_back(node);
+    scene.Update();
+
+    // Ray originates at (50, 0, 5) pointing along -Z toward the translated triangle at (50, 0, 0)
+    const core::Ray ray{
+        .origin = glm::vec3{50.0f, 0.0f, 5.0f},
+        .direction = glm::vec3{0.0f, 0.0f, -1.0f}
+    };
+    const auto hit{scene::RayPicker::Pick(ray, scene.rootNodes)};
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_NEAR(hit->distance, 5.0f, 1e-4f);
+    EXPECT_EQ(hit->hitNode, node);
+}
+
 

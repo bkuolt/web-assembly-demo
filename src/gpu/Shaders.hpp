@@ -126,11 +126,26 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     let world = ubo.model * vec4<f32>(in.position, 1.0);
     out.worldPos = world.xyz;
     out.clipPos = ubo.viewProj * world;
-    out.normal = normalize((ubo.model * vec4<f32>(in.normal, 0.0)).xyz);
+
+    // Transform normal by transpose(inverse(mat3x3(ubo.model))) via cofactor/adjugate vectors
+    let m0 = ubo.model[0].xyz;
+    let m1 = ubo.model[1].xyz;
+    let m2 = ubo.model[2].xyz;
+    let adj0 = cross(m1, m2);
+    let adj1 = cross(m2, m0);
+    let adj2 = cross(m0, m1);
+    let det = dot(m0, adj0);
+    let rawNorm = select((ubo.model * vec4<f32>(in.normal, 0.0)).xyz,
+                         adj0 * in.normal.x + adj1 * in.normal.y + adj2 * in.normal.z,
+                         abs(det) > 1e-12);
+    let normLen = length(rawNorm);
+    out.normal = select(vec3<f32>(0.0, 1.0, 0.0), rawNorm / normLen, normLen > 1e-8);
+
     let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
-    out.tangent = vec4<f32>(normTan, in.tangent.w);
+    let detSign = select(1.0, -1.0, det < 0.0);
+    out.tangent = vec4<f32>(normTan, in.tangent.w * detSign);
     out.uv = in.uv;
     return out;
 }
@@ -276,10 +291,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     // 2. Normal & Bump Mapping Calculation
     var geomN = normalize(in.normal);
     let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
-    if ((ubo.flags & 512u) != 0u || dot(geomN, viewDir) < 0.0) {
-        if (dot(geomN, viewDir) < 0.0) {
-            geomN = -geomN;
-        }
+    if ((ubo.flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
+        geomN = -geomN;
     }
 
     var N = geomN;
@@ -290,14 +303,13 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         var tangentXY = vec2<f32>(0.0, 0.0);
         var tangentZ = 1.0;
         if ((ubo.flags & 4u) != 0u) {
-            // Tangent-space normal map + UV-space height-map micro-relief
+            // Pure glTF 2.0 tangent-space normal mapping (no artificial baseColor derivative bleed)
             let normTex = normTexSample.xyz * 2.0 - 1.0;
-            let heightBump = vec2<f32>(-dHdU, -dHdV) * 4.2 * ubo.bumpScale;
-            tangentXY = normTex.xy * (ubo.normalScale * 1.85 * ubo.bumpScale) + heightBump;
+            tangentXY = normTex.xy * (ubo.normalScale * ubo.bumpScale);
             tangentZ = max(normTex.z, 0.15);
-        } else if ((ubo.flags & 1u) != 0u || (ubo.flags & 16u) != 0u) {
-            // UV-space central-difference height bump mapping from texture luminance & occlusion
-            tangentXY = vec2<f32>(-dHdU, -dHdV) * 7.5 * ubo.bumpScale;
+        } else if ((ubo.flags & 16u) != 0u) {
+            // Separate height/cavity relief slot when occlusion/height map is present without a normal map
+            tangentXY = vec2<f32>(-dHdU, -dHdV) * 2.0 * ubo.bumpScale;
             tangentZ = 1.0;
         }
         let scaledNorm = normalize(vec3<f32>(tangentXY, tangentZ));
@@ -307,7 +319,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             N = normalize(mix(geomN, N, 0.65));
         }
         let slopeSq = dot(tangentXY, tangentXY);
-        bumpCavity = clamp(1.0 - 0.22 * slopeSq, 0.58, 1.0);
+        bumpCavity = clamp(1.0 - 0.15 * slopeSq, 0.65, 1.0);
     }
 
     // 3. Metallic & Roughness

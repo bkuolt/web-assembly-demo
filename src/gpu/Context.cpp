@@ -16,6 +16,11 @@ namespace bgl::gpu {
 Context::Context() = default;
 
 Context::~Context() {
+    Shutdown();
+}
+
+void Context::Shutdown() noexcept {
+    if (!initialized_ && !instance_) return;
 #if defined(BGL_PLATFORM_NATIVE)
     if (msaaColorView_) {
         wgpuTextureViewRelease(msaaColorView_);

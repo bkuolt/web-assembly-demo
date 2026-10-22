@@ -28,7 +28,10 @@ core::Result<void> SoundEngine::Initialize() {
 void SoundEngine::Shutdown() {
     if (initialized_) {
         for (auto& [id, sound] : activeSounds_) {
-            ma_sound_uninit(&sound);
+            if (sound) {
+                ma_sound_stop(sound.get());
+                ma_sound_uninit(sound.get());
+            }
         }
         activeSounds_.clear();
         ma_engine_uninit(&engine_);
@@ -46,35 +49,48 @@ void SoundEngine::UpdateListener(const glm::vec3& position, const glm::vec3& for
 core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::string_view filePath, const glm::vec3& position, bool loop) {
     if (!initialized_) return std::unexpected("SoundEngine not initialized");
 
-    std::string id(soundId);
-    std::string path(filePath);
-    ma_sound sound;
-    ma_result res = ma_sound_init_from_file(&engine_, path.c_str(), 0, nullptr, nullptr, &sound);
-    if (res != MA_SUCCESS) {
-        return std::unexpected("Failed to load sound file: " + std::string(filePath));
+    const std::string id{soundId};
+    const std::string path{filePath};
+
+    if (auto existingIt = activeSounds_.find(id); existingIt != activeSounds_.end()) {
+        if (existingIt->second) {
+            ma_sound_stop(existingIt->second.get());
+            ma_sound_uninit(existingIt->second.get());
+        }
+        activeSounds_.erase(existingIt);
     }
 
-    ma_sound_set_position(&sound, position.x, position.y, position.z);
-    ma_sound_set_looping(&sound, loop);
-    ma_sound_start(&sound);
+    auto sound = std::make_unique<ma_sound>();
+    const ma_result res{ma_sound_init_from_file(&engine_, path.c_str(), 0, nullptr, nullptr, sound.get())};
+    if (res != MA_SUCCESS) {
+        return std::unexpected("Failed to load sound file: " + std::string{filePath});
+    }
 
-    activeSounds_[id] = sound;
+    ma_sound_set_position(sound.get(), position.x, position.y, position.z);
+    ma_sound_set_looping(sound.get(), loop ? MA_TRUE : MA_FALSE);
+    ma_sound_start(sound.get());
+
+    activeSounds_[id] = std::move(sound);
     BGL_LOG_INFO("Playing 3D sound [{}] from '{}' (loop: {})", id, filePath, loop);
     return {};
 }
 
 void SoundEngine::SetEmitterPosition(std::string_view soundId, const glm::vec3& position) {
-    auto it = activeSounds_.find(std::string(soundId));
-    if (it != activeSounds_.end()) {
-        ma_sound_set_position(&it->second, position.x, position.y, position.z);
+    if (!initialized_) return;
+    auto it = activeSounds_.find(std::string{soundId});
+    if (it != activeSounds_.end() && it->second) {
+        ma_sound_set_position(it->second.get(), position.x, position.y, position.z);
     }
 }
 
 void SoundEngine::StopSound(std::string_view soundId) {
-    auto it = activeSounds_.find(std::string(soundId));
+    if (!initialized_) return;
+    auto it = activeSounds_.find(std::string{soundId});
     if (it != activeSounds_.end()) {
-        ma_sound_stop(&it->second);
-        ma_sound_uninit(&it->second);
+        if (it->second) {
+            ma_sound_stop(it->second.get());
+            ma_sound_uninit(it->second.get());
+        }
         activeSounds_.erase(it);
     }
 }

@@ -73,22 +73,17 @@ fn fs_sky(in : VertexOutput) -> @location(0) vec4<f32> {
 } // anonymous namespace
 
 Skybox::~Skybox() {
-    if (bindGroup_) {
-        wgpuBindGroupRelease(bindGroup_);
-        bindGroup_ = nullptr;
-    }
-    if (uniformBuffer_) {
-        wgpuBufferRelease(uniformBuffer_);
-        uniformBuffer_ = nullptr;
-    }
-    if (pipeline_) {
-        wgpuRenderPipelineRelease(pipeline_);
-        pipeline_ = nullptr;
-    }
-    if (bindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(bindGroupLayout_);
-        bindGroupLayout_ = nullptr;
-    }
+    Shutdown();
+}
+
+void Skybox::Shutdown() noexcept {
+    bindGroup_.Reset();
+    uniformBuffer_.Reset();
+    pipeline_.Reset();
+    bindGroupLayout_.Reset();
+    device_ = nullptr;
+    queue_ = nullptr;
+    initialized_ = false;
 }
 
 core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount) {
@@ -105,7 +100,7 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
     smDesc.label = WGPUStringView{ "Skybox_WGSL", strlen("Skybox_WGSL") };
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &smDesc);
+    ShaderModuleHandle shaderModule{wgpuDeviceCreateShaderModule(device_, &smDesc)};
     if (!shaderModule) {
         return std::unexpected("Failed to compile WGSL atmospheric skybox shader");
     }
@@ -123,10 +118,11 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
 
     // 3. Pipeline Layout
+    WGPUBindGroupLayout rawBgl{bindGroupLayout_.Get()};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &bindGroupLayout_;
-    WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    plDesc.bindGroupLayouts = &rawBgl;
+    PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
 
     // 4. Color Target & Depth State
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
@@ -160,9 +156,6 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-
-    wgpuPipelineLayoutRelease(pipelineLayout);
-    wgpuShaderModuleRelease(shaderModule);
 
     // 6. Uniform Buffer
     WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
