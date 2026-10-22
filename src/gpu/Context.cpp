@@ -290,9 +290,10 @@ void Context::Resize(uint32_t width, uint32_t height) {
     BGL_LOG_INFO("WebGPU Surface resized to {}x{}", width, height);
 }
 
-WGPURenderPassEncoder Context::BeginFrame() {
+bool Context::PrepareFrame() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (!surface_ || !device_ || !queue_) return nullptr;
+    if (encoder_) return true;
+    if (!surface_ || !device_ || !queue_) return false;
 
     surfaceTexture_ = {};
     wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
@@ -307,22 +308,33 @@ WGPURenderPassEncoder Context::BeginFrame() {
         configSurface.presentMode = WGPUPresentMode_Fifo;
         configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
         wgpuSurfaceConfigure(surface_, &configSurface);
-        return nullptr;
+        return false;
     }
 
     if (surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
         surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-        return nullptr;
+        return false;
     }
 
     currentView_ = wgpuTextureCreateView(surfaceTexture_.texture, nullptr);
     if (!currentView_) {
         wgpuTextureRelease(surfaceTexture_.texture);
         surfaceTexture_.texture = nullptr;
-        return nullptr;
+        return false;
     }
 
     encoder_ = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+    return encoder_ != nullptr;
+#else
+    return false;
+#endif
+}
+
+WGPURenderPassEncoder Context::BeginFrame() {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!encoder_ && !PrepareFrame()) {
+        return nullptr;
+    }
 
     WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     if (sampleCount_ > 1 && msaaColorView_) {

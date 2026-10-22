@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include "core/Types.hpp"
+#include "scene/Scene.hpp"
+#include "gpu/Pipeline.hpp"
 
 using namespace bgl::core;
 
@@ -175,4 +177,93 @@ TEST(TypesMathTest, VertexLayoutAndCacheLineAlignment) {
     EXPECT_FLOAT_EQ(v.tangent.w, 1.0f);
     EXPECT_FLOAT_EQ(v.uv.x, 0.5f);
 }
+
+TEST(TypesMathTest, MeshPrimitiveComputeTangentsOrthogonalityAndHandedness) {
+    bgl::scene::MeshPrimitive prim;
+    // Create a quad on an X-facing wall (Normal = +X = (1, 0, 0)), where default tangent (1,0,0) would be degenerate!
+    Vertex v0, v1, v2, v3;
+    v0.position = glm::vec3(0.0f, 0.0f, 0.0f); v0.normal = glm::vec3(1.0f, 0.0f, 0.0f); v0.uv = glm::vec2(0.0f, 0.0f);
+    v1.position = glm::vec3(0.0f, 0.0f, 2.0f); v1.normal = glm::vec3(1.0f, 0.0f, 0.0f); v1.uv = glm::vec2(1.0f, 0.0f);
+    v2.position = glm::vec3(0.0f, 2.0f, 2.0f); v2.normal = glm::vec3(1.0f, 0.0f, 0.0f); v2.uv = glm::vec2(1.0f, 1.0f);
+    v3.position = glm::vec3(0.0f, 2.0f, 0.0f); v3.normal = glm::vec3(1.0f, 0.0f, 0.0f); v3.uv = glm::vec2(0.0f, 1.0f);
+
+    prim.vertices = { v0, v1, v2, v3 };
+    prim.indices = { 0, 1, 2, 0, 2, 3 };
+
+    prim.ComputeTangents();
+
+    for (const auto& v : prim.vertices) {
+        glm::vec3 T(v.tangent);
+        // Tangent must be unit length
+        EXPECT_NEAR(glm::length(T), 1.0f, 1e-4f);
+        // Tangent must be strictly orthogonal to normal (+X)
+        EXPECT_NEAR(glm::dot(T, v.normal), 0.0f, 1e-4f);
+        // UV.u increases along +Z, so tangent must point along +Z (0, 0, 1)
+        EXPECT_NEAR(T.z, 1.0f, 1e-4f);
+        // Handedness w must be +/- 1.0
+        EXPECT_NEAR(std::abs(v.tangent.w), 1.0f, 1e-4f);
+    }
+}
+
+TEST(TypesMathTest, MipmapCalculationAndDownsamplingWithNormalMapRenormalization) {
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(1, 1), 1u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(1024, 1024), 11u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(512, 256), 10u);
+
+    // 1. Box-filtered color mipmap test (2x2 -> 1x1)
+    std::vector<uint8_t> colorSrc = {
+        200, 100, 50, 255,   100, 200, 50, 255,
+        100, 100, 150, 255,  200, 200, 150, 255
+    };
+    auto colorMip1 = bgl::gpu::PipelineManager::GenerateNextMipLevel(colorSrc.data(), 2, 2, 1, 1, false);
+    ASSERT_EQ(colorMip1.size(), 4u);
+    EXPECT_EQ(colorMip1[0], 150u);
+    EXPECT_EQ(colorMip1[1], 150u);
+    EXPECT_EQ(colorMip1[2], 100u);
+    EXPECT_EQ(colorMip1[3], 255u);
+
+    // 2. Normal-map vector renormalization test (2x2 opposing tilted normals -> 1x1 straight +Z normal (0, 0, 1))
+    // Texel 0 & 1 tilted +X: (0.7071, 0, 0.7071) -> RGB(218, 128, 218)
+    // Texel 2 & 3 tilted -X: (-0.7071, 0, 0.7071) -> RGB(37, 128, 218)
+    // Simple box average would yield unnormalized (0, 0, 0.7071) -> B=218.
+    // Proper 3D vector renormalization must yield unit normal (0, 0, 1.0) -> RGB(128, 128, 255)!
+    std::vector<uint8_t> normalSrc = {
+        218, 128, 218, 255,  218, 128, 218, 255,
+         37, 128, 218, 255,   37, 128, 218, 255
+    };
+    auto normalMip1 = bgl::gpu::PipelineManager::GenerateNextMipLevel(normalSrc.data(), 2, 2, 1, 1, true);
+    ASSERT_EQ(normalMip1.size(), 4u);
+    EXPECT_NEAR(normalMip1[0], 128, 2);
+    EXPECT_NEAR(normalMip1[1], 128, 2);
+    EXPECT_EQ(normalMip1[2], 255u); // Z component renormalized to +1.0 (255)
+    EXPECT_EQ(normalMip1[3], 255u);
+}
+
+TEST(TypesMathTest, DirectionalShadowLightMatrixAndEnvCubemapGeneration) {
+    AABB sceneBounds;
+    sceneBounds.Expand(glm::vec3(-10.0f, 0.0f, -10.0f));
+    sceneBounds.Expand(glm::vec3(10.0f, 8.0f, 10.0f));
+
+    glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+    glm::mat4 lightVP = bgl::gpu::PipelineManager::ComputeDirectionalLightMatrix(sceneBounds, sunDir);
+
+    // Project scene center and corners through lightVP: all must map into valid WebGPU clip space [-1, 1]^2 x [0, 1]
+    glm::vec4 centerClip = lightVP * glm::vec4(sceneBounds.Center(), 1.0f);
+    glm::vec3 centerNdc = glm::vec3(centerClip) / centerClip.w;
+    EXPECT_GE(centerNdc.x, -1.0f);
+    EXPECT_LE(centerNdc.x, 1.0f);
+    EXPECT_GE(centerNdc.y, -1.0f);
+    EXPECT_LE(centerNdc.y, 1.0f);
+    EXPECT_GE(centerNdc.z, 0.0f);
+    EXPECT_LE(centerNdc.z, 1.0f);
+
+    // Environment cubemap face generation for all 6 faces
+    for (uint32_t face = 0; face < 6; ++face) {
+        auto faceSharp = bgl::gpu::PipelineManager::GenerateEnvCubemapFaceMip(face, 8, 0.0f, sunDir);
+        auto faceRough = bgl::gpu::PipelineManager::GenerateEnvCubemapFaceMip(face, 8, 1.0f, sunDir);
+        EXPECT_EQ(faceSharp.size(), 8u * 8u * 4u);
+        EXPECT_EQ(faceRough.size(), 8u * 8u * 4u);
+    }
+}
+
 

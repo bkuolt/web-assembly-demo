@@ -425,7 +425,8 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
                             // TANGENT accessor
                             auto tanIt = prim.findAttribute("TANGENT");
-                            if (tanIt != prim.attributes.end()) {
+                            const bool hasExplicitTangents = (tanIt != prim.attributes.end());
+                            if (hasExplicitTangents) {
                                 const auto& tanAccessor = asset.accessors[tanIt->second];
                                 fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
                                     if (idx < meshPrim.vertices.size()) {
@@ -441,6 +442,11 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                                 fastgltf::iterateAccessorWithIndex<uint32_t>(asset, idxAccessor, [&](uint32_t val, size_t idx) {
                                     meshPrim.indices[idx] = val;
                                 });
+                            }
+
+                            // Auto-generate MikkTSpace/Lengyel tangents for bump/normal mapping if absent
+                            if (!hasExplicitTangents) {
+                                meshPrim.ComputeTangents();
                             }
 
                             node->primitives.push_back(std::move(meshPrim));

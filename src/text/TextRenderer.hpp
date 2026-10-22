@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string_view>
+#include <span>
 #include <vector>
 #include <glm/glm.hpp>
 #include <webgpu/webgpu.h>
@@ -58,10 +59,15 @@ public:
                             float borderWidth = 1.0f);
 
     /**
+     * @brief Enqueues a span of pre-shaped text quads into the current vertex/index batch.
+     */
+    void DrawQuads(std::span<const TextQuad> quads);
+
+    /**
      * @brief Enqueues shaped text using HarfBuzz and FreeType font atlas.
      */
     void DrawText(std::string_view text, float x, float y,
-                  const glm::vec4& color = glm::vec4(1.0f), float scale = 1.0f);
+                  const glm::vec4& color = glm::vec4{1.0f}, float scale = 1.0f);
 
     /**
      * @brief Flushes batched quads and renders them in the current render pass encoder.
@@ -73,24 +79,24 @@ public:
 private:
     void EnsureBuffers(size_t vertexCount, size_t indexCount);
 
-    WGPUDevice device_ = nullptr;
-    WGPUQueue queue_ = nullptr;
-    WGPUTextureFormat surfaceFormat_ = WGPUTextureFormat_BGRA8Unorm;
-    uint32_t sampleCount_ = 4;
-    FontAtlas* fontAtlas_ = nullptr;
+    WGPUDevice device_{nullptr};
+    WGPUQueue queue_{nullptr};
+    WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
+    uint32_t sampleCount_{4};
+    FontAtlas* fontAtlas_{nullptr};
 
-    WGPUBindGroupLayout bindGroupLayout_ = nullptr;
-    WGPURenderPipeline pipeline_ = nullptr;
-    WGPUBuffer uniformBuffer_ = nullptr;
-    WGPUBindGroup bindGroup_ = nullptr;
+    WGPUBindGroupLayout bindGroupLayout_{nullptr};
+    WGPURenderPipeline pipeline_{nullptr};
+    WGPUBuffer uniformBuffer_{nullptr};
+    WGPUBindGroup bindGroup_{nullptr};
 
-    WGPUBuffer vertexBuffer_ = nullptr;
-    WGPUBuffer indexBuffer_ = nullptr;
-    size_t vertexBufferCapacity_ = 0;
-    size_t indexBufferCapacity_ = 0;
+    WGPUBuffer vertexBuffer_{nullptr};
+    WGPUBuffer indexBuffer_{nullptr};
+    size_t vertexBufferCapacity_{0};
+    size_t indexBufferCapacity_{0};
 
-    std::vector<TextVertex> vertexBatch_;
-    std::vector<uint32_t> indexBatch_;
+    std::vector<TextVertex> vertexBatch_{};
+    std::vector<uint32_t> indexBatch_{};
 };
 
 } // namespace bgl::text

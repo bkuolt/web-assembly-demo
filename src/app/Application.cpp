@@ -20,38 +20,38 @@ Application::~Application() {
 }
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
-    ApplicationConfig config;
+    ApplicationConfig config{};
     config.width = width;
     config.height = height;
     return Initialize(config);
 }
 
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
-    const uint32_t width = config.width;
-    const uint32_t height = config.height;
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.8 ({}x{})...", width, height);
+    const uint32_t width{config.width};
+    const uint32_t height{config.height};
+    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.6.8 ({}x{})...", width, height);
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
-        return std::unexpected(std::string("Failed to initialize SDL2: ") + SDL_GetError());
+        return std::unexpected(std::string{"Failed to initialize SDL2: "} + SDL_GetError());
     }
 
-    SDL_Window* window = SDL_CreateWindow(
-        "bgl_viewer - C++23 WebGPU & glTF 2.1",
+    SDL_Window* window{SDL_CreateWindow(
+        "WebAssembly an WebGPU Demo",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         static_cast<int>(width), static_cast<int>(height),
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-    );
+    )};
     if (window) {
         nativeWindow_ = window;
         BGL_LOG_INFO("Created native SDL2 window {}x{}", width, height);
     }
 #endif
 
-    gpu::ContextConfig cfg;
+    gpu::ContextConfig cfg{};
     cfg.width = width;
     cfg.height = height;
     cfg.nativeWindowHandle = nativeWindow_;
@@ -63,6 +63,10 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         return res;
     }
+    pipelineManager_.SetBumpMappingEnabled(config.enableBumpMapping);
+    pipelineManager_.SetMipmappingEnabled(config.enableMipmapping);
+    pipelineManager_.SetShadowsEnabled(config.enableShadows);
+    pipelineManager_.SetReflectionsEnabled(config.enableReflections);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
@@ -123,14 +127,12 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
             }
 
             // Build Quadtree spatial partitioning structure fitted to scene AABB
-            core::AABB worldBounds = activeScene_->sceneAABB;
-            glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+            core::AABB worldBounds{activeScene_->sceneAABB};
+            const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
             worldBounds.minBound -= margin;
             worldBounds.maxBound += margin;
             quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-            for (const auto& rootNode : activeScene_->rootNodes) {
-                quadtree_->Insert(rootNode);
-            }
+            quadtree_->InsertNodes(activeScene_->rootNodes);
             cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
         } else {
             BGL_LOG_WARN("Could not load {}: {}", assetPathToLoad, sceneRes.error());
@@ -179,6 +181,18 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
                     ToggleDebugOverlay();
                     BGL_LOG_INFO("Toggled In-Engine Debug Overlay visibility: {}", debugOverlay_.IsVisible());
+                } else if (event.key.keysym.sym == SDLK_v) {
+                    ToggleBumpMapping();
+                    BGL_LOG_INFO("Toggled Bump & Normal Mapping: {}", pipelineManager_.IsBumpMappingEnabled());
+                } else if (event.key.keysym.sym == SDLK_l) {
+                    ToggleMipmapping();
+                    BGL_LOG_INFO("Toggled Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0): {}", pipelineManager_.IsMipmappingEnabled());
+                } else if (event.key.keysym.sym == SDLK_m) {
+                    ToggleShadows();
+                    BGL_LOG_INFO("Toggled Directional Shadow Mapping (PCF): {}", pipelineManager_.IsShadowsEnabled());
+                } else if (event.key.keysym.sym == SDLK_r) {
+                    ToggleReflections();
+                    BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
                 }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
@@ -211,14 +225,12 @@ void Application::Update(float deltaTime) {
                             camera_.Orbit(0.8f, 0.4f);
                         }
 
-                        core::AABB worldBounds = activeScene_->sceneAABB;
-                        glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+                        core::AABB worldBounds{activeScene_->sceneAABB};
+                        const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
                         worldBounds.minBound -= margin;
                         worldBounds.maxBound += margin;
                         quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-                        for (const auto& rootNode : activeScene_->rootNodes) {
-                            quadtree_->Insert(rootNode);
-                        }
+                        quadtree_->InsertNodes(activeScene_->rootNodes);
                         cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
 
                         BGL_LOG_INFO("Successfully loaded dropped model: {}", droppedFile);
@@ -256,6 +268,10 @@ void Application::Update(float deltaTime) {
     stats.boundingBoxesEnabled = showBoundingBoxes_;
     stats.quadtreeBoundsEnabled = showQuadtreeBounds_;
     stats.skyboxEnabled = skybox_.IsEnabled();
+    stats.bumpMappingEnabled = pipelineManager_.IsBumpMappingEnabled();
+    stats.mipmappingEnabled = pipelineManager_.IsMipmappingEnabled();
+    stats.shadowsEnabled = pipelineManager_.IsShadowsEnabled();
+    stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
 
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;
@@ -271,12 +287,19 @@ void Application::Update(float deltaTime) {
 void Application::Render() {
     if (!running_) return;
 
-    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
-    if (!pass) return;
+    if (!gpuContext_.PrepareFrame()) return;
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     glm::vec3 camPos = camera_.GetPosition();
     glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+
+    // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
+    if (activeScene_) {
+        pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
+    }
+
+    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
+    if (!pass) return;
 
     // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry)
     skybox_.Render(pass, vp, camPos, sunDir);
@@ -324,14 +347,12 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
                 camera_.Orbit(0.8f, 0.4f);
             }
 
-            core::AABB worldBounds = activeScene_->sceneAABB;
-            glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
+            core::AABB worldBounds{activeScene_->sceneAABB};
+            const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
             worldBounds.minBound -= margin;
             worldBounds.maxBound += margin;
             quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-            for (const auto& rootNode : activeScene_->rootNodes) {
-                quadtree_->Insert(rootNode);
-            }
+            quadtree_->InsertNodes(activeScene_->rootNodes);
             cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
 
             BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);

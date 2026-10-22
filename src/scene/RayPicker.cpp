@@ -40,35 +40,38 @@ bool RayPicker::IntersectTriangle(const core::Ray& ray,
     return true;
 }
 
-std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, const Scene& scene) noexcept {
-    std::optional<RayHit> closestHit;
-    float minDistance = 1e30f;
+std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept {
+    std::optional<RayHit> closestHit{};
+    float minDistance{1e30f};
 
     auto traverseNode = [&](auto& self, const std::shared_ptr<SceneNode>& node, const glm::mat4& parentTransform) -> void {
         if (!node) return;
-        const glm::mat4 worldMat = parentTransform * node->localTransform;
+        const glm::mat4 worldMat{parentTransform * node->localTransform};
 
         // Hierarchical broad-phase AABB test for entire scene node
-        float nt0 = 0.0f, nt1 = 0.0f;
+        float nt0{0.0f}, nt1{0.0f};
         if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !node->worldAABB.Intersects(ray, nt0, nt1)) {
             return;
         }
 
         for (const auto& prim : node->primitives) {
-            float t0 = 0.0f, t1 = 0.0f;
+            float t0{0.0f}, t1{0.0f};
             if (!prim.boundingBox.Intersects(ray, t0, t1)) {
                 // Skip primitive if ray misses AABB
                 continue;
             }
 
-            if (prim.indices.empty()) {
-                // Non-indexed triangle list
-                for (size_t i = 0; i + 2 < prim.vertices.size(); i += 3) {
-                    const glm::vec3 v0 = glm::vec3(worldMat * glm::vec4(prim.vertices[i].position, 1.0f));
-                    const glm::vec3 v1 = glm::vec3(worldMat * glm::vec4(prim.vertices[i + 1].position, 1.0f));
-                    const glm::vec3 v2 = glm::vec3(worldMat * glm::vec4(prim.vertices[i + 2].position, 1.0f));
+            std::span<const core::Vertex> vertSpan{prim.vertices.data(), prim.vertices.size()};
+            std::span<const uint32_t> idxSpan{prim.indices.data(), prim.indices.size()};
 
-                    float dist = 0.0f;
+            if (idxSpan.empty()) {
+                // Non-indexed triangle list
+                for (size_t i{0}; i + 2 < vertSpan.size(); i += 3) {
+                    const glm::vec3 v0{worldMat * glm::vec4{vertSpan[i].position, 1.0f}};
+                    const glm::vec3 v1{worldMat * glm::vec4{vertSpan[i + 1].position, 1.0f}};
+                    const glm::vec3 v2{worldMat * glm::vec4{vertSpan[i + 2].position, 1.0f}};
+
+                    float dist{0.0f};
                     glm::vec3 pt{0.0f};
                     glm::vec3 norm{0.0f};
                     if (IntersectTriangle(ray, v0, v1, v2, dist, pt, norm) && dist < minDistance) {
@@ -84,16 +87,16 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, const Scene& scene) 
                 }
             } else {
                 // Indexed triangles
-                for (size_t i = 0; i + 2 < prim.indices.size(); i += 3) {
-                    const uint32_t idx0 = prim.indices[i];
-                    const uint32_t idx1 = prim.indices[i + 1];
-                    const uint32_t idx2 = prim.indices[i + 2];
+                for (size_t i{0}; i + 2 < idxSpan.size(); i += 3) {
+                    const uint32_t idx0{idxSpan[i]};
+                    const uint32_t idx1{idxSpan[i + 1]};
+                    const uint32_t idx2{idxSpan[i + 2]};
 
-                    const glm::vec3 v0 = glm::vec3(worldMat * glm::vec4(prim.vertices[idx0].position, 1.0f));
-                    const glm::vec3 v1 = glm::vec3(worldMat * glm::vec4(prim.vertices[idx1].position, 1.0f));
-                    const glm::vec3 v2 = glm::vec3(worldMat * glm::vec4(prim.vertices[idx2].position, 1.0f));
+                    const glm::vec3 v0{worldMat * glm::vec4{vertSpan[idx0].position, 1.0f}};
+                    const glm::vec3 v1{worldMat * glm::vec4{vertSpan[idx1].position, 1.0f}};
+                    const glm::vec3 v2{worldMat * glm::vec4{vertSpan[idx2].position, 1.0f}};
 
-                    float dist = 0.0f;
+                    float dist{0.0f};
                     glm::vec3 pt{0.0f};
                     glm::vec3 norm{0.0f};
                     if (IntersectTriangle(ray, v0, v1, v2, dist, pt, norm) && dist < minDistance) {
@@ -115,11 +118,15 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, const Scene& scene) 
         }
     };
 
-    for (const auto& rootNode : scene.rootNodes) {
-        traverseNode(traverseNode, rootNode, glm::mat4(1.0f));
+    for (const auto& rootNode : rootNodes) {
+        traverseNode(traverseNode, rootNode, glm::mat4{1.0f});
     }
 
     return closestHit;
+}
+
+std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, const Scene& scene) noexcept {
+    return Pick(ray, std::span<const std::shared_ptr<SceneNode>>{scene.rootNodes});
 }
 
 } // namespace bgl::scene

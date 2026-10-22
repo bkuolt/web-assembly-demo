@@ -26,13 +26,17 @@ namespace bgl::app {
  * @brief Startup parameters and initial rendering states.
  */
 struct ApplicationConfig {
-    uint32_t width = 1280;
-    uint32_t height = 720;
-    std::string assetPath = "";
-    bool enableSkybox = true;
-    bool enableBoundingBoxes = true;
-    bool enableQuadtreeBounds = false;
-    bool enableDebugOverlay = true;
+    uint32_t width{1280};
+    uint32_t height{720};
+    std::string assetPath{};
+    bool enableSkybox{true};
+    bool enableBoundingBoxes{true};
+    bool enableQuadtreeBounds{false};
+    bool enableDebugOverlay{true};
+    bool enableBumpMapping{true};
+    bool enableMipmapping{true};
+    bool enableShadows{true};
+    bool enableReflections{true};
 };
 
 /**
@@ -54,11 +58,19 @@ public:
     void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
     void ToggleSkybox() noexcept { skybox_.Toggle(); }
     void ToggleDebugOverlay() noexcept { debugOverlay_.Toggle(); }
+    void ToggleBumpMapping() noexcept { pipelineManager_.ToggleBumpMapping(); }
+    void ToggleMipmapping() { pipelineManager_.ToggleMipmapping(activeScene_.get()); }
+    void ToggleShadows() noexcept { pipelineManager_.ToggleShadows(); }
+    void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
     [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
     [[nodiscard]] bool IsDebugOverlayEnabled() const noexcept { return debugOverlay_.IsVisible(); }
+    [[nodiscard]] bool IsBumpMappingEnabled() const noexcept { return pipelineManager_.IsBumpMappingEnabled(); }
+    [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return pipelineManager_.IsMipmappingEnabled(); }
+    [[nodiscard]] bool IsShadowsEnabled() const noexcept { return pipelineManager_.IsShadowsEnabled(); }
+    [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return pipelineManager_.IsReflectionsEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
@@ -73,28 +85,28 @@ public:
 private:
     void CacheSceneMetrics();
 
-    bool running_ = false;
-    bool showBoundingBoxes_ = true;
-    bool showQuadtreeBounds_ = false;
+    bool running_{false};
+    bool showBoundingBoxes_{true};
+    bool showQuadtreeBounds_{false};
 
-    core::Camera camera_;
-    core::Gamepad gamepad_;
-    gpu::Context gpuContext_;
-    gpu::PipelineManager pipelineManager_;
-    gpu::Skybox skybox_;
-    ui::DebugOverlay debugOverlay_;
-    audio::SoundEngine soundEngine_;
-    void* nativeWindow_ = nullptr;
-    scene::AssetManager assetManager_;
-    std::unique_ptr<scene::FastGltfLoader> gltfLoader_;
-    std::shared_ptr<scene::Scene> activeScene_;
-    std::unique_ptr<scene::Quadtree> quadtree_;
+    core::Camera camera_{};
+    core::Gamepad gamepad_{};
+    gpu::Context gpuContext_{};
+    gpu::PipelineManager pipelineManager_{};
+    gpu::Skybox skybox_{};
+    ui::DebugOverlay debugOverlay_{};
+    audio::SoundEngine soundEngine_{};
+    void* nativeWindow_{nullptr};
+    scene::AssetManager assetManager_{};
+    std::unique_ptr<scene::FastGltfLoader> gltfLoader_{nullptr};
+    std::shared_ptr<scene::Scene> activeScene_{nullptr};
+    std::unique_ptr<scene::Quadtree> quadtree_{nullptr};
 
-    std::string currentModelName_ = "None";
-    size_t totalPrimitives_ = 0;
-    size_t totalVertices_ = 0;
-    size_t totalIndices_ = 0;
-    size_t cachedQuadtreeNodeCount_ = 0;
+    std::string currentModelName_{"None"};
+    size_t totalPrimitives_{0};
+    size_t totalVertices_{0};
+    size_t totalIndices_{0};
+    size_t cachedQuadtreeNodeCount_{0};
 };
 
 } // namespace bgl::app

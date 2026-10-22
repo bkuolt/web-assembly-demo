@@ -299,32 +299,28 @@ void TextRenderer::DrawRectWithBorder(float x, float y, float width, float heigh
     DrawRect(x + width - borderWidth, y + borderWidth, borderWidth, height - 2.0f * borderWidth, borderColor); // Right
 }
 
-void TextRenderer::DrawText(std::string_view text, float x, float y,
-                            const glm::vec4& color, float scale) {
-    if (!fontAtlas_ || text.empty()) return;
-
-    TextLayout layout = TextShaper::Shape(*fontAtlas_, text, x, y, color, scale);
-    for (const auto& quad : layout.quads) {
-        uint32_t baseIdx = static_cast<uint32_t>(vertexBatch_.size());
+void TextRenderer::DrawQuads(std::span<const TextQuad> quads) {
+    for (const auto& quad : quads) {
+        const uint32_t baseIdx{static_cast<uint32_t>(vertexBatch_.size())};
 
         vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2(quad.posMin.x, quad.posMin.y),
-            .uv = glm::vec2(quad.uvMin.x, quad.uvMin.y),
+            .pos = glm::vec2{quad.posMin.x, quad.posMin.y},
+            .uv = glm::vec2{quad.uvMin.x, quad.uvMin.y},
             .color = quad.color
         });
         vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2(quad.posMax.x, quad.posMin.y),
-            .uv = glm::vec2(quad.uvMax.x, quad.uvMin.y),
+            .pos = glm::vec2{quad.posMax.x, quad.posMin.y},
+            .uv = glm::vec2{quad.uvMax.x, quad.uvMin.y},
             .color = quad.color
         });
         vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2(quad.posMax.x, quad.posMax.y),
-            .uv = glm::vec2(quad.uvMax.x, quad.uvMax.y),
+            .pos = glm::vec2{quad.posMax.x, quad.posMax.y},
+            .uv = glm::vec2{quad.uvMax.x, quad.uvMax.y},
             .color = quad.color
         });
         vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2(quad.posMin.x, quad.posMax.y),
-            .uv = glm::vec2(quad.uvMin.x, quad.uvMax.y),
+            .pos = glm::vec2{quad.posMin.x, quad.posMax.y},
+            .uv = glm::vec2{quad.uvMin.x, quad.uvMax.y},
             .color = quad.color
         });
 
@@ -335,6 +331,14 @@ void TextRenderer::DrawText(std::string_view text, float x, float y,
         indexBatch_.push_back(baseIdx + 2);
         indexBatch_.push_back(baseIdx + 3);
     }
+}
+
+void TextRenderer::DrawText(std::string_view text, float x, float y,
+                            const glm::vec4& color, float scale) {
+    if (!fontAtlas_ || text.empty()) return;
+
+    const TextLayout layout{TextShaper::Shape(*fontAtlas_, text, x, y, color, scale)};
+    DrawQuads(std::span<const TextQuad>{layout.quads});
 }
 
 void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight) {

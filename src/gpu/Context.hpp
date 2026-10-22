@@ -15,11 +15,11 @@ namespace bgl::gpu {
  * @brief Window and surface configuration for WebGPU setup.
  */
 struct ContextConfig {
-    uint32_t width = 1280;
-    uint32_t height = 720;
-    uint32_t sampleCount = 4; // 4x MSAA by default
-    const char* canvasId = "#canvas";
-    void* nativeWindowHandle = nullptr;
+    uint32_t width{1280};
+    uint32_t height{720};
+    uint32_t sampleCount{4}; // 4x MSAA by default
+    const char* canvasId{"#canvas"};
+    void* nativeWindowHandle{nullptr};
 };
 
 /**
@@ -45,35 +45,37 @@ public:
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
     void Resize(uint32_t width, uint32_t height);
+    bool PrepareFrame();
+    [[nodiscard]] WGPUCommandEncoder GetCommandEncoder() const noexcept { return encoder_; }
     WGPURenderPassEncoder BeginFrame();
     void EndFrame(WGPURenderPassEncoder pass);
 
 private:
     void CreateRenderBuffers();
 
-    bool initialized_ = false;
-    uint32_t width_ = 1280;
-    uint32_t height_ = 720;
-    uint32_t sampleCount_ = 4;
+    bool initialized_{false};
+    uint32_t width_{1280};
+    uint32_t height_{720};
+    uint32_t sampleCount_{4};
 
-    WGPUInstance instance_ = nullptr;
-    WGPUAdapter adapter_ = nullptr;
-    WGPUDevice device_ = nullptr;
-    WGPUQueue queue_ = nullptr;
-    WGPUSurface surface_ = nullptr;
-    WGPUTextureFormat format_ = WGPUTextureFormat_BGRA8Unorm;
+    WGPUInstance instance_{nullptr};
+    WGPUAdapter adapter_{nullptr};
+    WGPUDevice device_{nullptr};
+    WGPUQueue queue_{nullptr};
+    WGPUSurface surface_{nullptr};
+    WGPUTextureFormat format_{WGPUTextureFormat_BGRA8Unorm};
 
-    WGPUTexture msaaColorTexture_ = nullptr;
-    WGPUTextureView msaaColorView_ = nullptr;
+    WGPUTexture msaaColorTexture_{nullptr};
+    WGPUTextureView msaaColorView_{nullptr};
 
-    WGPUTexture depthTexture_ = nullptr;
-    WGPUTextureView depthView_ = nullptr;
+    WGPUTexture depthTexture_{nullptr};
+    WGPUTextureView depthView_{nullptr};
 
-    WGPUSurfaceTexture surfaceTexture_ = {};
-    WGPUTextureView currentView_ = nullptr;
-    WGPUCommandEncoder encoder_ = nullptr;
+    WGPUSurfaceTexture surfaceTexture_{};
+    WGPUTextureView currentView_{nullptr};
+    WGPUCommandEncoder encoder_{nullptr};
 
-    void* nativeWindow_ = nullptr;
+    void* nativeWindow_{nullptr};
 };
 
 } // namespace bgl::gpu

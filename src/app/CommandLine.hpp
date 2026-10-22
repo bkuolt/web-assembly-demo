@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <span>
 #include <cstdint>
 #include <vector>
 
@@ -16,21 +17,30 @@ namespace bgl::app {
  * @brief Processed command-line arguments for the desktop viewer.
  */
 struct CliOptions {
-    bool showHelp = false;
-    bool showVersion = false;
-    bool listFormats = false;
-    bool testCrash = false;
-    int testCrashSignal = 0; // 0=SIGSEGV, 1=SIGABRT, 2=SIGFPE
+    bool showHelp{false};
+    bool showVersion{false};
+    bool listFormats{false};
+    bool testCrash{false};
+    int testCrashSignal{0}; // 0=SIGSEGV, 1=SIGABRT, 2=SIGFPE
 
-    uint32_t width = 1280;
-    uint32_t height = 720;
-    std::string assetPath = "";
-    std::string logLevel = "info";
+    uint32_t width{1280};
+    uint32_t height{720};
+    std::string assetPath{};
+    std::string logLevel{"info"};
 
-    bool enableSkybox = true;
-    bool enableBoundingBoxes = true;
-    bool enableQuadtreeBounds = false;
-    bool enableDebugOverlay = true;
+    bool enableSkybox{true};
+    bool enableBoundingBoxes{true};
+    bool enableQuadtreeBounds{false};
+    bool enableDebugOverlay{true};
+    bool enableBumpMapping{true};
+    bool enableMipmapping{true};
+    bool enableShadows{true};
+    bool enableReflections{true};
+
+    /**
+     * @brief Parses a span of command-line arguments into a validated CliOptions structure.
+     */
+    static CliOptions Parse(std::span<const char* const> args);
 
     /**
      * @brief Parses argc and argv into a validated CliOptions structure.

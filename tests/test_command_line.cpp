@@ -3,6 +3,8 @@
  * @brief Unit tests for command-line arguments parsing and default options.
  */
 #include <gtest/gtest.h>
+#include <array>
+#include <span>
 #include "app/CommandLine.hpp"
 
 using namespace bgl::app;
@@ -22,6 +24,10 @@ TEST(CommandLineTest, DefaultOptions) {
     EXPECT_TRUE(opt.enableBoundingBoxes);
     EXPECT_FALSE(opt.enableQuadtreeBounds);
     EXPECT_TRUE(opt.enableDebugOverlay);
+    EXPECT_TRUE(opt.enableBumpMapping);
+    EXPECT_TRUE(opt.enableMipmapping);
+    EXPECT_TRUE(opt.enableShadows);
+    EXPECT_TRUE(opt.enableReflections);
 }
 
 TEST(CommandLineTest, HelpAndVersionFlags) {
@@ -60,14 +66,39 @@ TEST(CommandLineTest, FeatureToggles) {
         const_cast<char*>("--no-skybox"),
         const_cast<char*>("--no-bounds"),
         const_cast<char*>("--quadtree"),
-        const_cast<char*>("--no-hud")
+        const_cast<char*>("--no-hud"),
+        const_cast<char*>("--no-bump"),
+        const_cast<char*>("--no-mipmaps"),
+        const_cast<char*>("--no-shadows"),
+        const_cast<char*>("--no-reflections")
     };
-    auto opt = CliOptions::Parse(5, argv);
+    auto opt = CliOptions::Parse(9, argv);
 
     EXPECT_FALSE(opt.enableSkybox);
     EXPECT_FALSE(opt.enableBoundingBoxes);
     EXPECT_TRUE(opt.enableQuadtreeBounds);
     EXPECT_FALSE(opt.enableDebugOverlay);
+    EXPECT_FALSE(opt.enableBumpMapping);
+    EXPECT_FALSE(opt.enableMipmapping);
+    EXPECT_FALSE(opt.enableShadows);
+    EXPECT_FALSE(opt.enableReflections);
+
+    const std::array<const char*, 9> argsReEnable{
+        "bgl_viewer",
+        "--no-bump",
+        "--bump",
+        "--no-mipmaps",
+        "--mipmaps",
+        "--no-shadows",
+        "--shadows",
+        "--no-reflections",
+        "--reflections"
+    };
+    auto optRe{CliOptions::Parse(std::span<const char* const>{argsReEnable})};
+    EXPECT_TRUE(optRe.enableBumpMapping);
+    EXPECT_TRUE(optRe.enableMipmapping);
+    EXPECT_TRUE(optRe.enableShadows);
+    EXPECT_TRUE(optRe.enableReflections);
 }
 
 TEST(CommandLineTest, TestCrashSignalSelection) {

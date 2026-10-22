@@ -35,15 +35,15 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
 private:
-    bool enabled_ = true;
-    bool initialized_ = false;
+    bool enabled_{true};
+    bool initialized_{false};
 
-    WGPUDevice device_ = nullptr;
-    WGPUQueue queue_ = nullptr;
-    WGPURenderPipeline pipeline_ = nullptr;
-    WGPUBindGroupLayout bindGroupLayout_ = nullptr;
-    WGPUBindGroup bindGroup_ = nullptr;
-    WGPUBuffer uniformBuffer_ = nullptr;
+    WGPUDevice device_{nullptr};
+    WGPUQueue queue_{nullptr};
+    WGPURenderPipeline pipeline_{nullptr};
+    WGPUBindGroupLayout bindGroupLayout_{nullptr};
+    WGPUBindGroup bindGroup_{nullptr};
+    WGPUBuffer uniformBuffer_{nullptr};
 };
 
 } // namespace bgl::gpu

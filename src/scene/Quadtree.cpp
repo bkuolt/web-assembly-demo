@@ -123,8 +123,14 @@ void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& c
 }
 
 Quadtree::Quadtree(const core::AABB& worldBounds)
-    : worldBounds_(worldBounds),
-      root_(std::make_unique<QuadtreeNode>(worldBounds)) {}
+    : worldBounds_{worldBounds},
+      root_{std::make_unique<QuadtreeNode>(worldBounds)} {}
+
+void Quadtree::InsertNodes(std::span<const std::shared_ptr<SceneNode>> nodes) {
+    for (const auto& node : nodes) {
+        Insert(node);
+    }
+}
 
 void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
     if (!node) return;

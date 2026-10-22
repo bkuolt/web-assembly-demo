@@ -62,12 +62,12 @@ struct AABB {
     }
 
     [[nodiscard]] bool Intersects(const Ray& ray, float& tMinOut, float& tMaxOut) const noexcept {
-        float tmin = 0.0f;
-        float tmax = 1e30f;
-        for (int i = 0; i < 3; ++i) {
-            const float invD = 1.0f / (std::abs(ray.direction[i]) > 1e-8f ? ray.direction[i] : 1e-8f);
-            float t0 = (minBound[i] - ray.origin[i]) * invD;
-            float t1 = (maxBound[i] - ray.origin[i]) * invD;
+        float tmin{0.0f};
+        float tmax{1e30f};
+        for (int i{0}; i < 3; ++i) {
+            const float invD{1.0f / (std::abs(ray.direction[i]) > 1e-8f ? ray.direction[i] : 1e-8f)};
+            float t0{(minBound[i] - ray.origin[i]) * invD};
+            float t1{(maxBound[i] - ray.origin[i]) * invD};
             if (invD < 0.0f) std::swap(t0, t1);
             tmin = std::max(tmin, t0);
             tmax = std::min(tmax, t1);
@@ -85,10 +85,10 @@ struct AABB {
  */
 struct Plane {
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
-    float distance = 0.0f;
+    float distance{0.0f};
 
     void Normalize() noexcept {
-        const float len = glm::length(normal);
+        const float len{glm::length(normal)};
         if (len > 1e-6f) {
             normal /= len;
             distance /= len;
@@ -105,30 +105,30 @@ struct Plane {
  * @brief 6 clipping planes extracted from a View-Projection matrix for frustum culling.
  */
 struct Frustum {
-    std::array<Plane, 6> planes;
+    std::array<Plane, 6> planes{};
 
     /**
      * @brief Extract 6 frustum planes from a WebGPU RH_ZO (0..1 depth) view-projection matrix.
      */
     static Frustum FromViewProjection(const glm::mat4& vp) noexcept {
-        Frustum f;
+        Frustum f{};
         // Left plane
-        f.planes[0].normal = glm::vec3(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0]);
+        f.planes[0].normal = glm::vec3{vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0]};
         f.planes[0].distance = vp[3][3] + vp[3][0];
         // Right plane
-        f.planes[1].normal = glm::vec3(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0]);
+        f.planes[1].normal = glm::vec3{vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0]};
         f.planes[1].distance = vp[3][3] - vp[3][0];
         // Bottom plane
-        f.planes[2].normal = glm::vec3(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1]);
+        f.planes[2].normal = glm::vec3{vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1]};
         f.planes[2].distance = vp[3][3] + vp[3][1];
         // Top plane
-        f.planes[3].normal = glm::vec3(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1]);
+        f.planes[3].normal = glm::vec3{vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1]};
         f.planes[3].distance = vp[3][3] - vp[3][1];
         // Near plane (WebGPU 0..1 depth)
-        f.planes[4].normal = glm::vec3(vp[0][2], vp[1][2], vp[2][2]);
+        f.planes[4].normal = glm::vec3{vp[0][2], vp[1][2], vp[2][2]};
         f.planes[4].distance = vp[3][2];
         // Far plane
-        f.planes[5].normal = glm::vec3(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2]);
+        f.planes[5].normal = glm::vec3{vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2]};
         f.planes[5].distance = vp[3][3] - vp[3][2];
 
         for (auto& plane : f.planes) {
@@ -142,7 +142,7 @@ struct Frustum {
      */
     [[nodiscard]] bool IntersectsAABB(const AABB& box) const noexcept {
         for (const auto& plane : planes) {
-            glm::vec3 p = box.minBound;
+            glm::vec3 p{box.minBound};
             if (plane.normal.x >= 0.0f) p.x = box.maxBound.x;
             if (plane.normal.y >= 0.0f) p.y = box.maxBound.y;
             if (plane.normal.z >= 0.0f) p.z = box.maxBound.z;
@@ -161,9 +161,9 @@ struct Frustum {
  */
 struct alignas(16) Vertex {
     glm::vec3 position{0.0f};
-    float _pad0 = 0.0f;
+    float _pad0{0.0f};
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
-    float _pad1 = 0.0f;
+    float _pad1{0.0f};
     glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f};
     glm::vec2 _pad2{0.0f};

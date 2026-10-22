@@ -1,6 +1,7 @@
 /**
  * @file Pipeline.cpp
- * @brief Implementation of hardware native WebGPU RenderPipeline and glTF mesh rendering.
+ * @brief Implementation of hardware native WebGPU RenderPipeline, Directional Shadow Mapping,
+ *        Pre-filtered Environment Cubemap Reflections, Bump Mapping, and Trilinear Mipmapping.
  */
 #include "gpu/Pipeline.hpp"
 #include "gpu/Shaders.hpp"
@@ -10,13 +11,52 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <span>
+#include <atomic>
+#if !defined(__EMSCRIPTEN__)
+#include <thread>
+#endif
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::gpu {
 
 PipelineManager::~PipelineManager() {
+    if (noMipSampler_) {
+        wgpuSamplerRelease(noMipSampler_);
+        noMipSampler_ = nullptr;
+    }
     if (defaultSampler_) {
         wgpuSamplerRelease(defaultSampler_);
         defaultSampler_ = nullptr;
+    }
+    if (shadowSampler_) {
+        wgpuSamplerRelease(shadowSampler_);
+        shadowSampler_ = nullptr;
+    }
+    if (shadowDepthView_) {
+        wgpuTextureViewRelease(shadowDepthView_);
+        shadowDepthView_ = nullptr;
+    }
+    if (shadowDepthTexture_) {
+        wgpuTextureRelease(shadowDepthTexture_);
+        shadowDepthTexture_ = nullptr;
+    }
+    if (shadowPipeline_) {
+        wgpuRenderPipelineRelease(shadowPipeline_);
+        shadowPipeline_ = nullptr;
+    }
+    if (shadowBindGroupLayout_) {
+        wgpuBindGroupLayoutRelease(shadowBindGroupLayout_);
+        shadowBindGroupLayout_ = nullptr;
+    }
+    if (envCubemapView_) {
+        wgpuTextureViewRelease(envCubemapView_);
+        envCubemapView_ = nullptr;
+    }
+    if (envCubemapTexture_) {
+        wgpuTextureRelease(envCubemapTexture_);
+        envCubemapTexture_ = nullptr;
     }
     if (defaultBlackTextureView_) {
         wgpuTextureViewRelease(defaultBlackTextureView_);
@@ -76,6 +116,183 @@ PipelineManager::~PipelineManager() {
     }
 }
 
+uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) noexcept {
+    const uint32_t maxDim{std::max(width, height)};
+    if (maxDim == 0) return 1;
+    uint32_t levels{1};
+    while ((maxDim >> levels) > 0) {
+        levels++;
+    }
+    return levels;
+}
+
+std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap) {
+    if (!src || srcW == 0 || srcH == 0) {
+        return std::vector<uint8_t>(static_cast<size_t>(dstW) * dstH * 4);
+    }
+    return GenerateNextMipLevel(std::span<const uint8_t>{src, static_cast<size_t>(srcW) * srcH * 4}, srcW, srcH, dstW, dstH, isNormalMap);
+}
+
+std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap) {
+    std::vector<uint8_t> dst(static_cast<size_t>(dstW) * dstH * 4);
+    if (src.empty() || srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0 || src.size() < static_cast<size_t>(srcW) * srcH * 4) {
+        return dst;
+    }
+
+    auto processRows = [&](uint32_t yStart, uint32_t yEnd) {
+        for (uint32_t y{yStart}; y < yEnd; ++y) {
+            for (uint32_t x{0}; x < dstW; ++x) {
+                const uint32_t srcX0{std::min(x * 2, srcW - 1)};
+                const uint32_t srcX1{std::min(x * 2 + 1, srcW - 1)};
+                const uint32_t srcY0{std::min(y * 2, srcH - 1)};
+                const uint32_t srcY1{std::min(y * 2 + 1, srcH - 1)};
+
+                std::span<const uint8_t> p00{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX0) * 4, 4)};
+                std::span<const uint8_t> p10{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX1) * 4, 4)};
+                std::span<const uint8_t> p01{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX0) * 4, 4)};
+                std::span<const uint8_t> p11{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX1) * 4, 4)};
+
+                const size_t dstIdx{(static_cast<size_t>(y) * dstW + x) * 4};
+                if (isNormalMap) {
+                    // Vector-renormalized normal map downsampling to preserve surface normal length
+                    auto unpackN = [](std::span<const uint8_t> p) -> glm::vec3 {
+                        return glm::vec3{
+                            (static_cast<float>(p[0]) / 255.0f) * 2.0f - 1.0f,
+                            (static_cast<float>(p[1]) / 255.0f) * 2.0f - 1.0f,
+                            (static_cast<float>(p[2]) / 255.0f) * 2.0f - 1.0f
+                        };
+                    };
+                    glm::vec3 avgN{unpackN(p00) + unpackN(p10) + unpackN(p01) + unpackN(p11)};
+                    const float len{glm::length(avgN)};
+                    if (len > 1e-5f) {
+                        avgN /= len;
+                    } else {
+                        avgN = glm::vec3{0.0f, 0.0f, 1.0f};
+                    }
+                    dst[dstIdx + 0] = static_cast<uint8_t>(std::clamp((avgN.x * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                    dst[dstIdx + 1] = static_cast<uint8_t>(std::clamp((avgN.y * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                    dst[dstIdx + 2] = static_cast<uint8_t>(std::clamp((avgN.z * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                    const uint32_t sumA{static_cast<uint32_t>(p00[3]) + p10[3] + p01[3] + p11[3]};
+                    dst[dstIdx + 3] = static_cast<uint8_t>((sumA + 2) / 4);
+                } else {
+                    for (int c{0}; c < 4; ++c) {
+                        const uint32_t sum{
+                            static_cast<uint32_t>(p00[c]) +
+                            static_cast<uint32_t>(p10[c]) +
+                            static_cast<uint32_t>(p01[c]) +
+                            static_cast<uint32_t>(p11[c])
+                        };
+                        dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
+                    }
+                }
+            }
+        }
+    };
+
+#if !defined(__EMSCRIPTEN__)
+    if (static_cast<size_t>(dstW) * dstH >= 65536 && dstH >= 64) {
+        const uint32_t numThreads{std::clamp<uint32_t>(std::thread::hardware_concurrency(), 2u, 8u)};
+        const uint32_t rowsPerThread{(dstH + numThreads - 1) / numThreads};
+        std::vector<std::jthread> workers;
+        workers.reserve(numThreads);
+        for (uint32_t t{0}; t < numThreads; ++t) {
+            const uint32_t y0{t * rowsPerThread};
+            const uint32_t y1{std::min(dstH, y0 + rowsPerThread)};
+            if (y0 < y1) {
+                workers.emplace_back(processRows, y0, y1);
+            }
+        }
+    } else {
+        processRows(0, dstH);
+    }
+#else
+    processRows(0, dstH);
+#endif
+    return dst;
+}
+
+glm::mat4 PipelineManager::ComputeDirectionalLightMatrix(const core::AABB& sceneBounds, const glm::vec3& lightDir) noexcept {
+    glm::vec3 center(0.0f);
+    float radius = 20.0f;
+    if (sceneBounds.minBound.x <= sceneBounds.maxBound.x) {
+        center = sceneBounds.Center();
+        radius = std::max(glm::length(sceneBounds.Extents()), 5.0f);
+    }
+
+    glm::vec3 dir = glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir) : glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+    glm::vec3 up = (std::abs(dir.y) < 0.99f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(0.0f, 0.0f, 1.0f);
+
+    glm::vec3 lightPos = center + dir * (radius * 1.5f);
+    glm::mat4 lightView = glm::lookAtRH(lightPos, center, up);
+    glm::mat4 lightProj = glm::orthoRH_ZO(-radius, radius, -radius, radius, 0.1f, radius * 3.5f);
+    return lightProj * lightView;
+}
+
+std::vector<uint8_t> PipelineManager::GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize, float roughness, const glm::vec3& sunDir) {
+    std::vector<uint8_t> pixels(faceSize * faceSize * 4);
+    glm::vec3 sun = glm::length(sunDir) > 1e-5f ? glm::normalize(sunDir) : glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+    float rough = std::clamp(roughness, 0.0f, 1.0f);
+
+    const glm::vec3 zenithColor(0.14f, 0.38f, 0.78f);
+    const glm::vec3 horizonColor(0.72f, 0.84f, 0.96f);
+    const glm::vec3 groundColor(0.28f, 0.23f, 0.19f);
+    const glm::vec3 warmBounce(0.42f, 0.34f, 0.26f);
+
+    for (uint32_t y = 0; y < faceSize; ++y) {
+        for (uint32_t x = 0; x < faceSize; ++x) {
+            float u = ((static_cast<float>(x) + 0.5f) / static_cast<float>(faceSize)) * 2.0f - 1.0f;
+            float v = ((static_cast<float>(y) + 0.5f) / static_cast<float>(faceSize)) * 2.0f - 1.0f;
+
+            glm::vec3 dir(0.0f);
+            switch (faceIndex) {
+                case 0: dir = glm::vec3( 1.0f,   -v,   -u); break; // +X
+                case 1: dir = glm::vec3(-1.0f,   -v,    u); break; // -X
+                case 2: dir = glm::vec3(    u, 1.0f,    v); break; // +Y
+                case 3: dir = glm::vec3(    u,-1.0f,   -v); break; // -Y
+                case 4: dir = glm::vec3(    u,   -v, 1.0f); break; // +Z
+                default:dir = glm::vec3(   -u,   -v,-1.0f); break; // -Z
+            }
+            dir = glm::normalize(dir);
+
+            // Base sky / ground gradient blurred by roughness
+            float elev = dir.y;
+            glm::vec3 envColor;
+            if (elev >= 0.0f) {
+                float horizonBlend = std::pow(std::clamp(1.0f - elev, 0.0f, 1.0f), glm::mix(2.2f, 1.0f, rough));
+                envColor = glm::mix(zenithColor, horizonColor, horizonBlend);
+            } else {
+                float groundBlend = std::clamp(-elev * glm::mix(3.5f, 1.2f, rough), 0.0f, 1.0f);
+                envColor = glm::mix(horizonColor, groundColor, groundBlend);
+                // Architectural warm courtyard bounce
+                float azimuthWave = 0.5f + 0.5f * std::sin(dir.x * 4.0f) * std::cos(dir.z * 4.0f);
+                envColor = glm::mix(envColor, warmBounce, azimuthWave * 0.25f * (1.0f - rough * 0.5f));
+            }
+
+            // Convolved sun specular highlight (sharp at mip 0, broad and soft at high roughness)
+            float sunDot = std::max(glm::dot(dir, sun), 0.0f);
+            float specPower = glm::mix(380.0f, 2.5f, std::sqrt(rough));
+            float specScale = glm::mix(2.2f, 0.25f, rough);
+            glm::vec3 sunContrib = glm::vec3(1.0f, 0.95f, 0.85f) * std::pow(sunDot, specPower) * specScale;
+
+            // Secondary studio rim highlight for metallic reflections
+            glm::vec3 rimDir = glm::normalize(glm::vec3(-sun.x, 0.45f, -sun.z));
+            float rimDot = std::max(glm::dot(dir, rimDir), 0.0f);
+            glm::vec3 rimContrib = glm::vec3(0.65f, 0.80f, 1.0f) * std::pow(rimDot, glm::mix(64.0f, 2.0f, rough)) * glm::mix(0.45f, 0.1f, rough);
+
+            glm::vec3 finalCol = envColor + sunContrib + rimContrib;
+            // Tone map into [0..1]
+            finalCol = finalCol / (finalCol + glm::vec3(0.65f));
+
+            size_t idx = (y * faceSize + x) * 4;
+            pixels[idx + 0] = static_cast<uint8_t>(std::clamp(finalCol.r * 255.0f + 0.5f, 0.0f, 255.0f));
+            pixels[idx + 1] = static_cast<uint8_t>(std::clamp(finalCol.g * 255.0f + 0.5f, 0.0f, 255.0f));
+            pixels[idx + 2] = static_cast<uint8_t>(std::clamp(finalCol.b * 255.0f + 0.5f, 0.0f, 255.0f));
+            pixels[idx + 3] = 255;
+        }
+    }
+    return pixels;
+}
+
 core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount) {
     device_ = device;
     queue_ = queue;
@@ -108,18 +325,24 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     WGPUShaderModule wfShaderModule = wgpuDeviceCreateShaderModule(device_, &wfSmDesc);
 
-    // 3. Bind Group Layout:
+    // 3. Compile WGSL Shadow Shader Module
+    WGPUShaderSourceWGSL shadowWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
+    shadowWgslDesc.code = WGPUStringView{ kShadowShaderWGSL.data(), kShadowShaderWGSL.size() };
+
+    WGPUShaderModuleDescriptor shadowSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
+    shadowSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&shadowWgslDesc);
+    shadowSmDesc.label = WGPUStringView{ "Shadow_WGSL", strlen("Shadow_WGSL") };
+
+    WGPUShaderModule shadowShaderModule = wgpuDeviceCreateShaderModule(device_, &shadowSmDesc);
+
+    // 4. Bind Group Layout (13 entries):
     // 0: Uniform buffer
-    // 1: Sampler
-    // 2: BaseColor texture
-    // 3: MetallicRoughness texture
-    // 4: Normal texture
-    // 5: Emissive texture
-    // 6: Occlusion texture
-    // 7: Clearcoat texture
-    // 8: Transmission texture
-    // 9: Sheen texture
-    WGPUBindGroupLayoutEntry bglEntries[10] = {};
+    // 1: Default Sampler
+    // 2..9: 2D Material Textures (BaseColor, MetallicRoughness, Normal, Emissive, Occlusion, Clearcoat, Transmission, Sheen)
+    // 10: Environment Cubemap (texture_cube<f32>)
+    // 11: Shadow Depth Map (texture_depth_2d)
+    // 12: Shadow Comparison Sampler (sampler_comparison)
+    WGPUBindGroupLayoutEntry bglEntries[13] = {};
 
     // Binding 0: Uniform buffer
     bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -128,7 +351,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     bglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
     bglEntries[0].buffer.minBindingSize = sizeof(PrimitiveUniforms);
 
-    // Binding 1: Sampler
+    // Binding 1: Default Sampler
     bglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     bglEntries[1].binding = 1;
     bglEntries[1].visibility = WGPUShaderStage_Fragment;
@@ -144,35 +367,73 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         bglEntries[b].texture.multisampled = WGPU_FALSE;
     }
 
+    // Binding 10: Environment Cubemap
+    bglEntries[10] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    bglEntries[10].binding = 10;
+    bglEntries[10].visibility = WGPUShaderStage_Fragment;
+    bglEntries[10].texture.sampleType = WGPUTextureSampleType_Float;
+    bglEntries[10].texture.viewDimension = WGPUTextureViewDimension_Cube;
+    bglEntries[10].texture.multisampled = WGPU_FALSE;
+
+    // Binding 11: Directional Shadow Map Depth Texture
+    bglEntries[11] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    bglEntries[11].binding = 11;
+    bglEntries[11].visibility = WGPUShaderStage_Fragment;
+    bglEntries[11].texture.sampleType = WGPUTextureSampleType_Depth;
+    bglEntries[11].texture.viewDimension = WGPUTextureViewDimension_2D;
+    bglEntries[11].texture.multisampled = WGPU_FALSE;
+
+    // Binding 12: Shadow Comparison Sampler
+    bglEntries[12] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    bglEntries[12].binding = 12;
+    bglEntries[12].visibility = WGPUShaderStage_Fragment;
+    bglEntries[12].sampler.type = WGPUSamplerBindingType_Comparison;
+
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = 10;
+    bglDesc.entryCount = 13;
     bglDesc.entries = bglEntries;
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
     if (!bindGroupLayout_) {
         return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
     }
 
-    // 4. Pipeline Layout
+    // 4b. Shadow Pass Bind Group Layout (Binding 0 only to avoid binding shadowMap while writing to it)
+    WGPUBindGroupLayoutEntry shadowBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    shadowBglEntry.binding = 0;
+    shadowBglEntry.visibility = WGPUShaderStage_Vertex;
+    shadowBglEntry.buffer.type = WGPUBufferBindingType_Uniform;
+    shadowBglEntry.buffer.minBindingSize = sizeof(PrimitiveUniforms);
+
+    WGPUBindGroupLayoutDescriptor shadowBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    shadowBglDesc.entryCount = 1;
+    shadowBglDesc.entries = &shadowBglEntry;
+    shadowBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &shadowBglDesc);
+
+    // 5. Pipeline Layouts
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = &bindGroupLayout_;
     WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
 
-    // 5. Vertex Layout (Position, Normal, Tangent, UV)
+    WGPUPipelineLayoutDescriptor shadowPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    shadowPlDesc.bindGroupLayoutCount = 1;
+    shadowPlDesc.bindGroupLayouts = &shadowBindGroupLayout_;
+    WGPUPipelineLayout shadowPipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &shadowPlDesc);
+
+    // 6. Vertex Layout (Position, Normal, Tangent, UV)
     WGPUVertexAttribute vertAttrs[4] = {};
-    // Position (vec3<f32>)
     vertAttrs[0].format = WGPUVertexFormat_Float32x3;
     vertAttrs[0].offset = offsetof(core::Vertex, position);
     vertAttrs[0].shaderLocation = 0;
-    // Normal (vec3<f32>)
+
     vertAttrs[1].format = WGPUVertexFormat_Float32x3;
     vertAttrs[1].offset = offsetof(core::Vertex, normal);
     vertAttrs[1].shaderLocation = 1;
-    // Tangent (vec4<f32>)
+
     vertAttrs[2].format = WGPUVertexFormat_Float32x4;
     vertAttrs[2].offset = offsetof(core::Vertex, tangent);
     vertAttrs[2].shaderLocation = 2;
-    // UV (vec2<f32>)
+
     vertAttrs[3].format = WGPUVertexFormat_Float32x2;
     vertAttrs[3].offset = offsetof(core::Vertex, uv);
     vertAttrs[3].shaderLocation = 3;
@@ -183,7 +444,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     vbLayout.attributeCount = 4;
     vbLayout.attributes = vertAttrs;
 
-    // 6. Color Target & Depth State
+    // 7. Color Target & Depth State
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
     colorTarget.format = surfaceFormat_;
     colorTarget.writeMask = WGPUColorWriteMask_All;
@@ -199,7 +460,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
     depthStencil.depthCompare = WGPUCompareFunction_LessEqual;
 
-    // 7. Create Opaque Render Pipeline
+    // 8. Create Opaque Render Pipeline
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.layout = pipelineLayout;
     rpDesc.vertex.module = pbrShaderModule;
@@ -216,7 +477,36 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     opaquePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
 
-    // 8. Create Wireframe Render Pipeline
+    // 8b. Create Shadow Depth Render Pipeline
+    if (shadowShaderModule) {
+        WGPUDepthStencilState shadowDepthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
+        shadowDepthStencil.format = WGPUTextureFormat_Depth32Float;
+        shadowDepthStencil.depthWriteEnabled = WGPUOptionalBool_True;
+        shadowDepthStencil.depthCompare = WGPUCompareFunction_LessEqual;
+        shadowDepthStencil.depthBias = 2;
+        shadowDepthStencil.depthBiasSlopeScale = 2.0f;
+        shadowDepthStencil.depthBiasClamp = 0.0f;
+
+        WGPURenderPipelineDescriptor shadowRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+        shadowRpDesc.layout = shadowPipelineLayout;
+        shadowRpDesc.vertex.module = shadowShaderModule;
+        shadowRpDesc.vertex.entryPoint = WGPUStringView{ "vs_shadow", strlen("vs_shadow") };
+        shadowRpDesc.vertex.bufferCount = 1;
+        shadowRpDesc.vertex.buffers = &vbLayout;
+        shadowRpDesc.fragment = nullptr; // Depth-only pass
+        shadowRpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        shadowRpDesc.primitive.cullMode = WGPUCullMode_None;
+        shadowRpDesc.depthStencil = &shadowDepthStencil;
+        shadowRpDesc.multisample.count = 1;
+        shadowRpDesc.multisample.mask = 0xFFFFFFFF;
+        shadowRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
+
+        shadowPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &shadowRpDesc);
+        wgpuShaderModuleRelease(shadowShaderModule);
+    }
+    wgpuPipelineLayoutRelease(shadowPipelineLayout);
+
+    // 8c. Create Wireframe Render Pipeline
     if (wfShaderModule) {
         WGPUFragmentState wfFragState = WGPU_FRAGMENT_STATE_INIT;
         wfFragState.module = wfShaderModule;
@@ -245,7 +535,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wgpuShaderModuleRelease(wfShaderModule);
     }
 
-    // 8b. Create AABB Wireframe Render Pipeline
+    // 8d. Create AABB Wireframe Render Pipeline
     WGPUShaderSourceWGSL aabbWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
     aabbWgslDesc.code = WGPUStringView{ kAabbShaderWGSL.data(), kAabbShaderWGSL.size() };
 
@@ -254,7 +544,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     aabbSmDesc.label = WGPUStringView{ "AABB_WGSL", strlen("AABB_WGSL") };
     WGPUShaderModule aabbShaderModule = wgpuDeviceCreateShaderModule(device_, &aabbSmDesc);
 
-    // AABB Bind Group Layout (Binding 0: AabbUniforms)
     WGPUBindGroupLayoutEntry aabbBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     aabbBglEntry.binding = 0;
     aabbBglEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
@@ -266,13 +555,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     aabbBglDesc.entries = &aabbBglEntry;
     aabbBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &aabbBglDesc);
 
-    // AABB Pipeline Layout
     WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     aabbPlDesc.bindGroupLayoutCount = 1;
     aabbPlDesc.bindGroupLayouts = &aabbBindGroupLayout_;
     WGPUPipelineLayout aabbPlLayout = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
 
-    // AABB Vertex Layout: pos vec3<f32>, color vec4<f32>
     WGPUVertexAttribute aabbAttrs[2] = {};
     aabbAttrs[0].format = WGPUVertexFormat_Float32x3;
     aabbAttrs[0].offset = 0;
@@ -317,7 +604,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     wgpuPipelineLayoutRelease(aabbPlLayout);
     wgpuShaderModuleRelease(aabbShaderModule);
 
-    // Dynamic AABB Line Vertex Buffer (initial 512 KB capacity)
     aabbVertexBufferSize_ = 512 * 1024;
     WGPUBufferDescriptor boxVbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     boxVbDesc.size = aabbVertexBufferSize_;
@@ -325,14 +611,12 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     boxVbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
     aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &boxVbDesc);
 
-    // AABB Uniform Buffer
     WGPUBufferDescriptor aabbUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     aabbUbDesc.size = sizeof(AabbUniforms);
     aabbUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     aabbUbDesc.label = WGPUStringView{ "AABB_Uniforms", strlen("AABB_Uniforms") };
     aabbUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &aabbUbDesc);
 
-    // AABB Bind Group
     WGPUBindGroupEntry aabbBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
     aabbBgEntry.binding = 0;
     aabbBgEntry.buffer = aabbUniformBuffer_;
@@ -348,8 +632,124 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     wgpuPipelineLayoutRelease(pipelineLayout);
     wgpuShaderModuleRelease(pbrShaderModule);
 
-    // 9. Helper to create 1x1 fallback textures
-    auto create1x1Texture = [&](const uint8_t rgba[4], const char* label) -> std::pair<WGPUTexture, WGPUTextureView> {
+    // 9. Create Shadow Map 2048x2048 Depth32Float Texture & Comparison Sampler
+    WGPUTextureDescriptor shadowTexDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    shadowTexDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    shadowTexDesc.dimension = WGPUTextureDimension_2D;
+    shadowTexDesc.size = WGPUExtent3D{ kShadowMapSize, kShadowMapSize, 1 };
+    shadowTexDesc.format = WGPUTextureFormat_Depth32Float;
+    shadowTexDesc.mipLevelCount = 1;
+    shadowTexDesc.sampleCount = 1;
+    shadowTexDesc.label = WGPUStringView{ "DirectionalShadowMap", strlen("DirectionalShadowMap") };
+    shadowDepthTexture_ = wgpuDeviceCreateTexture(device_, &shadowTexDesc);
+    if (shadowDepthTexture_) {
+        shadowDepthView_ = wgpuTextureCreateView(shadowDepthTexture_, nullptr);
+    }
+
+    WGPUSamplerDescriptor shadowSampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
+    shadowSampDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+    shadowSampDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+    shadowSampDesc.addressModeW = WGPUAddressMode_ClampToEdge;
+    shadowSampDesc.magFilter = WGPUFilterMode_Linear;
+    shadowSampDesc.minFilter = WGPUFilterMode_Linear;
+    shadowSampDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    shadowSampDesc.compare = WGPUCompareFunction_LessEqual;
+    shadowSampDesc.maxAnisotropy = 1;
+    shadowSampler_ = wgpuDeviceCreateSampler(device_, &shadowSampDesc);
+
+    // Initialize shadow map with cleared depth (1.0f) so first frame has valid depth contents even if shadows are toggled off
+    if (shadowDepthView_) {
+        WGPUCommandEncoder initEnc = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+        WGPURenderPassDepthStencilAttachment clearDepth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+        clearDepth.view = shadowDepthView_;
+        clearDepth.depthLoadOp = WGPULoadOp_Clear;
+        clearDepth.depthStoreOp = WGPUStoreOp_Store;
+        clearDepth.depthClearValue = 1.0f;
+
+        WGPURenderPassDescriptor clearPassDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+        clearPassDesc.colorAttachmentCount = 0;
+        clearPassDesc.depthStencilAttachment = &clearDepth;
+        WGPURenderPassEncoder clearPass = wgpuCommandEncoderBeginRenderPass(initEnc, &clearPassDesc);
+        wgpuRenderPassEncoderEnd(clearPass);
+        wgpuRenderPassEncoderRelease(clearPass);
+        WGPUCommandBuffer initCmd = wgpuCommandEncoderFinish(initEnc, nullptr);
+        wgpuCommandEncoderRelease(initEnc);
+        wgpuQueueSubmit(queue_, 1, &initCmd);
+        wgpuCommandBufferRelease(initCmd);
+    }
+
+    // 10. Create Pre-filtered Environment Cubemap (6 faces, 7 mip levels for roughness IBL, multithreaded across faces)
+    envMipLevels_ = CalculateMipLevels(kEnvCubemapSize, kEnvCubemapSize);
+    WGPUTextureDescriptor cubeDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    cubeDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    cubeDesc.dimension = WGPUTextureDimension_2D;
+    cubeDesc.size = WGPUExtent3D{ kEnvCubemapSize, kEnvCubemapSize, 6 };
+    cubeDesc.format = WGPUTextureFormat_RGBA8Unorm;
+    cubeDesc.mipLevelCount = envMipLevels_;
+    cubeDesc.sampleCount = 1;
+    cubeDesc.label = WGPUStringView{ "EnvironmentCubemap", strlen("EnvironmentCubemap") };
+    envCubemapTexture_ = wgpuDeviceCreateTexture(device_, &cubeDesc);
+
+    std::array<std::vector<std::vector<uint8_t>>, 6> faceMipData{};
+    for (auto& faceVec : faceMipData) {
+        faceVec.resize(envMipLevels_);
+    }
+
+    auto generateFaceChain = [&](uint32_t face) {
+        for (uint32_t mip{0}; mip < envMipLevels_; ++mip) {
+            const uint32_t mipSize{std::max(1u, kEnvCubemapSize >> mip)};
+            const float roughness{(envMipLevels_ > 1) ? static_cast<float>(mip) / static_cast<float>(envMipLevels_ - 1) : 0.0f};
+            faceMipData[face][mip] = GenerateEnvCubemapFaceMip(face, mipSize, roughness, currentLightDir_);
+        }
+    };
+
+#if !defined(__EMSCRIPTEN__)
+    {
+        std::vector<std::jthread> cubeWorkers;
+        cubeWorkers.reserve(6);
+        for (uint32_t face{0}; face < 6; ++face) {
+            cubeWorkers.emplace_back(generateFaceChain, face);
+        }
+    }
+#else
+    for (uint32_t face{0}; face < 6; ++face) {
+        generateFaceChain(face);
+    }
+#endif
+
+    for (uint32_t mip{0}; mip < envMipLevels_; ++mip) {
+        const uint32_t mipSize{std::max(1u, kEnvCubemapSize >> mip)};
+        for (uint32_t face{0}; face < 6; ++face) {
+            std::span<const uint8_t> facePixels{faceMipData[face][mip]};
+
+            WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+            copyDst.texture = envCubemapTexture_;
+            copyDst.mipLevel = mip;
+            copyDst.origin = WGPUOrigin3D{ 0, 0, face };
+            copyDst.aspect = WGPUTextureAspect_All;
+
+            WGPUTexelCopyBufferLayout dataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+            dataLayout.offset = 0;
+            dataLayout.bytesPerRow = mipSize * 4;
+            dataLayout.rowsPerImage = mipSize;
+
+            WGPUExtent3D writeSize{ mipSize, mipSize, 1 };
+            wgpuQueueWriteTexture(queue_, &copyDst, facePixels.data(), facePixels.size(), &dataLayout, &writeSize);
+        }
+    }
+
+    WGPUTextureViewDescriptor cubeViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    cubeViewDesc.format = WGPUTextureFormat_RGBA8Unorm;
+    cubeViewDesc.dimension = WGPUTextureViewDimension_Cube;
+    cubeViewDesc.baseMipLevel = 0;
+    cubeViewDesc.mipLevelCount = envMipLevels_;
+    cubeViewDesc.baseArrayLayer = 0;
+    cubeViewDesc.arrayLayerCount = 6;
+    cubeViewDesc.aspect = WGPUTextureAspect_All;
+    envCubemapView_ = wgpuTextureCreateView(envCubemapTexture_, &cubeViewDesc);
+
+    // 11. Helper to create 1x1 fallback textures using std::span
+    auto create1x1Texture = [&](std::span<const uint8_t, 4> rgba, std::string_view label) -> std::pair<WGPUTexture, WGPUTextureView> {
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
         texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
         texDesc.dimension = WGPUTextureDimension_2D;
@@ -357,7 +757,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         texDesc.format = WGPUTextureFormat_RGBA8Unorm;
         texDesc.mipLevelCount = 1;
         texDesc.sampleCount = 1;
-        texDesc.label = WGPUStringView{ label, strlen(label) };
+        texDesc.label = WGPUStringView{ label.data(), label.size() };
         WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
 
         WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
@@ -371,32 +771,29 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         dataLayout.bytesPerRow = 4;
         dataLayout.rowsPerImage = 1;
 
-        WGPUExtent3D writeSize = { 1, 1, 1 };
-        wgpuQueueWriteTexture(queue_, &copyDst, rgba, 4, &dataLayout, &writeSize);
+        WGPUExtent3D writeSize{ 1, 1, 1 };
+        wgpuQueueWriteTexture(queue_, &copyDst, rgba.data(), rgba.size(), &dataLayout, &writeSize);
 
         WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
         return { tex, view };
     };
 
-    // 1x1 White Texture (Default for BaseColor, MetallicRoughness, Occlusion, Clearcoat, Transmission, Sheen)
-    const uint8_t whitePixels[4] = { 255, 255, 255, 255 };
+    constexpr std::array<uint8_t, 4> whitePixels{ 255, 255, 255, 255 };
     auto [whiteTex, whiteView] = create1x1Texture(whitePixels, "DefaultWhiteTexture");
     defaultWhiteTexture_ = whiteTex;
     defaultWhiteTextureView_ = whiteView;
 
-    // 1x1 Flat Normal Texture (0.5, 0.5, 1.0 => Normal 0, 0, 1)
-    const uint8_t normalPixels[4] = { 128, 128, 255, 255 };
+    constexpr std::array<uint8_t, 4> normalPixels{ 128, 128, 255, 255 };
     auto [normTex, normView] = create1x1Texture(normalPixels, "DefaultNormalTexture");
     defaultNormalTexture_ = normTex;
     defaultNormalTextureView_ = normView;
 
-    // 1x1 Black Texture (Default for Emissive)
-    const uint8_t blackPixels[4] = { 0, 0, 0, 255 };
+    constexpr std::array<uint8_t, 4> blackPixels{ 0, 0, 0, 255 };
     auto [blackTex, blackView] = create1x1Texture(blackPixels, "DefaultBlackTexture");
     defaultBlackTexture_ = blackTex;
     defaultBlackTextureView_ = blackView;
 
-    // 10. Create Default Filtering Sampler (16x Anisotropic + Trilinear Mipmap Filtering)
+    // 12. Create Samplers: Trilinear 16x Anisotropic + Base-Mip-Only Sampler
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     sampDesc.addressModeU = WGPUAddressMode_Repeat;
     sampDesc.addressModeV = WGPUAddressMode_Repeat;
@@ -409,52 +806,225 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     sampDesc.maxAnisotropy = 16;
     defaultSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
+    WGPUSamplerDescriptor noMipDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
+    noMipDesc.addressModeU = WGPUAddressMode_Repeat;
+    noMipDesc.addressModeV = WGPUAddressMode_Repeat;
+    noMipDesc.addressModeW = WGPUAddressMode_Repeat;
+    noMipDesc.magFilter = WGPUFilterMode_Linear;
+    noMipDesc.minFilter = WGPUFilterMode_Linear;
+    noMipDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    noMipDesc.lodMinClamp = 0.0f;
+    noMipDesc.lodMaxClamp = 0.0f;
+    noMipDesc.maxAnisotropy = 1;
+    noMipSampler_ = wgpuDeviceCreateSampler(device_, &noMipDesc);
+
     initialized_ = (opaquePipeline_ != nullptr);
-    BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized with full glTF 2.0 PBR material shaders!");
+    BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized (PBR + Bump + Mipmapping + 2048x2048 PCF Shadows + Cubemap Reflections)!");
     return {};
 }
 
-static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH) {
-    std::vector<uint8_t> dst(dstW * dstH * 4);
-    for (uint32_t y = 0; y < dstH; ++y) {
-        for (uint32_t x = 0; x < dstW; ++x) {
-            uint32_t srcX0 = std::min(x * 2, srcW - 1);
-            uint32_t srcX1 = std::min(x * 2 + 1, srcW - 1);
-            uint32_t srcY0 = std::min(y * 2, srcH - 1);
-            uint32_t srcY1 = std::min(y * 2 + 1, srcH - 1);
+void PipelineManager::SetMipmappingEnabled(bool enabled, scene::Scene* activeScene) {
+    if (mipmappingEnabled_ == enabled) return;
+    mipmappingEnabled_ = enabled;
+    if (activeScene) {
+        RebuildMaterialBindGroups(*activeScene);
+    }
+}
 
-            const uint8_t* p00 = src + (srcY0 * srcW + srcX0) * 4;
-            const uint8_t* p10 = src + (srcY0 * srcW + srcX1) * 4;
-            const uint8_t* p01 = src + (srcY1 * srcW + srcX0) * 4;
-            const uint8_t* p11 = src + (srcY1 * srcW + srcX1) * 4;
+void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
+    if (!device_ || !bindGroupLayout_) return;
 
-            size_t dstIdx = (y * dstW + x) * 4;
-            for (int c = 0; c < 4; ++c) {
-                uint32_t sum = static_cast<uint32_t>(p00[c]) +
-                               static_cast<uint32_t>(p10[c]) +
-                               static_cast<uint32_t>(p01[c]) +
-                               static_cast<uint32_t>(p11[c]);
-                dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
+    auto getTexView = [&](int texIdx, WGPUTextureView fallback) -> WGPUTextureView {
+        if (texIdx >= 0 && texIdx < static_cast<int>(scene.gpuTextures.size())) {
+            if (scene.gpuTextures[texIdx].view) {
+                return scene.gpuTextures[texIdx].view;
             }
         }
+        return fallback;
+    };
+
+    WGPUSampler activeSampler = mipmappingEnabled_ ? defaultSampler_ : noMipSampler_;
+
+    auto rebuildNode = [&](auto& self, scene::SceneNode& node) -> void {
+        for (auto& prim : node.primitives) {
+            if (!prim.gpuUniformBuffer) continue;
+            if (prim.gpuBindGroup) {
+                wgpuBindGroupRelease(prim.gpuBindGroup);
+                prim.gpuBindGroup = nullptr;
+            }
+
+            int baseColorTexIdx = -1;
+            int mrTexIdx = -1;
+            int normalTexIdx = -1;
+            int emissiveTexIdx = -1;
+            int occlusionTexIdx = -1;
+            int clearcoatTexIdx = -1;
+            int transmissionTexIdx = -1;
+            int sheenTexIdx = -1;
+
+            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+                const auto& mat = scene.materials[prim.materialIndex];
+                baseColorTexIdx = mat.baseColorTextureIndex;
+                mrTexIdx = mat.metallicRoughnessTextureIndex;
+                normalTexIdx = mat.normalTextureIndex;
+                emissiveTexIdx = mat.emissiveTextureIndex;
+                occlusionTexIdx = mat.occlusionTextureIndex;
+                clearcoatTexIdx = mat.clearcoatTextureIndex;
+                transmissionTexIdx = mat.transmissionTextureIndex;
+                sheenTexIdx = mat.sheenColorTextureIndex;
+            }
+
+            WGPUBindGroupEntry bgEntries[13] = {};
+            bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[0].binding = 0;
+            bgEntries[0].buffer = prim.gpuUniformBuffer;
+            bgEntries[0].offset = 0;
+            bgEntries[0].size = sizeof(PrimitiveUniforms);
+
+            bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[1].binding = 1;
+            bgEntries[1].sampler = activeSampler;
+
+            bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[2].binding = 2;
+            bgEntries[2].textureView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[3].binding = 3;
+            bgEntries[3].textureView = getTexView(mrTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[4].binding = 4;
+            bgEntries[4].textureView = getTexView(normalTexIdx, defaultNormalTextureView_);
+
+            bgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[5].binding = 5;
+            bgEntries[5].textureView = getTexView(emissiveTexIdx, defaultBlackTextureView_);
+
+            bgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[6].binding = 6;
+            bgEntries[6].textureView = getTexView(occlusionTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[7] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[7].binding = 7;
+            bgEntries[7].textureView = getTexView(clearcoatTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[8] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[8].binding = 8;
+            bgEntries[8].textureView = getTexView(transmissionTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[9] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[9].binding = 9;
+            bgEntries[9].textureView = getTexView(sheenTexIdx, defaultWhiteTextureView_);
+
+            bgEntries[10] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[10].binding = 10;
+            bgEntries[10].textureView = envCubemapView_;
+
+            bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[11].binding = 11;
+            bgEntries[11].textureView = shadowDepthView_;
+
+            bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[12].binding = 12;
+            bgEntries[12].sampler = shadowSampler_;
+
+            WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+            bgDesc.layout = bindGroupLayout_;
+            bgDesc.entryCount = 13;
+            bgDesc.entries = bgEntries;
+            prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        }
+
+        for (auto& child : node.children) {
+            if (child) self(self, *child);
+        }
+    };
+
+    for (auto& rootNode : scene.rootNodes) {
+        if (rootNode) rebuildNode(rebuildNode, *rootNode);
     }
-    return dst;
 }
 
 void PipelineManager::PrepareScene(scene::Scene& scene) {
     if (!device_ || !queue_ || !bindGroupLayout_) return;
 
-    // 1. Upload CPU decoded images to WebGPU Textures with full mipmap pyramid
-    for (size_t i = 0; i < scene.cpuImages.size(); ++i) {
+    // Identify which textures are used as normal maps for vector-renormalized mipmap filtering
+    std::vector<bool> isNormalTexture(scene.cpuImages.size(), false);
+    for (const auto& mat : scene.materials) {
+        if (mat.normalTextureIndex >= 0 && static_cast<size_t>(mat.normalTextureIndex) < isNormalTexture.size()) {
+            isNormalTexture[mat.normalTextureIndex] = true;
+        }
+    }
+
+    // Pre-generate full CPU mip pyramids in parallel across worker threads before GPU upload
+    struct MipLevelBuffer {
+        uint32_t width{0};
+        uint32_t height{0};
+        std::vector<uint8_t> pixels{};
+    };
+    std::vector<std::vector<MipLevelBuffer>> precomputedMips(scene.cpuImages.size());
+
+    auto buildMipPyramidForTexture = [&](size_t texIdx) {
+        const auto& img = scene.cpuImages[texIdx];
+        if (img.width == 0 || img.height == 0 || img.rgba.empty()) return;
+        if (texIdx >= scene.gpuTextures.size() || scene.gpuTextures[texIdx].view != nullptr) return;
+
+        const uint32_t mipLevels{CalculateMipLevels(img.width, img.height)};
+        if (mipLevels <= 1) return;
+
+        auto& chain = precomputedMips[texIdx];
+        chain.resize(mipLevels - 1);
+
+        std::span<const uint8_t> prevSpan{img.rgba};
+        uint32_t prevW{img.width};
+        uint32_t prevH{img.height};
+
+        for (uint32_t level{1}; level < mipLevels; ++level) {
+            const uint32_t curW{std::max(1u, prevW / 2)};
+            const uint32_t curH{std::max(1u, prevH / 2)};
+
+            chain[level - 1].width = curW;
+            chain[level - 1].height = curH;
+            chain[level - 1].pixels = GenerateNextMipLevel(prevSpan, prevW, prevH, curW, curH, isNormalTexture[texIdx]);
+
+            prevSpan = std::span<const uint8_t>{chain[level - 1].pixels};
+            prevW = curW;
+            prevH = curH;
+        }
+    };
+
+#if !defined(__EMSCRIPTEN__)
+    if (scene.cpuImages.size() > 1) {
+        const size_t numThreads{std::clamp<size_t>(std::thread::hardware_concurrency(), 2, 16)};
+        std::atomic<size_t> nextTexIdx{0};
+        std::vector<std::jthread> mipWorkers;
+        mipWorkers.reserve(std::min(numThreads, scene.cpuImages.size()));
+        for (size_t t{0}; t < std::min(numThreads, scene.cpuImages.size()); ++t) {
+            mipWorkers.emplace_back([&]() {
+                while (true) {
+                    const size_t idx{nextTexIdx.fetch_add(1, std::memory_order_relaxed)};
+                    if (idx >= scene.cpuImages.size()) break;
+                    buildMipPyramidForTexture(idx);
+                }
+            });
+        }
+    } else if (scene.cpuImages.size() == 1) {
+        buildMipPyramidForTexture(0);
+    }
+#else
+    for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
+        buildMipPyramidForTexture(i);
+    }
+#endif
+
+    // 1. Upload CPU decoded images and precomputed mip pyramids to WebGPU Textures
+    for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
         const auto& img = scene.cpuImages[i];
         if (img.width == 0 || img.height == 0 || img.rgba.empty()) continue;
 
         if (i < scene.gpuTextures.size() && scene.gpuTextures[i].view == nullptr) {
-            uint32_t maxDim = std::max(img.width, img.height);
-            uint32_t mipLevels = 1;
-            while ((maxDim >> mipLevels) > 0) {
-                mipLevels++;
-            }
+            const uint32_t mipLevels{CalculateMipLevels(img.width, img.height)};
 
             WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
             texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -478,19 +1048,15 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             dataLayout.bytesPerRow = img.width * 4;
             dataLayout.rowsPerImage = img.height;
 
-            WGPUExtent3D writeSize = { img.width, img.height, 1 };
-            wgpuQueueWriteTexture(queue_, &copyDst, img.rgba.data(), img.rgba.size(), &dataLayout, &writeSize);
+            WGPUExtent3D writeSize{ img.width, img.height, 1 };
+            std::span<const uint8_t> mip0Span{img.rgba};
+            wgpuQueueWriteTexture(queue_, &copyDst, mip0Span.data(), mip0Span.size(), &dataLayout, &writeSize);
 
-            // Generate downsampled mips and upload to GPU
-            std::vector<uint8_t> prevMip = img.rgba;
-            uint32_t prevW = img.width;
-            uint32_t prevH = img.height;
-
-            for (uint32_t level = 1; level < mipLevels; ++level) {
-                uint32_t curW = std::max(1u, prevW / 2);
-                uint32_t curH = std::max(1u, prevH / 2);
-
-                std::vector<uint8_t> curMip = GenerateNextMipLevel(prevMip.data(), prevW, prevH, curW, curH);
+            // Upload precomputed downsampled mips to GPU
+            std::span<const MipLevelBuffer> mipChain{precomputedMips[i]};
+            for (size_t mIdx{0}; mIdx < mipChain.size(); ++mIdx) {
+                const auto& mipBuf = mipChain[mIdx];
+                const uint32_t level{static_cast<uint32_t>(mIdx + 1)};
 
                 WGPUTexelCopyTextureInfo mipCopyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
                 mipCopyDst.texture = tex;
@@ -500,15 +1066,11 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
                 WGPUTexelCopyBufferLayout mipDataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
                 mipDataLayout.offset = 0;
-                mipDataLayout.bytesPerRow = curW * 4;
-                mipDataLayout.rowsPerImage = curH;
+                mipDataLayout.bytesPerRow = mipBuf.width * 4;
+                mipDataLayout.rowsPerImage = mipBuf.height;
 
-                WGPUExtent3D mipWriteSize = { curW, curH, 1 };
-                wgpuQueueWriteTexture(queue_, &mipCopyDst, curMip.data(), curMip.size(), &mipDataLayout, &mipWriteSize);
-
-                prevMip = std::move(curMip);
-                prevW = curW;
-                prevH = curH;
+                WGPUExtent3D mipWriteSize{ mipBuf.width, mipBuf.height, 1 };
+                wgpuQueueWriteTexture(queue_, &mipCopyDst, mipBuf.pixels.data(), mipBuf.pixels.size(), &mipDataLayout, &mipWriteSize);
             }
 
             WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
@@ -518,21 +1080,12 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm, {} Mip Levels, 16x Aniso), wrote {} bytes to GPU (Handle: {:p})",
-                         i, img.width, img.height, mipLevels, img.rgba.size(), static_cast<void*>(tex));
+            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm, {} Mip Levels, NormalMap={}), wrote {} bytes to GPU",
+                         i, img.width, img.height, mipLevels, isNormalTexture[i] ? "Yes" : "No", img.rgba.size());
         }
     }
 
-    auto getTexView = [&](int texIdx, WGPUTextureView fallback) -> WGPUTextureView {
-        if (texIdx >= 0 && texIdx < static_cast<int>(scene.gpuTextures.size())) {
-            if (scene.gpuTextures[texIdx].view) {
-                return scene.gpuTextures[texIdx].view;
-            }
-        }
-        return fallback;
-    };
-
-    // 2. Prepare vertex buffers, index buffers, uniform buffers, and bind groups for each primitive
+    // 2. Prepare vertex buffers, index buffers, uniform buffers, and shadow/main bind groups for each primitive
     auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
         for (size_t pIdx = 0; pIdx < node.primitives.size(); ++pIdx) {
             auto& prim = node.primitives[pIdx];
@@ -541,7 +1094,6 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             size_t vbSize = prim.vertices.size() * sizeof(core::Vertex);
             size_t ibSize = prim.indices.size() * sizeof(uint32_t);
 
-            // Vertex Buffer
             if (!prim.gpuVertexBuffer) {
                 WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 vbDesc.size = (vbSize + 3) & ~3;
@@ -551,7 +1103,6 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), vbSize);
             }
 
-            // Index Buffer
             if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ibDesc.size = (ibSize + 3) & ~3;
@@ -561,7 +1112,6 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
             }
 
-            // Uniform Buffer (272 bytes)
             if (!prim.gpuUniformBuffer) {
                 WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ubDesc.size = sizeof(PrimitiveUniforms);
@@ -570,91 +1120,22 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
             }
 
+            if (!prim.gpuShadowBindGroup && shadowBindGroupLayout_) {
+                WGPUBindGroupEntry shadowBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowBgEntry.binding = 0;
+                shadowBgEntry.buffer = prim.gpuUniformBuffer;
+                shadowBgEntry.offset = 0;
+                shadowBgEntry.size = sizeof(PrimitiveUniforms);
+
+                WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+                shadowBgDesc.layout = shadowBindGroupLayout_;
+                shadowBgDesc.entryCount = 1;
+                shadowBgDesc.entries = &shadowBgEntry;
+                prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+            }
+
             BGL_LOG_INFO("[WebGPU Upload] Node '{}' Prim #{}: VB={} bytes ({} verts), IB={} bytes ({} indices), UB={} bytes",
                          node.name, pIdx, vbSize, prim.vertices.size(), ibSize, prim.indices.size(), sizeof(PrimitiveUniforms));
-
-            // Bind Group (10 entries)
-            if (!prim.gpuBindGroup) {
-                int baseColorTexIdx = -1;
-                int mrTexIdx = -1;
-                int normalTexIdx = -1;
-                int emissiveTexIdx = -1;
-                int occlusionTexIdx = -1;
-                int clearcoatTexIdx = -1;
-                int transmissionTexIdx = -1;
-                int sheenTexIdx = -1;
-
-                if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                    const auto& mat = scene.materials[prim.materialIndex];
-                    baseColorTexIdx = mat.baseColorTextureIndex;
-                    mrTexIdx = mat.metallicRoughnessTextureIndex;
-                    normalTexIdx = mat.normalTextureIndex;
-                    emissiveTexIdx = mat.emissiveTextureIndex;
-                    occlusionTexIdx = mat.occlusionTextureIndex;
-                    clearcoatTexIdx = mat.clearcoatTextureIndex;
-                    transmissionTexIdx = mat.transmissionTextureIndex;
-                    sheenTexIdx = mat.sheenColorTextureIndex;
-                }
-
-                WGPUBindGroupEntry bgEntries[10] = {};
-                // 0: Uniform buffer
-                bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[0].binding = 0;
-                bgEntries[0].buffer = prim.gpuUniformBuffer;
-                bgEntries[0].offset = 0;
-                bgEntries[0].size = sizeof(PrimitiveUniforms);
-
-                // 1: Sampler
-                bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[1].binding = 1;
-                bgEntries[1].sampler = defaultSampler_;
-
-                // 2: BaseColor
-                bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[2].binding = 2;
-                bgEntries[2].textureView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
-
-                // 3: MetallicRoughness
-                bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[3].binding = 3;
-                bgEntries[3].textureView = getTexView(mrTexIdx, defaultWhiteTextureView_);
-
-                // 4: Normal
-                bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[4].binding = 4;
-                bgEntries[4].textureView = getTexView(normalTexIdx, defaultNormalTextureView_);
-
-                // 5: Emissive
-                bgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[5].binding = 5;
-                bgEntries[5].textureView = getTexView(emissiveTexIdx, defaultBlackTextureView_);
-
-                // 6: Occlusion
-                bgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[6].binding = 6;
-                bgEntries[6].textureView = getTexView(occlusionTexIdx, defaultWhiteTextureView_);
-
-                // 7: Clearcoat
-                bgEntries[7] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[7].binding = 7;
-                bgEntries[7].textureView = getTexView(clearcoatTexIdx, defaultWhiteTextureView_);
-
-                // 8: Transmission
-                bgEntries[8] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[8].binding = 8;
-                bgEntries[8].textureView = getTexView(transmissionTexIdx, defaultWhiteTextureView_);
-
-                // 9: Sheen
-                bgEntries[9] = WGPU_BIND_GROUP_ENTRY_INIT;
-                bgEntries[9].binding = 9;
-                bgEntries[9].textureView = getTexView(sheenTexIdx, defaultWhiteTextureView_);
-
-                WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-                bgDesc.layout = bindGroupLayout_;
-                bgDesc.entryCount = 10;
-                bgDesc.entries = bgEntries;
-                prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
-            }
         }
 
         for (auto& child : node.children) {
@@ -667,6 +1148,69 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
     for (auto& rootNode : scene.rootNodes) {
         if (rootNode) {
             prepareNode(prepareNode, *rootNode);
+        }
+    }
+
+    RebuildMaterialBindGroups(scene);
+}
+
+void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex) {
+    (void)spatialIndex;
+    currentLightDir_ = glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir) : glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+    currentLightViewProj_ = ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
+
+    if (!shadowsEnabled_ || !encoder || !shadowPipeline_ || !shadowDepthView_) {
+        return;
+    }
+
+    WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    depthAttachment.view = shadowDepthView_;
+    depthAttachment.depthLoadOp = WGPULoadOp_Clear;
+    depthAttachment.depthStoreOp = WGPUStoreOp_Store;
+    depthAttachment.depthClearValue = 1.0f;
+    depthAttachment.depthReadOnly = WGPU_FALSE;
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.colorAttachmentCount = 0;
+    passDesc.colorAttachments = nullptr;
+    passDesc.depthStencilAttachment = &depthAttachment;
+    passDesc.label = WGPUStringView{ "DirectionalShadowPass", strlen("DirectionalShadowPass") };
+
+    WGPURenderPassEncoder shadowPass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+    if (!shadowPass) return;
+
+    wgpuRenderPassEncoderSetPipeline(shadowPass, shadowPipeline_);
+
+    for (const auto& rootNode : scene.rootNodes) {
+        if (rootNode) {
+            RenderShadowNode(shadowPass, scene, *rootNode, glm::mat4(1.0f));
+        }
+    }
+
+    wgpuRenderPassEncoderEnd(shadowPass);
+    wgpuRenderPassEncoderRelease(shadowPass);
+}
+
+void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform) {
+    glm::mat4 worldMat = parentTransform * node.localTransform;
+
+    for (auto& prim : node.primitives) {
+        if (!prim.gpuVertexBuffer || !prim.gpuShadowBindGroup || !prim.gpuUniformBuffer) continue;
+
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
+
+        if (prim.gpuIndexBuffer && !prim.indices.empty()) {
+            wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
+            wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
+        } else {
+            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
+        }
+    }
+
+    for (const auto& child : node.children) {
+        if (child) {
+            RenderShadowNode(pass, scene, *child, worldMat);
         }
     }
 }
@@ -717,13 +1261,22 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
 }
 
 void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe) {
+    (void)wireframe;
     if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer) return;
 
     PrimitiveUniforms uniforms;
     uniforms.viewProj = viewProj;
     uniforms.model = worldMat;
+    uniforms.lightViewProj = currentLightViewProj_;
     uniforms.cameraPos = glm::vec4(cameraPos, 1.0f);
-    uniforms.lightDir = glm::normalize(glm::vec4(0.5f, 1.0f, 0.8f, 0.0f));
+    uniforms.lightDir = glm::vec4(currentLightDir_, 0.0f);
+    uniforms.envMipCount = static_cast<float>(envMipLevels_);
+
+    uint32_t flags = 0;
+    if (bumpMappingEnabled_) flags |= MaterialFlags::EnableBumpMapping;
+    if (mipmappingEnabled_)  flags |= MaterialFlags::EnableMipmapping;
+    if (shadowsEnabled_)     flags |= MaterialFlags::EnableShadows;
+    if (reflectionsEnabled_) flags |= MaterialFlags::EnableReflections;
 
     if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
         const auto& mat = scene.materials[prim.materialIndex];
@@ -731,6 +1284,7 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.metallicFactor = mat.metallicFactor;
         uniforms.roughnessFactor = mat.roughnessFactor;
         uniforms.normalScale = mat.normalScale;
+        uniforms.bumpScale = mat.bumpScale;
         uniforms.occlusionStrength = mat.occlusionStrength;
         uniforms.emissiveFactor = glm::vec4(mat.emissiveFactor, mat.emissiveStrength);
         uniforms.alphaCutoff = mat.alphaCutoff;
@@ -743,7 +1297,6 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.sheenColorFactor = glm::vec4(mat.sheenColorFactor, mat.sheenRoughnessFactor);
         uniforms.specularColorFactor = glm::vec4(mat.specularColorFactor, 0.0f);
 
-        uint32_t flags = 0;
         if (mat.baseColorTextureIndex >= 0) flags |= MaterialFlags::HasBaseColorTex;
         if (mat.metallicRoughnessTextureIndex >= 0) flags |= MaterialFlags::HasMetallicRoughnessTex;
         if (mat.normalTextureIndex >= 0) flags |= MaterialFlags::HasNormalTex;
@@ -754,8 +1307,8 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         if (mat.sheenColorTextureIndex >= 0) flags |= MaterialFlags::HasSheenTex;
         if (mat.unlit) flags |= MaterialFlags::Unlit;
         if (mat.doubleSided) flags |= MaterialFlags::DoubleSided;
-        uniforms.flags = flags;
     }
+    uniforms.flags = flags;
 
     wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
@@ -776,20 +1329,20 @@ void PipelineManager::AppendAABBLines(const core::AABB& aabb, const glm::vec4& c
     const glm::vec3 maxB = aabb.maxBound;
 
     const glm::vec3 c[8] = {
-        glm::vec3(minB.x, minB.y, minB.z), // 0
-        glm::vec3(maxB.x, minB.y, minB.z), // 1
-        glm::vec3(maxB.x, maxB.y, minB.z), // 2
-        glm::vec3(minB.x, maxB.y, minB.z), // 3
-        glm::vec3(minB.x, minB.y, maxB.z), // 4
-        glm::vec3(maxB.x, minB.y, maxB.z), // 5
-        glm::vec3(maxB.x, maxB.y, maxB.z), // 6
-        glm::vec3(minB.x, maxB.y, maxB.z)  // 7
+        glm::vec3(minB.x, minB.y, minB.z),
+        glm::vec3(maxB.x, minB.y, minB.z),
+        glm::vec3(maxB.x, maxB.y, minB.z),
+        glm::vec3(minB.x, maxB.y, minB.z),
+        glm::vec3(minB.x, minB.y, maxB.z),
+        glm::vec3(maxB.x, minB.y, maxB.z),
+        glm::vec3(maxB.x, maxB.y, maxB.z),
+        glm::vec3(minB.x, maxB.y, maxB.z)
     };
 
     static constexpr size_t kIndices[24] = {
-        0, 1,  1, 2,  2, 3,  3, 0, // bottom loop
-        4, 5,  5, 6,  6, 7,  7, 4, // top loop
-        0, 4,  1, 5,  2, 6,  3, 7  // 4 pillars
+        0, 1,  1, 2,  2, 3,  3, 0,
+        4, 5,  5, 6,  6, 7,  7, 4,
+        0, 4,  1, 5,  2, 6,  3, 7
     };
 
     for (size_t idx : kIndices) {
@@ -840,7 +1393,6 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
     if (!pass || !aabbPipeline_) return;
 
     if (showSceneAABB && scene.sceneAABB.minBound.x <= scene.sceneAABB.maxBound.x) {
-        // Bright Gold for root Scene AABB
         AppendAABBLines(scene.sceneAABB, glm::vec4(1.0f, 0.84f, 0.0f, 1.0f));
     }
 
@@ -866,7 +1418,6 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
                         glm::vec4 wc = worldMat * glm::vec4(corner, 1.0f);
                         primWorldAABB.Expand(glm::vec3(wc));
                     }
-                    // Vivid Cyan for mesh primitives
                     AppendAABBLines(primWorldAABB, glm::vec4(0.2f, 0.85f, 1.0f, 0.8f));
                 }
             }
@@ -889,7 +1440,6 @@ void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const sce
     std::vector<core::AABB> bounds;
     quadtree.GetNodeBounds(bounds);
     for (const auto& b : bounds) {
-        // Emerald Green for Quadtree spatial partitions
         AppendAABBLines(b, glm::vec4(0.25f, 0.95f, 0.45f, 0.7f));
     }
 

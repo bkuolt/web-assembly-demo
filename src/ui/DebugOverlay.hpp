@@ -20,22 +20,26 @@ namespace bgl::ui {
  * @brief Snapshot of engine runtime metrics passed to the debug overlay each frame.
  */
 struct OverlayStats {
-    float deltaTime = 0.016f;
+    float deltaTime{0.016f};
     glm::vec3 cameraPos{0.0f};
     glm::vec3 cameraTarget{0.0f};
-    float cameraDistance = 0.0f;
+    float cameraDistance{0.0f};
 
-    std::string sceneName = "None";
-    size_t primitiveCount = 0;
-    size_t vertexCount = 0;
-    size_t indexCount = 0;
+    std::string sceneName{"None"};
+    size_t primitiveCount{0};
+    size_t vertexCount{0};
+    size_t indexCount{0};
 
-    size_t quadtreeNodes = 0;
-    size_t visiblePrimitives = 0;
+    size_t quadtreeNodes{0};
+    size_t visiblePrimitives{0};
 
-    bool boundingBoxesEnabled = true;
-    bool quadtreeBoundsEnabled = false;
-    bool skyboxEnabled = true;
+    bool boundingBoxesEnabled{true};
+    bool quadtreeBoundsEnabled{false};
+    bool skyboxEnabled{true};
+    bool bumpMappingEnabled{true};
+    bool mipmappingEnabled{true};
+    bool shadowsEnabled{true};
+    bool reflectionsEnabled{true};
 };
 
 /**
@@ -60,14 +64,14 @@ public:
     [[nodiscard]] bool IsVisible() const noexcept { return visible_; }
 
 private:
-    bool visible_ = true;
-    text::FontAtlas fontAtlas_;
-    text::TextRenderer textRenderer_;
+    bool visible_{true};
+    text::FontAtlas fontAtlas_{};
+    text::TextRenderer textRenderer_{};
 
     // Smoothed metrics
-    float smoothedFps_ = 60.0f;
-    float smoothedFrameTimeMs_ = 16.6f;
-    OverlayStats currentStats_;
+    float smoothedFps_{60.0f};
+    float smoothedFrameTimeMs_{16.6f};
+    OverlayStats currentStats_{};
 };
 
 } // namespace bgl::ui

@@ -25,10 +25,10 @@ namespace bgl::text {
  * @brief Metrics and texture atlas coordinates for a single rasterized glyph.
  */
 struct GlyphInfo {
-    uint32_t glyphIndex = 0;
+    uint32_t glyphIndex{0};
     glm::vec2 size{0.0f};     ///< Glyph quad width and height in pixels
     glm::vec2 bearing{0.0f};  ///< Horizontal bearing X and vertical bearing Y in pixels
-    float advance = 0.0f;     ///< Horizontal advance in pixels
+    float advance{0.0f};      ///< Horizontal advance in pixels
     glm::vec2 uvMin{0.0f};    ///< Top-left UV coordinates in atlas (0..1)
     glm::vec2 uvMax{0.0f};    ///< Bottom-right UV coordinates in atlas (0..1)
 };
@@ -97,32 +97,32 @@ private:
     void Cleanup();
     void RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info);
 
-    FT_Library ftLibrary_ = nullptr;
-    FT_Face ftFace_ = nullptr;
-    hb_font_t* hbFont_ = nullptr;
-    std::vector<uint8_t> fontDataBuffer_; // Keep in memory if loaded from file
+    FT_Library ftLibrary_{nullptr};
+    FT_Face ftFace_{nullptr};
+    hb_font_t* hbFont_{nullptr};
+    std::vector<uint8_t> fontDataBuffer_{}; // Keep in memory if loaded from file
 
-    uint32_t pixelSize_ = 18;
-    float lineHeight_ = 22.0f;
-    float ascender_ = 16.0f;
-    float descender_ = -4.0f;
+    uint32_t pixelSize_{18};
+    float lineHeight_{22.0f};
+    float ascender_{16.0f};
+    float descender_{-4.0f};
 
-    uint32_t atlasDim_ = 1024;
-    std::vector<uint8_t> cpuAtlas_;
-    bool isDirty_ = false;
+    uint32_t atlasDim_{1024};
+    std::vector<uint8_t> cpuAtlas_{};
+    bool isDirty_{false};
 
     // Shelf / Skyline packing state
-    uint32_t packX_ = 0;
-    uint32_t packY_ = 0;
-    uint32_t rowHeight_ = 0;
+    uint32_t packX_{0};
+    uint32_t packY_{0};
+    uint32_t rowHeight_{0};
     glm::vec2 whitePixelUV_{0.0f};
 
-    std::unordered_map<uint32_t, GlyphInfo> glyphCache_;
+    std::unordered_map<uint32_t, GlyphInfo> glyphCache_{};
 
     // WebGPU resources
-    WGPUTexture gpuTexture_ = nullptr;
-    WGPUTextureView gpuTextureView_ = nullptr;
-    WGPUSampler gpuSampler_ = nullptr;
+    WGPUTexture gpuTexture_{nullptr};
+    WGPUTextureView gpuTextureView_{nullptr};
+    WGPUSampler gpuSampler_{nullptr};
 };
 
 } // namespace bgl::text

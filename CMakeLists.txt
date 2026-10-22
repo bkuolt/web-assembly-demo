@@ -266,6 +266,7 @@ if(BGL_BUILD_TESTING)
         tests/test_text_rendering.cpp
         tests/test_crash_handler.cpp
         tests/test_command_line.cpp
+        tests/test_rendering_features.cpp
     )
     target_include_directories(bgl_unit_tests PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

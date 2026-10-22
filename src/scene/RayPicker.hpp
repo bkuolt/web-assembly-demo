@@ -5,6 +5,7 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <glm/glm.hpp>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
@@ -17,11 +18,11 @@ namespace bgl::scene {
  * @brief Detailed intersection result for polygon picking.
  */
 struct RayHit {
-    float distance = 1e30f;
+    float distance{1e30f};
     glm::vec3 hitPoint{0.0f};
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
-    uint32_t triangleIndex = 0;
-    std::shared_ptr<SceneNode> hitNode = nullptr;
+    uint32_t triangleIndex{0};
+    std::shared_ptr<SceneNode> hitNode{nullptr};
 };
 
 /**
@@ -40,6 +41,11 @@ public:
                                   float& outDistance,
                                   glm::vec3& outHitPoint,
                                   glm::vec3& outNormal) noexcept;
+
+    /**
+     * @brief Pick nearest scene node and triangle from a span of root nodes.
+     */
+    static std::optional<RayHit> Pick(const core::Ray& ray, std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept;
 
     /**
      * @brief Pick nearest scene node and triangle from a camera ray.

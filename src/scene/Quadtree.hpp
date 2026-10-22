@@ -5,6 +5,7 @@
 #pragma once
 
 #include <vector>
+#include <span>
 #include <memory>
 #include <array>
 #include <glm/glm.hpp>
@@ -24,10 +25,10 @@ enum class LODLevel : uint8_t {
  * @brief Spatial item registered within the Quadtree hierarchy.
  */
 struct QuadtreeItem {
-    std::shared_ptr<SceneNode> node;
-    size_t primitiveIndex = 0;
-    core::AABB aabb;
-    LODLevel currentLOD = LODLevel::LOD0;
+    std::shared_ptr<SceneNode> node{nullptr};
+    size_t primitiveIndex{0};
+    core::AABB aabb{};
+    LODLevel currentLOD{LODLevel::LOD0};
 };
 
 /**
@@ -36,8 +37,8 @@ struct QuadtreeItem {
  */
 class QuadtreeNode {
 public:
-    static constexpr size_t kMaxItems = 8;
-    static constexpr size_t kMaxDepth = 6;
+    static constexpr size_t kMaxItems{8};
+    static constexpr size_t kMaxDepth{6};
 
     QuadtreeNode(const core::AABB& bounds, size_t depth = 0);
 
@@ -47,19 +48,19 @@ public:
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
     [[nodiscard]] const core::AABB& GetLooseBounds() const noexcept { return looseBounds_; }
-    [[nodiscard]] const std::vector<QuadtreeItem>& GetItems() const noexcept { return items_; }
+    [[nodiscard]] std::span<const QuadtreeItem> GetItems() const noexcept { return items_; }
     [[nodiscard]] bool IsLeaf() const noexcept { return isLeaf_; }
     [[nodiscard]] const std::array<std::unique_ptr<QuadtreeNode>, 4>& GetChildren() const noexcept { return children_; }
 
 private:
     void Subdivide();
 
-    core::AABB bounds_;
-    core::AABB looseBounds_;
-    size_t depth_;
-    bool isLeaf_ = true;
-    std::vector<QuadtreeItem> items_;
-    std::array<std::unique_ptr<QuadtreeNode>, 4> children_;
+    core::AABB bounds_{};
+    core::AABB looseBounds_{};
+    size_t depth_{0};
+    bool isLeaf_{true};
+    std::vector<QuadtreeItem> items_{};
+    std::array<std::unique_ptr<QuadtreeNode>, 4> children_{};
 };
 
 /**
@@ -71,6 +72,7 @@ public:
     explicit Quadtree(const core::AABB& worldBounds);
 
     void Insert(std::shared_ptr<SceneNode> node);
+    void InsertNodes(std::span<const std::shared_ptr<SceneNode>> nodes);
     void Clear();
     void Reset(const core::AABB& worldBounds);
 
@@ -80,8 +82,8 @@ public:
     [[nodiscard]] size_t GetNodeCount() const noexcept;
 
 private:
-    core::AABB worldBounds_;
-    std::unique_ptr<QuadtreeNode> root_;
+    core::AABB worldBounds_{};
+    std::unique_ptr<QuadtreeNode> root_{nullptr};
 };
 
 } // namespace bgl::scene

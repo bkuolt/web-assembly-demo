@@ -7,14 +7,20 @@
 #include <iostream>
 #include <format>
 #include <filesystem>
+#include <algorithm>
 
 namespace bgl::app {
 
 CliOptions CliOptions::Parse(int argc, char** argv) {
-    CliOptions opt;
+    if (argc <= 0 || !argv) return CliOptions{};
+    return Parse(std::span<const char* const>{argv, static_cast<size_t>(argc)});
+}
 
-    for (int i = 1; i < argc; ++i) {
-        std::string_view arg = argv[i];
+CliOptions CliOptions::Parse(std::span<const char* const> args) {
+    CliOptions opt{};
+
+    for (size_t i{1}; i < args.size(); ++i) {
+        std::string_view arg{args[i]};
 
         if (arg == "-h" || arg == "--help") {
             opt.showHelp = true;
@@ -27,8 +33,8 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
             return opt;
         } else if (arg == "--test-crash") {
             opt.testCrash = true;
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                std::string_view type = argv[++i];
+            if (i + 1 < args.size() && args[i + 1][0] != '-') {
+                std::string_view type{args[++i]};
                 if (type == "abrt" || type == "abort") {
                     opt.testCrashSignal = 1;
                 } else if (type == "fpe" || type == "div0") {
@@ -37,18 +43,18 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
                     opt.testCrashSignal = 0;
                 }
             }
-        } else if ((arg == "-a" || arg == "--asset") && i + 1 < argc) {
-            opt.assetPath = argv[++i];
-        } else if ((arg == "-w" || arg == "--width") && i + 1 < argc) {
+        } else if ((arg == "-a" || arg == "--asset") && i + 1 < args.size()) {
+            opt.assetPath = args[++i];
+        } else if ((arg == "-w" || arg == "--width") && i + 1 < args.size()) {
             try {
-                opt.width = static_cast<uint32_t>(std::stoul(argv[++i]));
+                opt.width = static_cast<uint32_t>(std::stoul(args[++i]));
             } catch (...) {}
-        } else if ((arg == "-H" || arg == "--height") && i + 1 < argc) {
+        } else if ((arg == "-H" || arg == "--height") && i + 1 < args.size()) {
             try {
-                opt.height = static_cast<uint32_t>(std::stoul(argv[++i]));
+                opt.height = static_cast<uint32_t>(std::stoul(args[++i]));
             } catch (...) {}
-        } else if ((arg == "-l" || arg == "--log-level") && i + 1 < argc) {
-            opt.logLevel = argv[++i];
+        } else if ((arg == "-l" || arg == "--log-level") && i + 1 < args.size()) {
+            opt.logLevel = args[++i];
         } else if (arg == "--no-skybox") {
             opt.enableSkybox = false;
         } else if (arg == "--no-hud") {
@@ -59,10 +65,26 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
             opt.enableBoundingBoxes = true;
         } else if (arg == "--quadtree") {
             opt.enableQuadtreeBounds = true;
+        } else if (arg == "--no-bump") {
+            opt.enableBumpMapping = false;
+        } else if (arg == "--bump") {
+            opt.enableBumpMapping = true;
+        } else if (arg == "--no-mipmaps") {
+            opt.enableMipmapping = false;
+        } else if (arg == "--mipmaps") {
+            opt.enableMipmapping = true;
+        } else if (arg == "--no-shadows") {
+            opt.enableShadows = false;
+        } else if (arg == "--shadows") {
+            opt.enableShadows = true;
+        } else if (arg == "--no-reflections") {
+            opt.enableReflections = false;
+        } else if (arg == "--reflections") {
+            opt.enableReflections = true;
         } else if (!arg.starts_with("-")) {
             // Positional argument interpreted as asset path if not set
             if (opt.assetPath.empty()) {
-                opt.assetPath = std::string(arg);
+                opt.assetPath = std::string{arg};
             }
         }
     }
@@ -71,12 +93,12 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
 }
 
 void CliOptions::PrintHelp(std::string_view programName) {
-    std::string exec = std::filesystem::path(programName).filename().string();
+    std::string exec{std::filesystem::path{programName}.filename().string()};
     if (exec.empty()) exec = "bgl_viewer";
 
     std::cout <<
 R"(================================================================================
-bgl_viewer - C++23 WebGPU & glTF 2.1 High-Performance Renderer (v0.6.8)
+WebAssembly an WebGPU Demo (bgl_viewer v0.6.8)
 ================================================================================
 
 USAGE:
@@ -100,6 +122,10 @@ RENDERING TOGGLES:
   --no-bounds                   Start with 3D wireframe bounding boxes hidden
   --bounds                      Start with 3D wireframe bounding boxes visible
   --quadtree                    Start with 3D Quadtree ground boundaries visible
+  --no-bump / --bump            Disable / enable Bump & Normal Mapping (default: ON)
+  --no-mipmaps / --mipmaps      Disable / enable Trilinear Mipmapping (default: ON)
+  --no-shadows / --shadows      Disable / enable 2048x2048 PCF Shadow Mapping (default: ON)
+  --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
@@ -111,6 +137,10 @@ INTERACTIVE CONTROLS:
   B                             Toggle 3D Wireframe Bounding Boxes & AABBs
   Q                             Toggle 3D Quadtree Ground Partition Boundaries
   K                             Toggle Procedural Atmospheric Skybox
+  V                             Toggle Bump & Tangent-Space Normal Mapping
+  L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)
+  M                             Toggle Directional Shadow Mapping (2048x2048 PCF)
+  R                             Toggle Environment Cubemap Reflections & Specular IBL
   O / F3                        Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay
   ESC                           Exit viewer
   Drag & Drop                   Drop any .glb/.gltf file directly onto the window
@@ -119,7 +149,7 @@ INTERACTIVE CONTROLS:
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << "bgl_viewer version 0.6.8 [C++23 WebGPU glTF 2.1 Engine]\n";
+    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.6.8) [C++23 WebGPU glTF 2.1 Engine]\n";
 }
 
 void CliOptions::PrintFormats() {

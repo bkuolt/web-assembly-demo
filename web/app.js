@@ -19,6 +19,10 @@
   let isQuadtreeActive = false;
   let isSkyboxActive = true;
   let isHudActive = true;
+  let isBumpActive = true;
+  let isMipmapsActive = true;
+  let isShadowsActive = true;
+  let isReflectionsActive = true;
 
   // DOM Elements
   const pBar = document.getElementById('progress-bar');
@@ -31,6 +35,10 @@
   const btnQuadtree = document.getElementById('btn-quadtree');
   const btnSkybox = document.getElementById('btn-skybox');
   const btnHud = document.getElementById('btn-hud');
+  const btnBump = document.getElementById('btn-bump');
+  const btnMipmaps = document.getElementById('btn-mipmaps');
+  const btnShadows = document.getElementById('btn-shadows');
+  const btnReflections = document.getElementById('btn-reflections');
 
   // Telemetry Elements
   const elDims = document.getElementById('aabb-dims');
@@ -95,6 +103,54 @@
     }
   }
   window.toggleHUD = toggleHUD;
+
+  /**
+   * Toggle Bump & Normal Mapping.
+   */
+  function toggleBump() {
+    isBumpActive = !isBumpActive;
+    if (btnBump) btnBump.style.background = isBumpActive ? '#0284c7' : '#334155';
+    if (wasmExports && wasmExports.bgl_toggle_bump) {
+      wasmExports.bgl_toggle_bump();
+    }
+  }
+  window.toggleBump = toggleBump;
+
+  /**
+   * Toggle Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0).
+   */
+  function toggleMipmaps() {
+    isMipmapsActive = !isMipmapsActive;
+    if (btnMipmaps) btnMipmaps.style.background = isMipmapsActive ? '#0284c7' : '#334155';
+    if (wasmExports && wasmExports.bgl_toggle_mipmaps) {
+      wasmExports.bgl_toggle_mipmaps();
+    }
+  }
+  window.toggleMipmaps = toggleMipmaps;
+
+  /**
+   * Toggle Directional Shadow Mapping (PCF).
+   */
+  function toggleShadows() {
+    isShadowsActive = !isShadowsActive;
+    if (btnShadows) btnShadows.style.background = isShadowsActive ? '#0284c7' : '#334155';
+    if (wasmExports && wasmExports.bgl_toggle_shadows) {
+      wasmExports.bgl_toggle_shadows();
+    }
+  }
+  window.toggleShadows = toggleShadows;
+
+  /**
+   * Toggle Environment Cubemap Reflections (IBL).
+   */
+  function toggleReflections() {
+    isReflectionsActive = !isReflectionsActive;
+    if (btnReflections) btnReflections.style.background = isReflectionsActive ? '#0284c7' : '#334155';
+    if (wasmExports && wasmExports.bgl_toggle_reflections) {
+      wasmExports.bgl_toggle_reflections();
+    }
+  }
+  window.toggleReflections = toggleReflections;
 
   /**
    * Toggle Scene Graph Tree Inspector Panel.
@@ -605,6 +661,14 @@
       toggleHUD();
     } else if (e.key === 'n' || e.key === 'N') {
       toggleTreePanel();
+    } else if (e.key === 'v' || e.key === 'V') {
+      toggleBump();
+    } else if (e.key === 'l' || e.key === 'L') {
+      toggleMipmaps();
+    } else if (e.key === 'm' || e.key === 'M') {
+      toggleShadows();
+    } else if (e.key === 'r' || e.key === 'R') {
+      toggleReflections();
     }
   });
 

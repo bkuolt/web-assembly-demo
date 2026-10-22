@@ -1,6 +1,7 @@
 /**
  * @file Shaders.hpp
- * @brief Embedded WGSL Full glTF 2.0 PBR and Wireframe/Bounding-Box Shaders.
+ * @brief Embedded WGSL Full glTF 2.0 PBR, Shadow Mapping, Environment Cubemap Reflections,
+ *        Bump/Normal Mapping, and Wireframe/Bounding-Box Shaders.
  */
 #pragma once
 
@@ -9,13 +10,13 @@
 namespace bgl::gpu {
 
 /**
- * @brief Complete WGSL PBR (Physically Based Rendering) shader code supporting all glTF 2.0
- * and KHR extensions (Clearcoat, Transmission, Sheen, Specular, Emissive Strength, Normal, Occlusion, Unlit).
+ * @brief Depth-only directional Shadow Map WGSL shader.
  */
-inline constexpr std::string_view kPbrShaderWGSL = R"(
+inline constexpr std::string_view kShadowShaderWGSL = R"(
 struct Uniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
+    lightViewProj : mat4x4<f32>,
     cameraPos : vec4<f32>,
     lightDir : vec4<f32>,
     baseColorFactor : vec4<f32>,
@@ -34,6 +35,60 @@ struct Uniforms {
     specularFactor : f32,
     sheenColorFactor : vec4<f32>,
     specularColorFactor : vec4<f32>,
+    bumpScale : f32,
+    reflectionIntensity : f32,
+    shadowBias : f32,
+    envMipCount : f32,
+};
+
+@group(0) @binding(0) var<uniform> ubo : Uniforms;
+
+struct VertexInput {
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) tangent : vec4<f32>,
+    @location(3) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_shadow(in : VertexInput) -> @builtin(position) vec4<f32> {
+    let worldPos = ubo.model * vec4<f32>(in.position, 1.0);
+    return ubo.lightViewProj * worldPos;
+}
+)";
+
+/**
+ * @brief Complete WGSL PBR (Physically Based Rendering) shader code supporting all glTF 2.0
+ * and KHR extensions (Clearcoat, Transmission, Sheen, Specular, Emissive Strength, Normal,
+ * Derivative Bump Mapping, Trilinear Mipmapping, PCF Shadow Mapping, and Cubemap Environment Reflections).
+ */
+inline constexpr std::string_view kPbrShaderWGSL = R"(
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    lightViewProj : mat4x4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    baseColorFactor : vec4<f32>,
+    metallicFactor : f32,
+    roughnessFactor : f32,
+    normalScale : f32,
+    occlusionStrength : f32,
+    emissiveFactor : vec4<f32>,
+    alphaCutoff : f32,
+    alphaMode : u32,
+    flags : u32,
+    ior : f32,
+    clearcoatFactor : f32,
+    clearcoatRoughness : f32,
+    transmissionFactor : f32,
+    specularFactor : f32,
+    sheenColorFactor : vec4<f32>,
+    specularColorFactor : vec4<f32>,
+    bumpScale : f32,
+    reflectionIntensity : f32,
+    shadowBias : f32,
+    envMipCount : f32,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -46,6 +101,9 @@ struct Uniforms {
 @group(0) @binding(7) var clearcoatTexture : texture_2d<f32>;
 @group(0) @binding(8) var transmissionTexture : texture_2d<f32>;
 @group(0) @binding(9) var sheenTexture : texture_2d<f32>;
+@group(0) @binding(10) var envCubemap : texture_cube<f32>;
+@group(0) @binding(11) var shadowMap : texture_depth_2d;
+@group(0) @binding(12) var shadowSampler : sampler_comparison;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
@@ -70,22 +128,22 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     out.clipPos = ubo.viewProj * world;
     out.normal = normalize((ubo.model * vec4<f32>(in.normal, 0.0)).xyz);
     let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
-    out.tangent = vec4<f32>(normalize(worldTan), in.tangent.w);
+    out.tangent = vec4<f32>(worldTan, in.tangent.w);
     out.uv = in.uv;
     return out;
 }
 
-fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>) -> mat3x3<f32> {
+fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>, dp1 : vec3<f32>, dp2 : vec3<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> mat3x3<f32> {
     let N = normalize(geomNormal);
-    if (abs(tangent.w) > 0.001 && length(tangent.xyz) > 0.1) {
-        let T = normalize(tangent.xyz);
-        let B = normalize(cross(N, T) * tangent.w);
+    // Gram-Schmidt orthogonalize vertex tangent against geometric normal
+    let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
+    let orthoLenSq = dot(orthoT, orthoT);
+    if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-4) {
+        let T = orthoT * inverseSqrt(orthoLenSq);
+        let B = normalize(cross(N, T) * sign(tangent.w));
         return mat3x3<f32>(T, B, N);
     }
-    let dp1 = dpdx(worldPos);
-    let dp2 = dpdy(worldPos);
-    let duv1 = dpdx(uv);
-    let duv2 = dpdy(uv);
+    // Screen-space cotangent frame fallback
     let dp2perp = cross(dp2, N);
     let dp1perp = cross(N, dp1);
     let T = dp2perp * duv1.x + dp1perp * duv2.x;
@@ -113,12 +171,71 @@ fn fresnelSchlick(VdotH : f32, F0 : vec3<f32>) -> vec3<f32> {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
 }
 
+fn envBRDFApprox(F0 : vec3<f32>, roughness : f32, NdotV : f32) -> vec3<f32> {
+    let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
+    let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+    let r = roughness * c0 + c1;
+    let a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+    let AB = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+    return F0 * AB.x + vec3<f32>(AB.y);
+}
+
+fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
+    let NdotL = max(dot(N, L), 0.0);
+    let normalOffset = N * 0.015 * (1.0 - NdotL);
+    let lightClip = ubo.lightViewProj * vec4<f32>(worldPos + normalOffset, 1.0);
+    let projCoords = lightClip.xyz / lightClip.w;
+
+    let uv = vec2<f32>(projCoords.x * 0.5 + 0.5, 0.5 - projCoords.y * 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || projCoords.z < 0.0 || projCoords.z > 1.0) {
+        return 1.0;
+    }
+
+    let slopeBias = max(ubo.shadowBias * (1.0 - NdotL), ubo.shadowBias * 0.35);
+    let compareDepth = projCoords.z - slopeBias;
+    let texelSize = 1.0 / 2048.0;
+
+    var shadow = 0.0;
+    for (var y : i32 = -1; y <= 1; y = y + 1) {
+        for (var x : i32 = -1; x <= 1; x = x + 1) {
+            let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
+            shadow = shadow + textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, compareDepth);
+        }
+    }
+    shadow = shadow / 9.0;
+
+    // Smooth fade near shadow frustum boundary
+    let edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    let borderFade = smoothstep(0.0, 0.04, edgeDist);
+    return mix(1.0, shadow, borderFade);
+}
+
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
+    // Pre-sample textures and screen-space derivatives in uniform control flow (before discard)
+    let dp1 = dpdx(in.worldPos);
+    let dp2 = dpdy(in.worldPos);
+    let duv1 = dpdx(in.uv);
+    let duv2 = dpdy(in.uv);
+
+    let baseTexSample = textureSample(baseColorTexture, defaultSampler, in.uv);
+    let mrTexSample = textureSample(metallicRoughnessTexture, defaultSampler, in.uv);
+    let normTexSample = textureSample(normalTexture, defaultSampler, in.uv);
+    let emTexSample = textureSample(emissiveTexture, defaultSampler, in.uv);
+    let occTexSample = textureSample(occlusionTexture, defaultSampler, in.uv);
+    let ccTexSample = textureSample(clearcoatTexture, defaultSampler, in.uv);
+    let transTexSample = textureSample(transmissionTexture, defaultSampler, in.uv);
+    let sheenTexSample = textureSample(sheenTexture, defaultSampler, in.uv);
+
+    // Compute luminance height derivatives for screen-space micro-relief bump mapping
+    let surfaceHeight = dot(baseTexSample.rgb, vec3<f32>(0.299, 0.587, 0.114));
+    let dHdX = dpdx(surfaceHeight);
+    let dHdY = dpdy(surfaceHeight);
+
     // 1. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags & 1u) != 0u) {
-        baseColor = baseColor * textureSample(baseColorTexture, defaultSampler, in.uv);
+        baseColor = baseColor * baseTexSample;
     }
 
     // Alpha Cutoff (AlphaMode::Mask == 1u)
@@ -131,29 +248,38 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         return baseColor;
     }
 
-    // 2. Normal Calculation
-    var N = normalize(in.normal);
+    // 2. Normal & Bump Mapping Calculation
+    var geomN = normalize(in.normal);
     let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
-    if ((ubo.flags & 512u) != 0u || dot(N, viewDir) < 0.0) {
-        if (dot(N, viewDir) < 0.0) {
-            N = -N;
+    if ((ubo.flags & 512u) != 0u || dot(geomN, viewDir) < 0.0) {
+        if (dot(geomN, viewDir) < 0.0) {
+            geomN = -geomN;
         }
     }
 
-    if ((ubo.flags & 4u) != 0u) {
-        let tbn = getTBN(in.worldPos, N, in.uv, in.tangent);
-        let normTex = textureSample(normalTexture, defaultSampler, in.uv).xyz * 2.0 - 1.0;
-        let scaledNorm = vec3<f32>(normTex.xy * ubo.normalScale, normTex.z);
-        N = normalize(tbn * scaledNorm);
+    var N = geomN;
+    // Flag bit 10 (1024u) = EnableBumpMapping
+    if ((ubo.flags & 1024u) != 0u) {
+        let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
+        if ((ubo.flags & 4u) != 0u) {
+            // Tangent-space normal map + fine derivative bump relief
+            let normTex = normTexSample.xyz * 2.0 - 1.0;
+            let microBump = vec2<f32>(-dHdX, -dHdY) * 1.25 * ubo.bumpScale;
+            let scaledNorm = vec3<f32>(normTex.xy * ubo.normalScale * ubo.bumpScale + microBump, max(normTex.z, 0.01));
+            N = normalize(tbn * scaledNorm);
+        } else if ((ubo.flags & 1u) != 0u) {
+            // Derivative height bump mapping from texture luminance
+            let bumpPerturb = vec3<f32>(-dHdX * 3.5 * ubo.bumpScale, -dHdY * 3.5 * ubo.bumpScale, 1.0);
+            N = normalize(tbn * bumpPerturb);
+        }
     }
 
     // 3. Metallic & Roughness
     var roughness = ubo.roughnessFactor;
     var metallic = ubo.metallicFactor;
     if ((ubo.flags & 2u) != 0u) {
-        let mrSample = textureSample(metallicRoughnessTexture, defaultSampler, in.uv);
-        roughness = roughness * mrSample.g;
-        metallic = metallic * mrSample.b;
+        roughness = roughness * mrTexSample.g;
+        metallic = metallic * mrTexSample.b;
     }
     roughness = clamp(roughness, 0.04, 1.0);
     metallic = clamp(metallic, 0.0, 1.0);
@@ -188,9 +314,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var ccFactor = ubo.clearcoatFactor;
     var ccRoughness = ubo.clearcoatRoughness;
     if ((ubo.flags & 32u) != 0u) {
-        let ccSample = textureSample(clearcoatTexture, defaultSampler, in.uv);
-        ccFactor = ccFactor * ccSample.r;
-        ccRoughness = ccRoughness * ccSample.g;
+        ccFactor = ccFactor * ccTexSample.r;
+        ccRoughness = ccRoughness * ccTexSample.g;
     }
     ccRoughness = clamp(ccRoughness, 0.04, 1.0);
 
@@ -207,7 +332,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var sheenColor = ubo.sheenColorFactor.rgb;
     let sheenRoughness = clamp(ubo.sheenColorFactor.w, 0.04, 1.0);
     if ((ubo.flags & 128u) != 0u) {
-        sheenColor = sheenColor * textureSample(sheenTexture, defaultSampler, in.uv).rgb;
+        sheenColor = sheenColor * sheenTexSample.rgb;
     }
     var sheenLobe = vec3<f32>(0.0);
     if (length(sheenColor) > 0.001) {
@@ -220,14 +345,14 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     // 9. Transmission (KHR_materials_transmission)
     var transmission = ubo.transmissionFactor;
     if ((ubo.flags & 64u) != 0u) {
-        transmission = transmission * textureSample(transmissionTexture, defaultSampler, in.uv).r;
+        transmission = transmission * transTexSample.r;
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
     // 10. Ambient Occlusion
     var ao = 1.0;
     if ((ubo.flags & 16u) != 0u) {
-        let occSample = textureSample(occlusionTexture, defaultSampler, in.uv).r;
+        let occSample = occTexSample.r;
         ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
     }
     ao = clamp(ao, 0.0, 1.0);
@@ -235,10 +360,16 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     // 11. Emissive (KHR_materials_emissive_strength)
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
     if ((ubo.flags & 8u) != 0u) {
-        emissive = emissive * textureSample(emissiveTexture, defaultSampler, in.uv).rgb;
+        emissive = emissive * emTexSample.rgb;
     }
 
-    // 12. Direct & Ambient Lighting Composition
+    // 12. Directional Shadow Mapping (Flag bit 12 = 4096u = EnableShadows)
+    var shadowFactor = 1.0;
+    if ((ubo.flags & 4096u) != 0u) {
+        shadowFactor = computePCFShadow(in.worldPos, geomN, L);
+    }
+
+    // 13. Direct Lighting Composition
     let lightColor = vec3<f32>(1.0, 0.98, 0.95);
     let directDiffuse = diffuseBRDF * (1.0 - transFactor);
     var directLighting = (directDiffuse + specularBRDF) * lightColor * NdotL * 3.14159265359;
@@ -246,14 +377,38 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     if (ccFactor > 0.001) {
         directLighting = directLighting * (1.0 - clearcoatF * ccFactor) + clearcoatLobe * lightColor * NdotL * 3.14159265359;
     }
-    directLighting = directLighting + sheenLobe * lightColor * NdotL;
+    directLighting = (directLighting + sheenLobe * lightColor * NdotL) * shadowFactor;
 
+    // 14. Environment Cubemap Reflections & IBL (Flag bit 13 = 8192u = EnableReflections)
     let skyColor = vec3<f32>(0.38, 0.48, 0.62);
     let groundColor = vec3<f32>(0.26, 0.22, 0.18);
     let hemiFactor = N.y * 0.5 + 0.5;
-    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 1.5;
-    let ambientDiffuse = diffuseColor * ambientLight * ao * (1.0 - transFactor);
-    let ambientSpecular = mix(F0, vec3<f32>(1.0), pow(1.0 - NdotV, 5.0)) * ambientLight * (1.0 - roughness) * 0.5;
+    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 1.4;
+
+    var ambientDiffuse = diffuseColor * ambientLight * ao * (1.0 - transFactor);
+    var ambientSpecular = vec3<f32>(0.0);
+
+    if ((ubo.flags & 8192u) != 0u) {
+        let maxMip = max(ubo.envMipCount - 1.0, 0.0);
+        let R = reflect(-V, N);
+        let specMip = clamp(roughness * maxMip, 0.0, maxMip);
+        let prefilteredEnv = textureSampleLevel(envCubemap, defaultSampler, R, specMip).rgb;
+        let envIrradiance = textureSampleLevel(envCubemap, defaultSampler, N, maxMip).rgb;
+        let envBrdf = envBRDFApprox(F0, roughness, NdotV);
+
+        ambientDiffuse = diffuseColor * mix(ambientLight, envIrradiance * 1.6, 0.65) * ao * (1.0 - transFactor);
+        ambientSpecular = prefilteredEnv * envBrdf * ubo.reflectionIntensity * mix(0.35, 1.0, ao);
+
+        if (ccFactor > 0.001) {
+            let R_cc = reflect(-V, geomN);
+            let ccMip = clamp(ccRoughness * maxMip, 0.0, maxMip);
+            let ccEnv = textureSampleLevel(envCubemap, defaultSampler, R_cc, ccMip).rgb;
+            let ccFresnel = fresnelSchlick(NdotV, vec3<f32>(0.04));
+            ambientSpecular = ambientSpecular * (1.0 - ccFresnel * ccFactor) + ccEnv * ccFresnel * ccFactor * ubo.reflectionIntensity;
+        }
+    } else {
+        ambientSpecular = mix(F0, vec3<f32>(1.0), pow(1.0 - NdotV, 5.0)) * ambientLight * (1.0 - roughness) * 0.25 * ao;
+    }
 
     let finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
@@ -308,6 +463,7 @@ inline constexpr std::string_view kWireframeShaderWGSL = R"(
 struct Uniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
+    lightViewProj : mat4x4<f32>,
     cameraPos : vec4<f32>,
     lightDir : vec4<f32>,
     baseColorFactor : vec4<f32>,
@@ -326,6 +482,10 @@ struct Uniforms {
     specularFactor : f32,
     sheenColorFactor : vec4<f32>,
     specularColorFactor : vec4<f32>,
+    bumpScale : f32,
+    reflectionIntensity : f32,
+    shadowBias : f32,
+    envMipCount : f32,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -338,6 +498,9 @@ struct Uniforms {
 @group(0) @binding(7) var clearcoatTexture : texture_2d<f32>;
 @group(0) @binding(8) var transmissionTexture : texture_2d<f32>;
 @group(0) @binding(9) var sheenTexture : texture_2d<f32>;
+@group(0) @binding(10) var envCubemap : texture_cube<f32>;
+@group(0) @binding(11) var shadowMap : texture_depth_2d;
+@group(0) @binding(12) var shadowSampler : sampler_comparison;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
