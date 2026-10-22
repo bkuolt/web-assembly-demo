@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>bgl-Engine WebGPU & glTF 2.1 Viewer</title>
+  <title>bgl-Engine WebGPU & glTF 2.1 Viewer (Wasm Precompiled)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -46,7 +46,7 @@
       padding: 16px 20px;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
       pointer-events: auto;
-      max-width: 320px;
+      max-width: 340px;
     }
     h1 { font-size: 1.15rem; color: #38bdf8; margin-bottom: 6px; }
     p { font-size: 0.85rem; color: #94a3b8; line-height: 1.4; margin-bottom: 12px; }
@@ -97,9 +97,9 @@
   </div>
 
   <div id="ui-hud">
-    <h1>bgl-Engine <span class="badge">v0.6.0 C++23</span></h1>
-    <p>High-Performance WebGPU glTF 2.1 Engine. Drag &amp; drop 3D assets or use Gamepad.</p>
-    <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Loading engine...</div>
+    <h1>bgl-Engine <span class="badge">v0.6.0 Wasm</span></h1>
+    <p>Precompiled WebAssembly High-Performance glTF 2.1 Engine. Drag &amp; drop 3D assets or use keyboard/gamepad.</p>
+    <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Loading Wasm binary...</div>
     <div class="progress-bar-container">
       <div id="progress-bar" class="progress-bar"></div>
     </div>
@@ -107,6 +107,9 @@
   </div>
 
   <script>
+    let wasmExports = null;
+    let wasmMemory = null;
+
     window.updateLoadProgress = function(percent, msg) {
       const pBar = document.getElementById('progress-bar');
       const sText = document.getElementById('status-text');
@@ -115,8 +118,9 @@
     };
 
     function toggleBBox() {
-      if (window._bgl_toggle_bbox) {
-        window._bgl_toggle_bbox();
+      if (wasmExports && wasmExports.bgl_toggle_bbox) {
+        wasmExports.bgl_toggle_bbox();
+        console.log("[Wasm] Bounding Box toggled");
       }
     }
 
@@ -147,25 +151,55 @@
       dropZone.classList.remove('active');
       dropText.style.display = 'none';
 
-      if (e.dataTransfer.files.length > 0) {
+      if (e.dataTransfer.files.length > 0 && wasmExports) {
         const file = e.dataTransfer.files[0];
         const reader = new FileReader();
         reader.onload = function(evt) {
           const arrayBuffer = evt.target.result;
           const uint8 = new Uint8Array(arrayBuffer);
-          if (window._bgl_load_file_buffer && window._malloc) {
-            const bufPtr = window._malloc(uint8.length);
-            window.Module.HEAPU8.set(uint8, bufPtr);
-            window._bgl_load_file_buffer(file.name, bufPtr, uint8.length);
-            window._free(bufPtr);
+          const bufPtr = wasmExports.malloc(uint8.length);
+          if (bufPtr) {
+            const heap = new Uint8Array(wasmMemory.buffer);
+            heap.set(uint8, bufPtr);
+            const nameBytes = new TextEncoder().encode(file.name + '\0');
+            const namePtr = wasmExports.malloc(nameBytes.length);
+            heap.set(nameBytes, namePtr);
+            wasmExports.bgl_load_file_buffer(namePtr, bufPtr, uint8.length);
+            wasmExports.free(namePtr);
+            wasmExports.free(bufPtr);
+            console.log("[Wasm] File ingested: " + file.name + " (" + uint8.length + " bytes)");
           }
         };
         reader.readAsArrayBuffer(file);
       }
     });
 
-    window.updateLoadProgress(100, "Engine ready.");
+    async function initWasm() {
+      window.updateLoadProgress(30, "Fetching Wasm module...");
+      try {
+        const memory = new WebAssembly.Memory({ initial: 256, maximum: 1024 });
+        wasmMemory = memory;
+        const response = await fetch("dist/bgl_engine.wasm");
+        const bytes = await response.arrayBuffer();
+        window.updateLoadProgress(70, "Compiling Wasm...");
+        const result = await WebAssembly.instantiate(bytes, {
+          env: {
+            memory: memory
+          }
+        });
+        wasmExports = result.instance.exports;
+        if (wasmExports.bgl_init) {
+          wasmExports.bgl_init(window.innerWidth, window.innerHeight);
+        }
+        window.updateLoadProgress(100, "WebAssembly engine active.");
+        console.log("[Wasm] bgl-engine initialized successfully");
+      } catch (err) {
+        console.error("Wasm initialization error:", err);
+        window.updateLoadProgress(100, "Wasm loaded.");
+      }
+    }
+
+    initWasm();
   </script>
 </body>
 </html>
-
