@@ -13,6 +13,14 @@
 
 namespace bgl::scene {
 
+struct Material {
+    std::string name;
+    glm::vec4 baseColorFactor{1.0f};
+    int baseColorTextureIndex = -1;
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+};
+
 /**
  * @struct MeshPrimitive
  * @brief PMR-backed mesh primitive holding GPU vertices and indices.
@@ -21,6 +29,7 @@ struct MeshPrimitive {
     std::pmr::vector<core::Vertex> vertices;
     std::pmr::vector<uint32_t> indices;
     core::AABB boundingBox;
+    int materialIndex = -1;
 
     explicit MeshPrimitive(std::pmr::memory_resource* mr)
         : vertices(mr), indices(mr) {}
@@ -58,6 +67,8 @@ public:
  */
 struct Scene {
     std::vector<std::shared_ptr<SceneNode>> rootNodes;
+    std::vector<Material> materials;
+    std::vector<uint32_t> gpuTextures; // OpenGL texture IDs
     core::AABB sceneAABB;
 
     void Update() {

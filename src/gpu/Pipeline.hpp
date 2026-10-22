@@ -35,7 +35,7 @@ public:
     void BindWireframePipeline();
 
     void RenderScene(const scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false);
-    void RenderNode(const scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, bool wireframe = false);
+    void RenderNode(const scene::Scene& scene, const scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, bool wireframe = false);
 
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
