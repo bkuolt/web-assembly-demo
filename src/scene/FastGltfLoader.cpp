@@ -9,6 +9,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <atomic>
 
 namespace bgl::scene {
 
@@ -100,79 +102,94 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                       bvIdx, bv.bufferIndex, bv.byteOffset, bv.byteLength, bv.byteStride.value_or(0), targetStr);
     }
 
-    // 2. Decode Embedded Images into CPU buffers
-    BGL_LOG_INFO("[glTF Loader] --- Images & Textures ({} images, {} textures) ---", asset.images.size(), asset.textures.size());
-    scene->gpuTextures.resize(asset.textures.size());
-    scene->cpuImages.resize(asset.textures.size());
+    // 2. Decode Embedded Images into CPU buffers in parallel
+    const size_t numTextures = asset.textures.size();
+    BGL_LOG_INFO("[glTF Loader] --- Images & Textures ({} images, {} textures) ---", asset.images.size(), numTextures);
+    scene->gpuTextures.resize(numTextures);
+    scene->cpuImages.resize(numTextures);
 
-    for (size_t texIdx = 0; texIdx < asset.textures.size(); ++texIdx) {
-        const auto& texture = asset.textures[texIdx];
-        if (!texture.imageIndex.has_value()) {
-            BGL_LOG_WARN("  * Texture #{}: No imageIndex associated", texIdx);
-            continue;
-        }
+    const unsigned int hwThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
+    BGL_LOG_INFO("[glTF Loader] Launching parallel texture decoding across {} worker threads...", hwThreads);
 
-        size_t imgIdx = *texture.imageIndex;
-        if (imgIdx >= asset.images.size()) {
-            BGL_LOG_WARN("  * Texture #{}: Invalid imageIndex {} >= {}", texIdx, imgIdx, asset.images.size());
-            continue;
-        }
+    std::atomic<size_t> nextTexIdx{0};
+    {
+        std::vector<std::jthread> workers;
+        workers.reserve(hwThreads);
 
-        const auto& image = asset.images[imgIdx];
-        std::span<const uint8_t> rawBytes;
-        size_t sourceBvIdx = 0;
+        for (unsigned int w = 0; w < hwThreads; ++w) {
+            workers.emplace_back([&]() {
+                while (true) {
+                    size_t texIdx = nextTexIdx.fetch_add(1, std::memory_order_relaxed);
+                    if (texIdx >= numTextures) break;
 
-        if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
-            const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
-            sourceBvIdx = bvSource.bufferViewIndex;
-            if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
-                const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
-                if (bufferView.bufferIndex < asset.buffers.size()) {
-                    const auto& buffer = asset.buffers[bufferView.bufferIndex];
-                    if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
-                        const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
-                        rawBytes = std::span<const uint8_t>(array.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
-                    } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
-                        const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
-                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
-                    } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
-                        const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
-                        rawBytes = std::span<const uint8_t>(vec.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
+                    const auto& texture = asset.textures[texIdx];
+                    if (!texture.imageIndex.has_value()) {
+                        BGL_LOG_WARN("  * Texture #{}: No imageIndex associated", texIdx);
+                        continue;
+                    }
+
+                    size_t imgIdx = *texture.imageIndex;
+                    if (imgIdx >= asset.images.size()) {
+                        BGL_LOG_WARN("  * Texture #{}: Invalid imageIndex {} >= {}", texIdx, imgIdx, asset.images.size());
+                        continue;
+                    }
+
+                    const auto& image = asset.images[imgIdx];
+                    std::span<const uint8_t> rawBytes;
+                    size_t sourceBvIdx = 0;
+
+                    if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
+                        const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
+                        sourceBvIdx = bvSource.bufferViewIndex;
+                        if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
+                            const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
+                            if (bufferView.bufferIndex < asset.buffers.size()) {
+                                const auto& buffer = asset.buffers[bufferView.bufferIndex];
+                                if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
+                                    const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
+                                    rawBytes = std::span<const uint8_t>(array.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
+                                } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
+                                    const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
+                                    rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()) + bufferView.byteOffset, bufferView.byteLength);
+                                } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
+                                    const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
+                                    rawBytes = std::span<const uint8_t>(vec.bytes.data() + bufferView.byteOffset, bufferView.byteLength);
+                                }
+                            }
+                        }
+                    } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
+                        const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
+                        rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size());
+                    } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
+                        const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
+                        rawBytes = std::span<const uint8_t>(vec.bytes.data(), vec.bytes.size());
+                    } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
+                        const auto& arr = std::get<fastgltf::sources::Array>(image.data);
+                        rawBytes = std::span<const uint8_t>(arr.bytes.data(), arr.bytes.size());
+                    }
+
+                    std::string imgName = image.name.empty() ? ("Image_" + std::to_string(imgIdx)) : std::string(image.name);
+
+                    if (!rawBytes.empty()) {
+                        auto decoded = TextureDecoder::DecodeAuto(rawBytes, image.name);
+                        if (decoded) {
+                            scene->cpuImages[texIdx] = CpuImage{
+                                .width = decoded->width,
+                                .height = decoded->height,
+                                .rgba = std::move(decoded->rgbaData)
+                            };
+                            BGL_LOG_INFO("  * Texture #{} (Image #{}, BufferView #{}): '{}' -> Decoded RGBA8 {}x{} (Decoded: {:.2f} MB)",
+                                         texIdx, imgIdx, sourceBvIdx, imgName,
+                                         decoded->width, decoded->height,
+                                         scene->cpuImages[texIdx].rgba.size() / (1024.0 * 1024.0));
+                        } else {
+                            BGL_LOG_ERROR("  * Texture #{} (Image #{}): Failed to decode: {}", texIdx, imgIdx, decoded.error());
+                        }
+                    } else {
+                        BGL_LOG_WARN("  * Texture #{} (Image #{}): Raw byte stream is empty", texIdx, imgIdx);
                     }
                 }
-            }
-        } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
-            const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
-            rawBytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size());
-        } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
-            const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
-            rawBytes = std::span<const uint8_t>(vec.bytes.data(), vec.bytes.size());
-        } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
-            const auto& arr = std::get<fastgltf::sources::Array>(image.data);
-            rawBytes = std::span<const uint8_t>(arr.bytes.data(), arr.bytes.size());
-        }
-
-        std::string imgName = image.name.empty() ? ("Image_" + std::to_string(imgIdx)) : std::string(image.name);
-
-        if (!rawBytes.empty()) {
-            auto decoded = TextureDecoder::DecodeAuto(rawBytes, image.name);
-            if (decoded) {
-                scene->cpuImages[texIdx] = CpuImage{
-                    .width = decoded->width,
-                    .height = decoded->height,
-                    .rgba = std::move(decoded->rgbaData)
-                };
-                BGL_LOG_INFO("  * Texture #{} (Image #{}, BufferView #{}): '{}' (MIME: {}) -> Decoded RGBA8 {}x{} (Raw: {} bytes, Decoded: {} bytes / {:.2f} MB)",
-                             texIdx, imgIdx, sourceBvIdx, imgName,
-                             image.name.empty() ? "embedded" : std::string(image.name),
-                             decoded->width, decoded->height, rawBytes.size(),
-                             scene->cpuImages[texIdx].rgba.size(),
-                             scene->cpuImages[texIdx].rgba.size() / (1024.0 * 1024.0));
-            } else {
-                BGL_LOG_ERROR("  * Texture #{} (Image #{}): Failed to decode: {}", texIdx, imgIdx, decoded.error());
-            }
-        } else {
-            BGL_LOG_WARN("  * Texture #{} (Image #{}): Raw byte stream is empty", texIdx, imgIdx);
+            });
         }
     }
 
@@ -327,117 +344,113 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    std::vector<std::shared_ptr<SceneNode>> loadedNodes;
-    loadedNodes.reserve(asset.nodes.size());
+    // 5. Process all nodes and their meshes in parallel
+    std::vector<std::shared_ptr<SceneNode>> loadedNodes(asset.nodes.size());
+    BGL_LOG_INFO("[glTF Loader] --- Scene Nodes Hierarchy ({} nodes total, parallel parsing) ---", asset.nodes.size());
 
-    // 5. Process all nodes and their meshes
-    BGL_LOG_INFO("[glTF Loader] --- Scene Nodes Hierarchy ({} nodes total) ---", asset.nodes.size());
-    for (size_t nodeIdx = 0; nodeIdx < asset.nodes.size(); ++nodeIdx) {
-        const auto& gltfNode = asset.nodes[nodeIdx];
-        auto node = std::make_shared<SceneNode>();
-        node->name = gltfNode.name.empty() ? ("Node_" + std::to_string(nodeIdx)) : std::string(gltfNode.name);
+    std::atomic<size_t> nextNodeIdx{0};
+    {
+        std::vector<std::jthread> nodeWorkers;
+        nodeWorkers.reserve(hwThreads);
 
-        std::string transformDesc = "Identity";
-        if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
-            const auto& trs = std::get<fastgltf::TRS>(gltfNode.transform);
-            glm::vec3 translation(trs.translation[0], trs.translation[1], trs.translation[2]);
-            glm::quat rotation(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
-            glm::vec3 scale(trs.scale[0], trs.scale[1], trs.scale[2]);
+        for (unsigned int w = 0; w < hwThreads; ++w) {
+            nodeWorkers.emplace_back([&]() {
+                while (true) {
+                    size_t nodeIdx = nextNodeIdx.fetch_add(1, std::memory_order_relaxed);
+                    if (nodeIdx >= asset.nodes.size()) break;
 
-            glm::mat4 tMat = glm::translate(glm::mat4(1.0f), translation);
-            glm::mat4 rMat = glm::mat4_cast(rotation);
-            glm::mat4 sMat = glm::scale(glm::mat4(1.0f), scale);
-            node->localTransform = tMat * rMat * sMat;
+                    const auto& gltfNode = asset.nodes[nodeIdx];
+                    auto node = std::make_shared<SceneNode>();
+                    node->name = gltfNode.name.empty() ? ("Node_" + std::to_string(nodeIdx)) : std::string(gltfNode.name);
 
-            std::ostringstream ss;
-            ss << std::fixed << std::setprecision(4)
-               << "TRS(T=[" << translation.x << ", " << translation.y << ", " << translation.z << "], "
-               << "S=[" << scale.x << ", " << scale.y << ", " << scale.z << "])";
-            transformDesc = ss.str();
-        } else if (std::holds_alternative<fastgltf::Node::TransformMatrix>(gltfNode.transform)) {
-            const auto& mat = std::get<fastgltf::Node::TransformMatrix>(gltfNode.transform);
-            node->localTransform = glm::make_mat4(mat.data());
-            transformDesc = "Custom 4x4 Matrix";
+                    if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
+                        const auto& trs = std::get<fastgltf::TRS>(gltfNode.transform);
+                        glm::vec3 translation(trs.translation[0], trs.translation[1], trs.translation[2]);
+                        glm::quat rotation(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
+                        glm::vec3 scale(trs.scale[0], trs.scale[1], trs.scale[2]);
+
+                        glm::mat4 tMat = glm::translate(glm::mat4(1.0f), translation);
+                        glm::mat4 rMat = glm::mat4_cast(rotation);
+                        glm::mat4 sMat = glm::scale(glm::mat4(1.0f), scale);
+                        node->localTransform = tMat * rMat * sMat;
+                    } else if (std::holds_alternative<fastgltf::Node::TransformMatrix>(gltfNode.transform)) {
+                        const auto& mat = std::get<fastgltf::Node::TransformMatrix>(gltfNode.transform);
+                        node->localTransform = glm::make_mat4(mat.data());
+                    }
+
+                    if (gltfNode.meshIndex.has_value()) {
+                        size_t mIdx = *gltfNode.meshIndex;
+                        const auto& mesh = asset.meshes[mIdx];
+                        for (const auto& prim : mesh.primitives) {
+                            if (prim.type != fastgltf::PrimitiveType::Triangles) continue;
+
+                            MeshPrimitive meshPrim;
+                            if (prim.materialIndex.has_value()) {
+                                meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
+                            }
+
+                            // POSITION accessor
+                            auto posIt = prim.findAttribute("POSITION");
+                            if (posIt != prim.attributes.end()) {
+                                const auto& posAccessor = asset.accessors[posIt->second];
+                                meshPrim.vertices.resize(posAccessor.count);
+
+                                fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor, [&](glm::vec3 pos, size_t idx) {
+                                    meshPrim.vertices[idx].position = pos;
+                                    meshPrim.boundingBox.Expand(pos);
+                                });
+                            }
+
+                            // NORMAL accessor
+                            auto normIt = prim.findAttribute("NORMAL");
+                            if (normIt != prim.attributes.end()) {
+                                const auto& normAccessor = asset.accessors[normIt->second];
+                                fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
+                                    if (idx < meshPrim.vertices.size()) {
+                                        meshPrim.vertices[idx].normal = norm;
+                                    }
+                                });
+                            }
+
+                            // TEXCOORD_0 accessor
+                            auto uvIt = prim.findAttribute("TEXCOORD_0");
+                            if (uvIt != prim.attributes.end()) {
+                                const auto& uvAccessor = asset.accessors[uvIt->second];
+                                fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
+                                    if (idx < meshPrim.vertices.size()) {
+                                        meshPrim.vertices[idx].uv = uv;
+                                    }
+                                });
+                            }
+
+                            // TANGENT accessor
+                            auto tanIt = prim.findAttribute("TANGENT");
+                            if (tanIt != prim.attributes.end()) {
+                                const auto& tanAccessor = asset.accessors[tanIt->second];
+                                fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
+                                    if (idx < meshPrim.vertices.size()) {
+                                        meshPrim.vertices[idx].tangent = tan;
+                                    }
+                                });
+                            }
+
+                            // Indices accessor
+                            if (prim.indicesAccessor.has_value()) {
+                                const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
+                                meshPrim.indices.resize(idxAccessor.count);
+                                fastgltf::iterateAccessorWithIndex<uint32_t>(asset, idxAccessor, [&](uint32_t val, size_t idx) {
+                                    meshPrim.indices[idx] = val;
+                                });
+                            }
+
+                            node->primitives.push_back(std::move(meshPrim));
+                        }
+                    }
+
+                    loadedNodes[nodeIdx] = std::move(node);
+                }
+            });
         }
-
-        if (gltfNode.meshIndex.has_value()) {
-            size_t mIdx = *gltfNode.meshIndex;
-            const auto& mesh = asset.meshes[mIdx];
-            for (const auto& prim : mesh.primitives) {
-                if (prim.type != fastgltf::PrimitiveType::Triangles) continue;
-
-                MeshPrimitive meshPrim;
-                if (prim.materialIndex.has_value()) {
-                    meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
-                }
-
-                // POSITION accessor
-                auto posIt = prim.findAttribute("POSITION");
-                if (posIt != prim.attributes.end()) {
-                    const auto& posAccessor = asset.accessors[posIt->second];
-                    meshPrim.vertices.resize(posAccessor.count);
-
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor, [&](glm::vec3 pos, size_t idx) {
-                        meshPrim.vertices[idx].position = pos;
-                        meshPrim.boundingBox.Expand(pos);
-                    });
-                }
-
-                // NORMAL accessor
-                auto normIt = prim.findAttribute("NORMAL");
-                if (normIt != prim.attributes.end()) {
-                    const auto& normAccessor = asset.accessors[normIt->second];
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
-                        if (idx < meshPrim.vertices.size()) {
-                            meshPrim.vertices[idx].normal = norm;
-                        }
-                    });
-                }
-
-                // TEXCOORD_0 accessor
-                auto uvIt = prim.findAttribute("TEXCOORD_0");
-                if (uvIt != prim.attributes.end()) {
-                    const auto& uvAccessor = asset.accessors[uvIt->second];
-                    fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
-                        if (idx < meshPrim.vertices.size()) {
-                            meshPrim.vertices[idx].uv = uv;
-                        }
-                    });
-                }
-
-                // TANGENT accessor
-                auto tanIt = prim.findAttribute("TANGENT");
-                if (tanIt != prim.attributes.end()) {
-                    const auto& tanAccessor = asset.accessors[tanIt->second];
-                    fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
-                        if (idx < meshPrim.vertices.size()) {
-                            meshPrim.vertices[idx].tangent = tan;
-                        }
-                    });
-                }
-
-                // Indices accessor
-                if (prim.indicesAccessor.has_value()) {
-                    const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
-                    meshPrim.indices.resize(idxAccessor.count);
-                    fastgltf::iterateAccessorWithIndex<uint32_t>(asset, idxAccessor, [&](uint32_t val, size_t idx) {
-                        meshPrim.indices[idx] = val;
-                    });
-                }
-
-                node->primitives.push_back(std::move(meshPrim));
-            }
-
-            BGL_LOG_INFO("  * Node #{}: '{}' -> Mesh #{} ('{}', {} prims) | {}",
-                         nodeIdx, node->name, mIdx, mesh.name.empty() ? "" : std::string(mesh.name),
-                         node->primitives.size(), transformDesc);
-        } else if (gltfNode.cameraIndex.has_value()) {
-            BGL_LOG_INFO("  * Node #{}: '{}' -> Camera #{} | {}", nodeIdx, node->name, *gltfNode.cameraIndex, transformDesc);
-        } else {
-            BGL_LOG_INFO("  * Node #{}: '{}' (Group / Empty) | {}", nodeIdx, node->name, transformDesc);
-        }
-
-        loadedNodes.push_back(node);
     }
 
     // 6. Build parent-child relationships

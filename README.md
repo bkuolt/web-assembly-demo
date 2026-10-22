@@ -1,4 +1,4 @@
-# bgl-Engine (v0.6.6)
+# bgl-Engine (v0.6.7)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -13,18 +13,26 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 - **100% Modern C++23 & Root Namespace `bgl`**:
   - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR arenas, logging.
   - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, procedural atmospheric skybox, 3D wireframe bounding boxes.
-  - `bgl::scene`: High-speed glTF ingestion (`fastgltf`), 16x anisotropic texture filtering with full CPU mip-mapping, spatial Quadtree partitioning, Möller-Trumbore ray picking.
+  - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), KTX / KTX2 texture decoding with Basis Universal transcoding, 16x anisotropic texture filtering with full CPU mip-mapping, spatial Quadtree partitioning, Möller-Trumbore ray picking.
   - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode script and bidi text shaping, batched 2D quad renderer with alpha blending.
   - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD displaying real-time FPS, frame timing, camera coordinates, glTF scene metrics, and spatial culling telemetry.
   - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
   - `bgl::app`: Multiplatform application lifecycle and runtime loop.
+- **Multithreaded glTF Asset Ingestion**:
+  - Lock-free parallel texture decoding across hardware worker threads (`std::jthread`, `std::atomic<size_t>` task dispatch).
+  - Parallel scene node extraction, transform hierarchy evaluation, and mesh primitive parsing (vertex attributes, bounding boxes, indices).
+  - Sub-second loading of large scenes like Sponza (69 multi-megabyte textures decoded concurrently).
+- **KTX & KTX2 Texture Support with Basis Universal Transcoding**:
+  - Full KTX1 and KTX2 container ingestion via `libktx` (`ktx/4.3.2`).
+  - Automatic on-the-fly transcoding of Basis Universal compressed textures (UASTC and ETC1S) to 32-bit RGBA (`KTX_TTF_RGBA32`).
+  - Content-based magic-byte sniffing (`\xABKTX 11\xBB` and `\xABKTX 20\xBB`), MIME type detection, and path extension routing.
 - **HarfBuzz & FreeType 2 Text Rendering Pipeline**:
   - Precise Unicode text shaping via HarfBuzz (`hb_buffer_t`, `hb_shape`).
   - High-fidelity glyph rasterization via FreeType 2 into a dynamic 1024x1024 RGBA8 font atlas.
   - Zero-dependency embedded fallback font (Liberation Mono Regular) allowing standalone execution anywhere.
   - Batched 2D WebGPU render pipeline with alpha blending (`SrcAlpha / OneMinusSrcAlpha`), 4x MSAA render-pass compatibility, and orthographic projection.
 - **AAAA Visual Fidelity & Sponza Benchmark Scene**:
-  - Sponza atrium loaded by default with 69 multi-megabyte textures decoded concurrently (PNG, JPEG, WebP).
+  - Sponza atrium loaded by default with 69 multi-megabyte textures decoded concurrently (PNG, JPEG, WebP, KTX2).
   - 16x Anisotropic filtering (`maxAnisotropy = 16`) across all samplers.
   - Full CPU box-filter mip-map generation chain down to 1x1 texels.
   - Procedural atmospheric skybox with Rayleigh-like zenith-to-horizon gradients, solar corona, and far-plane depth clamping.
@@ -45,7 +53,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - **WebAssembly**: Native Emscripten HTML5 WebGPU context (`<emscripten/html5.h>`).
 - **Reproducible Conan 2.x Dependency Management**:
   - All third-party dependencies resolved via Conan 2.x with explicit lockfile pinning (`conan.lock`).
-  - FreeType (`freetype/2.13.2`) and HarfBuzz (`harfbuzz/8.3.0` with `with_glib=False`).
+  - FreeType (`freetype/2.13.2`), HarfBuzz (`harfbuzz/8.3.0`), and KTX (`ktx/4.3.2`).
   - Zero system library divergence across build environments.
 
 ---
@@ -81,7 +89,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── Quadtree.hpp/.cpp      # 4-way spatial partition and LOD culling on XZ ground plane
 │   │   ├── RayPicker.hpp/.cpp     # Hierarchical Möller-Trumbore ray-triangle intersection
 │   │   ├── Scene.hpp              # Hierarchical scene graph and PMR mesh primitives
-│   │   └── TextureDecoder.hpp/.cpp# High-performance PNG, JPEG, WebP decoding with CPU mip-chains
+│   │   └── TextureDecoder.hpp/.cpp# High-performance PNG, JPEG, WebP, and KTX2 decoding with CPU mip-chains
 │   ├── text/                      # -> libbgl_text.so
 │   │   ├── EmbeddedFont.hpp/.cpp  # Zero-dependency embedded TrueType font data
 │   │   ├── FontAtlas.hpp/.cpp     # FreeType 2 rasterizer & dynamic 1024x1024 RGBA8 GPU texture atlas

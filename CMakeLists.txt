@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.6.6 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.6.7 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -47,6 +47,7 @@ find_package(WebP REQUIRED CONFIG)
 find_package(miniaudio REQUIRED CONFIG)
 find_package(freetype REQUIRED CONFIG)
 find_package(harfbuzz REQUIRED CONFIG)
+find_package(Ktx REQUIRED CONFIG)
 
 # Determine correct Conan Targets
 if(TARGET spdlog::spdlog_header_only)
@@ -131,6 +132,7 @@ target_link_libraries(bgl_scene PUBLIC
     PNG::PNG
     libjpeg-turbo::libjpeg-turbo
     libwebp::libwebp
+    KTX::ktx
 )
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_scene PUBLIC OpenGL::GL)

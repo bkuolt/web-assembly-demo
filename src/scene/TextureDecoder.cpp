@@ -1,6 +1,6 @@
 /**
  * @file TextureDecoder.cpp
- * @brief Memory decoding for PNG, JPEG, and WebP using libpng, libjpeg-turbo, and libwebp.
+ * @brief Memory decoding for PNG, JPEG, WebP, and KTX2 textures using libpng, libjpeg-turbo, libwebp, and libktx.
  */
 #include "scene/TextureDecoder.hpp"
 #include "core/Log.hpp"
@@ -10,6 +10,7 @@
 #include <png.h>
 #include <jpeglib.h>
 #include <webp/decode.h>
+#include <ktx.h>
 
 struct PngMemoryReader {
     const uint8_t* data;
@@ -164,10 +165,78 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data) {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (data.size() < 12) {
+        return std::unexpected("Data too small to be a valid KTX texture");
+    }
+
+    ktxTexture* kTexture = nullptr;
+    KTX_error_code result = ktxTexture_CreateFromMemory(
+        data.data(),
+        data.size(),
+        KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+        &kTexture
+    );
+
+    if (result != KTX_SUCCESS || !kTexture) {
+        return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));
+    }
+
+    // Check if transcoding is needed for Basis Universal KTX2 textures (UASTC / ETC1S)
+    if (kTexture->classId == ktxTexture2_c) {
+        auto* ktx2 = reinterpret_cast<ktxTexture2*>(kTexture);
+        if (ktxTexture2_NeedsTranscoding(ktx2)) {
+            result = ktxTexture2_TranscodeBasis(ktx2, KTX_TTF_RGBA32, 0);
+            if (result != KTX_SUCCESS) {
+                ktxTexture_Destroy(kTexture);
+                return std::unexpected(std::string("ktxTexture2_TranscodeBasis to RGBA32 failed: error ") + std::to_string(result));
+            }
+        }
+    }
+
+    const uint32_t width = kTexture->baseWidth;
+    const uint32_t height = kTexture->baseHeight;
+    const ktx_size_t imageSize = ktxTexture_GetImageSize(kTexture, 0);
+    const ktx_uint8_t* imageBytes = ktxTexture_GetData(kTexture);
+
+    if (!imageBytes || imageSize == 0 || width == 0 || height == 0) {
+        ktxTexture_Destroy(kTexture);
+        return std::unexpected("KTX texture contains no image data or invalid dimensions");
+    }
+
+    DecodedImage img;
+    img.width = width;
+    img.height = height;
+    img.channels = 4;
+
+    const size_t expectedRgbaSize = static_cast<size_t>(width) * height * 4;
+    const size_t expectedRgbSize = static_cast<size_t>(width) * height * 3;
+
+    if (imageSize >= expectedRgbaSize) {
+        img.rgbaData.resize(expectedRgbaSize);
+        std::memcpy(img.rgbaData.data(), imageBytes, expectedRgbaSize);
+    } else if (imageSize == expectedRgbSize) {
+        img.rgbaData.resize(expectedRgbaSize);
+        for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+            img.rgbaData[i * 4 + 0] = imageBytes[i * 3 + 0];
+            img.rgbaData[i * 4 + 1] = imageBytes[i * 3 + 1];
+            img.rgbaData[i * 4 + 2] = imageBytes[i * 3 + 2];
+            img.rgbaData[i * 4 + 3] = 255;
+        }
+    } else {
+        img.rgbaData.resize(imageSize);
+        std::memcpy(img.rgbaData.data(), imageBytes, imageSize);
+    }
+
+    ktxTexture_Destroy(kTexture);
+    return img;
+#else
     DecodedImage img;
     img.width = 2; img.height = 2;
+    img.channels = 4;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
     return img;
+#endif
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> data, std::string_view mimeOrPath) {
@@ -205,7 +274,9 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
     if (mimeOrPath.ends_with(".webp") || mimeOrPath.find("webp") != std::string_view::npos) {
         return DecodeWebP(data);
     }
-    if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.find("ktx") != std::string_view::npos) {
+    if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.ends_with(".ktx") ||
+        mimeOrPath.find("ktx") != std::string_view::npos ||
+        mimeOrPath.find("basisu") != std::string_view::npos) {
         return DecodeKTX2(data);
     }
 

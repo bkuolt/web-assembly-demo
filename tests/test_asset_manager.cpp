@@ -34,3 +34,14 @@ TEST(AssetManagerTest, CacheInsertionAndDeduplication) {
     EXPECT_TRUE(mgr.HasTexture(testHash));
 }
 
+TEST(AssetManagerTest, KtxTextureDecoderValidation) {
+    std::vector<uint8_t> emptyData;
+    auto resEmpty = bgl::scene::TextureDecoder::DecodeKTX2(emptyData);
+    EXPECT_FALSE(resEmpty.has_value());
+
+    // Truncated / invalid KTX header
+    std::vector<uint8_t> truncatedData = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
+    auto resTrunc = bgl::scene::TextureDecoder::DecodeKTX2(truncatedData);
+    EXPECT_FALSE(resTrunc.has_value());
+}
+

@@ -1,7 +1,7 @@
 # Master Specification & Architecture Guide (bgl-Engine)
 **Project:** Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance Renderer (`bgl`-Engine)  
 **Target Environments:** Linux (amd64) Desktop (`bgl_viewer`) & WebAssembly (`wasm32-unknown-emscripten`)  
-**Version:** `0.6.6`
+**Version:** `0.6.7`
 
 ---
 
@@ -12,7 +12,7 @@
    - Modules are strictly organized as:
      - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR staging arenas, logging.
      - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, atmospheric skybox, AABB wireframe pipelines.
-     - `bgl::scene`: High-speed glTF ingestion (`fastgltf`), 16x anisotropic filtering, full CPU mip-map generation, spatial Quadtree partitioning, Möller-Trumbore ray picking.
+     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), KTX/KTX2 texture decoding with Basis Universal transcoding, 16x anisotropic filtering, full CPU mip-map generation, spatial Quadtree partitioning, Möller-Trumbore ray picking.
      - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
      - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD with smoothed FPS, camera metrics, scene info, and spatial telemetry.
      - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
@@ -53,6 +53,7 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
 - `libpng/1.6.43` (In-memory PNG decoding)
 - `libjpeg-turbo/3.0.2` (High-speed JPEG decoding)
 - `libwebp/1.3.2` (WebP image decoding)
+- `ktx/4.3.2` (KTX & KTX2 texture decoding, Basis Universal UASTC/ETC1S transcoding)
 - `miniaudio/0.11.21` (3D Spatial Audio and Web Audio backend)
 - `freetype/2.13.2` (TrueType font rasterization and glyph metrics)
 - `harfbuzz/8.3.0` (Unicode script and bidirectional text shaping)
