@@ -17,8 +17,9 @@ ScratchArena::~ScratchArena() {
 }
 
 void ScratchArena::Reset() noexcept {
-    delete monotonicResource_;
-    monotonicResource_ = new std::pmr::monotonic_buffer_resource(buffer_, capacity_, std::pmr::get_default_resource());
+    if (monotonicResource_) {
+        monotonicResource_->release();
+    }
 }
 
 std::pmr::memory_resource* ScratchArena::GetResource() noexcept {

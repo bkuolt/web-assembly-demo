@@ -126,3 +126,4 @@ private:
 };
 
 } // namespace bgl::text
+

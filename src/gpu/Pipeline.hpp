@@ -85,6 +85,7 @@ public:
     void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
     void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
 
+    [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
 private:
@@ -93,6 +94,7 @@ private:
 
     bool initialized_ = false;
     uint32_t sampleCount_ = 4;
+    size_t lastVisiblePrimitiveCount_ = 0;
     WGPUDevice device_ = nullptr;
     WGPUQueue queue_ = nullptr;
     WGPUTextureFormat surfaceFormat_ = WGPUTextureFormat_BGRA8Unorm;

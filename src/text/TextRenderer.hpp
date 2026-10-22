@@ -94,3 +94,4 @@ private:
 };
 
 } // namespace bgl::text
+

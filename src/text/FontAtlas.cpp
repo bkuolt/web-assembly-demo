@@ -327,3 +327,4 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
 }
 
 } // namespace bgl::text
+

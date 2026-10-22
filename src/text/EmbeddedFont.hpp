@@ -16,3 +16,4 @@ namespace bgl::text {
 [[nodiscard]] std::span<const uint8_t> GetEmbeddedFontData() noexcept;
 
 } // namespace bgl::text
+

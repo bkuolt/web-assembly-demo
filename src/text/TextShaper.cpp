@@ -92,3 +92,4 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas,
 }
 
 } // namespace bgl::text
+

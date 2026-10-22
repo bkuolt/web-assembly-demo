@@ -79,6 +79,7 @@ private:
     size_t totalPrimitives_ = 0;
     size_t totalVertices_ = 0;
     size_t totalIndices_ = 0;
+    size_t cachedQuadtreeNodeCount_ = 0;
 };
 
 } // namespace bgl::app

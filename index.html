@@ -371,15 +371,31 @@
   </div>
 
   <div id="ui-hud">
-    <h1>bgl-Engine <span class="badge">v0.6.1 Wasm</span></h1>
-    <p>Precompiled WebAssembly High-Performance glTF 2.1 Engine. Drag &amp; drop 3D assets or use keyboard/gamepad.</p>
+    <h1>bgl-Engine <span class="badge">v0.6.4 Wasm</span></h1>
+    <p>Precompiled WebAssembly High-Performance glTF 2.1 Engine with 4x MSAA, 16x Anisotropic Texturing &amp; XZ-Quadtree Frustum Culling.</p>
     <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Loading Wasm binary...</div>
     <div class="progress-bar-container">
       <div id="progress-bar" class="progress-bar"></div>
     </div>
-    <div style="display: flex; gap: 6px; margin-top: 8px;">
-      <button class="btn" id="btn-bbox" onclick="toggleBBox()">Bounding Boxes (B)</button>
-      <button class="btn" style="background: #334155;" onclick="toggleTreePanel()">Tree Nodes (N)</button>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px;">
+      <button class="btn" id="btn-bbox" onclick="toggleBBox()" style="background: #0284c7;">🔲 AABB Boxes (B)</button>
+      <button class="btn" id="btn-quadtree" onclick="toggleQuadtree()" style="background: #059669;">🌲 Quadtree (Q)</button>
+      <button class="btn" id="btn-skybox" onclick="toggleSkybox()" style="background: #475569;">☀️ Skybox (K)</button>
+      <button class="btn" id="btn-hud" onclick="toggleHUD()" style="background: #0284c7;">🖥️ HUD Overlay (O)</button>
+      <button class="btn" id="btn-tree" onclick="toggleTreePanel()" style="background: #334155; grid-column: span 2;">🌳 glTF Nodes (N)</button>
+    </div>
+
+    <!-- Live Scene AABB & Spatial Bounds Telemetry Card -->
+    <div id="aabb-telemetry-card" style="margin-top: 12px; padding: 10px 12px; background: rgba(30, 41, 59, 0.75); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 0.73rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #38bdf8; margin-bottom: 6px;">
+        <span>📦 Spatial Bounds &amp; AABBs</span>
+        <span id="telemetry-badge" class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: rgba(34, 197, 94, 0.4);">Quadtree Active</span>
+      </div>
+      <div class="footer-kv"><span>Dimensions (W×H×D):</span><span id="aabb-dims">--</span></div>
+      <div class="footer-kv"><span>Min Bound:</span><span id="aabb-min">--</span></div>
+      <div class="footer-kv"><span>Max Bound:</span><span id="aabb-max">--</span></div>
+      <div class="footer-kv"><span>Atrium Center:</span><span id="aabb-center">--</span></div>
+      <div class="footer-kv"><span>Primitives &amp; Vertices:</span><span id="aabb-prims">--</span></div>
     </div>
   </div>
 
@@ -395,7 +411,7 @@
         <span>🌳</span>
         <div>
           <div>glTF Scene Graph</div>
-          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">ToyCar.glb</div>
+          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">Sponza.glb</div>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 6px;">
@@ -435,7 +451,7 @@
     let wasmExports = null;
     let wasmMemory = null;
     let currentGltf = null;
-    let currentModelName = "ToyCar.glb";
+    let currentModelName = "Sponza.glb";
     let selectedNodeIndex = null;
 
     window.updateLoadProgress = function(percent, msg) {
@@ -445,10 +461,99 @@
       if (sText && msg) sText.textContent = msg;
     };
 
+    let isBboxActive = true;
+    let isQuadtreeActive = false;
+    let isSkyboxActive = true;
+
     function toggleBBox() {
+      isBboxActive = !isBboxActive;
+      const btn = document.getElementById('btn-bbox');
+      if (btn) btn.style.background = isBboxActive ? '#0284c7' : '#334155';
       if (wasmExports && wasmExports.bgl_toggle_bbox) {
         wasmExports.bgl_toggle_bbox();
-        console.log("[Wasm] Bounding Box toggled");
+      }
+      console.log("[UI] 3D Bounding Boxes toggled:", isBboxActive);
+    }
+
+    function toggleQuadtree() {
+      isQuadtreeActive = !isQuadtreeActive;
+      const btn = document.getElementById('btn-quadtree');
+      if (btn) btn.style.background = isQuadtreeActive ? '#059669' : '#334155';
+      if (wasmExports && wasmExports.bgl_toggle_quadtree) {
+        wasmExports.bgl_toggle_quadtree();
+      }
+      console.log("[UI] 3D Quadtree bounds toggled:", isQuadtreeActive);
+    }
+
+    function toggleSkybox() {
+      isSkyboxActive = !isSkyboxActive;
+      const btn = document.getElementById('btn-skybox');
+      if (btn) btn.style.background = isSkyboxActive ? '#475569' : '#1e293b';
+      if (wasmExports && wasmExports.bgl_toggle_skybox) {
+        wasmExports.bgl_toggle_skybox();
+      }
+      console.log("[UI] Skybox toggled:", isSkyboxActive);
+    }
+
+    let isHudActive = true;
+    function toggleHUD() {
+      isHudActive = !isHudActive;
+      const btn = document.getElementById('btn-hud');
+      if (btn) btn.style.background = isHudActive ? '#0284c7' : '#334155';
+      if (wasmExports && wasmExports.bgl_toggle_debug_overlay) {
+        wasmExports.bgl_toggle_debug_overlay();
+      }
+      console.log("[UI] In-Engine Debug HUD toggled:", isHudActive);
+    }
+
+    function updateSceneAabbTelemetry(gltf) {
+      if (!gltf || !gltf.accessors) return;
+      let minB = [Infinity, Infinity, Infinity];
+      let maxB = [-Infinity, -Infinity, -Infinity];
+      let totalPrims = 0;
+      let totalVerts = 0;
+
+      if (gltf.meshes) {
+        gltf.meshes.forEach(m => {
+          if (m.primitives) {
+            totalPrims += m.primitives.length;
+            m.primitives.forEach(p => {
+              if (p.attributes && p.attributes.POSITION !== undefined) {
+                const acc = gltf.accessors[p.attributes.POSITION];
+                if (acc) {
+                  totalVerts += acc.count || 0;
+                  if (acc.min && acc.max) {
+                    for (let i = 0; i < 3; i++) {
+                      minB[i] = Math.min(minB[i], acc.min[i]);
+                      maxB[i] = Math.max(maxB[i], acc.max[i]);
+                    }
+                  }
+                }
+              }
+            });
+          }
+        });
+      }
+
+      if (minB[0] <= maxB[0]) {
+        const dx = maxB[0] - minB[0];
+        const dy = maxB[1] - minB[1];
+        const dz = maxB[2] - minB[2];
+        const cx = (minB[0] + maxB[0]) * 0.5;
+        const cy = (minB[1] + maxB[1]) * 0.5;
+        const cz = (minB[2] + maxB[2]) * 0.5;
+
+        const elDims = document.getElementById('aabb-dims');
+        const elMin = document.getElementById('aabb-min');
+        const elMax = document.getElementById('aabb-max');
+        const elCenter = document.getElementById('aabb-center');
+        const elPrims = document.getElementById('aabb-prims');
+
+        if (elDims) elDims.textContent = `${dx.toFixed(1)} × ${dy.toFixed(1)} × ${dz.toFixed(1)}`;
+        if (elMin) elMin.textContent = `[${minB.map(n => n.toFixed(1)).join(', ')}]`;
+        if (elMax) elMax.textContent = `[${maxB.map(n => n.toFixed(1)).join(', ')}]`;
+        if (elCenter) elCenter.textContent = `[${cx.toFixed(1)}, ${cy.toFixed(1)}, ${cz.toFixed(1)}]`;
+        if (elPrims) elPrims.textContent = `${totalPrims} Prims (${totalVerts.toLocaleString()} Verts)`;
       }
     }
 
@@ -484,13 +589,17 @@
     }
 
     window.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName === 'INPUT') return;
       if (e.key === 'b' || e.key === 'B') {
         toggleBBox();
+      } else if (e.key === 'q' || e.key === 'Q') {
+        toggleQuadtree();
+      } else if (e.key === 'k' || e.key === 'K') {
+        toggleSkybox();
+      } else if (e.key === 'o' || e.key === 'O' || e.key === 'F3') {
+        toggleHUD();
       } else if (e.key === 'n' || e.key === 'N') {
-        // Toggle if not typing in input
-        if (document.activeElement.tagName !== 'INPUT') {
-          toggleTreePanel();
-        }
+        toggleTreePanel();
       }
     });
 
@@ -578,6 +687,7 @@
 
       renderTreeDiagram(gltf);
       renderJsonInspector(gltf);
+      updateSceneAabbTelemetry(gltf);
     }
 
     function renderTreeDiagram(gltf) {
@@ -728,13 +838,29 @@
         const mesh = gltf.meshes ? gltf.meshes[node.mesh] : null;
         addRow('Mesh Index', `${node.mesh} (${mesh ? mesh.name || 'Unnamed' : ''})`);
         if (mesh && mesh.primitives) {
-          addRow('Primitives', mesh.primitives.length);
+          addRow('Primitives Count', mesh.primitives.length);
+          let meshMin = [Infinity, Infinity, Infinity];
+          let meshMax = [-Infinity, -Infinity, -Infinity];
           mesh.primitives.forEach((p, pi) => {
             if (p.attributes && p.attributes.POSITION !== undefined) {
               const acc = gltf.accessors ? gltf.accessors[p.attributes.POSITION] : null;
-              if (acc) addRow(`Prim #${pi} Vertices`, acc.count.toLocaleString());
+              if (acc) {
+                addRow(`Prim #${pi} Vertices`, acc.count.toLocaleString());
+                if (acc.min && acc.max) {
+                  for (let i = 0; i < 3; i++) {
+                    meshMin[i] = Math.min(meshMin[i], acc.min[i]);
+                    meshMax[i] = Math.max(meshMax[i], acc.max[i]);
+                  }
+                  addRow(`Prim #${pi} AABB Min`, `[${acc.min.map(n => n.toFixed(1)).join(', ')}]`);
+                  addRow(`Prim #${pi} AABB Max`, `[${acc.max.map(n => n.toFixed(1)).join(', ')}]`);
+                }
+              }
             }
           });
+          if (meshMin[0] <= meshMax[0]) {
+            const extents = [meshMax[0] - meshMin[0], meshMax[1] - meshMin[1], meshMax[2] - meshMin[2]];
+            addRow('Combined AABB Dims', `${extents[0].toFixed(1)} × ${extents[1].toFixed(1)} × ${extents[2].toFixed(1)}`);
+          }
         }
       }
 
@@ -905,15 +1031,20 @@
 
     async function loadDefaultModel() {
       try {
-        const response = await fetch("assets/ToyCar.glb");
+        let response = await fetch("assets/Sponza.glb");
+        let name = "Sponza.glb";
+        if (!response.ok) {
+          response = await fetch("assets/ToyCar.glb");
+          name = "ToyCar.glb";
+        }
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
           const gltf = extractGltfJson(arrayBuffer);
           currentGltf = gltf;
-          renderTreeAndJson(gltf, "ToyCar.glb");
+          renderTreeAndJson(gltf, name);
         }
       } catch (e) {
-        console.warn("Could not auto-fetch ToyCar.glb for tree inspector:", e);
+        console.warn("Could not auto-fetch model for tree inspector:", e);
       }
     }
 

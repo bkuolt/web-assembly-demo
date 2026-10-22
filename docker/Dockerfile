@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     libgtest-dev \
     libglm-dev \
     libspdlog-dev \
+    pkg-config \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

@@ -48,6 +48,12 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, const Scene& scene) 
         if (!node) return;
         const glm::mat4 worldMat = parentTransform * node->localTransform;
 
+        // Hierarchical broad-phase AABB test for entire scene node
+        float nt0 = 0.0f, nt1 = 0.0f;
+        if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !node->worldAABB.Intersects(ray, nt0, nt1)) {
+            return;
+        }
+
         for (const auto& prim : node->primitives) {
             float t0 = 0.0f, t1 = 0.0f;
             if (!prim.boundingBox.Intersects(ray, t0, t1)) {

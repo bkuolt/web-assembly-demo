@@ -369,3 +369,4 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 }
 
 } // namespace bgl::text
+

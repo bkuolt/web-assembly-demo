@@ -79,7 +79,7 @@ public:
 
 private:
     union Node {
-        alignas(alignof(T)) std::byte storage[sizeof(T)];
+        alignas(std::max(alignof(T), alignof(void*))) std::byte storage[std::max(sizeof(T), sizeof(void*))];
         Node* next;
     };
 

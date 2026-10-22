@@ -63,19 +63,20 @@ void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& c
     }
 
     // 2. Narrow-phase test for items in this node
-    for (auto item : items_) {
+    for (const auto& item : items_) {
         if (frustum.IntersectsAABB(item.aabb)) {
+            QuadtreeItem visibleItem = item;
             const float radius = std::max(0.001f, glm::length(item.aabb.Extents()) * 0.5f);
             const float dist = glm::distance(camPos, item.aabb.Center());
             const float relativeDist = dist / radius;
             if (relativeDist < 8.0f) {
-                item.currentLOD = LODLevel::LOD0;
+                visibleItem.currentLOD = LODLevel::LOD0;
             } else if (relativeDist < 25.0f) {
-                item.currentLOD = LODLevel::LOD1;
+                visibleItem.currentLOD = LODLevel::LOD1;
             } else {
-                item.currentLOD = LODLevel::LOD2;
+                visibleItem.currentLOD = LODLevel::LOD2;
             }
-            visibleItemsOut.push_back(item);
+            visibleItemsOut.push_back(std::move(visibleItem));
         }
     }
 
@@ -188,6 +189,24 @@ void Quadtree::GetNodeBounds(std::vector<core::AABB>& boundsOut) const {
     if (root_) {
         collect(collect, *root_);
     }
+}
+
+size_t Quadtree::GetNodeCount() const noexcept {
+    size_t count = 0;
+    auto countNodes = [&](auto& self, const QuadtreeNode& n) -> void {
+        count++;
+        if (!n.IsLeaf()) {
+            for (const auto& child : n.GetChildren()) {
+                if (child) {
+                    self(self, *child);
+                }
+            }
+        }
+    };
+    if (root_) {
+        countNodes(countNodes, *root_);
+    }
+    return count;
 }
 
 } // namespace bgl::scene

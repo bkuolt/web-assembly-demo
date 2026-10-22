@@ -75,6 +75,7 @@ public:
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
     void GetNodeBounds(std::vector<core::AABB>& boundsOut) const;
+    [[nodiscard]] size_t GetNodeCount() const noexcept;
 
 private:
     core::AABB worldBounds_;

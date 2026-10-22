@@ -691,9 +691,11 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     wgpuRenderPassEncoderSetPipeline(pass, activePipeline);
 
     core::Frustum frustum = core::Frustum::FromViewProjection(viewProj);
+    lastVisiblePrimitiveCount_ = 0;
 
     if (spatialIndex) {
         auto visibleItems = spatialIndex->QueryVisible(frustum, cameraPos);
+        lastVisiblePrimitiveCount_ = visibleItems.size();
         for (const auto& item : visibleItems) {
             if (!item.node || item.primitiveIndex >= item.node->primitives.size()) continue;
             auto& prim = item.node->primitives[item.primitiveIndex];
@@ -715,6 +717,7 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
         return; // Hierarchical frustum culling
     }
 
+    lastVisiblePrimitiveCount_ += node.primitives.size();
     for (auto& prim : node.primitives) {
         RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe);
     }

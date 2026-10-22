@@ -116,6 +116,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
             for (const auto& rootNode : activeScene_->rootNodes) {
                 quadtree_->Insert(rootNode);
             }
+            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
         } else {
             BGL_LOG_WARN("Could not load {}: {}", defaultAssetPath, sceneRes.error());
         }
@@ -230,12 +231,10 @@ void Application::Update(float deltaTime) {
     stats.skyboxEnabled = skybox_.IsEnabled();
 
     if (quadtree_) {
-        std::vector<core::AABB> bounds;
-        quadtree_->GetNodeBounds(bounds);
-        stats.quadtreeNodes = bounds.size();
-        auto visibleItems = quadtree_->QueryVisible(camera_.GetFrustum(), camera_.GetPosition());
-        stats.visiblePrimitives = visibleItems.size();
+        stats.quadtreeNodes = cachedQuadtreeNodeCount_;
+        stats.visiblePrimitives = pipelineManager_.GetVisiblePrimitiveCount();
     } else {
+        stats.quadtreeNodes = 0;
         stats.visiblePrimitives = totalPrimitives_;
     }
 
@@ -299,6 +298,7 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
             for (const auto& rootNode : activeScene_->rootNodes) {
                 quadtree_->Insert(rootNode);
             }
+            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
 
             BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
         } else {
