@@ -35,3 +35,4 @@ void PrintStackTrace(std::string_view reason = "") noexcept;
 [[noreturn]] void TriggerTestCrash(int signalType = 0);
 
 } // namespace bgl::core
+

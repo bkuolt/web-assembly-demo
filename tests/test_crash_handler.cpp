@@ -18,3 +18,4 @@ TEST(CrashHandlerTest, PrintStackTraceExecution) {
     core::PrintStackTrace("GTest stacktrace test invocation");
     SUCCEED();
 }
+

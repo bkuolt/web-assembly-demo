@@ -272,3 +272,16 @@ if(BGL_BUILD_TESTING)
     endif()
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
 endif()
+
+# ==============================================================================
+# Packaging Targets
+# ==============================================================================
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_custom_target(package_web
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_web.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Packaging minimal self-contained web app into dist/bgl_web_app_minimal.zip"
+        VERBATIM
+    )
+endif()

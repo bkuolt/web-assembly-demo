@@ -327,3 +327,4 @@ std::vector<std::string_view> TextureDecoder::GetSupportedFormats() {
 }
 
 } // namespace bgl::scene
+

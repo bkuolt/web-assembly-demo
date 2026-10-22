@@ -6,8 +6,12 @@ build-wasm/
 *.so
 bgl_viewer
 bgl_unit_tests
-.vscode/
+.vscode/*
+!.vscode/tasks.json
+dist/
+*.zip
 conan*env*.sh
 deactivate_conan*.sh
+
 
 

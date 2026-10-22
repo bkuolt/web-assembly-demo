@@ -230,6 +230,20 @@ python3 -m http.server 8080 --directory web
 
 Navigate to `http://localhost:8080` to inspect models, view the interactive scene graph tree hierarchy, and inspect the raw glTF JSON structure.
 
+### 6. Package Minimal Web App Distribution
+
+Create a minimal, self-contained web distribution archive (`dist/bgl_web_app_minimal.zip`, ~4 MB) containing only essential assets, styles, scripts, and the lightweight ToyCar model:
+
+```bash
+# Via CMake target
+cmake --build build/Release --target package_web
+
+# Or via Python script
+python3 scripts/package_web.py
+
+# Or via VS Code / IDE task runner: 'Package Minimal Web App (Zip)'
+```
+
 ---
 
 ## License
