@@ -1,0 +1,35 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*.*.*', '*.*.*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake ninja-build libsdl2-dev libpng-dev libjpeg-dev libwebp-dev \
+          libgtest-dev libglm-dev libspdlog-dev
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBGL_BUILD_TESTING=ON
+
+    - name: Build Libraries and Viewer
+      run: |
+        cmake --build build -j$(nproc)
+
+    - name: Execute GTest Test Suites
+      run: |
+        ctest --test-dir build --output-on-failure
+

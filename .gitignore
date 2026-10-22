@@ -1,0 +1,10 @@
+build/
+build-native/
+build-wasm/
+.conan2/
+*.o
+*.so
+bgl_viewer
+bgl_unit_tests
+.vscode/
+

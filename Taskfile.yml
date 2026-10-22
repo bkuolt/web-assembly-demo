@@ -1,0 +1,36 @@
+version: '3'
+
+vars:
+  BUILD_DIR_NATIVE: build-native
+  BUILD_DIR_WASM: build-wasm
+  CONAN_HOME_DIR: /tmp/conan_bgl
+
+tasks:
+  setup:
+    desc: Setup Conan profiles and cache
+    cmds:
+      - mkdir -p {{.CONAN_HOME_DIR}}
+      - echo "Conan environment initialized at {{.CONAN_HOME_DIR}}"
+
+  configure:
+    desc: Configure CMake for native build
+    cmds:
+      - cmake -B {{.BUILD_DIR_NATIVE}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DBGL_BUILD_TESTING=ON
+
+  build:
+    desc: Build all native shared libraries and executables
+    deps: [configure]
+    cmds:
+      - cmake --build {{.BUILD_DIR_NATIVE}} -j$(nproc)
+
+  test:
+    desc: Run GTest test suites
+    deps: [build]
+    cmds:
+      - ctest --test-dir {{.BUILD_DIR_NATIVE}} --output-on-failure
+
+  clean:
+    desc: Clean build directories
+    cmds:
+      - rm -rf {{.BUILD_DIR_NATIVE}} {{.BUILD_DIR_WASM}}
+

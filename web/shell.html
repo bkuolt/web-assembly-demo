@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bgl-Engine WebGPU & glTF 2.1 Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      outline: none;
+    }
+    #drop-zone {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      transition: background 0.2s ease;
+    }
+    #drop-zone.active {
+      pointer-events: auto;
+      background: rgba(14, 165, 233, 0.25);
+      border: 3px dashed #38bdf8;
+    }
+    #ui-hud {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+      max-width: 320px;
+    }
+    h1 { font-size: 1.15rem; color: #38bdf8; margin-bottom: 6px; }
+    p { font-size: 0.85rem; color: #94a3b8; line-height: 1.4; margin-bottom: 12px; }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 0.7rem;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: #38bdf8;
+      transition: width 0.2s ease;
+    }
+    .btn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .btn:hover { background: #0369a1; }
+  </style>
+</head>
+<body>
+
+  <canvas id="canvas"></canvas>
+
+  <div id="drop-zone">
+    <div id="drop-text" style="display:none; font-size: 1.5rem; font-weight: bold; color: #38bdf8;">
+      Drop .glb / .gltf / .webp to load
+    </div>
+  </div>
+
+  <div id="ui-hud">
+    <h1>bgl-Engine <span class="badge">v0.6.0 C++23</span></h1>
+    <p>High-Performance WebGPU glTF 2.1 Engine. Drag &amp; drop 3D assets or use Gamepad.</p>
+    <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Loading engine...</div>
+    <div class="progress-bar-container">
+      <div id="progress-bar" class="progress-bar"></div>
+    </div>
+    <button class="btn" id="btn-bbox" onclick="toggleBBox()">Toggle Bounding Boxes (B)</button>
+  </div>
+
+  <script>
+    window.updateLoadProgress = function(percent, msg) {
+      const pBar = document.getElementById('progress-bar');
+      const sText = document.getElementById('status-text');
+      if (pBar) pBar.style.width = percent + '%';
+      if (sText && msg) sText.textContent = msg;
+    };
+
+    function toggleBBox() {
+      if (window._bgl_toggle_bbox) {
+        window._bgl_toggle_bbox();
+      }
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'b' || e.key === 'B') {
+        toggleBBox();
+      }
+    });
+
+    const dropZone = document.getElementById('drop-zone');
+    const dropText = document.getElementById('drop-text');
+
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('active');
+      dropText.style.display = 'block';
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null) {
+        dropZone.classList.remove('active');
+        dropText.style.display = 'none';
+      }
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('active');
+      dropText.style.display = 'none';
+
+      if (e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const arrayBuffer = evt.target.result;
+          const uint8 = new Uint8Array(arrayBuffer);
+          if (window._bgl_load_file_buffer && window._malloc) {
+            const bufPtr = window._malloc(uint8.length);
+            window.Module.HEAPU8.set(uint8, bufPtr);
+            window._bgl_load_file_buffer(file.name, bufPtr, uint8.length);
+            window._free(bufPtr);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    window.updateLoadProgress(100, "Engine ready.");
+  </script>
+</body>
+</html>
+
