@@ -106,12 +106,12 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
 
-            if (assetPathToLoad.find("Sponza") != std::string::npos) {
-                // Sponza atrium camera perspective: centered in courtyard
-                glm::vec3 courtyardCenter = glm::vec3(-60.0f, 250.0f, -38.0f);
-                float camDistance = 800.0f;
+            if (assetPathToLoad.find("Sponza") != std::string::npos || assetPathToLoad.find("sponza") != std::string::npos) {
+                // Sponza atrium camera perspective: centered in courtyard at human eye-level
+                glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
+                float camDistance = 10.0f;
                 camera_ = core::Camera(courtyardCenter, camDistance);
-                camera_.Orbit(1.2f, 0.25f);
+                camera_.Orbit(1.2f, 0.15f);
                 BGL_LOG_INFO("Sponza.glb loaded: courtyardCenter=[{:.2f}, {:.2f}, {:.2f}], camDistance={:.2f}",
                              courtyardCenter.x, courtyardCenter.y, courtyardCenter.z, camDistance);
             } else {
@@ -194,12 +194,22 @@ void Application::Update(float deltaTime) {
                     auto sceneRes = gltfLoader_->LoadFromFile(droppedFile);
                     if (sceneRes) {
                         activeScene_ = *sceneRes;
+                        currentModelName_ = std::filesystem::path(droppedFile).filename().string();
+                        CacheSceneMetrics();
                         pipelineManager_.PrepareScene(*activeScene_);
                         glm::vec3 center = activeScene_->sceneAABB.Center();
                         float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-                        float targetDistance = std::max(radius * 3.0f, 0.15f);
-                        camera_ = core::Camera(center, targetDistance);
-                        camera_.Orbit(0.8f, 0.4f);
+
+                        std::string pathStr(droppedFile);
+                        if (pathStr.find("Sponza") != std::string::npos || pathStr.find("sponza") != std::string::npos) {
+                            glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
+                            camera_ = core::Camera(courtyardCenter, 10.0f);
+                            camera_.Orbit(1.2f, 0.15f);
+                        } else {
+                            float targetDistance = std::max(radius * 2.5f, 0.15f);
+                            camera_ = core::Camera(center, targetDistance);
+                            camera_.Orbit(0.8f, 0.4f);
+                        }
 
                         core::AABB worldBounds = activeScene_->sceneAABB;
                         glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
@@ -209,6 +219,7 @@ void Application::Update(float deltaTime) {
                         for (const auto& rootNode : activeScene_->rootNodes) {
                             quadtree_->Insert(rootNode);
                         }
+                        cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
 
                         BGL_LOG_INFO("Successfully loaded dropped model: {}", droppedFile);
                     }
@@ -228,7 +239,8 @@ void Application::Update(float deltaTime) {
         camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance());
     }
 
-    camera_.Update(16.0f / 9.0f);
+    float aspect = static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
+    camera_.Update(aspect);
     soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
 
     // Collect telemetry stats for the in-engine debug HUD overlay
@@ -301,9 +313,16 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
             pipelineManager_.PrepareScene(*activeScene_);
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
-            float targetDistance = std::max(radius * 3.0f, 0.15f);
-            camera_ = core::Camera(center, targetDistance);
-            camera_.Orbit(0.8f, 0.4f);
+
+            if (filename.find("Sponza") != std::string_view::npos || filename.find("sponza") != std::string_view::npos) {
+                glm::vec3 courtyardCenter(center.x, 2.0f, center.z);
+                camera_ = core::Camera(courtyardCenter, 10.0f);
+                camera_.Orbit(1.2f, 0.15f);
+            } else {
+                float targetDistance = std::max(radius * 2.5f, 0.15f);
+                camera_ = core::Camera(center, targetDistance);
+                camera_.Orbit(0.8f, 0.4f);
+            }
 
             core::AABB worldBounds = activeScene_->sceneAABB;
             glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);

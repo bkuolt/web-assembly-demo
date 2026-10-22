@@ -67,10 +67,15 @@ static_assert(sizeof(PrimitiveUniforms) == 272, "PrimitiveUniforms must be exact
 
 struct alignas(16) AabbUniforms {
     glm::mat4 viewProj{1.0f};
-    glm::mat4 model{1.0f};
-    glm::vec4 color{0.2f, 0.8f, 1.0f, 1.0f};
 };
-static_assert(sizeof(AabbUniforms) == 144, "AabbUniforms must be 144 bytes");
+static_assert(sizeof(AabbUniforms) == 64, "AabbUniforms must be 64 bytes");
+
+struct alignas(16) AabbVertex {
+    glm::vec3 pos{0.0f};
+    float _pad = 0.0f;
+    glm::vec4 color{1.0f};
+};
+static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 
 class PipelineManager {
 public:
@@ -84,6 +89,8 @@ public:
     void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
     void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
     void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
+    void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);
+    void FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj);
 
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
@@ -108,6 +115,8 @@ private:
     WGPUBuffer aabbVertexBuffer_ = nullptr;
     WGPUBuffer aabbUniformBuffer_ = nullptr;
     WGPUBindGroup aabbBindGroup_ = nullptr;
+    size_t aabbVertexBufferSize_ = 0;
+    std::vector<AabbVertex> batchedAabbVertices_;
 
     // Default 1x1 Fallback Textures
     WGPUTexture defaultWhiteTexture_ = nullptr;

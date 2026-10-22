@@ -6,6 +6,23 @@
 
 namespace bgl::scene {
 
+namespace {
+
+[[nodiscard]] inline bool ContainsXZ(const core::AABB& outer, const core::AABB& inner) noexcept {
+    constexpr float kEps = 1e-3f;
+    return (inner.minBound.x >= outer.minBound.x - kEps) &&
+           (inner.maxBound.x <= outer.maxBound.x + kEps) &&
+           (inner.minBound.z >= outer.minBound.z - kEps) &&
+           (inner.maxBound.z <= outer.maxBound.z + kEps);
+}
+
+[[nodiscard]] inline bool OverlapsXZ(const core::AABB& a, const core::AABB& b) noexcept {
+    return (a.minBound.x <= b.maxBound.x && a.maxBound.x >= b.minBound.x) &&
+           (a.minBound.z <= b.maxBound.z && a.maxBound.z >= b.minBound.z);
+}
+
+} // namespace
+
 QuadtreeNode::QuadtreeNode(const core::AABB& bounds, size_t depth)
     : bounds_(bounds), depth_(depth) {}
 
@@ -28,17 +45,29 @@ void QuadtreeNode::Subdivide() {
     isLeaf_ = false;
 
     auto oldItems = std::move(items_);
+    items_.clear();
+
     for (const auto& item : oldItems) {
-        Insert(item);
+        bool pushed = false;
+        for (auto& child : children_) {
+            if (ContainsXZ(child->bounds_, item.aabb)) {
+                child->Insert(item);
+                pushed = true;
+                break;
+            }
+        }
+        if (!pushed) {
+            items_.push_back(item);
+        }
     }
 }
 
 bool QuadtreeNode::Insert(const QuadtreeItem& item) {
-    glm::vec3 itemCenter = item.aabb.Center();
-    if (itemCenter.x < bounds_.minBound.x || itemCenter.x > bounds_.maxBound.x ||
-        itemCenter.z < bounds_.minBound.z || itemCenter.z > bounds_.maxBound.z) {
+    if (!OverlapsXZ(bounds_, item.aabb)) {
         return false;
     }
+
+    looseBounds_.Expand(item.aabb);
 
     if (isLeaf_) {
         items_.push_back(item);
@@ -49,7 +78,9 @@ bool QuadtreeNode::Insert(const QuadtreeItem& item) {
     }
 
     for (auto& child : children_) {
-        if (child->Insert(item)) return true;
+        if (child && ContainsXZ(child->bounds_, item.aabb)) {
+            return child->Insert(item);
+        }
     }
 
     items_.push_back(item);
@@ -58,7 +89,8 @@ bool QuadtreeNode::Insert(const QuadtreeItem& item) {
 
 void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const {
     // 1. Broad-phase test: cull whole quadtree quadrant if outside frustum
-    if (!frustum.IntersectsAABB(bounds_)) {
+    const core::AABB& testBounds = (looseBounds_.minBound.x <= looseBounds_.maxBound.x) ? looseBounds_ : bounds_;
+    if (!frustum.IntersectsAABB(testBounds)) {
         return;
     }
 
@@ -99,7 +131,7 @@ void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
     auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n) -> void {
         if (!n) return;
         if (n->primitives.empty()) {
-            if (n->worldAABB.minBound.x <= n->worldAABB.maxBound.x) {
+            if (n->children.empty() && n->worldAABB.minBound.x <= n->worldAABB.maxBound.x) {
                 QuadtreeItem item;
                 item.node = n;
                 item.primitiveIndex = 0;

@@ -273,20 +273,31 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 inline constexpr std::string_view kAabbShaderWGSL = R"(
 struct AabbUniforms {
     viewProj : mat4x4<f32>,
-    model : mat4x4<f32>,
-    color : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : AabbUniforms;
 
+struct LineVertexInput {
+    @location(0) pos : vec3<f32>,
+    @location(1) color : vec4<f32>,
+};
+
+struct LineVertexOutput {
+    @builtin(position) clipPos : vec4<f32>,
+    @location(0) color : vec4<f32>,
+};
+
 @vertex
-fn vs_aabb(@location(0) pos : vec3<f32>) -> @builtin(position) vec4<f32> {
-    return ubo.viewProj * ubo.model * vec4<f32>(pos, 1.0);
+fn vs_aabb(in : LineVertexInput) -> LineVertexOutput {
+    var out : LineVertexOutput;
+    out.clipPos = ubo.viewProj * vec4<f32>(in.pos, 1.0);
+    out.color = in.color;
+    return out;
 }
 
 @fragment
-fn fs_aabb() -> @location(0) vec4<f32> {
-    return ubo.color;
+fn fs_aabb(in : LineVertexOutput) -> @location(0) vec4<f32> {
+    return in.color;
 }
 )";
 

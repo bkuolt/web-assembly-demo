@@ -272,17 +272,21 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     aabbPlDesc.bindGroupLayouts = &aabbBindGroupLayout_;
     WGPUPipelineLayout aabbPlLayout = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
 
-    // AABB Vertex Layout: pos vec3<f32>
-    WGPUVertexAttribute aabbAttr = {};
-    aabbAttr.format = WGPUVertexFormat_Float32x3;
-    aabbAttr.offset = 0;
-    aabbAttr.shaderLocation = 0;
+    // AABB Vertex Layout: pos vec3<f32>, color vec4<f32>
+    WGPUVertexAttribute aabbAttrs[2] = {};
+    aabbAttrs[0].format = WGPUVertexFormat_Float32x3;
+    aabbAttrs[0].offset = 0;
+    aabbAttrs[0].shaderLocation = 0;
+
+    aabbAttrs[1].format = WGPUVertexFormat_Float32x4;
+    aabbAttrs[1].offset = 16;
+    aabbAttrs[1].shaderLocation = 1;
 
     WGPUVertexBufferLayout aabbVbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    aabbVbLayout.arrayStride = sizeof(float) * 3;
+    aabbVbLayout.arrayStride = sizeof(AabbVertex);
     aabbVbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    aabbVbLayout.attributeCount = 1;
-    aabbVbLayout.attributes = &aabbAttr;
+    aabbVbLayout.attributeCount = 2;
+    aabbVbLayout.attributes = aabbAttrs;
 
     WGPUFragmentState aabbFragState = WGPU_FRAGMENT_STATE_INIT;
     aabbFragState.module = aabbShaderModule;
@@ -313,30 +317,13 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     wgpuPipelineLayoutRelease(aabbPlLayout);
     wgpuShaderModuleRelease(aabbShaderModule);
 
-    // AABB Unit Box Vertex Buffer
-    static constexpr float kUnitBoxVertices[] = {
-        // Bottom 4 lines (Y = 0)
-        0.0f, 0.0f, 0.0f,   1.0f, 0.0f, 0.0f,
-        1.0f, 0.0f, 0.0f,   1.0f, 0.0f, 1.0f,
-        1.0f, 0.0f, 1.0f,   0.0f, 0.0f, 1.0f,
-        0.0f, 0.0f, 1.0f,   0.0f, 0.0f, 0.0f,
-        // Top 4 lines (Y = 1)
-        0.0f, 1.0f, 0.0f,   1.0f, 1.0f, 0.0f,
-        1.0f, 1.0f, 0.0f,   1.0f, 1.0f, 1.0f,
-        1.0f, 1.0f, 1.0f,   0.0f, 1.0f, 1.0f,
-        0.0f, 1.0f, 1.0f,   0.0f, 1.0f, 0.0f,
-        // 4 Vertical pillars
-        0.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
-        1.0f, 0.0f, 0.0f,   1.0f, 1.0f, 0.0f,
-        1.0f, 0.0f, 1.0f,   1.0f, 1.0f, 1.0f,
-        0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 1.0f,
-    };
+    // Dynamic AABB Line Vertex Buffer (initial 512 KB capacity)
+    aabbVertexBufferSize_ = 512 * 1024;
     WGPUBufferDescriptor boxVbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    boxVbDesc.size = sizeof(kUnitBoxVertices);
+    boxVbDesc.size = aabbVertexBufferSize_;
     boxVbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-    boxVbDesc.label = WGPUStringView{ "AABB_BoxLines", strlen("AABB_BoxLines") };
+    boxVbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
     aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &boxVbDesc);
-    wgpuQueueWriteBuffer(queue_, aabbVertexBuffer_, 0, kUnitBoxVertices, sizeof(kUnitBoxVertices));
 
     // AABB Uniform Buffer
     WGPUBufferDescriptor aabbUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -783,26 +770,70 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     }
 }
 
-void PipelineManager::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color) {
-    if (!pass || !aabbPipeline_ || !aabbVertexBuffer_ || !aabbUniformBuffer_ || !aabbBindGroup_) return;
+void PipelineManager::AppendAABBLines(const core::AABB& aabb, const glm::vec4& color) {
     if (aabb.minBound.x > aabb.maxBound.x) return;
+    const glm::vec3 minB = aabb.minBound;
+    const glm::vec3 maxB = aabb.maxBound;
 
-    glm::vec3 minB = aabb.minBound;
-    glm::vec3 size = glm::max(aabb.maxBound - aabb.minBound, glm::vec3(0.001f));
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), minB) * glm::scale(glm::mat4(1.0f), size);
+    const glm::vec3 c[8] = {
+        glm::vec3(minB.x, minB.y, minB.z), // 0
+        glm::vec3(maxB.x, minB.y, minB.z), // 1
+        glm::vec3(maxB.x, maxB.y, minB.z), // 2
+        glm::vec3(minB.x, maxB.y, minB.z), // 3
+        glm::vec3(minB.x, minB.y, maxB.z), // 4
+        glm::vec3(maxB.x, minB.y, maxB.z), // 5
+        glm::vec3(maxB.x, maxB.y, maxB.z), // 6
+        glm::vec3(minB.x, maxB.y, maxB.z)  // 7
+    };
+
+    static constexpr size_t kIndices[24] = {
+        0, 1,  1, 2,  2, 3,  3, 0, // bottom loop
+        4, 5,  5, 6,  6, 7,  7, 4, // top loop
+        0, 4,  1, 5,  2, 6,  3, 7  // 4 pillars
+    };
+
+    for (size_t idx : kIndices) {
+        batchedAabbVertices_.push_back({ c[idx], 0.0f, color });
+    }
+}
+
+void PipelineManager::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj) {
+    if (!pass || !aabbPipeline_ || batchedAabbVertices_.empty()) {
+        batchedAabbVertices_.clear();
+        return;
+    }
+
+    const size_t requiredBytes = batchedAabbVertices_.size() * sizeof(AabbVertex);
+    if (requiredBytes > aabbVertexBufferSize_ || !aabbVertexBuffer_) {
+        if (aabbVertexBuffer_) {
+            wgpuBufferRelease(aabbVertexBuffer_);
+            aabbVertexBuffer_ = nullptr;
+        }
+        aabbVertexBufferSize_ = std::max(requiredBytes * 2, size_t(512 * 1024));
+        WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+        vbDesc.size = aabbVertexBufferSize_;
+        vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        vbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
+        aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
+    }
+
+    wgpuQueueWriteBuffer(queue_, aabbVertexBuffer_, 0, batchedAabbVertices_.data(), requiredBytes);
 
     AabbUniforms uniforms;
     uniforms.viewProj = viewProj;
-    uniforms.model = model;
-    uniforms.color = color;
-
     wgpuQueueWriteBuffer(queue_, aabbUniformBuffer_, 0, &uniforms, sizeof(uniforms));
 
-    static constexpr size_t kVertexSize = 24 * 3 * sizeof(float);
     wgpuRenderPassEncoderSetPipeline(pass, aabbPipeline_);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, aabbBindGroup_, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, 0, kVertexSize);
-    wgpuRenderPassEncoderDraw(pass, 24, 1, 0, 0);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, 0, requiredBytes);
+    wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(batchedAabbVertices_.size()), 1, 0, 0);
+
+    batchedAabbVertices_.clear();
+}
+
+void PipelineManager::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color) {
+    AppendAABBLines(aabb, color);
+    FlushAABBLines(pass, viewProj);
 }
 
 void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB, bool showPrimitiveAABBs) {
@@ -810,7 +841,7 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
 
     if (showSceneAABB && scene.sceneAABB.minBound.x <= scene.sceneAABB.maxBound.x) {
         // Bright Gold for root Scene AABB
-        RenderAABB(pass, scene.sceneAABB, viewProj, glm::vec4(1.0f, 0.84f, 0.0f, 1.0f));
+        AppendAABBLines(scene.sceneAABB, glm::vec4(1.0f, 0.84f, 0.0f, 1.0f));
     }
 
     if (showPrimitiveAABBs) {
@@ -836,7 +867,7 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
                         primWorldAABB.Expand(glm::vec3(wc));
                     }
                     // Vivid Cyan for mesh primitives
-                    RenderAABB(pass, primWorldAABB, viewProj, glm::vec4(0.2f, 0.85f, 1.0f, 0.8f));
+                    AppendAABBLines(primWorldAABB, glm::vec4(0.2f, 0.85f, 1.0f, 0.8f));
                 }
             }
             for (const auto& child : node.children) {
@@ -848,6 +879,8 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
             if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4(1.0f));
         }
     }
+
+    FlushAABBLines(pass, viewProj);
 }
 
 void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj) {
@@ -857,8 +890,10 @@ void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const sce
     quadtree.GetNodeBounds(bounds);
     for (const auto& b : bounds) {
         // Emerald Green for Quadtree spatial partitions
-        RenderAABB(pass, b, viewProj, glm::vec4(0.25f, 0.95f, 0.45f, 0.7f));
+        AppendAABBLines(b, glm::vec4(0.25f, 0.95f, 0.45f, 0.7f));
     }
+
+    FlushAABBLines(pass, viewProj);
 }
 
 } // namespace bgl::gpu
