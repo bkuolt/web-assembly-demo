@@ -4,8 +4,10 @@
  */
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <chrono>
 #include "scene/FastGltfLoader.hpp"
 #include "scene/AssetManager.hpp"
+#include "scene/Quadtree.hpp"
 
 using namespace bgl::scene;
 
@@ -108,4 +110,78 @@ TEST(GltfLoaderTest, SceneTransformEvaluation) {
     EXPECT_FLOAT_EQ(scene->sceneAABB.minBound.y, 4.0f);
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.y, 6.0f);
 }
+
+TEST(GltfLoaderTest, LoadStressTestMegacityAsset) {
+    const std::string path = "assets/stress_test/sponza_megacity_1gb.large.glb";
+    if (!std::filesystem::exists(path)) {
+        GTEST_SKIP() << path << " not found, skipping 1GB stress test";
+    }
+
+    auto fileSize = std::filesystem::file_size(path);
+    EXPECT_GT(fileSize, 500ULL * 1024ULL * 1024ULL); // Verify it is a true massive model (> 500 MB)
+
+    AssetManager assetMgr;
+    FastGltfLoader loader(assetMgr);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    auto res = loader.LoadFromFile(path);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    ASSERT_TRUE(res.has_value()) << "Failed to load 1GB asset: " << res.error();
+    auto scene = *res;
+    ASSERT_NE(scene, nullptr);
+    EXPECT_EQ(scene->rootNodes.size(), 20u); // 20 palace districts
+
+    // Validate bounds
+    EXPECT_LE(scene->sceneAABB.minBound.x, scene->sceneAABB.maxBound.x);
+    EXPECT_GT(scene->sceneAABB.Extents().x, 100.0f); // Spans over 100m wide
+
+    // Verify materials and textures
+    EXPECT_GE(scene->materials.size(), 500u);
+    EXPECT_GE(scene->cpuImages.size(), 1380u);
+
+    // Count total primitives and vertices across the megacity
+    size_t totalPrimitives = 0;
+    size_t totalVertices = 0;
+    size_t totalIndices = 0;
+    auto traverse = [&](auto& self, const std::shared_ptr<SceneNode>& node) -> void {
+        for (const auto& prim : node->primitives) {
+            totalPrimitives++;
+            totalVertices += prim.vertices.size();
+            totalIndices += prim.indices.size();
+        }
+        for (const auto& child : node->children) {
+            self(self, child);
+        }
+    };
+    for (const auto& root : scene->rootNodes) {
+        traverse(traverse, root);
+    }
+
+    EXPECT_GT(totalVertices, 1000000u); // Millions of vertices
+    EXPECT_GT(totalIndices, 2000000u);  // Millions of indices
+
+    // Update scene graph transforms
+    scene->Update();
+
+    // Test Quadtree construction on the massive scene
+    bgl::scene::Quadtree quadtree(scene->sceneAABB);
+    for (const auto& root : scene->rootNodes) {
+        quadtree.Insert(root);
+    }
+    EXPECT_GT(quadtree.GetNodeCount(), 1u);
+
+    std::cout << "[STRESS TEST METRICS] Ingestion Duration: " << durationMs << " ms ("
+              << (static_cast<double>(fileSize) / (1024.0 * 1024.0)) / (durationMs / 1000.0) << " MB/s)\n"
+              << "  * File Size:      " << fileSize / (1024 * 1024) << " MB\n"
+              << "  * Root Nodes:     " << scene->rootNodes.size() << "\n"
+              << "  * Total Meshes:   " << totalPrimitives << " primitives\n"
+              << "  * Total Vertices: " << totalVertices << "\n"
+              << "  * Total Triangles:" << (totalIndices / 3) << "\n"
+              << "  * Total Materials:" << scene->materials.size() << "\n"
+              << "  * Total Textures: " << scene->cpuImages.size() << " (RGBA8 decoded in parallel)\n"
+              << "  * Quadtree Nodes: " << quadtree.GetNodeCount() << "\n";
+}
+
 
