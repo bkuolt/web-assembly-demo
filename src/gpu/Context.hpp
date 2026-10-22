@@ -1,6 +1,6 @@
 /**
  * @file Context.hpp
- * @brief RAII WebGPU Context and device management.
+ * @brief Native & WebAssembly WebGPU Context management.
  */
 #pragma once
 
@@ -38,6 +38,9 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
     [[nodiscard]] uint32_t GetWidth() const noexcept { return width_; }
     [[nodiscard]] uint32_t GetHeight() const noexcept { return height_; }
+    [[nodiscard]] WGPUDevice GetDevice() const noexcept { return device_; }
+    [[nodiscard]] WGPUQueue GetQueue() const noexcept { return queue_; }
+    [[nodiscard]] WGPUTextureFormat GetPreferredFormat() const noexcept { return format_; }
 
     void Resize(uint32_t width, uint32_t height);
     void BeginFrame();
@@ -47,14 +50,16 @@ private:
     bool initialized_ = false;
     uint32_t width_ = 1280;
     uint32_t height_ = 720;
+
     WGPUInstance instance_ = nullptr;
     WGPUAdapter adapter_ = nullptr;
     WGPUDevice device_ = nullptr;
     WGPUQueue queue_ = nullptr;
     WGPUSurface surface_ = nullptr;
+    WGPUTextureFormat format_ = WGPUTextureFormat_BGRA8Unorm;
+
     void* nativeContext_ = nullptr;
     void* nativeWindow_ = nullptr;
 };
 
 } // namespace bgl::gpu
-

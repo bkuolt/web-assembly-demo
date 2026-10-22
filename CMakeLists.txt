@@ -60,7 +60,7 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/webgpu
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include
 )
 
 # 1. libbgl_core.so
@@ -85,7 +85,7 @@ add_library(bgl_gpu SHARED
 )
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
 if(NOT EMSCRIPTEN)
-    target_link_libraries(bgl_gpu PUBLIC OpenGL::GL)
+    target_link_libraries(bgl_gpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so OpenGL::GL)
 endif()
 
 # 3. libbgl_audio.so
@@ -106,6 +106,9 @@ add_library(bgl_scene SHARED
     src/scene/RayPicker.cpp
 )
 target_link_libraries(bgl_scene PUBLIC bgl_core bgl_gpu bgl_audio)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(bgl_scene PUBLIC OpenGL::GL)
+endif()
 if(TARGET fastgltf::fastgltf)
     target_link_libraries(bgl_scene PUBLIC fastgltf::fastgltf)
 endif()
