@@ -48,11 +48,13 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - High-fidelity glyph rasterization via FreeType 2 into a dynamic 1024x1024 RGBA8 font atlas.
   - Zero-dependency embedded fallback font (Liberation Mono Regular) allowing standalone execution anywhere.
   - Batched 2D WebGPU render pipeline with alpha blending (`SrcAlpha / OneMinusSrcAlpha`), 4x MSAA render-pass compatibility, and orthographic projection.
-- **AAAA Visual Fidelity & Sponza Benchmark Scene**:
-  - Sponza atrium loaded by default with human eye-level courtyard camera positioning (`courtyardCenter = (-0.48, 2.0, -0.31)`, `camDistance = 10.0m`).
-  - 16x Anisotropic filtering (`maxAnisotropy = 16`) across all samplers.
-  - Full CPU box-filter mip-map generation chain down to 1x1 texels.
-  - Procedural atmospheric skybox with Rayleigh-like zenith-to-horizon gradients, solar corona, and far-plane depth clamping.
+- **AAAA Visual Fidelity & Real-Time Rendering Features (Toggleable On/Off)**:
+  - **Bump & Normal Mapping (`[V]` / `--no-bump`)**: Lengyel/MikkTSpace-style automatic tangent & bitangent basis generation (`MeshPrimitive::ComputeTangents()`), Gram-Schmidt orthogonalization in WGSL, tangent-space normal mapping, and screen-space derivative height bump perturbation (`dHdX`, `dHdY`).
+  - **Mipmapping Support (`[L]` / `--no-mipmaps`)**: Full CPU mip-chain generation down to $1\times 1$ texels with 3D vector renormalization for normal maps and box-filtering for color maps. Live runtime switching between 16x Anisotropic Trilinear Mipmapping and Base-Mip-0-Only sampling.
+  - **Directional Shadow Mapping (`[M]` / `--no-shadows`)**: $2048\times 2048$ `Depth32Float` directional shadow depth pre-pass fitted to the scene AABB (`glm::orthoRH_ZO`), hardware depth bias, and 9-tap $3\times 3$ Percentage-Closer Filtering (PCF) soft shadows via `textureSampleCompareLevel`.
+  - **Environment Cubemap Reflections (`[R]` / `--no-reflections`)**: 6-face pre-filtered HDR-style atmospheric environment cubemap ($64\times 64\times 6$ with 7 roughness-convolved mip levels), Karis split-sum analytic `envBRDFApprox`, and clearcoat environment reflections.
+  - **Sponza Benchmark Scene**: Loaded by default with human eye-level courtyard camera positioning (`courtyardCenter = (-0.48, 2.0, -0.31)`, `camDistance = 10.0m`).
+  - **Procedural Atmospheric Skybox (`[K]` / `--no-skybox`)**: Rayleigh-like zenith-to-horizon gradients, solar corona, and far-plane depth clamping.
 - **Complete glTF 2.0 & KHR Material Model**:
   - Core PBR Metallic-Roughness (Cook-Torrance GGX $D$, Smith-GGX $V$, Schlick Fresnel $F$).
   - Tangent-space Normal Mapping (with vertex `TANGENT` ingestion and screen-space derivative fallbacks).
@@ -120,7 +122,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── Application.hpp/.cpp   # Main application lifecycle and runtime loop
 │   │   └── CommandLine.hpp/.cpp   # CLI argument parsing, help screen, and format inspection
 │   └── main.cpp                   # Native desktop viewer entry point
-├── tests/                         # GTest unit test suite (46 tests across 11 test suites)
+├── tests/                         # GTest unit test suite (60 tests across 12 test suites)
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp        # AABB, Ray, Plane, Frustum culling math, Vertex layout
 │   ├── test_camera.cpp            # Orbit, Pan, Zoom, ScreenPointToRay unprojection
@@ -132,7 +134,8 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── test_texture_decoders.cpp  # PNG, JPEG, WebP, KTX2, magic-byte sniffing
 │   ├── test_text_rendering.cpp    # FreeType rasterization, HarfBuzz shaping, multiline text
 │   ├── test_crash_handler.cpp     # POSIX signal handler installation & stacktrace generation
-│   └── test_command_line.cpp      # CLI argument parsing and feature toggles
+│   ├── test_command_line.cpp      # CLI argument parsing and feature toggles
+│   └── test_rendering_features.cpp# Bump mapping, Mipmapping, PCF Shadow Mapping, Cubemap IBL tests
 ├── scripts/
 │   └── package_web.py             # Minimal web app distribution packager
 └── web/                           # Web viewer client
@@ -141,6 +144,59 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
     ├── app.js                     # Modular application client runtime
     └── dist/                      # Precompiled WebAssembly artifacts
 ```
+
+---
+
+## Advanced Real-Time Rendering Pipeline (Bump Mapping, Mipmapping, PCF Shadows & Cubemap IBL)
+
+Every frame executes a two-pass WebGPU rendering pipeline on the active `WGPUCommandEncoder`: a **Directional Shadow Depth Pre-Pass** (`2048×2048 Depth32Float`) followed by the **4× MSAA Main PBR Forward Pass** with 13-slot resource bindings.
+
+```mermaid
+flowchart LR
+    subgraph Pass1["1. Shadow Depth Pre-Pass (2048×2048 Depth32Float)"]
+        LightMat["ComputeDirectionalLightMatrix()\nOrthoRH_ZO fitted to Scene AABB"]
+        QuadShadow["Quadtree Frustum Culling\n(Light Space)"]
+        ShadowVS["vs_shadow (WGSL)\nlightViewProj * model * pos"]
+        ShadowTex["shadowDepthTexture_\n(Hardware Depth Bias)"]
+        LightMat --> QuadShadow --> ShadowVS --> ShadowTex
+    end
+
+    subgraph Pass2["2. Main 4× MSAA PBR Pass (13 Bindings)"]
+        Skybox["Atmospheric Skybox\n(Depth Clamped)"]
+        PBR["fs_main Cook-Torrance PBR\n+ Bump/Normal Mapping [V]\n+ 16x Aniso Mipmapping [L]\n+ 3×3 PCF Soft Shadows [M]\n+ Cubemap Specular IBL [R]"]
+        Debug["Batched 3D AABB Wireframes\n+ 2D HarfBuzz Debug HUD"]
+        Skybox --> PBR --> Debug
+    end
+
+    ShadowTex -->|"@binding(11) texture_depth_2d\n@binding(12) sampler_comparison"| PBR
+```
+
+### 1. Bump Mapping & Tangent-Space Normal Mapping (`[V]` / `--no-bump`)
+- **MikkTSpace / Lengyel Tangent Generation (`MeshPrimitive::ComputeTangents()`):**
+  When a glTF primitive omits explicit `TANGENT` attributes, the loader computes per-vertex tangents $\mathbf{T}$ and bitangents $\mathbf{B}$ from triangle edges $(\Delta \mathbf{p}_1, \Delta \mathbf{p}_2)$ and UV deltas $(\Delta u_1, \Delta v_1, \Delta u_2, \Delta v_2)$, orthogonalized via Gram-Schmidt against the vertex normal $\mathbf{N}$:
+  $$\mathbf{T}' = \text{normalize}\!\left(\mathbf{T} - \mathbf{N}(\mathbf{N} \cdot \mathbf{T})\right), \quad w = \text{sign}\!\left((\mathbf{N} \times \mathbf{T}) \cdot \mathbf{B}\right) \in \{-1, +1\}$$
+- **Dual Normal & Screen-Space Height Bump Perturbation:**
+  In `kPbrShaderWGSL`, when `MaterialFlags::EnableBumpMapping` is active, tangent-space normal maps (`normalTexture`) are combined with screen-space height derivatives (`dpdx(height)`, `dpdy(height)`) to perturb the shading normal $\mathbf{N}$ along $\mathbf{T}$ and $\mathbf{B}$ controlled by `ubo.bumpScale`. All derivatives and texture samples execute in strict uniform control flow before alpha-mask `discard`.
+
+### 2. Mip-Mapping with Normal-Map Vector Renormalization (`[L]` / `--no-mipmaps`)
+- **Full Mip Pyramid Generation (`CalculateMipLevels` & `GenerateNextMipLevel`):**
+  Every 2D texture generates $\lfloor \log_2(\max(W, H)) \rfloor + 1$ mip levels down to $1 \times 1$.
+  - **Color & Material Maps (`isNormalMap = false`):** 2×2 box-filter downsampling preserving average luminance and alpha coverage.
+  - **Normal Maps (`isNormalMap = true`):** Decodes 4 parent texels into 3D vectors $\mathbf{n}_i \in [-1, 1]^3$, sums and **renormalizes** $\bar{\mathbf{n}} = \text{normalize}(\sum \mathbf{n}_i)$ before re-packing to `RGBA8Unorm`, preventing normal length decay and specular dulling at oblique distances.
+- **Live Sampler Switching:**
+  Pressing **`L`** toggles `PipelineManager::SetMipmappingEnabled()`, rebuilding material bind groups on the fly between `defaultSampler_` (**16× Anisotropic Trilinear**, `lodMaxClamp = 32.0`) and `noMipSampler_` (**Base Mip 0 Only**, `lodMaxClamp = 0.0`).
+
+### 3. Directional Shadow Mapping with 3×3 PCF (`[M]` / `--no-shadows`)
+- **Scene-Fitted Orthographic Light Projection (`ComputeDirectionalLightMatrix`):**
+  Constructs a tight right-handed zero-to-one orthographic projection (`glm::orthoRH_ZO`) centered on `sceneAABB.Center()` with radius $R = \max(\|\text{Extents}\|, 10.0)$ so all 8 scene corners map into WebGPU clip space $[-1, 1]^2 \times [0, 1]$.
+- **Hazard-Free Shadow Pass & 9-Tap PCF Kernel:**
+  Uses a dedicated 1-entry `shadowBindGroupLayout_` (binding only `@binding(0)` UBO) during `RenderShadowPass` to prevent WebGPU read/write resource hazards on `shadowDepthTexture_`. In the main pass, `sampleShadowPCF()` evaluates a $3 \times 3$ Percentage-Closer Filtering kernel via `textureSampleCompareLevel` with slope-scaled normal offset bias.
+
+### 4. Environment Cubemap Reflections & Specular IBL (`[R]` / `--no-reflections`)
+- **Pre-Filtered 6-Face Roughness Cubemap (`GenerateEnvCubemapFaceMip`):**
+  Generates a $64 \times 64 \times 6$ `WGPUTextureViewDimension_Cube` texture with **7 mip levels** (`roughness` $\in [0, 1]$). Each mip level convolves the procedural atmospheric sky, horizon glow, solar disk, and ground bounce over a roughness-weighted lobe.
+- **Karis Split-Sum Specular & Clearcoat IBL:**
+  Samples `textureSampleLevel(envCubemap, defaultSampler, R, roughness * maxMip)` along the reflection vector $\mathbf{R} = \text{reflect}(-\mathbf{V}, \mathbf{N})$ and applies the analytic split-sum BRDF (`envBRDFApprox(F0, roughness, NdotV)`) plus clearcoat reflection weighting.
 
 ---
 
@@ -280,12 +336,20 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | `--no-hud` | — | Start with in-engine Debug Overlay HUD hidden | `Visible` |
 | `--no-bounds` | — | Start with 3D wireframe bounding boxes hidden | `Visible` |
 | `--quadtree` | — | Start with 3D Quadtree ground boundaries enabled | `Disabled` |
+| `--no-bump` / `--bump` | — | Toggle Tangent-Space Normal & Height Bump Mapping | `Enabled` |
+| `--no-mipmaps` / `--mipmaps` | — | Toggle 16x Anisotropic Trilinear Mipmapping vs Mip-0 | `Enabled` |
+| `--no-shadows` / `--shadows` | — | Toggle Directional Shadow Mapping (2048x2048 3x3 PCF) | `Enabled` |
+| `--no-reflections` / `--reflections` | — | Toggle Environment Cubemap Specular Reflections (IBL) | `Enabled` |
 | `--test-crash` | `[segv\|abrt\|fpe]` | Trigger intentional crash to verify signal handler and stacktrace | `segv` |
 
 #### Interactive Desktop Controls:
 - **Left Mouse Button Drag**: Orbit camera around target.
 - **Right Mouse Button / Shift + Drag**: Pan camera laterally and vertically.
 - **Mouse Wheel**: Smooth zoom.
+- **V Key**: Toggle Bump & Normal Mapping (`ON` / `OFF`).
+- **L Key**: Toggle Texture Mipmapping (`16x Anisotropic Trilinear` vs `Base Mip 0`).
+- **M Key**: Toggle Directional Shadow Mapping (`2048x2048 3x3 PCF Soft Shadows`).
+- **R Key**: Toggle Environment Cubemap Reflections (`Pre-filtered Roughness Cubemap IBL`).
 - **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs (Gold for scene root, Cyan for mesh primitives).
 - **Q Key**: Toggle 3D Quadtree spatial ground partition boundaries (Emerald green).
 - **K Key**: Toggle Procedural Atmospheric Skybox with solar corona.
@@ -329,21 +393,22 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes a comprehensive test suite with **46 tests across 11 test suites** implemented using GoogleTest:
+The engine includes a comprehensive test suite with **60 tests across 12 test suites** implemented using GoogleTest:
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
-| `TypesMathTest` | 7 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment. |
+| `TypesMathTest` | 10 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, and 6-face cubemap mip generation. |
+| `RenderingFeaturesTest` | 10 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety), and Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states). |
 | `CameraTest` | 5 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection matrix composition, screen-point-to-ray unprojection. |
 | `MemoryPoolTest` | 4 | Fixed-size block allocation, multi-block chaining, free-list slot reuse, PMR ScratchArena resets. |
 | `AssetManagerTest` | 3 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation. |
 | `QuadtreeTest` | 5 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark. |
 | `RayPickerTest` | 4 | Möller-Trumbore ray-triangle direct hits, misses, edge hits, degenerate triangles, scene hierarchy picking. |
-| `GltfLoaderTest` | 3 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation. |
+| `GltfLoaderTest` | 4 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation, and optional 1 GB megacity stress-test ingestion. |
 | `TextureDecoderTest` | 3 | Format availability querying, magic-byte sniffing (PNG, JPEG, WebP, KTX2), empty and truncated buffer rejection. |
 | `TextRenderingTest` | 5 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout. |
 | `CrashHandlerTest` | 2 | POSIX signal handler installation/removal, `std::stacktrace` callstack formatting. |
-| `CommandLineTest` | 5 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles, crash signal selection. |
+| `CommandLineTest` | 5 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), crash signal selection. |
 
 ---
 

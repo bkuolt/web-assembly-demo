@@ -35,6 +35,31 @@ void bgl_toggle_skybox() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_debug_overlay() {
+    if (g_pApp) g_pApp->ToggleDebugOverlay();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_bump() {
+    if (g_pApp) g_pApp->ToggleBumpMapping();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_mipmaps() {
+    if (g_pApp) g_pApp->ToggleMipmapping();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_shadows() {
+    if (g_pApp) g_pApp->ToggleShadows();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_reflections() {
+    if (g_pApp) g_pApp->ToggleReflections();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) {
     if (g_pApp && name && buffer && size > 0) {
         g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));
@@ -99,6 +124,10 @@ int main(int argc, char** argv) {
     config.enableBoundingBoxes = cli.enableBoundingBoxes;
     config.enableQuadtreeBounds = cli.enableQuadtreeBounds;
     config.enableDebugOverlay = cli.enableDebugOverlay;
+    config.enableBumpMapping = cli.enableBumpMapping;
+    config.enableMipmapping = cli.enableMipmapping;
+    config.enableShadows = cli.enableShadows;
+    config.enableReflections = cli.enableReflections;
 
     bgl::app::Application app;
     if (auto res = app.Initialize(config); !res) {

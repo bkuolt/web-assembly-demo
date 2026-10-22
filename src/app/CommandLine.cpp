@@ -59,6 +59,22 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
             opt.enableBoundingBoxes = true;
         } else if (arg == "--quadtree") {
             opt.enableQuadtreeBounds = true;
+        } else if (arg == "--no-bump") {
+            opt.enableBumpMapping = false;
+        } else if (arg == "--bump") {
+            opt.enableBumpMapping = true;
+        } else if (arg == "--no-mipmaps") {
+            opt.enableMipmapping = false;
+        } else if (arg == "--mipmaps") {
+            opt.enableMipmapping = true;
+        } else if (arg == "--no-shadows") {
+            opt.enableShadows = false;
+        } else if (arg == "--shadows") {
+            opt.enableShadows = true;
+        } else if (arg == "--no-reflections") {
+            opt.enableReflections = false;
+        } else if (arg == "--reflections") {
+            opt.enableReflections = true;
         } else if (!arg.starts_with("-")) {
             // Positional argument interpreted as asset path if not set
             if (opt.assetPath.empty()) {
@@ -100,6 +116,10 @@ RENDERING TOGGLES:
   --no-bounds                   Start with 3D wireframe bounding boxes hidden
   --bounds                      Start with 3D wireframe bounding boxes visible
   --quadtree                    Start with 3D Quadtree ground boundaries visible
+  --no-bump / --bump            Disable / enable Bump & Normal Mapping (default: ON)
+  --no-mipmaps / --mipmaps      Disable / enable Trilinear Mipmapping (default: ON)
+  --no-shadows / --shadows      Disable / enable 2048x2048 PCF Shadow Mapping (default: ON)
+  --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
@@ -111,6 +131,10 @@ INTERACTIVE CONTROLS:
   B                             Toggle 3D Wireframe Bounding Boxes & AABBs
   Q                             Toggle 3D Quadtree Ground Partition Boundaries
   K                             Toggle Procedural Atmospheric Skybox
+  V                             Toggle Bump & Tangent-Space Normal Mapping
+  L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)
+  M                             Toggle Directional Shadow Mapping (2048x2048 PCF)
+  R                             Toggle Environment Cubemap Reflections & Specular IBL
   O / F3                        Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay
   ESC                           Exit viewer
   Drag & Drop                   Drop any .glb/.gltf file directly onto the window

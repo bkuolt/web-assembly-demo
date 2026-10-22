@@ -22,6 +22,10 @@ TEST(CommandLineTest, DefaultOptions) {
     EXPECT_TRUE(opt.enableBoundingBoxes);
     EXPECT_FALSE(opt.enableQuadtreeBounds);
     EXPECT_TRUE(opt.enableDebugOverlay);
+    EXPECT_TRUE(opt.enableBumpMapping);
+    EXPECT_TRUE(opt.enableMipmapping);
+    EXPECT_TRUE(opt.enableShadows);
+    EXPECT_TRUE(opt.enableReflections);
 }
 
 TEST(CommandLineTest, HelpAndVersionFlags) {
@@ -60,14 +64,39 @@ TEST(CommandLineTest, FeatureToggles) {
         const_cast<char*>("--no-skybox"),
         const_cast<char*>("--no-bounds"),
         const_cast<char*>("--quadtree"),
-        const_cast<char*>("--no-hud")
+        const_cast<char*>("--no-hud"),
+        const_cast<char*>("--no-bump"),
+        const_cast<char*>("--no-mipmaps"),
+        const_cast<char*>("--no-shadows"),
+        const_cast<char*>("--no-reflections")
     };
-    auto opt = CliOptions::Parse(5, argv);
+    auto opt = CliOptions::Parse(9, argv);
 
     EXPECT_FALSE(opt.enableSkybox);
     EXPECT_FALSE(opt.enableBoundingBoxes);
     EXPECT_TRUE(opt.enableQuadtreeBounds);
     EXPECT_FALSE(opt.enableDebugOverlay);
+    EXPECT_FALSE(opt.enableBumpMapping);
+    EXPECT_FALSE(opt.enableMipmapping);
+    EXPECT_FALSE(opt.enableShadows);
+    EXPECT_FALSE(opt.enableReflections);
+
+    char* argvReEnable[] = {
+        const_cast<char*>("bgl_viewer"),
+        const_cast<char*>("--no-bump"),
+        const_cast<char*>("--bump"),
+        const_cast<char*>("--no-mipmaps"),
+        const_cast<char*>("--mipmaps"),
+        const_cast<char*>("--no-shadows"),
+        const_cast<char*>("--shadows"),
+        const_cast<char*>("--no-reflections"),
+        const_cast<char*>("--reflections")
+    };
+    auto optRe = CliOptions::Parse(9, argvReEnable);
+    EXPECT_TRUE(optRe.enableBumpMapping);
+    EXPECT_TRUE(optRe.enableMipmapping);
+    EXPECT_TRUE(optRe.enableShadows);
+    EXPECT_TRUE(optRe.enableReflections);
 }
 
 TEST(CommandLineTest, TestCrashSignalSelection) {

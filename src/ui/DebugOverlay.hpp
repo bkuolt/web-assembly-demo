@@ -36,6 +36,10 @@ struct OverlayStats {
     bool boundingBoxesEnabled = true;
     bool quadtreeBoundsEnabled = false;
     bool skyboxEnabled = true;
+    bool bumpMappingEnabled = true;
+    bool mipmappingEnabled = true;
+    bool shadowsEnabled = true;
+    bool reflectionsEnabled = true;
 };
 
 /**

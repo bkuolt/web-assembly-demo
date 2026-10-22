@@ -44,9 +44,10 @@ struct Material {
     float roughnessFactor = 1.0f;
     int metallicRoughnessTextureIndex = -1;
 
-    // 2. Normal & Occlusion
+    // 2. Normal, Bump & Occlusion
     int normalTextureIndex = -1;
     float normalScale = 1.0f;
+    float bumpScale = 1.0f;
     int occlusionTextureIndex = -1;
     float occlusionStrength = 1.0f;
 
@@ -96,6 +97,7 @@ struct MeshPrimitive {
     WGPUBuffer gpuIndexBuffer = nullptr;
     WGPUBuffer gpuUniformBuffer = nullptr;
     WGPUBindGroup gpuBindGroup = nullptr;
+    WGPUBindGroup gpuShadowBindGroup = nullptr;
 
     explicit MeshPrimitive(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
         : vertices(mr), indices(mr) {}
@@ -108,11 +110,13 @@ struct MeshPrimitive {
           gpuVertexBuffer(other.gpuVertexBuffer),
           gpuIndexBuffer(other.gpuIndexBuffer),
           gpuUniformBuffer(other.gpuUniformBuffer),
-          gpuBindGroup(other.gpuBindGroup) {
+          gpuBindGroup(other.gpuBindGroup),
+          gpuShadowBindGroup(other.gpuShadowBindGroup) {
         other.gpuVertexBuffer = nullptr;
         other.gpuIndexBuffer = nullptr;
         other.gpuUniformBuffer = nullptr;
         other.gpuBindGroup = nullptr;
+        other.gpuShadowBindGroup = nullptr;
     }
 
     MeshPrimitive& operator=(MeshPrimitive&& other) noexcept {
@@ -126,10 +130,12 @@ struct MeshPrimitive {
             gpuIndexBuffer = other.gpuIndexBuffer;
             gpuUniformBuffer = other.gpuUniformBuffer;
             gpuBindGroup = other.gpuBindGroup;
+            gpuShadowBindGroup = other.gpuShadowBindGroup;
             other.gpuVertexBuffer = nullptr;
             other.gpuIndexBuffer = nullptr;
             other.gpuUniformBuffer = nullptr;
             other.gpuBindGroup = nullptr;
+            other.gpuShadowBindGroup = nullptr;
         }
         return *this;
     }
@@ -139,6 +145,10 @@ struct MeshPrimitive {
     }
 
     void ReleaseGpu() {
+        if (gpuShadowBindGroup) {
+            wgpuBindGroupRelease(gpuShadowBindGroup);
+            gpuShadowBindGroup = nullptr;
+        }
         if (gpuBindGroup) {
             wgpuBindGroupRelease(gpuBindGroup);
             gpuBindGroup = nullptr;
@@ -154,6 +164,66 @@ struct MeshPrimitive {
         if (gpuVertexBuffer) {
             wgpuBufferRelease(gpuVertexBuffer);
             gpuVertexBuffer = nullptr;
+        }
+    }
+
+    /**
+     * @brief Compute MikkTSpace/Lengyel tangent vectors and handedness from triangle UVs and positions.
+     */
+    void ComputeTangents() {
+        if (vertices.empty()) return;
+        std::vector<glm::vec3> tan1(vertices.size(), glm::vec3(0.0f));
+        std::vector<glm::vec3> tan2(vertices.size(), glm::vec3(0.0f));
+
+        auto processTri = [&](size_t i0, size_t i1, size_t i2) {
+            if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size()) return;
+            const glm::vec3& p0 = vertices[i0].position;
+            const glm::vec3& p1 = vertices[i1].position;
+            const glm::vec3& p2 = vertices[i2].position;
+
+            const glm::vec2& uv0 = vertices[i0].uv;
+            const glm::vec2& uv1 = vertices[i1].uv;
+            const glm::vec2& uv2 = vertices[i2].uv;
+
+            glm::vec3 e1 = p1 - p0;
+            glm::vec3 e2 = p2 - p0;
+            glm::vec2 duv1 = uv1 - uv0;
+            glm::vec2 duv2 = uv2 - uv0;
+
+            float det = duv1.x * duv2.y - duv2.x * duv1.y;
+            if (std::abs(det) > 1e-8f) {
+                float r = 1.0f / det;
+                glm::vec3 sdir = (e1 * duv2.y - e2 * duv1.y) * r;
+                glm::vec3 tdir = (e2 * duv1.x - e1 * duv2.x) * r;
+
+                tan1[i0] += sdir; tan1[i1] += sdir; tan1[i2] += sdir;
+                tan2[i0] += tdir; tan2[i1] += tdir; tan2[i2] += tdir;
+            }
+        };
+
+        if (!indices.empty()) {
+            for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+                processTri(indices[i], indices[i + 1], indices[i + 2]);
+            }
+        } else {
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+                processTri(i, i + 1, i + 2);
+            }
+        }
+
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            const glm::vec3& n = vertices[i].normal;
+            const glm::vec3& t = tan1[i];
+            glm::vec3 orthoT = t - n * glm::dot(n, t);
+            float lenSq = glm::dot(orthoT, orthoT);
+            if (lenSq > 1e-10f) {
+                orthoT *= (1.0f / std::sqrt(lenSq));
+                float w = (glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f;
+                vertices[i].tangent = glm::vec4(orthoT, w);
+            } else {
+                glm::vec3 up = (std::abs(n.y) < 0.999f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+                vertices[i].tangent = glm::vec4(glm::normalize(glm::cross(up, n)), 1.0f);
+            }
         }
     }
 };

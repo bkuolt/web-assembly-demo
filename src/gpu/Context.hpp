@@ -45,6 +45,8 @@ public:
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
     void Resize(uint32_t width, uint32_t height);
+    bool PrepareFrame();
+    [[nodiscard]] WGPUCommandEncoder GetCommandEncoder() const noexcept { return encoder_; }
     WGPURenderPassEncoder BeginFrame();
     void EndFrame(WGPURenderPassEncoder pass);
 

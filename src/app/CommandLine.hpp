@@ -31,6 +31,10 @@ struct CliOptions {
     bool enableBoundingBoxes = true;
     bool enableQuadtreeBounds = false;
     bool enableDebugOverlay = true;
+    bool enableBumpMapping = true;
+    bool enableMipmapping = true;
+    bool enableShadows = true;
+    bool enableReflections = true;
 
     /**
      * @brief Parses argc and argv into a validated CliOptions structure.

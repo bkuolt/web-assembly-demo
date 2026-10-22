@@ -33,6 +33,10 @@ struct ApplicationConfig {
     bool enableBoundingBoxes = true;
     bool enableQuadtreeBounds = false;
     bool enableDebugOverlay = true;
+    bool enableBumpMapping = true;
+    bool enableMipmapping = true;
+    bool enableShadows = true;
+    bool enableReflections = true;
 };
 
 /**
@@ -54,11 +58,19 @@ public:
     void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
     void ToggleSkybox() noexcept { skybox_.Toggle(); }
     void ToggleDebugOverlay() noexcept { debugOverlay_.Toggle(); }
+    void ToggleBumpMapping() noexcept { pipelineManager_.ToggleBumpMapping(); }
+    void ToggleMipmapping() { pipelineManager_.ToggleMipmapping(activeScene_.get()); }
+    void ToggleShadows() noexcept { pipelineManager_.ToggleShadows(); }
+    void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
     [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
     [[nodiscard]] bool IsDebugOverlayEnabled() const noexcept { return debugOverlay_.IsVisible(); }
+    [[nodiscard]] bool IsBumpMappingEnabled() const noexcept { return pipelineManager_.IsBumpMappingEnabled(); }
+    [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return pipelineManager_.IsMipmappingEnabled(); }
+    [[nodiscard]] bool IsShadowsEnabled() const noexcept { return pipelineManager_.IsShadowsEnabled(); }
+    [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return pipelineManager_.IsReflectionsEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }

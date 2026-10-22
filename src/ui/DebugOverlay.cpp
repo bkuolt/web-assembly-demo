@@ -67,8 +67,8 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     const float panelX = 16.0f;
     const float panelY = 16.0f;
-    const float panelW = 470.0f;
-    const float panelH = 220.0f;
+    const float panelW = 500.0f;
+    const float panelH = 244.0f;
 
     // 1. Translucent slate background card (#0f172a at 88% alpha)
     const glm::vec4 bgColor(0.06f, 0.09f, 0.16f, 0.88f);
@@ -119,7 +119,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawText(spatialText, textX, textY, glm::vec4(0.20f, 0.83f, 0.60f, 1.0f));
     textY += lineSpacing;
 
-    // Line 6: Interactive Toggles
+    // Line 6: Spatial & Scene Toggles
     std::string toggleText = std::format("[B] AABBs: {}  [Q] Quadtree: {}  [K] Sky: {}",
                                          currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
                                          currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF",
@@ -127,7 +127,16 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawText(toggleText, textX, textY, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
     textY += lineSpacing;
 
-    // Line 7: Controls Navigation Help
+    // Line 7: PBR Feature Toggles (Bump, Mips, Shadows, Reflections)
+    std::string pbrToggleText = std::format("[V] Bump: {}  [L] Mips: {}  [M] Shadows: {}  [R] Refl: {}",
+                                            currentStats_.bumpMappingEnabled ? "ON" : "OFF",
+                                            currentStats_.mipmappingEnabled ? "ON" : "OFF",
+                                            currentStats_.shadowsEnabled ? "ON" : "OFF",
+                                            currentStats_.reflectionsEnabled ? "ON" : "OFF");
+    textRenderer_.DrawText(pbrToggleText, textX, textY, glm::vec4(0.68f, 0.62f, 0.98f, 1.0f));
+    textY += lineSpacing;
+
+    // Line 8: Controls Navigation Help
     textRenderer_.DrawText("[O/F3] HUD  | LMB: Orbit  | RMB: Pan  | Wheel: Zoom",
                            textX, textY, glm::vec4(0.60f, 0.65f, 0.73f, 0.95f));
 

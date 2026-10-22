@@ -63,6 +63,10 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         return res;
     }
+    pipelineManager_.SetBumpMappingEnabled(config.enableBumpMapping);
+    pipelineManager_.SetMipmappingEnabled(config.enableMipmapping);
+    pipelineManager_.SetShadowsEnabled(config.enableShadows);
+    pipelineManager_.SetReflectionsEnabled(config.enableReflections);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
@@ -179,6 +183,18 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
                     ToggleDebugOverlay();
                     BGL_LOG_INFO("Toggled In-Engine Debug Overlay visibility: {}", debugOverlay_.IsVisible());
+                } else if (event.key.keysym.sym == SDLK_v) {
+                    ToggleBumpMapping();
+                    BGL_LOG_INFO("Toggled Bump & Normal Mapping: {}", pipelineManager_.IsBumpMappingEnabled());
+                } else if (event.key.keysym.sym == SDLK_l) {
+                    ToggleMipmapping();
+                    BGL_LOG_INFO("Toggled Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0): {}", pipelineManager_.IsMipmappingEnabled());
+                } else if (event.key.keysym.sym == SDLK_m) {
+                    ToggleShadows();
+                    BGL_LOG_INFO("Toggled Directional Shadow Mapping (PCF): {}", pipelineManager_.IsShadowsEnabled());
+                } else if (event.key.keysym.sym == SDLK_r) {
+                    ToggleReflections();
+                    BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
                 }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
@@ -256,6 +272,10 @@ void Application::Update(float deltaTime) {
     stats.boundingBoxesEnabled = showBoundingBoxes_;
     stats.quadtreeBoundsEnabled = showQuadtreeBounds_;
     stats.skyboxEnabled = skybox_.IsEnabled();
+    stats.bumpMappingEnabled = pipelineManager_.IsBumpMappingEnabled();
+    stats.mipmappingEnabled = pipelineManager_.IsMipmappingEnabled();
+    stats.shadowsEnabled = pipelineManager_.IsShadowsEnabled();
+    stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
 
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;
@@ -271,12 +291,19 @@ void Application::Update(float deltaTime) {
 void Application::Render() {
     if (!running_) return;
 
-    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
-    if (!pass) return;
+    if (!gpuContext_.PrepareFrame()) return;
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     glm::vec3 camPos = camera_.GetPosition();
     glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+
+    // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
+    if (activeScene_) {
+        pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
+    }
+
+    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
+    if (!pass) return;
 
     // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry)
     skybox_.Render(pass, vp, camPos, sunDir);
