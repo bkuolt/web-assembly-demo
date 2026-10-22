@@ -29,7 +29,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     const uint32_t width = config.width;
     const uint32_t height = config.height;
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.7 ({}x{})...", width, height);
+    BGL_LOG_INFO("Initializing bgl Engine v0.6.8 ({}x{})...", width, height);
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;

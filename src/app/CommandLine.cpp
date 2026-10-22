@@ -76,7 +76,7 @@ void CliOptions::PrintHelp(std::string_view programName) {
 
     std::cout <<
 R"(================================================================================
-bgl_viewer - C++23 WebGPU & glTF 2.1 High-Performance Renderer (v0.6.7)
+bgl_viewer - C++23 WebGPU & glTF 2.1 High-Performance Renderer (v0.6.8)
 ================================================================================
 
 USAGE:
