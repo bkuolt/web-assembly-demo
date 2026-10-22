@@ -26,7 +26,7 @@ void Camera::Pan(float deltaX, float deltaY) noexcept {
 }
 
 void Camera::Zoom(float deltaZoom) noexcept {
-    distance_ = std::clamp(distance_ - deltaZoom, 0.05f, 10000.0f);
+    distance_ = std::clamp(distance_ - deltaZoom, 0.001f, 10000.0f);
 }
 
 void Camera::Update(float aspectRatio) noexcept {
@@ -36,8 +36,9 @@ void Camera::Update(float aspectRatio) noexcept {
     position_ = glm::vec3(x, y, z);
 
     viewMatrix_ = glm::lookAt(position_, target_, glm::vec3(0.0f, 1.0f, 0.0f));
-    float dynamicFar = std::max(farPlane_, distance_ * 5.0f);
-    projMatrix_ = glm::perspective(fovY_, aspectRatio, nearPlane_, dynamicFar);
+    float dynamicNear = std::min(nearPlane_, distance_ * 0.01f);
+    float dynamicFar = std::max(farPlane_, distance_ * 10.0f);
+    projMatrix_ = glm::perspective(fovY_, aspectRatio, dynamicNear, dynamicFar);
 }
 
 Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, float screenHeight) const noexcept {

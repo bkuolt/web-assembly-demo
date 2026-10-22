@@ -52,7 +52,25 @@ public:
         worldTransform = parentTransform * localTransform;
         worldAABB = core::AABB{};
         for (const auto& prim : primitives) {
-            worldAABB.Expand(prim.boundingBox);
+            // Transform primitive AABB into world space
+            if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+                glm::vec3 c = prim.boundingBox.Center();
+                glm::vec3 e = prim.boundingBox.Extents();
+                glm::vec3 corners[8] = {
+                    c + glm::vec3(-e.x, -e.y, -e.z),
+                    c + glm::vec3( e.x, -e.y, -e.z),
+                    c + glm::vec3(-e.x,  e.y, -e.z),
+                    c + glm::vec3( e.x,  e.y, -e.z),
+                    c + glm::vec3(-e.x, -e.y,  e.z),
+                    c + glm::vec3( e.x, -e.y,  e.z),
+                    c + glm::vec3(-e.x,  e.y,  e.z),
+                    c + glm::vec3( e.x,  e.y,  e.z)
+                };
+                for (const auto& corner : corners) {
+                    glm::vec4 worldCorner = worldTransform * glm::vec4(corner, 1.0f);
+                    worldAABB.Expand(glm::vec3(worldCorner));
+                }
+            }
         }
         for (auto& child : children) {
             child->UpdateTransforms(worldTransform);
