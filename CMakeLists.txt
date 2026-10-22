@@ -17,27 +17,48 @@ option(BGL_ENABLE_SKYBOX       "Enable Skybox and IBL reflections"      ON)
 option(BGL_ENABLE_MODEL_TOYCAR "Include default ToyCar.glb model"       ON)
 option(BGL_BUILD_TESTING       "Build GTest unit test suite"            ON)
 
-# Find Packages
-find_package(PkgConfig REQUIRED)
-find_package(glm REQUIRED)
-find_package(spdlog REQUIRED)
+# Find Packages: First try Conan-generated packages, then fall back to system
+find_package(fastgltf QUIET)
+find_package(glm QUIET)
+if(NOT TARGET glm::glm AND NOT TARGET glm::glm-header-only)
+    find_package(glm REQUIRED)
+endif()
+
+find_package(spdlog QUIET)
+if(NOT TARGET spdlog::spdlog AND NOT TARGET spdlog::spdlog_header_only)
+    find_package(spdlog REQUIRED)
+endif()
+
+find_package(miniaudio QUIET)
+find_package(PNG QUIET)
+find_package(libjpeg-turbo QUIET)
+find_package(WebP QUIET)
+
+# Determine correct targets from Conan or System
+if(TARGET spdlog::spdlog_header_only)
+    set(BGL_SPDLOG_TARGET spdlog::spdlog_header_only)
+elseif(TARGET spdlog::spdlog)
+    set(BGL_SPDLOG_TARGET spdlog::spdlog)
+endif()
+
+if(TARGET glm::glm-header-only)
+    set(BGL_GLM_TARGET glm::glm-header-only)
+elseif(TARGET glm::glm)
+    set(BGL_GLM_TARGET glm::glm)
+endif()
 
 if(EMSCRIPTEN)
     add_compile_definitions(BGL_PLATFORM_WASM)
 else()
     add_compile_definitions(BGL_PLATFORM_NATIVE)
+    find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
-    pkg_check_modules(LIBPNG libpng)
-    pkg_check_modules(LIBJPEG libjpeg)
-    pkg_check_modules(LIBWEBP libwebp)
 endif()
 
 # Global includes
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fastgltf
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/webgpu
 )
 
@@ -49,7 +70,7 @@ add_library(bgl_core SHARED
     src/core/Gamepad.cpp
     src/core/Camera.cpp
 )
-target_link_libraries(bgl_core PUBLIC spdlog::spdlog glm::glm)
+target_link_libraries(bgl_core PUBLIC ${BGL_SPDLOG_TARGET} ${BGL_GLM_TARGET})
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_core PUBLIC ${SDL2_LIBRARIES})
     target_include_directories(bgl_core PUBLIC ${SDL2_INCLUDE_DIRS})
@@ -68,6 +89,9 @@ add_library(bgl_audio SHARED
     src/audio/SoundEngine.cpp
 )
 target_link_libraries(bgl_audio PUBLIC bgl_core)
+if(TARGET miniaudio::miniaudio)
+    target_link_libraries(bgl_audio PUBLIC miniaudio::miniaudio)
+endif()
 
 # 4. libbgl_scene.so
 add_library(bgl_scene SHARED
@@ -78,15 +102,20 @@ add_library(bgl_scene SHARED
     src/scene/RayPicker.cpp
 )
 target_link_libraries(bgl_scene PUBLIC bgl_core bgl_gpu bgl_audio)
-if(NOT EMSCRIPTEN)
-    if(LIBPNG_FOUND)
-        target_link_libraries(bgl_scene PRIVATE ${LIBPNG_LIBRARIES})
-    endif()
-    if(LIBJPEG_FOUND)
-        target_link_libraries(bgl_scene PRIVATE ${LIBJPEG_LIBRARIES})
-    endif()
-    if(LIBWEBP_FOUND)
-        target_link_libraries(bgl_scene PRIVATE ${LIBWEBP_LIBRARIES})
+if(TARGET fastgltf::fastgltf)
+    target_link_libraries(bgl_scene PUBLIC fastgltf::fastgltf)
+endif()
+if(TARGET PNG::PNG)
+    target_link_libraries(bgl_scene PRIVATE PNG::PNG)
+endif()
+if(TARGET libjpeg-turbo::libjpeg-turbo)
+    target_link_libraries(bgl_scene PRIVATE libjpeg-turbo::libjpeg-turbo)
+endif()
+if(TARGET WebP::webpdecoder OR TARGET libwebp::libwebp)
+    if(TARGET libwebp::libwebp)
+        target_link_libraries(bgl_scene PRIVATE libwebp::libwebp)
+    else()
+        target_link_libraries(bgl_scene PRIVATE WebP::webpdecoder)
     endif()
 endif()
 
@@ -111,7 +140,10 @@ if(BGL_BUILD_TESTING)
         tests/test_quadtree_lod.cpp
         tests/test_ray_picker.cpp
     )
-    target_link_libraries(bgl_unit_tests PRIVATE bgl_app GTest::gtest GTest::gtest_main)
+    if(TARGET GTest::gtest)
+        target_link_libraries(bgl_unit_tests PRIVATE bgl_app GTest::gtest GTest::gtest_main)
+    elseif(TARGET gtest::gtest)
+        target_link_libraries(bgl_unit_tests PRIVATE bgl_app gtest::gtest gtest::gtest_main)
+    endif()
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
 endif()
-

@@ -10,17 +10,17 @@ namespace bgl::scene {
 
 FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
     : assetManager_(assetManager),
-      parser_(fastgltf::Extensions::EXT_texture_webp | fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_audio) {}
+      parser_(fastgltf::Extensions::EXT_texture_webp | fastgltf::Extensions::KHR_texture_basisu) {}
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<const uint8_t> data, std::string_view baseUri) {
     (void)baseUri;
-    auto dataBuffer = fastgltf::GltfDataBuffer::FromBytes(data);
-    if (!dataBuffer) {
-        return std::unexpected("Failed to create GltfDataBuffer from byte span");
+    fastgltf::GltfDataBuffer dataBuffer;
+    if (!dataBuffer.copyBytes(data.data(), data.size())) {
+        return std::unexpected("Failed to copy bytes into fastgltf::GltfDataBuffer");
     }
 
-    auto gltf = parser_.loadGltfBinary(*dataBuffer, std::filesystem::current_path(), fastgltf::Options::LoadGLBBuffers);
-    if (!gltf) {
+    auto gltf = parser_.loadGltfBinary(&dataBuffer, std::filesystem::current_path(), fastgltf::Options::LoadGLBBuffers);
+    if (gltf.error() != fastgltf::Error::None) {
         return std::unexpected("fastgltf failed to parse binary glTF data");
     }
 

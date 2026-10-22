@@ -2,6 +2,7 @@
  * @file SoundEngine.cpp
  * @brief Implementation of miniaudio 3D spatial audio wrapper.
  */
+#define MINIAUDIO_IMPLEMENTATION
 #include "audio/SoundEngine.hpp"
 #include "core/Log.hpp"
 

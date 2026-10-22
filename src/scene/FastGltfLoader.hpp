@@ -7,7 +7,8 @@
 #include <string_view>
 #include <memory>
 #include <span>
-#include <fastgltf/fastgltf.hpp>
+#include <fastgltf/core.hpp>
+#include <fastgltf/types.hpp>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
 #include "scene/AssetManager.hpp"

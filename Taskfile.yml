@@ -1,36 +1,35 @@
 version: '3'
 
 vars:
-  BUILD_DIR_NATIVE: build-native
-  BUILD_DIR_WASM: build-wasm
+  BUILD_DIR: build/Release
   CONAN_HOME_DIR: /tmp/conan_bgl
 
 tasks:
   setup:
-    desc: Setup Conan profiles and cache
+    desc: Install all dependencies via Conan 2.x from ConanCenter
     cmds:
       - mkdir -p {{.CONAN_HOME_DIR}}
-      - echo "Conan environment initialized at {{.CONAN_HOME_DIR}}"
+      - CONAN_HOME={{.CONAN_HOME_DIR}} conan install . -pr:b=profiles/linux_amd64 -pr:h=profiles/linux_amd64 -b=missing
 
   configure:
-    desc: Configure CMake for native build
+    desc: Configure CMake using Conan toolchain and presets
+    deps: [setup]
     cmds:
-      - cmake -B {{.BUILD_DIR_NATIVE}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DBGL_BUILD_TESTING=ON
+      - cmake --preset conan-release -DBGL_BUILD_TESTING=ON
 
   build:
     desc: Build all native shared libraries and executables
     deps: [configure]
     cmds:
-      - cmake --build {{.BUILD_DIR_NATIVE}} -j$(nproc)
+      - cmake --build {{.BUILD_DIR}} -j$(nproc)
 
   test:
     desc: Run GTest test suites
     deps: [build]
     cmds:
-      - ctest --test-dir {{.BUILD_DIR_NATIVE}} --output-on-failure
+      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
   clean:
     desc: Clean build directories
     cmds:
-      - rm -rf {{.BUILD_DIR_NATIVE}} {{.BUILD_DIR_WASM}}
-
+      - rm -rf build build-native build-wasm ConanPresets.json CMakeUserPresets.json
