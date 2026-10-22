@@ -44,6 +44,9 @@ int main() {
 
 #else
 
+#include <chrono>
+#include <thread>
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     bgl::app::Application app;
@@ -52,14 +55,22 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    BGL_LOG_INFO("bgl_viewer native runner started. Simulating frame ticks...");
-    for (int frame = 0; frame < 5; ++frame) {
-        app.Update(0.016f);
+    BGL_LOG_INFO("bgl_viewer interactive loop running. Close the window or press ESC to exit.");
+    auto prevTime = std::chrono::high_resolution_clock::now();
+
+    while (app.IsRunning()) {
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float deltaTime = std::chrono::duration<float>(currentTime - prevTime).count();
+        prevTime = currentTime;
+
+        app.Update(deltaTime);
         app.Render();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS cap
     }
 
     app.Shutdown();
-    BGL_LOG_INFO("bgl_viewer native execution finished normally.");
+    BGL_LOG_INFO("bgl_viewer execution finished cleanly.");
     return 0;
 }
 

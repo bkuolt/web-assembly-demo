@@ -36,6 +36,8 @@ public:
 
     void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
+    [[nodiscard]] bool IsRunning() const noexcept { return running_; }
+    void RequestClose() noexcept { running_ = false; }
 
     [[nodiscard]] core::Camera& GetCamera() noexcept { return camera_; }
     [[nodiscard]] core::Gamepad& GetGamepad() noexcept { return gamepad_; }
@@ -52,6 +54,7 @@ private:
     gpu::PipelineManager pipelineManager_;
     gpu::Skybox skybox_;
     audio::SoundEngine soundEngine_;
+    void* nativeWindow_ = nullptr;
     scene::AssetManager assetManager_;
     std::unique_ptr<scene::FastGltfLoader> gltfLoader_;
     std::shared_ptr<scene::Scene> activeScene_;
