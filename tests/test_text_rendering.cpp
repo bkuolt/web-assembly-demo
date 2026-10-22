@@ -55,7 +55,7 @@ TEST(TextRenderingTest, HarfBuzzTextShaping) {
     text::FontAtlas atlas;
     ASSERT_TRUE(atlas.InitializeFromMemory(data, 16, 1024).has_value());
 
-    std::string textToShape = "bgl Engine v0.6.7 [WebGPU]";
+    std::string textToShape = "bgl Engine v0.6.8 [WebGPU]";
     auto layout = text::TextShaper::Shape(atlas, textToShape, 10.0f, 10.0f, glm::vec4(1.0f));
 
     EXPECT_FALSE(layout.quads.empty());

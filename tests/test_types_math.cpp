@@ -175,3 +175,4 @@ TEST(TypesMathTest, VertexLayoutAndCacheLineAlignment) {
     EXPECT_FLOAT_EQ(v.tangent.w, 1.0f);
     EXPECT_FLOAT_EQ(v.uv.x, 0.5f);
 }
+

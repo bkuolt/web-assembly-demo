@@ -108,3 +108,4 @@ TEST(GltfLoaderTest, SceneTransformEvaluation) {
     EXPECT_FLOAT_EQ(scene->sceneAABB.minBound.y, 4.0f);
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.y, 6.0f);
 }
+

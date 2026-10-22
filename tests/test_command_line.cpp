@@ -89,3 +89,4 @@ TEST(CommandLineTest, TestCrashSignalSelection) {
     EXPECT_TRUE(optAbrt.testCrash);
     EXPECT_EQ(optAbrt.testCrashSignal, 1);
 }
+

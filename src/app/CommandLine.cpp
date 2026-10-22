@@ -119,7 +119,7 @@ INTERACTIVE CONTROLS:
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << "bgl_viewer version 0.6.7 [C++23 WebGPU glTF 2.1 Engine]\n";
+    std::cout << "bgl_viewer version 0.6.8 [C++23 WebGPU glTF 2.1 Engine]\n";
 }
 
 void CliOptions::PrintFormats() {

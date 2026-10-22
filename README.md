@@ -1,4 +1,4 @@
-# bgl-Engine (v0.6.7)
+# bgl-Engine (v0.6.8)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -270,7 +270,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `0.6.7` |
+| `-v`, `--version` | — | Print engine version string | `0.6.8` |
 | `--formats` | — | Query compiled texture decoders and format availability | — |
 | `-a`, `--asset` | `<path>` | Load specified `.glb` or `.gltf` model path | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
