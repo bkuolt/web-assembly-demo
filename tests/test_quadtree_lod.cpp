@@ -145,5 +145,68 @@ TEST(QuadtreeTest, FrustumPlaneAABBIntersection) {
     EXPECT_FALSE(frustum.IntersectsAABB(boxFarLeft));
 }
 
+TEST(QuadtreeTest, GridSubdivisionAndContainment) {
+    bgl::core::AABB worldBounds;
+    worldBounds.minBound = glm::vec3(-50.0f, -10.0f, -50.0f);
+    worldBounds.maxBound = glm::vec3( 50.0f,  10.0f,  50.0f);
+
+    bgl::scene::Quadtree quadtree(worldBounds);
+
+    // Insert 25 small objects in quadrant 0 (X in [-40, -10], Z in [-40, -10])
+    // kMaxItems is 8, so this should trigger subdivision
+    for (int x = 0; x < 5; ++x) {
+        for (int z = 0; z < 5; ++z) {
+            auto node = std::make_shared<bgl::scene::SceneNode>();
+            float px = -35.0f + x * 5.0f;
+            float pz = -35.0f + z * 5.0f;
+            node->worldAABB.minBound = glm::vec3(px - 1.0f, -1.0f, pz - 1.0f);
+            node->worldAABB.maxBound = glm::vec3(px + 1.0f,  1.0f, pz + 1.0f);
+            quadtree.Insert(node);
+        }
+    }
+
+    // Node count should have increased due to subdivision
+    EXPECT_GT(quadtree.GetNodeCount(), 1);
+
+    // Also insert a large spanning object across the center line X = 0
+    auto spanningNode = std::make_shared<bgl::scene::SceneNode>();
+    spanningNode->worldAABB.minBound = glm::vec3(-20.0f, -1.0f, -2.0f);
+    spanningNode->worldAABB.maxBound = glm::vec3( 20.0f,  1.0f,  2.0f);
+    quadtree.Insert(spanningNode);
+
+    // Query looking exclusively at quadrant 0
+    glm::vec3 camPos(-25.0f, 0.0f, 0.0f);
+    glm::mat4 view = glm::lookAt(camPos, glm::vec3(-25.0f, 0.0f, -25.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(60.0f), 1.0f, 0.1f, 100.0f);
+    bgl::core::Frustum frustum = bgl::core::Frustum::FromViewProjection(proj * view);
+
+    auto visible = quadtree.QueryVisible(frustum, camPos);
+    EXPECT_GT(visible.size(), 0);
+    EXPECT_LE(visible.size(), 26);
+}
+
+TEST(QuadtreeTest, ResetAndClear) {
+    bgl::core::AABB bounds;
+    bounds.minBound = glm::vec3(-10.0f);
+    bounds.maxBound = glm::vec3(10.0f);
+
+    bgl::scene::Quadtree quadtree(bounds);
+
+    for (int i = 0; i < 10; ++i) {
+        auto node = std::make_shared<bgl::scene::SceneNode>();
+        node->worldAABB.minBound = glm::vec3(i * 0.5f);
+        node->worldAABB.maxBound = glm::vec3(i * 0.5f + 0.5f);
+        quadtree.Insert(node);
+    }
+    EXPECT_GT(quadtree.GetNodeCount(), 1);
+
+    quadtree.Clear();
+    EXPECT_EQ(quadtree.GetNodeCount(), 1);
+
+    auto visible = quadtree.QueryVisible(glm::vec3(0.0f));
+    EXPECT_EQ(visible.size(), 0);
+}
+
+
 
 

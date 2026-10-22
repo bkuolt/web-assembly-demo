@@ -257,10 +257,15 @@ if(BGL_BUILD_TESTING)
         tests/test_main.cpp
         tests/test_memory_pool.cpp
         tests/test_asset_manager.cpp
+        tests/test_types_math.cpp
+        tests/test_camera.cpp
         tests/test_quadtree_lod.cpp
         tests/test_ray_picker.cpp
+        tests/test_gltf_loader.cpp
+        tests/test_texture_decoders.cpp
         tests/test_text_rendering.cpp
         tests/test_crash_handler.cpp
+        tests/test_command_line.cpp
     )
     target_include_directories(bgl_unit_tests PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

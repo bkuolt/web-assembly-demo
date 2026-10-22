@@ -29,6 +29,17 @@ static void PngReadCallback(png_structp png_ptr, png_bytep outBytes, png_size_t 
 
 #if defined(BGL_ENABLE_JPEG)
 #include <jpeglib.h>
+#include <csetjmp>
+
+struct CustomJpegErrorMgr {
+    struct jpeg_error_mgr pub;
+    jmp_buf setjmp_buffer;
+};
+
+static void JpegErrorExit(j_common_ptr cinfo) {
+    auto* myerr = reinterpret_cast<CustomJpegErrorMgr*>(cinfo->err);
+    longjmp(myerr->setjmp_buffer, 1);
+}
 #endif
 
 #if defined(BGL_ENABLE_WEBP)
@@ -112,6 +123,9 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
 
 core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> data) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_WEBP)
+    if (data.empty()) {
+        return std::unexpected("WebP data is empty");
+    }
     int width = 0, height = 0;
     uint8_t* decoded = WebPDecodeRGBA(data.data(), data.size(), &width, &height);
     if (!decoded) {
@@ -138,10 +152,21 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
 
 core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> data) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_JPEG)
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
+    if (data.size() < 4) {
+        return std::unexpected("JPEG data too small or empty");
+    }
 
-    cinfo.err = jpeg_std_error(&jerr);
+    struct jpeg_decompress_struct cinfo;
+    CustomJpegErrorMgr jerr;
+
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = JpegErrorExit;
+
+    if (setjmp(jerr.setjmp_buffer)) {
+        jpeg_destroy_decompress(&cinfo);
+        return std::unexpected("libjpeg decompression error");
+    }
+
     jpeg_create_decompress(&cinfo);
     jpeg_mem_src(&cinfo, const_cast<unsigned char*>(data.data()), data.size());
 
