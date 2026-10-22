@@ -28,12 +28,58 @@ struct CpuImage {
     std::vector<uint8_t> rgba;
 };
 
+enum class AlphaMode : uint32_t {
+    Opaque = 0,
+    Mask = 1,
+    Blend = 2
+};
+
 struct Material {
     std::string name;
+
+    // 1. Core PBR Metallic-Roughness
     glm::vec4 baseColorFactor{1.0f};
     int baseColorTextureIndex = -1;
     float metallicFactor = 1.0f;
     float roughnessFactor = 1.0f;
+    int metallicRoughnessTextureIndex = -1;
+
+    // 2. Normal & Occlusion
+    int normalTextureIndex = -1;
+    float normalScale = 1.0f;
+    int occlusionTextureIndex = -1;
+    float occlusionStrength = 1.0f;
+
+    // 3. Emissive & Extensions
+    glm::vec3 emissiveFactor{0.0f};
+    int emissiveTextureIndex = -1;
+    float emissiveStrength = 1.0f;
+
+    // 4. Alpha & Culling
+    AlphaMode alphaMode = AlphaMode::Opaque;
+    float alphaCutoff = 0.5f;
+    bool doubleSided = false;
+    bool unlit = false;
+
+    // 5. Clearcoat (Car paint lacquer)
+    float clearcoatFactor = 0.0f;
+    float clearcoatRoughnessFactor = 0.0f;
+    int clearcoatTextureIndex = -1;
+
+    // 6. Transmission & IOR (Glass / transparency)
+    float transmissionFactor = 0.0f;
+    int transmissionTextureIndex = -1;
+    float ior = 1.5f;
+
+    // 7. Sheen (Fabric / velvet)
+    glm::vec3 sheenColorFactor{0.0f};
+    float sheenRoughnessFactor = 0.0f;
+    int sheenColorTextureIndex = -1;
+
+    // 8. Specular (KHR_materials_specular)
+    float specularFactor = 1.0f;
+    glm::vec3 specularColorFactor{1.0f};
+    int specularTextureIndex = -1;
 };
 
 /**

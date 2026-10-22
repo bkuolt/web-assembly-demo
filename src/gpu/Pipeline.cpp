@@ -16,13 +16,29 @@ PipelineManager::~PipelineManager() {
         wgpuSamplerRelease(defaultSampler_);
         defaultSampler_ = nullptr;
     }
-    if (defaultTextureView_) {
-        wgpuTextureViewRelease(defaultTextureView_);
-        defaultTextureView_ = nullptr;
+    if (defaultBlackTextureView_) {
+        wgpuTextureViewRelease(defaultBlackTextureView_);
+        defaultBlackTextureView_ = nullptr;
     }
-    if (defaultTexture_) {
-        wgpuTextureRelease(defaultTexture_);
-        defaultTexture_ = nullptr;
+    if (defaultBlackTexture_) {
+        wgpuTextureRelease(defaultBlackTexture_);
+        defaultBlackTexture_ = nullptr;
+    }
+    if (defaultNormalTextureView_) {
+        wgpuTextureViewRelease(defaultNormalTextureView_);
+        defaultNormalTextureView_ = nullptr;
+    }
+    if (defaultNormalTexture_) {
+        wgpuTextureRelease(defaultNormalTexture_);
+        defaultNormalTexture_ = nullptr;
+    }
+    if (defaultWhiteTextureView_) {
+        wgpuTextureViewRelease(defaultWhiteTextureView_);
+        defaultWhiteTextureView_ = nullptr;
+    }
+    if (defaultWhiteTexture_) {
+        wgpuTextureRelease(defaultWhiteTexture_);
+        defaultWhiteTexture_ = nullptr;
     }
     if (wireframePipeline_) {
         wgpuRenderPipelineRelease(wireframePipeline_);
@@ -69,8 +85,18 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     WGPUShaderModule wfShaderModule = wgpuDeviceCreateShaderModule(device_, &wfSmDesc);
 
-    // 3. Bind Group Layout: (0: UniformBuffer, 1: Texture2D, 2: Sampler)
-    WGPUBindGroupLayoutEntry bglEntries[3] = {};
+    // 3. Bind Group Layout:
+    // 0: Uniform buffer
+    // 1: Sampler
+    // 2: BaseColor texture
+    // 3: MetallicRoughness texture
+    // 4: Normal texture
+    // 5: Emissive texture
+    // 6: Occlusion texture
+    // 7: Clearcoat texture
+    // 8: Transmission texture
+    // 9: Sheen texture
+    WGPUBindGroupLayoutEntry bglEntries[10] = {};
 
     // Binding 0: Uniform buffer
     bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -79,24 +105,29 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     bglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
     bglEntries[0].buffer.minBindingSize = sizeof(PrimitiveUniforms);
 
-    // Binding 1: Base color texture
+    // Binding 1: Sampler
     bglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     bglEntries[1].binding = 1;
     bglEntries[1].visibility = WGPUShaderStage_Fragment;
-    bglEntries[1].texture.sampleType = WGPUTextureSampleType_Float;
-    bglEntries[1].texture.viewDimension = WGPUTextureViewDimension_2D;
-    bglEntries[1].texture.multisampled = WGPU_FALSE;
+    bglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
-    // Binding 2: Base color sampler
-    bglEntries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[2].binding = 2;
-    bglEntries[2].visibility = WGPUShaderStage_Fragment;
-    bglEntries[2].sampler.type = WGPUSamplerBindingType_Filtering;
+    // Bindings 2..9: 2D Sampled Textures
+    for (uint32_t b = 2; b < 10; ++b) {
+        bglEntries[b] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+        bglEntries[b].binding = b;
+        bglEntries[b].visibility = WGPUShaderStage_Fragment;
+        bglEntries[b].texture.sampleType = WGPUTextureSampleType_Float;
+        bglEntries[b].texture.viewDimension = WGPUTextureViewDimension_2D;
+        bglEntries[b].texture.multisampled = WGPU_FALSE;
+    }
 
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = 3;
+    bglDesc.entryCount = 10;
     bglDesc.entries = bglEntries;
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!bindGroupLayout_) {
+        return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
+    }
 
     // 4. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -188,32 +219,53 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     wgpuPipelineLayoutRelease(pipelineLayout);
     wgpuShaderModuleRelease(pbrShaderModule);
 
-    // 9. Create 1x1 White Fallback Texture
-    WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
-    texDesc.dimension = WGPUTextureDimension_2D;
-    texDesc.size = WGPUExtent3D{ 1, 1, 1 };
-    texDesc.format = WGPUTextureFormat_RGBA8Unorm;
-    texDesc.mipLevelCount = 1;
-    texDesc.sampleCount = 1;
-    defaultTexture_ = wgpuDeviceCreateTexture(device_, &texDesc);
+    // 9. Helper to create 1x1 fallback textures
+    auto create1x1Texture = [&](const uint8_t rgba[4], const char* label) -> std::pair<WGPUTexture, WGPUTextureView> {
+        WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+        texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        texDesc.dimension = WGPUTextureDimension_2D;
+        texDesc.size = WGPUExtent3D{ 1, 1, 1 };
+        texDesc.format = WGPUTextureFormat_RGBA8Unorm;
+        texDesc.mipLevelCount = 1;
+        texDesc.sampleCount = 1;
+        texDesc.label = WGPUStringView{ label, strlen(label) };
+        WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
 
-    uint32_t whitePixel = 0xFFFFFFFF;
-    WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-    copyDst.texture = defaultTexture_;
-    copyDst.mipLevel = 0;
-    copyDst.origin = WGPUOrigin3D{ 0, 0, 0 };
-    copyDst.aspect = WGPUTextureAspect_All;
+        WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+        copyDst.texture = tex;
+        copyDst.mipLevel = 0;
+        copyDst.origin = WGPUOrigin3D{ 0, 0, 0 };
+        copyDst.aspect = WGPUTextureAspect_All;
 
-    WGPUTexelCopyBufferLayout dataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
-    dataLayout.offset = 0;
-    dataLayout.bytesPerRow = 4;
-    dataLayout.rowsPerImage = 1;
+        WGPUTexelCopyBufferLayout dataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+        dataLayout.offset = 0;
+        dataLayout.bytesPerRow = 4;
+        dataLayout.rowsPerImage = 1;
 
-    WGPUExtent3D writeSize = { 1, 1, 1 };
-    wgpuQueueWriteTexture(queue_, &copyDst, &whitePixel, sizeof(whitePixel), &dataLayout, &writeSize);
+        WGPUExtent3D writeSize = { 1, 1, 1 };
+        wgpuQueueWriteTexture(queue_, &copyDst, rgba, 4, &dataLayout, &writeSize);
 
-    defaultTextureView_ = wgpuTextureCreateView(defaultTexture_, nullptr);
+        WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
+        return { tex, view };
+    };
+
+    // 1x1 White Texture (Default for BaseColor, MetallicRoughness, Occlusion, Clearcoat, Transmission, Sheen)
+    const uint8_t whitePixels[4] = { 255, 255, 255, 255 };
+    auto [whiteTex, whiteView] = create1x1Texture(whitePixels, "DefaultWhiteTexture");
+    defaultWhiteTexture_ = whiteTex;
+    defaultWhiteTextureView_ = whiteView;
+
+    // 1x1 Flat Normal Texture (0.5, 0.5, 1.0 => Normal 0, 0, 1)
+    const uint8_t normalPixels[4] = { 128, 128, 255, 255 };
+    auto [normTex, normView] = create1x1Texture(normalPixels, "DefaultNormalTexture");
+    defaultNormalTexture_ = normTex;
+    defaultNormalTextureView_ = normView;
+
+    // 1x1 Black Texture (Default for Emissive)
+    const uint8_t blackPixels[4] = { 0, 0, 0, 255 };
+    auto [blackTex, blackView] = create1x1Texture(blackPixels, "DefaultBlackTexture");
+    defaultBlackTexture_ = blackTex;
+    defaultBlackTextureView_ = blackView;
 
     // 10. Create Default Filtering Sampler
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
@@ -226,7 +278,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     defaultSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
     initialized_ = (opaquePipeline_ != nullptr);
-    BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized with WGSL PBR shader!");
+    BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized with full glTF 2.0 PBR material shaders!");
     return {};
 }
 
@@ -274,6 +326,15 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         }
     }
 
+    auto getTexView = [&](int texIdx, WGPUTextureView fallback) -> WGPUTextureView {
+        if (texIdx >= 0 && texIdx < static_cast<int>(scene.gpuTextures.size())) {
+            if (scene.gpuTextures[texIdx].view) {
+                return scene.gpuTextures[texIdx].view;
+            }
+        }
+        return fallback;
+    };
+
     // 2. Prepare vertex buffers, index buffers, uniform buffers, and bind groups for each primitive
     auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
         for (size_t pIdx = 0; pIdx < node.primitives.size(); ++pIdx) {
@@ -303,7 +364,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
             }
 
-            // Uniform Buffer
+            // Uniform Buffer (272 bytes)
             if (!prim.gpuUniformBuffer) {
                 WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ubDesc.size = sizeof(PrimitiveUniforms);
@@ -315,38 +376,85 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             BGL_LOG_INFO("[WebGPU Upload] Node '{}' Prim #{}: VB={} bytes ({} verts), IB={} bytes ({} indices), UB={} bytes",
                          node.name, pIdx, vbSize, prim.vertices.size(), ibSize, prim.indices.size(), sizeof(PrimitiveUniforms));
 
-            // Bind Group
+            // Bind Group (10 entries)
             if (!prim.gpuBindGroup) {
-                WGPUTextureView texView = defaultTextureView_;
-                WGPUSampler sampler = defaultSampler_;
+                int baseColorTexIdx = -1;
+                int mrTexIdx = -1;
+                int normalTexIdx = -1;
+                int emissiveTexIdx = -1;
+                int occlusionTexIdx = -1;
+                int clearcoatTexIdx = -1;
+                int transmissionTexIdx = -1;
+                int sheenTexIdx = -1;
 
                 if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
                     const auto& mat = scene.materials[prim.materialIndex];
-                    if (mat.baseColorTextureIndex >= 0 && mat.baseColorTextureIndex < static_cast<int>(scene.gpuTextures.size())) {
-                        if (scene.gpuTextures[mat.baseColorTextureIndex].view) {
-                            texView = scene.gpuTextures[mat.baseColorTextureIndex].view;
-                        }
-                    }
+                    baseColorTexIdx = mat.baseColorTextureIndex;
+                    mrTexIdx = mat.metallicRoughnessTextureIndex;
+                    normalTexIdx = mat.normalTextureIndex;
+                    emissiveTexIdx = mat.emissiveTextureIndex;
+                    occlusionTexIdx = mat.occlusionTextureIndex;
+                    clearcoatTexIdx = mat.clearcoatTextureIndex;
+                    transmissionTexIdx = mat.transmissionTextureIndex;
+                    sheenTexIdx = mat.sheenColorTextureIndex;
                 }
 
-                WGPUBindGroupEntry bgEntries[3] = {};
+                WGPUBindGroupEntry bgEntries[10] = {};
+                // 0: Uniform buffer
                 bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
                 bgEntries[0].binding = 0;
                 bgEntries[0].buffer = prim.gpuUniformBuffer;
                 bgEntries[0].offset = 0;
                 bgEntries[0].size = sizeof(PrimitiveUniforms);
 
+                // 1: Sampler
                 bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
                 bgEntries[1].binding = 1;
-                bgEntries[1].textureView = texView;
+                bgEntries[1].sampler = defaultSampler_;
 
+                // 2: BaseColor
                 bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
                 bgEntries[2].binding = 2;
-                bgEntries[2].sampler = sampler;
+                bgEntries[2].textureView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
+
+                // 3: MetallicRoughness
+                bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[3].binding = 3;
+                bgEntries[3].textureView = getTexView(mrTexIdx, defaultWhiteTextureView_);
+
+                // 4: Normal
+                bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[4].binding = 4;
+                bgEntries[4].textureView = getTexView(normalTexIdx, defaultNormalTextureView_);
+
+                // 5: Emissive
+                bgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[5].binding = 5;
+                bgEntries[5].textureView = getTexView(emissiveTexIdx, defaultBlackTextureView_);
+
+                // 6: Occlusion
+                bgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[6].binding = 6;
+                bgEntries[6].textureView = getTexView(occlusionTexIdx, defaultWhiteTextureView_);
+
+                // 7: Clearcoat
+                bgEntries[7] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[7].binding = 7;
+                bgEntries[7].textureView = getTexView(clearcoatTexIdx, defaultWhiteTextureView_);
+
+                // 8: Transmission
+                bgEntries[8] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[8].binding = 8;
+                bgEntries[8].textureView = getTexView(transmissionTexIdx, defaultWhiteTextureView_);
+
+                // 9: Sheen
+                bgEntries[9] = WGPU_BIND_GROUP_ENTRY_INIT;
+                bgEntries[9].binding = 9;
+                bgEntries[9].textureView = getTexView(sheenTexIdx, defaultWhiteTextureView_);
 
                 WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
                 bgDesc.layout = bindGroupLayout_;
-                bgDesc.entryCount = 3;
+                bgDesc.entryCount = 10;
                 bgDesc.entries = bgEntries;
                 prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
             }
@@ -385,17 +493,43 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
     for (auto& prim : node.primitives) {
         if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer) continue;
 
-        glm::vec4 baseColorFactor{ 1.0f };
-        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-            baseColorFactor = scene.materials[prim.materialIndex].baseColorFactor;
-        }
-
         PrimitiveUniforms uniforms;
         uniforms.viewProj = viewProj;
         uniforms.model = worldMat;
         uniforms.cameraPos = glm::vec4(cameraPos, 1.0f);
         uniforms.lightDir = glm::normalize(glm::vec4(0.5f, 1.0f, 0.8f, 0.0f));
-        uniforms.baseColorFactor = baseColorFactor;
+
+        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+            const auto& mat = scene.materials[prim.materialIndex];
+            uniforms.baseColorFactor = mat.baseColorFactor;
+            uniforms.metallicFactor = mat.metallicFactor;
+            uniforms.roughnessFactor = mat.roughnessFactor;
+            uniforms.normalScale = mat.normalScale;
+            uniforms.occlusionStrength = mat.occlusionStrength;
+            uniforms.emissiveFactor = glm::vec4(mat.emissiveFactor, mat.emissiveStrength);
+            uniforms.alphaCutoff = mat.alphaCutoff;
+            uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
+            uniforms.ior = mat.ior;
+            uniforms.clearcoatFactor = mat.clearcoatFactor;
+            uniforms.clearcoatRoughness = mat.clearcoatRoughnessFactor;
+            uniforms.transmissionFactor = mat.transmissionFactor;
+            uniforms.specularFactor = mat.specularFactor;
+            uniforms.sheenColorFactor = glm::vec4(mat.sheenColorFactor, mat.sheenRoughnessFactor);
+            uniforms.specularColorFactor = glm::vec4(mat.specularColorFactor, 0.0f);
+
+            uint32_t flags = 0;
+            if (mat.baseColorTextureIndex >= 0) flags |= MaterialFlags::HasBaseColorTex;
+            if (mat.metallicRoughnessTextureIndex >= 0) flags |= MaterialFlags::HasMetallicRoughnessTex;
+            if (mat.normalTextureIndex >= 0) flags |= MaterialFlags::HasNormalTex;
+            if (mat.emissiveTextureIndex >= 0) flags |= MaterialFlags::HasEmissiveTex;
+            if (mat.occlusionTextureIndex >= 0) flags |= MaterialFlags::HasOcclusionTex;
+            if (mat.clearcoatTextureIndex >= 0) flags |= MaterialFlags::HasClearcoatTex;
+            if (mat.transmissionTextureIndex >= 0) flags |= MaterialFlags::HasTransmissionTex;
+            if (mat.sheenColorTextureIndex >= 0) flags |= MaterialFlags::HasSheenTex;
+            if (mat.unlit) flags |= MaterialFlags::Unlit;
+            if (mat.doubleSided) flags |= MaterialFlags::DoubleSided;
+            uniforms.flags = flags;
+        }
 
         wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 

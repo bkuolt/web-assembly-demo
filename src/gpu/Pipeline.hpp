@@ -15,13 +15,53 @@ class SceneNode;
 
 namespace bgl::gpu {
 
-struct PrimitiveUniforms {
+namespace MaterialFlags {
+    constexpr uint32_t HasBaseColorTex         = 1u << 0;
+    constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
+    constexpr uint32_t HasNormalTex            = 1u << 2;
+    constexpr uint32_t HasEmissiveTex          = 1u << 3;
+    constexpr uint32_t HasOcclusionTex         = 1u << 4;
+    constexpr uint32_t HasClearcoatTex         = 1u << 5;
+    constexpr uint32_t HasTransmissionTex      = 1u << 6;
+    constexpr uint32_t HasSheenTex             = 1u << 7;
+    constexpr uint32_t Unlit                   = 1u << 8;
+    constexpr uint32_t DoubleSided             = 1u << 9;
+}
+
+struct alignas(16) PrimitiveUniforms {
+    // 0..127: Matrices
     glm::mat4 viewProj{1.0f};
     glm::mat4 model{1.0f};
+
+    // 128..159: Camera & Light
     glm::vec4 cameraPos{0.0f};
-    glm::vec4 lightDir{0.0f, 1.0f, 0.5f, 0.0f};
+    glm::vec4 lightDir{0.577f, 0.577f, 0.577f, 0.0f};
+
+    // 160..191: Base Color & PBR Core
     glm::vec4 baseColorFactor{1.0f};
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    float normalScale = 1.0f;
+    float occlusionStrength = 1.0f;
+
+    // 192..223: Emissive & Alpha & Flags
+    glm::vec4 emissiveFactor{0.0f, 0.0f, 0.0f, 1.0f}; // xyz = rgb, w = strength
+    float alphaCutoff = 0.5f;
+    uint32_t alphaMode = 0; // 0=Opaque, 1=Mask, 2=Blend
+    uint32_t flags = 0;
+    float ior = 1.5f;
+
+    // 224..255: Clearcoat, Transmission, Sheen
+    float clearcoatFactor = 0.0f;
+    float clearcoatRoughness = 0.0f;
+    float transmissionFactor = 0.0f;
+    float specularFactor = 1.0f;
+    glm::vec4 sheenColorFactor{0.0f, 0.0f, 0.0f, 0.0f}; // xyz = color, w = roughness
+
+    // 256..271: Specular Color
+    glm::vec4 specularColorFactor{1.0f, 1.0f, 1.0f, 0.0f};
 };
+static_assert(sizeof(PrimitiveUniforms) == 272, "PrimitiveUniforms must be exactly 272 bytes (16-byte aligned)");
 
 class PipelineManager {
 public:
@@ -47,8 +87,16 @@ private:
     WGPURenderPipeline wireframePipeline_ = nullptr;
     WGPUBindGroupLayout bindGroupLayout_ = nullptr;
 
-    WGPUTexture defaultTexture_ = nullptr;
-    WGPUTextureView defaultTextureView_ = nullptr;
+    // Default 1x1 Fallback Textures
+    WGPUTexture defaultWhiteTexture_ = nullptr;
+    WGPUTextureView defaultWhiteTextureView_ = nullptr;
+
+    WGPUTexture defaultNormalTexture_ = nullptr;
+    WGPUTextureView defaultNormalTextureView_ = nullptr;
+
+    WGPUTexture defaultBlackTexture_ = nullptr;
+    WGPUTextureView defaultBlackTextureView_ = nullptr;
+
     WGPUSampler defaultSampler_ = nullptr;
 };
 

@@ -41,7 +41,18 @@ static const char* ComponentTypeToString(fastgltf::ComponentType comp) {
 
 FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
     : assetManager_(assetManager),
-      parser_(fastgltf::Extensions::EXT_texture_webp | fastgltf::Extensions::KHR_texture_basisu) {}
+      parser_(fastgltf::Extensions::EXT_texture_webp |
+              fastgltf::Extensions::KHR_texture_basisu |
+              fastgltf::Extensions::KHR_texture_transform |
+              fastgltf::Extensions::KHR_materials_clearcoat |
+              fastgltf::Extensions::KHR_materials_transmission |
+              fastgltf::Extensions::KHR_materials_sheen |
+              fastgltf::Extensions::KHR_materials_specular |
+              fastgltf::Extensions::KHR_materials_ior |
+              fastgltf::Extensions::KHR_materials_iridescence |
+              fastgltf::Extensions::KHR_materials_volume |
+              fastgltf::Extensions::KHR_materials_emissive_strength |
+              fastgltf::Extensions::KHR_materials_unlit) {}
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<const uint8_t> data, std::string_view baseUri) {
     (void)baseUri;
@@ -186,11 +197,93 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
             sceneMat.baseColorTextureIndex = static_cast<int>(mat.pbrData.baseColorTexture->textureIndex);
         }
 
-        BGL_LOG_INFO("  * Material #{}: '{}' | baseColorFactor=[{:.2f}, {:.2f}, {:.2f}, {:.2f}], metallic={:.2f}, roughness={:.2f}, baseColorTex={}",
+        // Metallic-Roughness Texture
+        if (mat.pbrData.metallicRoughnessTexture.has_value()) {
+            sceneMat.metallicRoughnessTextureIndex = static_cast<int>(mat.pbrData.metallicRoughnessTexture->textureIndex);
+        }
+
+        // Normal Texture
+        if (mat.normalTexture.has_value()) {
+            sceneMat.normalTextureIndex = static_cast<int>(mat.normalTexture->textureIndex);
+            sceneMat.normalScale = mat.normalTexture->scale;
+        }
+
+        // Occlusion Texture
+        if (mat.occlusionTexture.has_value()) {
+            sceneMat.occlusionTextureIndex = static_cast<int>(mat.occlusionTexture->textureIndex);
+            sceneMat.occlusionStrength = mat.occlusionTexture->strength;
+        }
+
+        // Emissive
+        sceneMat.emissiveFactor = glm::vec3(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
+        if (mat.emissiveTexture.has_value()) {
+            sceneMat.emissiveTextureIndex = static_cast<int>(mat.emissiveTexture->textureIndex);
+        }
+        sceneMat.emissiveStrength = mat.emissiveStrength;
+
+        // Alpha Mode & Culling
+        if (mat.alphaMode == fastgltf::AlphaMode::Mask) {
+            sceneMat.alphaMode = AlphaMode::Mask;
+        } else if (mat.alphaMode == fastgltf::AlphaMode::Blend) {
+            sceneMat.alphaMode = AlphaMode::Blend;
+        } else {
+            sceneMat.alphaMode = AlphaMode::Opaque;
+        }
+        sceneMat.alphaCutoff = mat.alphaCutoff;
+        sceneMat.doubleSided = mat.doubleSided;
+        sceneMat.unlit = mat.unlit;
+
+        // KHR_materials_clearcoat
+        if (mat.clearcoat) {
+            sceneMat.clearcoatFactor = mat.clearcoat->clearcoatFactor;
+            sceneMat.clearcoatRoughnessFactor = mat.clearcoat->clearcoatRoughnessFactor;
+            if (mat.clearcoat->clearcoatTexture.has_value()) {
+                sceneMat.clearcoatTextureIndex = static_cast<int>(mat.clearcoat->clearcoatTexture->textureIndex);
+            }
+        }
+
+        // KHR_materials_transmission & IOR
+        if (mat.transmission) {
+            sceneMat.transmissionFactor = mat.transmission->transmissionFactor;
+            if (mat.transmission->transmissionTexture.has_value()) {
+                sceneMat.transmissionTextureIndex = static_cast<int>(mat.transmission->transmissionTexture->textureIndex);
+            }
+        }
+        sceneMat.ior = mat.ior;
+
+        // KHR_materials_sheen
+        if (mat.sheen) {
+            sceneMat.sheenColorFactor = glm::vec3(mat.sheen->sheenColorFactor[0], mat.sheen->sheenColorFactor[1], mat.sheen->sheenColorFactor[2]);
+            sceneMat.sheenRoughnessFactor = mat.sheen->sheenRoughnessFactor;
+            if (mat.sheen->sheenColorTexture.has_value()) {
+                sceneMat.sheenColorTextureIndex = static_cast<int>(mat.sheen->sheenColorTexture->textureIndex);
+            }
+        }
+
+        // KHR_materials_specular
+        if (mat.specular) {
+            sceneMat.specularFactor = mat.specular->specularFactor;
+            sceneMat.specularColorFactor = glm::vec3(mat.specular->specularColorFactor[0], mat.specular->specularColorFactor[1], mat.specular->specularColorFactor[2]);
+            if (mat.specular->specularTexture.has_value()) {
+                sceneMat.specularTextureIndex = static_cast<int>(mat.specular->specularTexture->textureIndex);
+            }
+        }
+
+        std::string extDesc = "";
+        if (sceneMat.clearcoatFactor > 0.0f) extDesc += " Clearcoat(" + std::to_string(sceneMat.clearcoatFactor) + ")";
+        if (sceneMat.transmissionFactor > 0.0f) extDesc += " Transmission(" + std::to_string(sceneMat.transmissionFactor) + ")";
+        if (glm::length(sceneMat.sheenColorFactor) > 0.0f) extDesc += " Sheen";
+        if (sceneMat.unlit) extDesc += " Unlit";
+        if (sceneMat.doubleSided) extDesc += " DoubleSided";
+
+        BGL_LOG_INFO("  * Material #{}: '{}' | baseColorFactor=[{:.2f}, {:.2f}, {:.2f}, {:.2f}], metal={:.2f}, rough={:.2f}, baseColorTex={}, normalTex={}, emissiveTex={}{}",
                      mIdx, sceneMat.name,
                      sceneMat.baseColorFactor.r, sceneMat.baseColorFactor.g, sceneMat.baseColorFactor.b, sceneMat.baseColorFactor.a,
                      sceneMat.metallicFactor, sceneMat.roughnessFactor,
-                     sceneMat.baseColorTextureIndex >= 0 ? std::to_string(sceneMat.baseColorTextureIndex) : "None");
+                     sceneMat.baseColorTextureIndex >= 0 ? std::to_string(sceneMat.baseColorTextureIndex) : "None",
+                     sceneMat.normalTextureIndex >= 0 ? std::to_string(sceneMat.normalTextureIndex) : "None",
+                     sceneMat.emissiveTextureIndex >= 0 ? std::to_string(sceneMat.emissiveTextureIndex) : "None",
+                     extDesc);
 
         scene->materials.push_back(sceneMat);
     }
@@ -309,6 +402,17 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                     fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
                         if (idx < meshPrim.vertices.size()) {
                             meshPrim.vertices[idx].uv = uv;
+                        }
+                    });
+                }
+
+                // TANGENT accessor
+                auto tanIt = prim.findAttribute("TANGENT");
+                if (tanIt != prim.attributes.end()) {
+                    const auto& tanAccessor = asset.accessors[tanIt->second];
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
+                        if (idx < meshPrim.vertices.size()) {
+                            meshPrim.vertices[idx].tangent = tan;
                         }
                     });
                 }
