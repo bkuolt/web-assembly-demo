@@ -8,10 +8,7 @@
 #include <webgpu/webgpu.h>
 #include <glm/glm.hpp>
 #include <vector>
-<<<<<<< HEAD
 #include <span>
-=======
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 #include "core/Types.hpp"
 
 namespace bgl::scene {
@@ -65,34 +62,20 @@ struct alignas(16) PrimitiveUniforms {
     float ior{1.5f};
 
     // 288..319: Clearcoat, Transmission, Sheen
-<<<<<<< HEAD
     float clearcoatFactor{0.0f};
     float clearcoatRoughness{0.0f};
     float transmissionFactor{0.0f};
     float specularFactor{1.0f};
-=======
-    float clearcoatFactor = 0.0f;
-    float clearcoatRoughness = 0.0f;
-    float transmissionFactor = 0.0f;
-    float specularFactor = 1.0f;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     glm::vec4 sheenColorFactor{0.0f, 0.0f, 0.0f, 0.0f}; // xyz = color, w = roughness
 
     // 320..335: Specular Color
     glm::vec4 specularColorFactor{1.0f, 1.0f, 1.0f, 0.0f};
 
     // 336..351: Bump, Reflection, Shadow & Environment Mip Parameters
-<<<<<<< HEAD
     float bumpScale{1.0f};
     float reflectionIntensity{1.0f};
     float shadowBias{0.0015f};
     float envMipCount{7.0f};
-=======
-    float bumpScale = 1.0f;
-    float reflectionIntensity = 1.0f;
-    float shadowBias = 0.0015f;
-    float envMipCount = 7.0f;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 };
 static_assert(sizeof(PrimitiveUniforms) == 352, "PrimitiveUniforms must be exactly 352 bytes (16-byte aligned)");
 
@@ -110,13 +93,8 @@ static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 
 class PipelineManager {
 public:
-<<<<<<< HEAD
     static constexpr uint32_t kShadowMapSize{2048};
     static constexpr uint32_t kEnvCubemapSize{64};
-=======
-    static constexpr uint32_t kShadowMapSize = 2048;
-    static constexpr uint32_t kEnvCubemapSize = 64;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
     PipelineManager() = default;
     ~PipelineManager();
@@ -143,68 +121,62 @@ public:
     void ToggleMipmapping(scene::Scene* activeScene = nullptr) { SetMipmappingEnabled(!mipmappingEnabled_, activeScene); }
     [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return mipmappingEnabled_; }
 
-    void SetShadowsEnabled(bool enabled) noexcept { shadowsEnabled_ = enabled; }
-    void ToggleShadows() noexcept { shadowsEnabled_ = !shadowsEnabled_; }
+    void SetShadowsEnabled(bool enabled) noexcept {
+        if (shadowsEnabled_ != enabled) {
+            shadowsEnabled_ = enabled;
+            shadowMapDirty_ = true;
+        }
+    }
+    void ToggleShadows() noexcept { SetShadowsEnabled(!shadowsEnabled_); }
     [[nodiscard]] bool IsShadowsEnabled() const noexcept { return shadowsEnabled_; }
 
     void SetReflectionsEnabled(bool enabled) noexcept { reflectionsEnabled_ = enabled; }
     void ToggleReflections() noexcept { reflectionsEnabled_ = !reflectionsEnabled_; }
     [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return reflectionsEnabled_; }
 
+    void SetOcclusionCullingEnabled(bool enabled) noexcept { occlusionCullingEnabled_ = enabled; }
+    void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
+    [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
+
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
+    [[nodiscard]] size_t GetOccludedPrimitiveCount() const noexcept { return lastOccludedPrimitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
     // Pure CPU helpers for Mipmap Generation, Shadow Matrices, and Cubemap Prefiltering (also used by unit tests)
     [[nodiscard]] static uint32_t CalculateMipLevels(uint32_t width, uint32_t height) noexcept;
-<<<<<<< HEAD
     [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
-=======
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
     [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds, const glm::vec3& lightDir) noexcept;
     [[nodiscard]] static std::vector<uint8_t> GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize, float roughness, const glm::vec3& sunDir);
 
 private:
-    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe);
-    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum);
+    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline);
+    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
     void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform);
 
-<<<<<<< HEAD
     bool initialized_{false};
     bool bumpMappingEnabled_{true};
     bool mipmappingEnabled_{true};
     bool shadowsEnabled_{true};
     bool reflectionsEnabled_{true};
-=======
-    bool initialized_ = false;
-    bool bumpMappingEnabled_ = true;
-    bool mipmappingEnabled_ = true;
-    bool shadowsEnabled_ = true;
-    bool reflectionsEnabled_ = true;
-
-    uint32_t sampleCount_ = 4;
-    uint32_t envMipLevels_ = 7;
-    size_t lastVisiblePrimitiveCount_ = 0;
-    glm::mat4 currentLightViewProj_{1.0f};
-    glm::vec3 currentLightDir_{0.35f, 1.0f, 0.25f};
-
-    WGPUDevice device_ = nullptr;
-    WGPUQueue queue_ = nullptr;
-    WGPUTextureFormat surfaceFormat_ = WGPUTextureFormat_BGRA8Unorm;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
+    bool occlusionCullingEnabled_{true};
+    bool shadowMapDirty_{true};
 
     uint32_t sampleCount_{4};
     uint32_t envMipLevels_{7};
     size_t lastVisiblePrimitiveCount_{0};
+    size_t lastOccludedPrimitiveCount_{0};
+    const scene::Scene* lastShadowScene_{nullptr};
+    glm::vec3 lastShadowLightDir_{0.0f};
     glm::mat4 currentLightViewProj_{1.0f};
     glm::vec3 currentLightDir_{0.35f, 1.0f, 0.25f};
 
-<<<<<<< HEAD
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
 
     WGPURenderPipeline opaquePipeline_{nullptr};
+    WGPURenderPipeline opaqueBackCulledPipeline_{nullptr};
     WGPURenderPipeline wireframePipeline_{nullptr};
     WGPUBindGroupLayout bindGroupLayout_{nullptr};
 
@@ -227,27 +199,7 @@ private:
     WGPUBindGroup aabbBindGroup_{nullptr};
     size_t aabbVertexBufferSize_{0};
     std::vector<AabbVertex> batchedAabbVertices_{};
-=======
-    // Directional Shadow Mapping Resources
-    WGPURenderPipeline shadowPipeline_ = nullptr;
-    WGPUBindGroupLayout shadowBindGroupLayout_ = nullptr;
-    WGPUTexture shadowDepthTexture_ = nullptr;
-    WGPUTextureView shadowDepthView_ = nullptr;
-    WGPUSampler shadowSampler_ = nullptr;
-
-    // Pre-filtered Environment Cubemap Resources
-    WGPUTexture envCubemapTexture_ = nullptr;
-    WGPUTextureView envCubemapView_ = nullptr;
-
-    // AABB Wireframe Resources
-    WGPURenderPipeline aabbPipeline_ = nullptr;
-    WGPUBindGroupLayout aabbBindGroupLayout_ = nullptr;
-    WGPUBuffer aabbVertexBuffer_ = nullptr;
-    WGPUBuffer aabbUniformBuffer_ = nullptr;
-    WGPUBindGroup aabbBindGroup_ = nullptr;
-    size_t aabbVertexBufferSize_ = 0;
-    std::vector<AabbVertex> batchedAabbVertices_;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
+    std::vector<AabbVertex> cachedSceneAabbVertices_{};
 
     // Default 1x1 Fallback Textures
     WGPUTexture defaultWhiteTexture_{nullptr};
@@ -260,13 +212,8 @@ private:
     WGPUTextureView defaultBlackTextureView_{nullptr};
 
     // Samplers (Trilinear 16x Aniso vs Nearest Mip-0)
-<<<<<<< HEAD
     WGPUSampler defaultSampler_{nullptr};
     WGPUSampler noMipSampler_{nullptr};
-=======
-    WGPUSampler defaultSampler_ = nullptr;
-    WGPUSampler noMipSampler_ = nullptr;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 };
 
 } // namespace bgl::gpu

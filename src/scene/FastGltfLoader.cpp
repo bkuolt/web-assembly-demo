@@ -444,8 +444,16 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                                 });
                             }
 
-                            // Auto-generate MikkTSpace/Lengyel tangents for bump/normal mapping if absent
-                            if (!hasExplicitTangents) {
+                            // Auto-generate MikkTSpace/Lengyel tangents for bump/normal mapping if absent or degenerate
+                            bool needsTangentCompute{!hasExplicitTangents};
+                            if (hasExplicitTangents && !meshPrim.vertices.empty()) {
+                                const auto& firstTan{meshPrim.vertices.front().tangent};
+                                const glm::vec3 tVec{firstTan.x, firstTan.y, firstTan.z};
+                                if (glm::dot(tVec, tVec) < 0.25f || std::abs(firstTan.w) < 0.1f) {
+                                    needsTangentCompute = true;
+                                }
+                            }
+                            if (needsTangentCompute) {
                                 meshPrim.ComputeTangents();
                             }
 

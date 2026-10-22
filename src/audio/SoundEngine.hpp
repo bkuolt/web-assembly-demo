@@ -37,9 +37,9 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
 private:
-    bool initialized_ = false;
+    bool initialized_{false};
     ma_engine engine_{};
-    std::unordered_map<std::string, ma_sound> activeSounds_;
+    std::unordered_map<std::string, ma_sound> activeSounds_{};
 };
 
 } // namespace bgl::audio

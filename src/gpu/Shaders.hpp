@@ -128,7 +128,9 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     out.clipPos = ubo.viewProj * world;
     out.normal = normalize((ubo.model * vec4<f32>(in.normal, 0.0)).xyz);
     let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
-    out.tangent = vec4<f32>(worldTan, in.tangent.w);
+    let tanLen = length(worldTan);
+    let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
+    out.tangent = vec4<f32>(normTan, in.tangent.w);
     out.uv = in.uv;
     return out;
 }
@@ -138,18 +140,25 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent 
     // Gram-Schmidt orthogonalize vertex tangent against geometric normal
     let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
     let orthoLenSq = dot(orthoT, orthoT);
-    if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-4) {
+    if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-6) {
         let T = orthoT * inverseSqrt(orthoLenSq);
         let B = normalize(cross(N, T) * sign(tangent.w));
         return mat3x3<f32>(T, B, N);
     }
-    // Screen-space cotangent frame fallback
+    // Screen-space cotangent frame fallback (scale-invariant normalization)
     let dp2perp = cross(dp2, N);
     let dp1perp = cross(N, dp1);
     let T = dp2perp * duv1.x + dp1perp * duv2.x;
     let B = dp2perp * duv1.y + dp1perp * duv2.y;
-    let invmax = inverseSqrt(max(dot(T, T), dot(B, B)) + 1e-6);
-    return mat3x3<f32>(T * invmax, B * invmax, N);
+    let maxLenSq = max(dot(T, T), dot(B, B));
+    if (maxLenSq > 1e-18) {
+        let invmax = inverseSqrt(maxLenSq);
+        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+    }
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
+    let fallbackT = normalize(cross(up, N));
+    let fallbackB = normalize(cross(N, fallbackT));
+    return mat3x3<f32>(fallbackT, fallbackB, N);
 }
 
 fn distributionGGX(NdotH : f32, roughness : f32) -> f32 {
@@ -227,10 +236,26 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let transTexSample = textureSample(transmissionTexture, defaultSampler, in.uv);
     let sheenTexSample = textureSample(sheenTexture, defaultSampler, in.uv);
 
-    // Compute luminance height derivatives for screen-space micro-relief bump mapping
-    let surfaceHeight = dot(baseTexSample.rgb, vec3<f32>(0.299, 0.587, 0.114));
-    let dHdX = dpdx(surfaceHeight);
-    let dHdY = dpdy(surfaceHeight);
+    // Compute UV-space central-difference height gradients for true texture-space bump mapping
+    let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
+    let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
+    let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
+
+    let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+    let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+    let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+    let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+
+    var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
+    var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
+    if ((ubo.flags & 16u) != 0u) {
+        let occR = textureSampleGrad(occlusionTexture, defaultSampler, in.uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+        let occL = textureSampleGrad(occlusionTexture, defaultSampler, in.uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+        let occU = textureSampleGrad(occlusionTexture, defaultSampler, in.uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+        let occD = textureSampleGrad(occlusionTexture, defaultSampler, in.uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+        dHdU = dHdU + (occR - occL) * 0.75;
+        dHdV = dHdV + (occU - occD) * 0.75;
+    }
 
     // 1. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
@@ -258,20 +283,31 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var N = geomN;
+    var bumpCavity = 1.0;
     // Flag bit 10 (1024u) = EnableBumpMapping
     if ((ubo.flags & 1024u) != 0u) {
         let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
+        var tangentXY = vec2<f32>(0.0, 0.0);
+        var tangentZ = 1.0;
         if ((ubo.flags & 4u) != 0u) {
-            // Tangent-space normal map + fine derivative bump relief
+            // Tangent-space normal map + UV-space height-map micro-relief
             let normTex = normTexSample.xyz * 2.0 - 1.0;
-            let microBump = vec2<f32>(-dHdX, -dHdY) * 1.25 * ubo.bumpScale;
-            let scaledNorm = vec3<f32>(normTex.xy * ubo.normalScale * ubo.bumpScale + microBump, max(normTex.z, 0.01));
-            N = normalize(tbn * scaledNorm);
-        } else if ((ubo.flags & 1u) != 0u) {
-            // Derivative height bump mapping from texture luminance
-            let bumpPerturb = vec3<f32>(-dHdX * 3.5 * ubo.bumpScale, -dHdY * 3.5 * ubo.bumpScale, 1.0);
-            N = normalize(tbn * bumpPerturb);
+            let heightBump = vec2<f32>(-dHdU, -dHdV) * 4.2 * ubo.bumpScale;
+            tangentXY = normTex.xy * (ubo.normalScale * 1.85 * ubo.bumpScale) + heightBump;
+            tangentZ = max(normTex.z, 0.15);
+        } else if ((ubo.flags & 1u) != 0u || (ubo.flags & 16u) != 0u) {
+            // UV-space central-difference height bump mapping from texture luminance & occlusion
+            tangentXY = vec2<f32>(-dHdU, -dHdV) * 7.5 * ubo.bumpScale;
+            tangentZ = 1.0;
         }
+        let scaledNorm = normalize(vec3<f32>(tangentXY, tangentZ));
+        N = normalize(tbn * scaledNorm);
+        // Ensure perturbed normal stays in visible hemisphere to prevent black artifacts
+        if (dot(N, geomN) < 0.05) {
+            N = normalize(mix(geomN, N, 0.65));
+        }
+        let slopeSq = dot(tangentXY, tangentXY);
+        bumpCavity = clamp(1.0 - 0.22 * slopeSq, 0.58, 1.0);
     }
 
     // 3. Metallic & Roughness
@@ -349,13 +385,13 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
-    // 10. Ambient Occlusion
+    // 10. Ambient Occlusion & Micro-Cavity Self-Shadowing
     var ao = 1.0;
     if ((ubo.flags & 16u) != 0u) {
         let occSample = occTexSample.r;
         ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
     }
-    ao = clamp(ao, 0.0, 1.0);
+    ao = clamp(ao * bumpCavity, 0.0, 1.0);
 
     // 11. Emissive (KHR_materials_emissive_strength)
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
@@ -369,21 +405,35 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         shadowFactor = computePCFShadow(in.worldPos, geomN, L);
     }
 
-    // 13. Direct Lighting Composition
+    // 13. Direct Sun Lighting + Architectural Courtyard Fill Light (reveals bump/normal relief in shadowed areas)
     let lightColor = vec3<f32>(1.0, 0.98, 0.95);
     let directDiffuse = diffuseBRDF * (1.0 - transFactor);
-    var directLighting = (directDiffuse + specularBRDF) * lightColor * NdotL * 3.14159265359;
+    var directLighting = (directDiffuse + specularBRDF) * lightColor * NdotL * 3.14159265359 * bumpCavity;
 
     if (ccFactor > 0.001) {
         directLighting = directLighting * (1.0 - clearcoatF * ccFactor) + clearcoatLobe * lightColor * NdotL * 3.14159265359;
     }
     directLighting = (directLighting + sheenLobe * lightColor * NdotL) * shadowFactor;
 
+    // Courtyard Sky & View Fill Light (active in shadowed arcades so normal/bump relief remains crisp)
+    let L_fill = normalize(V * 0.55 + vec3<f32>(0.25, 0.85, 0.20));
+    let H_fill = normalize(L_fill + V);
+    let NdotL_fill = max(dot(N, L_fill), 0.0);
+    let NdotH_fill = max(dot(N, H_fill), 0.0);
+    let VdotH_fill = max(dot(V, H_fill), 0.0);
+    let D_fill = distributionGGX(NdotH_fill, max(roughness * 0.85, 0.08));
+    let Vis_fill = visibilitySmithGGX(NdotL_fill, NdotV, max(roughness * 0.85, 0.08));
+    let F_fill = fresnelSchlick(VdotH_fill, F0);
+    let fillSpec = D_fill * Vis_fill * F_fill;
+    let fillDiff = (vec3<f32>(1.0) - F_fill) * (1.0 - metallic) * (diffuseColor / 3.14159265359) * (1.0 - transFactor);
+    let fillLightColor = vec3<f32>(0.62, 0.70, 0.82);
+    let fillLighting = (fillDiff * 0.85 + fillSpec * 1.35) * fillLightColor * NdotL_fill * 3.14159265359 * ao;
+
     // 14. Environment Cubemap Reflections & IBL (Flag bit 13 = 8192u = EnableReflections)
     let skyColor = vec3<f32>(0.38, 0.48, 0.62);
     let groundColor = vec3<f32>(0.26, 0.22, 0.18);
     let hemiFactor = N.y * 0.5 + 0.5;
-    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 1.4;
+    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 0.95;
 
     var ambientDiffuse = diffuseColor * ambientLight * ao * (1.0 - transFactor);
     var ambientSpecular = vec3<f32>(0.0);
@@ -396,7 +446,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let envIrradiance = textureSampleLevel(envCubemap, defaultSampler, N, maxMip).rgb;
         let envBrdf = envBRDFApprox(F0, roughness, NdotV);
 
-        ambientDiffuse = diffuseColor * mix(ambientLight, envIrradiance * 1.6, 0.65) * ao * (1.0 - transFactor);
+        ambientDiffuse = diffuseColor * mix(ambientLight, envIrradiance * 1.15, 0.55) * ao * (1.0 - transFactor);
         ambientSpecular = prefilteredEnv * envBrdf * ubo.reflectionIntensity * mix(0.35, 1.0, ao);
 
         if (ccFactor > 0.001) {
@@ -410,7 +460,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         ambientSpecular = mix(F0, vec3<f32>(1.0), pow(1.0 - NdotV, 5.0)) * ambientLight * (1.0 - roughness) * 0.25 * ao;
     }
 
-    let finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
+    let finalColor = directLighting + fillLighting + ambientDiffuse + ambientSpecular + emissive;
 
     var outAlpha = baseColor.a;
     if (transFactor > 0.001) {

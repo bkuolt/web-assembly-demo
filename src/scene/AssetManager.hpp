@@ -20,7 +20,7 @@ namespace bgl::scene {
  * @brief Compute 64-bit FNV-1a hash over binary data span.
  */
 [[nodiscard]] constexpr uint64_t Fnv1a64(std::span<const uint8_t> data) noexcept {
-    uint64_t hash = 14695981039346656037ULL;
+    uint64_t hash{14695981039346656037ULL};
     for (uint8_t byte : data) {
         hash ^= static_cast<uint64_t>(byte);
         hash *= 1099511628211ULL;
@@ -32,7 +32,7 @@ namespace bgl::scene {
  * @brief Compute 64-bit FNV-1a hash over string view.
  */
 [[nodiscard]] constexpr uint64_t Fnv1a64(std::string_view str) noexcept {
-    return Fnv1a64(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(str.data()), str.size()));
+    return Fnv1a64(std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(str.data()), str.size()});
 }
 
 /**

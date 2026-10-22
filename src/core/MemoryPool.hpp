@@ -84,18 +84,18 @@ private:
     };
 
     void AllocateNewBlock() {
-        Node* newBlock = new Node[BlockSize];
+        Node* newBlock{new Node[BlockSize]};
         blocks_.push_back(newBlock);
-        for (size_t i = 0; i < BlockSize - 1; ++i) {
+        for (size_t i{0}; i < BlockSize - 1; ++i) {
             newBlock[i].next = &newBlock[i + 1];
         }
         newBlock[BlockSize - 1].next = freeHead_;
         freeHead_ = &newBlock[0];
     }
 
-    std::vector<Node*> blocks_;
-    Node* freeHead_ = nullptr;
-    size_t allocatedCount_ = 0;
+    std::vector<Node*> blocks_{};
+    Node* freeHead_{nullptr};
+    size_t allocatedCount_{0};
 };
 
 /**
@@ -120,9 +120,9 @@ public:
     [[nodiscard]] size_t Capacity() const noexcept { return capacity_; }
 
 private:
-    size_t capacity_;
-    std::byte* buffer_ = nullptr;
-    std::pmr::monotonic_buffer_resource* monotonicResource_ = nullptr;
+    size_t capacity_{0};
+    std::byte* buffer_{nullptr};
+    std::pmr::monotonic_buffer_resource* monotonicResource_{nullptr};
 };
 
 } // namespace bgl::core

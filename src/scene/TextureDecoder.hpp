@@ -17,10 +17,10 @@ namespace bgl::scene {
  * @brief Raw RGBA8 2D bitmap texture.
  */
 struct DecodedImage {
-    uint32_t width = 0;
-    uint32_t height = 0;
-    uint32_t channels = 4;
-    std::vector<uint8_t> rgbaData;
+    uint32_t width{0};
+    uint32_t height{0};
+    uint32_t channels{4};
+    std::vector<uint8_t> rgbaData{};
 };
 
 /**

@@ -105,6 +105,31 @@ TEST(RenderingFeaturesTest, BumpMappingDegenerateUVFallbackProducesOrthonormalBa
     }
 }
 
+TEST(RenderingFeaturesTest, BumpMappingScaledModelMatrixPreservesOrthonormalTBN) {
+    // Verify that downscaled models (e.g. Sponza scale = 0.008) keep unit-length tangents after vertex shader normalization
+    scene::MeshPrimitive prim{};
+    core::Vertex v0{}, v1{}, v2{};
+    v0.position = glm::vec3{0.0f, 0.0f, 0.0f}; v0.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v0.uv = glm::vec2{0.0f, 0.0f};
+    v1.position = glm::vec3{100.0f, 0.0f, 0.0f}; v1.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v1.uv = glm::vec2{1.0f, 0.0f};
+    v2.position = glm::vec3{0.0f, 100.0f, 0.0f}; v2.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v2.uv = glm::vec2{0.0f, 1.0f};
+
+    prim.vertices = {v0, v1, v2};
+    prim.indices = {0, 1, 2};
+    prim.ComputeTangents();
+
+    const glm::mat4 sponzaScaleModel{glm::scale(glm::mat4{1.0f}, glm::vec3{0.008f})};
+    const glm::vec3 worldN{glm::normalize(glm::vec3{sponzaScaleModel * glm::vec4{prim.vertices[0].normal, 0.0f}})};
+    const glm::vec3 rawWorldTan{glm::vec3{sponzaScaleModel * glm::vec4{glm::vec3{prim.vertices[0].tangent}, 0.0f}}};
+    // Without vertex shader normalization, rawWorldTan length is 0.008 (lenSq = 6.4e-5 < 1e-4!)
+    EXPECT_NEAR(glm::length(rawWorldTan), 0.008f, 1e-5f);
+
+    // With vertex shader normalization (as in vs_main), orthoLenSq is ~1.0
+    const glm::vec3 normWorldTan{glm::normalize(rawWorldTan)};
+    const glm::vec3 orthoT{normWorldTan - worldN * glm::dot(worldN, normWorldTan)};
+    const float orthoLenSq{glm::dot(orthoT, orthoT)};
+    EXPECT_GT(orthoLenSq, 0.99f);
+}
+
 // ============================================================================
 // 2. Mip-Mapping Support Tests
 // ============================================================================
@@ -139,17 +164,10 @@ TEST(RenderingFeaturesTest, MipmapFullPyramidGenerationPreservesAverageColor) {
         }
     }
 
-<<<<<<< HEAD
     for (uint32_t mip{1}; mip < levels; ++mip) {
         const uint32_t nextW{std::max(1u, w >> 1u)};
         const uint32_t nextH{std::max(1u, h >> 1u)};
         currentMip = gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{currentMip}, w, h, nextW, nextH, false);
-=======
-    for (uint32_t mip = 1; mip < levels; ++mip) {
-        uint32_t nextW = std::max(1u, w >> 1u);
-        uint32_t nextH = std::max(1u, h >> 1u);
-        currentMip = gpu::PipelineManager::GenerateNextMipLevel(currentMip.data(), w, h, nextW, nextH, false);
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
         ASSERT_EQ(currentMip.size(), static_cast<size_t>(nextW * nextH * 4));
         w = nextW;
         h = nextH;
@@ -176,11 +194,7 @@ TEST(RenderingFeaturesTest, NormalMapMipDownsamplingMaintainsUnitLengthVectors) 
         normalMip0[i * 4 + 3] = 255;
     }
 
-<<<<<<< HEAD
     auto normalMip1{gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{normalMip0}, 4, 4, 2, 2, true)};
-=======
-    auto normalMip1 = gpu::PipelineManager::GenerateNextMipLevel(normalMip0.data(), 4, 4, 2, 2, true);
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     ASSERT_EQ(normalMip1.size(), 2u * 2u * 4u);
 
     for (size_t i = 0; i < 4; ++i) {

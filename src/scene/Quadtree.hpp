@@ -29,6 +29,53 @@ struct QuadtreeItem {
     size_t primitiveIndex{0};
     core::AABB aabb{};
     LODLevel currentLOD{LODLevel::LOD0};
+    float distanceToCamera{0.0f};
+};
+
+/**
+ * @class OcclusionBuffer
+ * @brief L1-cache-friendly 32x16 hierarchical screen-space depth buffer (Hi-Z tiles)
+ *        for conservative CPU Quadtree & AABB occlusion culling.
+ */
+class OcclusionBuffer {
+public:
+    static constexpr uint32_t kWidth{32};
+    static constexpr uint32_t kHeight{16};
+
+    OcclusionBuffer() noexcept { Clear(); }
+
+    void Clear() noexcept {
+        tiles_.fill(1.0f);
+    }
+
+    /**
+     * @brief Projects a world-space AABB into NDC [-1, 1]^2 x [0, 1].
+     * @return false if the AABB clips behind the near plane (w <= 0) or is invalid.
+     */
+    [[nodiscard]] static bool ProjectAABB(const core::AABB& box,
+                                          const glm::mat4& viewProj,
+                                          glm::vec2& ndcMinOut,
+                                          glm::vec2& ndcMaxOut,
+                                          float& minZOut,
+                                          float& maxZOut) noexcept;
+
+    /**
+     * @brief Returns true if a projected AABB [ndcMin..ndcMax] with nearest depth minZ
+     *        is completely hidden behind existing occluders in all covered screen tiles.
+     */
+    [[nodiscard]] bool IsOccluded(const glm::vec2& ndcMin,
+                                  const glm::vec2& ndcMax,
+                                  float minZ) const noexcept;
+
+    /**
+     * @brief Conservatively rasterizes an opaque AABB's inner core into the depth tiles.
+     */
+    void RasterizeOccluder(const glm::vec2& ndcMin,
+                           const glm::vec2& ndcMax,
+                           float occluderMaxZ) noexcept;
+
+private:
+    std::array<float, kWidth * kHeight> tiles_{};
 };
 
 /**
@@ -44,7 +91,12 @@ public:
 
     bool Insert(const QuadtreeItem& item);
     void ForceInsert(const QuadtreeItem& item) { items_.push_back(item); }
-    void QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut) const;
+    void QueryFrustum(const core::Frustum& frustum,
+                      const glm::vec3& camPos,
+                      std::vector<QuadtreeItem>& visibleItemsOut,
+                      const glm::mat4* viewProj = nullptr,
+                      OcclusionBuffer* occlusionBuf = nullptr,
+                      size_t* occludedCountOut = nullptr) const;
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
     [[nodiscard]] const core::AABB& GetLooseBounds() const noexcept { return looseBounds_; }
@@ -76,14 +128,20 @@ public:
     void Clear();
     void Reset(const core::AABB& worldBounds);
 
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
+                                                         const glm::vec3& cameraPos,
+                                                         const glm::mat4& viewProj,
+                                                         bool enableOcclusionCulling = true) const;
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
     void GetNodeBounds(std::vector<core::AABB>& boundsOut) const;
     [[nodiscard]] size_t GetNodeCount() const noexcept;
+    [[nodiscard]] size_t GetLastOccludedCount() const noexcept { return lastOccludedCount_; }
 
 private:
     core::AABB worldBounds_{};
     std::unique_ptr<QuadtreeNode> root_{nullptr};
+    mutable size_t lastOccludedCount_{0};
 };
 
 } // namespace bgl::scene

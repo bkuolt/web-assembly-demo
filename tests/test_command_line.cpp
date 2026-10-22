@@ -83,7 +83,6 @@ TEST(CommandLineTest, FeatureToggles) {
     EXPECT_FALSE(opt.enableShadows);
     EXPECT_FALSE(opt.enableReflections);
 
-<<<<<<< HEAD
     const std::array<const char*, 9> argsReEnable{
         "bgl_viewer",
         "--no-bump",
@@ -96,20 +95,6 @@ TEST(CommandLineTest, FeatureToggles) {
         "--reflections"
     };
     auto optRe{CliOptions::Parse(std::span<const char* const>{argsReEnable})};
-=======
-    char* argvReEnable[] = {
-        const_cast<char*>("bgl_viewer"),
-        const_cast<char*>("--no-bump"),
-        const_cast<char*>("--bump"),
-        const_cast<char*>("--no-mipmaps"),
-        const_cast<char*>("--mipmaps"),
-        const_cast<char*>("--no-shadows"),
-        const_cast<char*>("--shadows"),
-        const_cast<char*>("--no-reflections"),
-        const_cast<char*>("--reflections")
-    };
-    auto optRe = CliOptions::Parse(9, argvReEnable);
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
     EXPECT_TRUE(optRe.enableBumpMapping);
     EXPECT_TRUE(optRe.enableMipmapping);
     EXPECT_TRUE(optRe.enableShadows);

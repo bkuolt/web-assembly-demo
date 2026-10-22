@@ -60,6 +60,11 @@ void bgl_toggle_reflections() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_occlusion() {
+    if (g_pApp) g_pApp->ToggleOcclusionCulling();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) {
     if (g_pApp && name && buffer && size > 0) {
         g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));
@@ -128,6 +133,7 @@ int main(int argc, char** argv) {
     config.enableMipmapping = cli.enableMipmapping;
     config.enableShadows = cli.enableShadows;
     config.enableReflections = cli.enableReflections;
+    config.enableOcclusionCulling = cli.enableOcclusionCulling;
 
     bgl::app::Application app;
     if (auto res = app.Initialize(config); !res) {
@@ -145,8 +151,6 @@ int main(int argc, char** argv) {
 
         app.Update(deltaTime);
         app.Render();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS cap
     }
 
     app.Shutdown();

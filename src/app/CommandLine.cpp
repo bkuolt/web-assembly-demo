@@ -81,6 +81,10 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.enableReflections = false;
         } else if (arg == "--reflections") {
             opt.enableReflections = true;
+        } else if (arg == "--no-occlusion") {
+            opt.enableOcclusionCulling = false;
+        } else if (arg == "--occlusion") {
+            opt.enableOcclusionCulling = true;
         } else if (!arg.starts_with("-")) {
             // Positional argument interpreted as asset path if not set
             if (opt.assetPath.empty()) {
@@ -126,6 +130,7 @@ RENDERING TOGGLES:
   --no-mipmaps / --mipmaps      Disable / enable Trilinear Mipmapping (default: ON)
   --no-shadows / --shadows      Disable / enable 2048x2048 PCF Shadow Mapping (default: ON)
   --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
+  --no-occlusion / --occlusion  Disable / enable Quadtree Hierarchical Occlusion Culling (default: ON)
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
@@ -136,6 +141,7 @@ INTERACTIVE CONTROLS:
   Mouse Wheel                   Smooth zoom in / out
   B                             Toggle 3D Wireframe Bounding Boxes & AABBs
   Q                             Toggle 3D Quadtree Ground Partition Boundaries
+  C                             Toggle Quadtree Hierarchical Occlusion Culling
   K                             Toggle Procedural Atmospheric Skybox
   V                             Toggle Bump & Tangent-Space Normal Mapping
   L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)

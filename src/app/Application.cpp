@@ -67,6 +67,7 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetMipmappingEnabled(config.enableMipmapping);
     pipelineManager_.SetShadowsEnabled(config.enableShadows);
     pipelineManager_.SetReflectionsEnabled(config.enableReflections);
+    pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
@@ -193,6 +194,9 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_r) {
                     ToggleReflections();
                     BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+                } else if (event.key.keysym.sym == SDLK_c) {
+                    ToggleOcclusionCulling();
+                    BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling: {}", pipelineManager_.IsOcclusionCullingEnabled());
                 }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
@@ -272,13 +276,16 @@ void Application::Update(float deltaTime) {
     stats.mipmappingEnabled = pipelineManager_.IsMipmappingEnabled();
     stats.shadowsEnabled = pipelineManager_.IsShadowsEnabled();
     stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
+    stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
 
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;
         stats.visiblePrimitives = pipelineManager_.GetVisiblePrimitiveCount();
+        stats.occludedPrimitives = pipelineManager_.GetOccludedPrimitiveCount();
     } else {
         stats.quadtreeNodes = 0;
         stats.visiblePrimitives = totalPrimitives_;
+        stats.occludedPrimitives = 0;
     }
 
     debugOverlay_.Update(deltaTime, stats);

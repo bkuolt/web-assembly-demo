@@ -26,7 +26,6 @@ namespace bgl::app {
  * @brief Startup parameters and initial rendering states.
  */
 struct ApplicationConfig {
-<<<<<<< HEAD
     uint32_t width{1280};
     uint32_t height{720};
     std::string assetPath{};
@@ -38,19 +37,7 @@ struct ApplicationConfig {
     bool enableMipmapping{true};
     bool enableShadows{true};
     bool enableReflections{true};
-=======
-    uint32_t width = 1280;
-    uint32_t height = 720;
-    std::string assetPath = "";
-    bool enableSkybox = true;
-    bool enableBoundingBoxes = true;
-    bool enableQuadtreeBounds = false;
-    bool enableDebugOverlay = true;
-    bool enableBumpMapping = true;
-    bool enableMipmapping = true;
-    bool enableShadows = true;
-    bool enableReflections = true;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
+    bool enableOcclusionCulling{true};
 };
 
 /**
@@ -76,6 +63,7 @@ public:
     void ToggleMipmapping() { pipelineManager_.ToggleMipmapping(activeScene_.get()); }
     void ToggleShadows() noexcept { pipelineManager_.ToggleShadows(); }
     void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
+    void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
@@ -85,6 +73,7 @@ public:
     [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return pipelineManager_.IsMipmappingEnabled(); }
     [[nodiscard]] bool IsShadowsEnabled() const noexcept { return pipelineManager_.IsShadowsEnabled(); }
     [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return pipelineManager_.IsReflectionsEnabled(); }
+    [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }

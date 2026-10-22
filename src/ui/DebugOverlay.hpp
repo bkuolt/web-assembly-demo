@@ -32,8 +32,8 @@ struct OverlayStats {
 
     size_t quadtreeNodes{0};
     size_t visiblePrimitives{0};
+    size_t occludedPrimitives{0};
 
-<<<<<<< HEAD
     bool boundingBoxesEnabled{true};
     bool quadtreeBoundsEnabled{false};
     bool skyboxEnabled{true};
@@ -41,15 +41,7 @@ struct OverlayStats {
     bool mipmappingEnabled{true};
     bool shadowsEnabled{true};
     bool reflectionsEnabled{true};
-=======
-    bool boundingBoxesEnabled = true;
-    bool quadtreeBoundsEnabled = false;
-    bool skyboxEnabled = true;
-    bool bumpMappingEnabled = true;
-    bool mipmappingEnabled = true;
-    bool shadowsEnabled = true;
-    bool reflectionsEnabled = true;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
+    bool occlusionCullingEnabled{true};
 };
 
 /**

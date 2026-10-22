@@ -16,13 +16,13 @@ namespace bgl::core {
 struct GamepadState {
     glm::vec2 leftStick{0.0f};  // Pan
     glm::vec2 rightStick{0.0f}; // Orbit
-    float leftTrigger = 0.0f;   // Zoom Out
-    float rightTrigger = 0.0f;  // Zoom In
-    bool buttonA = false;       // Ray-Picking
-    bool buttonB = false;
-    bool buttonX = false;
-    bool buttonY = false;       // Bounding-Box Toggle
-    bool connected = false;
+    float leftTrigger{0.0f};    // Zoom Out
+    float rightTrigger{0.0f};   // Zoom In
+    bool buttonA{false};        // Ray-Picking
+    bool buttonB{false};
+    bool buttonX{false};
+    bool buttonY{false};        // Bounding-Box Toggle
+    bool connected{false};
 };
 
 /**
@@ -31,7 +31,7 @@ struct GamepadState {
  */
 class Gamepad {
 public:
-    static constexpr float kDeadzone = 0.12f;
+    static constexpr float kDeadzone{0.12f};
 
     Gamepad() = default;
     void Update() noexcept;
@@ -46,7 +46,7 @@ public:
     void SetRawState(const GamepadState& raw) noexcept;
 
 private:
-    GamepadState state_;
+    GamepadState state_{};
 };
 
 } // namespace bgl::core

@@ -111,18 +111,20 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawText(camText, textX, textY, glm::vec4(0.80f, 0.85f, 0.92f, 1.0f));
     textY += lineSpacing;
 
-    // Line 5: Spatial Quadtree Culling
-    std::string spatialText = std::format("Quadtree: {} Nodes | Visible Prims: {}/{}",
+    // Line 5: Spatial Quadtree & Occlusion Culling
+    std::string spatialText = std::format("Quadtree: {} Nodes | Vis: {}/{} (Occl: {})",
                                           currentStats_.quadtreeNodes,
                                           currentStats_.visiblePrimitives,
-                                          currentStats_.primitiveCount);
+                                          currentStats_.primitiveCount,
+                                          currentStats_.occludedPrimitives);
     textRenderer_.DrawText(spatialText, textX, textY, glm::vec4(0.20f, 0.83f, 0.60f, 1.0f));
     textY += lineSpacing;
 
     // Line 6: Spatial & Scene Toggles
-    std::string toggleText = std::format("[B] AABBs: {}  [Q] Quadtree: {}  [K] Sky: {}",
+    std::string toggleText = std::format("[B] AABBs: {}  [Q] Quad: {}  [C] Occl: {}  [K] Sky: {}",
                                          currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
                                          currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF",
+                                         currentStats_.occlusionCullingEnabled ? "ON" : "OFF",
                                          currentStats_.skyboxEnabled ? "ON" : "OFF");
     textRenderer_.DrawText(toggleText, textX, textY, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
     textY += lineSpacing;

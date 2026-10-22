@@ -2,6 +2,9 @@
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+[![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
+[![Tests](https://img.shields.io/badge/Unit_Tests-60_Passing-22c55e?style=for-the-badge)](tests/)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.7.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -14,6 +17,20 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ## Overview
 
 **WebAssembly an WebGPU Demo (bgl-Engine)** is a modern, high-performance 3D rendering engine built in strict C++23 with a hardware WebGPU backend (`wgpu-native` on desktop, HTML5 WebGPU in browser). It features complete glTF 2.0 and KHR material model support, zero-GLFW architecture, PMR-backed memory management, HarfBuzz & FreeType 2 text shaping, spatial Quadtree partitioning, procedural atmospheric skybox, and dual-target deployment.
+
+### At a Glance: Feature & Capabilities Matrix
+
+| Subsystem | Key Capabilities | Runtime Toggle / CLI |
+| :--- | :--- | :--- |
+| **Bump & Normal Mapping** | MikkTSpace/Lengyel tangent generation, Gram-Schmidt orthogonalization, tangent-space normal maps + screen-space height derivatives (`dpdx`/`dpdy`) | `[V]` / `--no-bump` |
+| **Anisotropic Mipmapping** | Full CPU mip pyramid ($1\times 1$), 3D vector renormalization for normal maps, multithreaded `std::jthread` generation, live 16× Aniso vs. Mip-0 switching | `[L]` / `--no-mipmaps` |
+| **Directional Shadow Mapping** | $2048\times 2048$ `Depth32Float` pre-pass, scene-fitted `orthoRH_ZO` light matrix, hardware slope-scale depth bias, 9-tap $3\times 3$ PCF soft shadows | `[M]` / `--no-shadows` |
+| **Environment Reflections (IBL)** | 6-face pre-filtered roughness cubemap ($64\times 64\times 6$, 7 mip levels), Karis split-sum analytic `envBRDFApprox`, clearcoat specular reflections | `[R]` / `--no-reflections` |
+| **Spatial Quadtree Culling** | 4-way XZ-plane partitioning, strict `ContainsXZ` + `looseBounds_`, 60%–82% Sponza primitive culling, single-draw batched 3D wireframes | `[Q]` / `--quadtree` |
+| **3D Bounding Boxes (AABBs)** | Hierarchical world-space AABBs (Gold for scene root, Cyan for mesh primitives) rendered in 1 batched GPU draw call | `[B]` / `--no-bounds` |
+| **Atmospheric Skybox** | Rayleigh-inspired zenith-to-horizon scattering, solar disk & corona, ground hemisphere bounce, far-plane depth clamping | `[K]` / `--no-skybox` |
+| **HarfBuzz & FreeType 2 HUD** | Dynamic $1024\times 1024$ RGBA8 shelf-packed font atlas, Unicode shaping, zero-dependency embedded TTF fallback, live telemetry overlay | `[O]` / `[F3]` / `--no-hud` |
+| **Multithreaded Asset Pipeline** | Lock-free `std::jthread` + `std::atomic` glTF texture decoding & mip generation (~245 MB/s on 1 GB / 5.25M-triangle stress test), KTX2 Basis Universal transcoding | `--formats` |
 
 ### Key Architecture Highlights
 
@@ -88,6 +105,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ```text
 .
 ├── CMakeLists.txt                 # Modern target-based CMake configuration (C++23)
+├── CHANGELOG.md                   # Complete retroactive release history (v0.6.0 -> v0.7.0)
 ├── conanfile.py                   # Conan 2.x package recipe
 ├── conan.lock                     # Deterministic dependency lockfile
 ├── assets/
@@ -425,7 +443,20 @@ The engine includes a comprehensive test suite with **60 tests across 12 test su
 
 ---
 
+## Changelog & Release History
+
+See [**CHANGELOG.md**](CHANGELOG.md) for the complete, retroactive version history from `v0.6.0` through `v0.6.8` and the latest rendering pipeline additions:
+
+- **[Unreleased / 0.7.0](CHANGELOG.md#unreleased--070---2026-10-22)**: Bump & Normal Mapping (`[V]`), Vector-Renormalized Mipmapping (`[L]`), 2048×2048 3×3 PCF Directional Shadow Mapping (`[M]`), 6-Face Roughness Environment Cubemap Reflections (`[R]`), C++23 `{}` uniform initialization, `std::span` APIs, and multithreaded CPU mip/cubemap/tangent generation.
+- **[0.6.8](CHANGELOG.md#068---2026-10-22)**: Per-format CMake options, POSIX crash signal handler with C++23 `std::stacktrace`, desktop CLI parser, batched single-draw AABB wireframes, Quadtree loose-bounds culling fix, minimal web zip packager, and 1 GB megacity stress test.
+- **[0.6.7](CHANGELOG.md#067---2026-10-22)**: KTX1/KTX2 texture support with Basis Universal transcoding (`libktx`) and multithreaded glTF asset ingestion.
+- **[0.6.6](CHANGELOG.md#066---2026-10-22)**: FreeType 2 & HarfBuzz Unicode text rendering pipeline and In-Engine Debug Overlay HUD.
+- **[0.6.5](CHANGELOG.md#065---2026-10-22)**: Procedural atmospheric skybox and 3D wireframe AABB bounding boxes.
+- **[0.6.4](CHANGELOG.md#064---2026-10-22)**: Default Sponza atrium scene, 4× MSAA, 16× Anisotropic filtering, and initial XZ-Quadtree frustum culling.
+- **[0.6.0 – 0.6.3](CHANGELOG.md#060---2026-10-19)**: Core modular C++23 WebGPU architecture, KHR PBR material extensions, Web Scene Graph & JSON Inspector, and CI/CD automation.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-# web-assembly-demo

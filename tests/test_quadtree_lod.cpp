@@ -207,6 +207,57 @@ TEST(QuadtreeTest, ResetAndClear) {
     EXPECT_EQ(visible.size(), 0);
 }
 
+TEST(QuadtreeTest, HierarchicalOcclusionCullingAndFrontToBackOrdering) {
+    bgl::core::AABB worldBounds{};
+    worldBounds.minBound = glm::vec3{-100.0f, -20.0f, -100.0f};
+    worldBounds.maxBound = glm::vec3{ 100.0f,  20.0f,  100.0f};
+
+    bgl::scene::Quadtree quadtree{worldBounds};
+
+    // 1. Place a large near occluder wall right in front of the camera at Z = -5
+    auto nearWall = std::make_shared<bgl::scene::SceneNode>();
+    nearWall->name = "NearWallOccluder";
+    nearWall->worldAABB.minBound = glm::vec3{-12.0f, -8.0f, -6.0f};
+    nearWall->worldAABB.maxBound = glm::vec3{ 12.0f,  8.0f, -4.0f};
+    quadtree.Insert(nearWall);
+
+    // 2. Place a smaller object directly behind the wall at Z = -25
+    auto hiddenBehindWall = std::make_shared<bgl::scene::SceneNode>();
+    hiddenBehindWall->name = "HiddenBehindWall";
+    hiddenBehindWall->worldAABB.minBound = glm::vec3{-1.5f, -1.5f, -26.0f};
+    hiddenBehindWall->worldAABB.maxBound = glm::vec3{ 1.5f,  1.5f, -24.0f};
+    quadtree.Insert(hiddenBehindWall);
+
+    // 3. Place a visible object to the side (not behind the wall)
+    auto sideObject = std::make_shared<bgl::scene::SceneNode>();
+    sideObject->name = "VisibleSideObject";
+    sideObject->worldAABB.minBound = glm::vec3{14.0f, -1.0f, -22.0f};
+    sideObject->worldAABB.maxBound = glm::vec3{16.0f,  1.0f, -20.0f};
+    quadtree.Insert(sideObject);
+
+    const glm::vec3 camPos{0.0f, 0.0f, 0.0f};
+    const glm::mat4 view{glm::lookAt(camPos, glm::vec3{0.0f, 0.0f, -10.0f}, glm::vec3{0.0f, 1.0f, 0.0f})};
+    const glm::mat4 proj{glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 200.0f)};
+    const glm::mat4 viewProj{proj * view};
+    const bgl::core::Frustum frustum{bgl::core::Frustum::FromViewProjection(viewProj)};
+
+    // Without occlusion culling: all 3 objects are inside the frustum
+    auto frustumOnly = quadtree.QueryVisible(frustum, camPos, viewProj, false);
+    EXPECT_EQ(frustumOnly.size(), 3u);
+    EXPECT_EQ(quadtree.GetLastOccludedCount(), 0u);
+    // Verify Front-to-Back sorting (NearWallOccluder must be first)
+    ASSERT_FALSE(frustumOnly.empty());
+    EXPECT_EQ(frustumOnly.front().node, nearWall);
+
+    // With occlusion culling: HiddenBehindWall is occluded by NearWallOccluder!
+    auto occlusionCulled = quadtree.QueryVisible(frustum, camPos, viewProj, true);
+    EXPECT_EQ(occlusionCulled.size(), 2u);
+    EXPECT_EQ(quadtree.GetLastOccludedCount(), 1u);
+    for (const auto& item : occlusionCulled) {
+        EXPECT_NE(item.node, hiddenBehindWall);
+    }
+}
+
 
 
 

@@ -28,7 +28,6 @@ struct CliOptions {
     std::string assetPath{};
     std::string logLevel{"info"};
 
-<<<<<<< HEAD
     bool enableSkybox{true};
     bool enableBoundingBoxes{true};
     bool enableQuadtreeBounds{false};
@@ -37,21 +36,12 @@ struct CliOptions {
     bool enableMipmapping{true};
     bool enableShadows{true};
     bool enableReflections{true};
+    bool enableOcclusionCulling{true};
 
     /**
      * @brief Parses a span of command-line arguments into a validated CliOptions structure.
      */
     static CliOptions Parse(std::span<const char* const> args);
-=======
-    bool enableSkybox = true;
-    bool enableBoundingBoxes = true;
-    bool enableQuadtreeBounds = false;
-    bool enableDebugOverlay = true;
-    bool enableBumpMapping = true;
-    bool enableMipmapping = true;
-    bool enableShadows = true;
-    bool enableReflections = true;
->>>>>>> c3c4b27404f82cd2dc023292e0a9a6a3492607ab
 
     /**
      * @brief Parses argc and argv into a validated CliOptions structure.
