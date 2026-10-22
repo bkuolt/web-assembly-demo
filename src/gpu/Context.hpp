@@ -40,6 +40,8 @@ public:
     [[nodiscard]] uint32_t GetHeight() const noexcept { return height_; }
 
     void Resize(uint32_t width, uint32_t height);
+    void BeginFrame();
+    void EndFrame();
 
 private:
     bool initialized_ = false;
@@ -50,6 +52,8 @@ private:
     WGPUDevice device_ = nullptr;
     WGPUQueue queue_ = nullptr;
     WGPUSurface surface_ = nullptr;
+    void* nativeContext_ = nullptr;
+    void* nativeWindow_ = nullptr;
 };
 
 } // namespace bgl::gpu

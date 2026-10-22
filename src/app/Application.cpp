@@ -29,7 +29,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
             "bgl_viewer - C++23 WebGPU & glTF 2.1",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             static_cast<int>(width), static_cast<int>(height),
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL
         );
         if (window) {
             nativeWindow_ = window;
@@ -146,6 +146,8 @@ void Application::Update(float deltaTime) {
 void Application::Render() {
     if (!running_) return;
 
+    gpuContext_.BeginFrame();
+
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     skybox_.Render(vp);
 
@@ -154,6 +156,8 @@ void Application::Render() {
     if (showBoundingBoxes_) {
         pipelineManager_.BindWireframePipeline();
     }
+
+    gpuContext_.EndFrame();
 }
 
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {

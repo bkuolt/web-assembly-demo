@@ -53,6 +53,7 @@ else()
     add_compile_definitions(BGL_PLATFORM_NATIVE)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
+    find_package(OpenGL REQUIRED)
 endif()
 
 # Global includes
@@ -83,6 +84,9 @@ add_library(bgl_gpu SHARED
     src/gpu/Pipeline.cpp
 )
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(bgl_gpu PUBLIC OpenGL::GL)
+endif()
 
 # 3. libbgl_audio.so
 add_library(bgl_audio SHARED
