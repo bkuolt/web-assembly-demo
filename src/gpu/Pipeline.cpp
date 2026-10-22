@@ -269,18 +269,22 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_INFO("Uploaded glTF texture #{} to WebGPU texture ({}x{})", i, img.width, img.height);
+            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, RGBA8Unorm), wrote {} bytes to GPU (Handle: {:p})",
+                         i, img.width, img.height, img.rgba.size(), static_cast<void*>(tex));
         }
     }
 
     // 2. Prepare vertex buffers, index buffers, uniform buffers, and bind groups for each primitive
     auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (auto& prim : node.primitives) {
+        for (size_t pIdx = 0; pIdx < node.primitives.size(); ++pIdx) {
+            auto& prim = node.primitives[pIdx];
             if (prim.vertices.empty()) continue;
+
+            size_t vbSize = prim.vertices.size() * sizeof(core::Vertex);
+            size_t ibSize = prim.indices.size() * sizeof(uint32_t);
 
             // Vertex Buffer
             if (!prim.gpuVertexBuffer) {
-                size_t vbSize = prim.vertices.size() * sizeof(core::Vertex);
                 WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 vbDesc.size = (vbSize + 3) & ~3;
                 vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
@@ -291,7 +295,6 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
             // Index Buffer
             if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
-                size_t ibSize = prim.indices.size() * sizeof(uint32_t);
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ibDesc.size = (ibSize + 3) & ~3;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
@@ -308,6 +311,9 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 ubDesc.label = WGPUStringView{ "PrimitiveUniforms", strlen("PrimitiveUniforms") };
                 prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
             }
+
+            BGL_LOG_INFO("[WebGPU Upload] Node '{}' Prim #{}: VB={} bytes ({} verts), IB={} bytes ({} indices), UB={} bytes",
+                         node.name, pIdx, vbSize, prim.vertices.size(), ibSize, prim.indices.size(), sizeof(PrimitiveUniforms));
 
             // Bind Group
             if (!prim.gpuBindGroup) {
