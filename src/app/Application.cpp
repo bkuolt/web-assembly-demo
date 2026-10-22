@@ -151,10 +151,12 @@ void Application::Render() {
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     skybox_.Render(vp);
 
-    pipelineManager_.BindPipeline(gpu::RenderAlphaMode::Opaque);
+    if (activeScene_) {
+        pipelineManager_.RenderScene(*activeScene_, vp, camera_.GetPosition(), false);
 
-    if (showBoundingBoxes_) {
-        pipelineManager_.BindWireframePipeline();
+        if (showBoundingBoxes_) {
+            pipelineManager_.RenderScene(*activeScene_, vp, camera_.GetPosition(), true);
+        }
     }
 
     gpuContext_.EndFrame();
