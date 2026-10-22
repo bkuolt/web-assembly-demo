@@ -381,7 +381,8 @@
       <button class="btn" id="btn-bbox" onclick="toggleBBox()" style="background: #0284c7;">🔲 AABB Boxes (B)</button>
       <button class="btn" id="btn-quadtree" onclick="toggleQuadtree()" style="background: #059669;">🌲 Quadtree (Q)</button>
       <button class="btn" id="btn-skybox" onclick="toggleSkybox()" style="background: #475569;">☀️ Skybox (K)</button>
-      <button class="btn" id="btn-tree" onclick="toggleTreePanel()" style="background: #334155;">🌳 glTF Nodes (N)</button>
+      <button class="btn" id="btn-hud" onclick="toggleHUD()" style="background: #0284c7;">🖥️ HUD Overlay (O)</button>
+      <button class="btn" id="btn-tree" onclick="toggleTreePanel()" style="background: #334155; grid-column: span 2;">🌳 glTF Nodes (N)</button>
     </div>
 
     <!-- Live Scene AABB & Spatial Bounds Telemetry Card -->
@@ -494,6 +495,17 @@
       console.log("[UI] Skybox toggled:", isSkyboxActive);
     }
 
+    let isHudActive = true;
+    function toggleHUD() {
+      isHudActive = !isHudActive;
+      const btn = document.getElementById('btn-hud');
+      if (btn) btn.style.background = isHudActive ? '#0284c7' : '#334155';
+      if (wasmExports && wasmExports.bgl_toggle_debug_overlay) {
+        wasmExports.bgl_toggle_debug_overlay();
+      }
+      console.log("[UI] In-Engine Debug HUD toggled:", isHudActive);
+    }
+
     function updateSceneAabbTelemetry(gltf) {
       if (!gltf || !gltf.accessors) return;
       let minB = [Infinity, Infinity, Infinity];
@@ -584,6 +596,8 @@
         toggleQuadtree();
       } else if (e.key === 'k' || e.key === 'K') {
         toggleSkybox();
+      } else if (e.key === 'o' || e.key === 'O' || e.key === 'F3') {
+        toggleHUD();
       } else if (e.key === 'n' || e.key === 'N') {
         toggleTreePanel();
       }

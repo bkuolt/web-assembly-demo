@@ -21,7 +21,7 @@ Application::~Application() {
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     core::InitLogging();
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.4...");
+    BGL_LOG_INFO("Initializing bgl Engine v0.6.6...");
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -57,6 +57,10 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
     }
 
+    if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
+        BGL_LOG_WARN("Could not initialize Debug Overlay: {}", res.error());
+    }
+
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
@@ -80,6 +84,8 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
         auto sceneRes = gltfLoader_->LoadFromFile(defaultAssetPath);
         if (sceneRes) {
             activeScene_ = *sceneRes;
+            currentModelName_ = std::filesystem::path(defaultAssetPath).filename().string();
+            CacheSceneMetrics();
             pipelineManager_.PrepareScene(*activeScene_);
 
             glm::vec3 center = activeScene_->sceneAABB.Center();
@@ -154,6 +160,9 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_k) {
                     ToggleSkybox();
                     BGL_LOG_INFO("Toggled Atmospheric Skybox visibility: {}", skybox_.IsEnabled());
+                } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
+                    ToggleDebugOverlay();
+                    BGL_LOG_INFO("Toggled In-Engine Debug Overlay visibility: {}", debugOverlay_.IsVisible());
                 }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
@@ -205,6 +214,32 @@ void Application::Update(float deltaTime) {
 
     camera_.Update(16.0f / 9.0f);
     soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
+
+    // Collect telemetry stats for the in-engine debug HUD overlay
+    ui::OverlayStats stats;
+    stats.deltaTime = deltaTime;
+    stats.cameraPos = camera_.GetPosition();
+    stats.cameraTarget = camera_.GetTarget();
+    stats.cameraDistance = camera_.GetDistance();
+    stats.sceneName = currentModelName_;
+    stats.primitiveCount = totalPrimitives_;
+    stats.vertexCount = totalVertices_;
+    stats.indexCount = totalIndices_;
+    stats.boundingBoxesEnabled = showBoundingBoxes_;
+    stats.quadtreeBoundsEnabled = showQuadtreeBounds_;
+    stats.skyboxEnabled = skybox_.IsEnabled();
+
+    if (quadtree_) {
+        std::vector<core::AABB> bounds;
+        quadtree_->GetNodeBounds(bounds);
+        stats.quadtreeNodes = bounds.size();
+        auto visibleItems = quadtree_->QueryVisible(camera_.GetFrustum(), camera_.GetPosition());
+        stats.visiblePrimitives = visibleItems.size();
+    } else {
+        stats.visiblePrimitives = totalPrimitives_;
+    }
+
+    debugOverlay_.Update(deltaTime, stats);
 }
 
 void Application::Render() {
@@ -235,6 +270,9 @@ void Application::Render() {
         }
     }
 
+    // 5. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD)
+    debugOverlay_.Render(pass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+
     gpuContext_.EndFrame(pass);
 }
 
@@ -244,6 +282,8 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
         auto res = gltfLoader_->LoadFromMemory(data, filename);
         if (res) {
             activeScene_ = *res;
+            currentModelName_ = std::string(filename);
+            CacheSceneMetrics();
             pipelineManager_.PrepareScene(*activeScene_);
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
@@ -280,6 +320,30 @@ void Application::Shutdown() {
         running_ = false;
         BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
     }
+}
+
+void Application::CacheSceneMetrics() {
+    totalPrimitives_ = 0;
+    totalVertices_ = 0;
+    totalIndices_ = 0;
+    if (!activeScene_) return;
+
+    auto countStats = [&](auto& self, const scene::SceneNode& node) -> void {
+        for (const auto& prim : node.primitives) {
+            totalPrimitives_++;
+            totalVertices_ += prim.vertices.size();
+            totalIndices_ += prim.indices.size();
+        }
+        for (const auto& child : node.children) {
+            if (child) self(self, *child);
+        }
+    };
+
+    for (const auto& rootNode : activeScene_->rootNodes) {
+        if (rootNode) countStats(countStats, *rootNode);
+    }
+    BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices",
+                 currentModelName_, totalPrimitives_, totalVertices_, totalIndices_);
 }
 
 } // namespace bgl::app

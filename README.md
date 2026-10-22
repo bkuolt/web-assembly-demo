@@ -1,4 +1,4 @@
-# bgl-Engine (v0.6.3)
+# bgl-Engine (v0.6.6)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -6,16 +6,29 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 ## Overview
 
-**bgl-Engine** is a modern, high-performance 3D rendering engine built in strict C++23 with a hardware WebGPU backend (`wgpu-native` on desktop, HTML5 WebGPU in browser). It features complete glTF 2.0 and KHR material model support, zero-GLFW architecture, PMR-backed memory management, and dual-target deployment.
+**bgl-Engine** is a modern, high-performance 3D rendering engine built in strict C++23 with a hardware WebGPU backend (`wgpu-native` on desktop, HTML5 WebGPU in browser). It features complete glTF 2.0 and KHR material model support, zero-GLFW architecture, PMR-backed memory management, HarfBuzz & FreeType 2 text shaping, spatial Quadtree partitioning, procedural atmospheric skybox, and dual-target deployment.
 
 ### Key Architecture Highlights
 
 - **100% Modern C++23 & Root Namespace `bgl`**:
   - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR arenas, logging.
-  - `bgl::gpu`: WebGPU device context, swapchain surface, WGSL PBR shaders, pipeline management.
-  - `bgl::scene`: High-speed glTF ingestion (`fastgltf`), multi-format texture decoding, PMR scene graph, spatial Quadtree, Möller-Trumbore ray picking.
+  - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, procedural atmospheric skybox, 3D wireframe bounding boxes.
+  - `bgl::scene`: High-speed glTF ingestion (`fastgltf`), 16x anisotropic texture filtering with full CPU mip-mapping, spatial Quadtree partitioning, Möller-Trumbore ray picking.
+  - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode script and bidi text shaping, batched 2D quad renderer with alpha blending.
+  - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD displaying real-time FPS, frame timing, camera coordinates, glTF scene metrics, and spatial culling telemetry.
   - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
-  - `bgl::app`: Multiplatform application lifecycle and event loops.
+  - `bgl::app`: Multiplatform application lifecycle and runtime loop.
+- **HarfBuzz & FreeType 2 Text Rendering Pipeline**:
+  - Precise Unicode text shaping via HarfBuzz (`hb_buffer_t`, `hb_shape`).
+  - High-fidelity glyph rasterization via FreeType 2 into a dynamic 1024x1024 RGBA8 font atlas.
+  - Zero-dependency embedded fallback font (Liberation Mono Regular) allowing standalone execution anywhere.
+  - Batched 2D WebGPU render pipeline with alpha blending (`SrcAlpha / OneMinusSrcAlpha`), 4x MSAA render-pass compatibility, and orthographic projection.
+- **AAAA Visual Fidelity & Sponza Benchmark Scene**:
+  - Sponza atrium loaded by default with 69 multi-megabyte textures decoded concurrently (PNG, JPEG, WebP).
+  - 16x Anisotropic filtering (`maxAnisotropy = 16`) across all samplers.
+  - Full CPU box-filter mip-map generation chain down to 1x1 texels.
+  - Procedural atmospheric skybox with Rayleigh-like zenith-to-horizon gradients, solar corona, and far-plane depth clamping.
+  - 3D Wireframe Bounding Boxes: Scene root AABB in Gold, Mesh Primitives in Cyan, Quadtree ground partitions in Emerald Green.
 - **Complete glTF 2.0 & KHR Material Model**:
   - Core PBR Metallic-Roughness (Cook-Torrance GGX $D$, Smith-GGX $V$, Schlick Fresnel $F$).
   - Tangent-space Normal Mapping (with vertex `TANGENT` ingestion and screen-space derivative fallbacks).
@@ -30,12 +43,9 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 - **Zero-GLFW Architecture**:
   - **Linux Desktop**: Native SDL2 windowing and hardware event handling.
   - **WebAssembly**: Native Emscripten HTML5 WebGPU context (`<emscripten/html5.h>`).
-- **PMR & Memory Pool Architecture**:
-  - Eliminates heap fragmentation through `bgl::core::MemoryPool<T>` and `std::pmr::monotonic_buffer_resource` scratch arenas for high-throughput glTF ingestion.
-  - 64-byte aligned vertex layouts (`bgl::core::Vertex`) matching GPU cache-line boundaries.
-  - 16-byte aligned uniform structures conforming to WebGPU std140 layout requirements.
 - **Reproducible Conan 2.x Dependency Management**:
   - All third-party dependencies resolved via Conan 2.x with explicit lockfile pinning (`conan.lock`).
+  - FreeType (`freetype/2.13.2`) and HarfBuzz (`harfbuzz/8.3.0` with `with_glib=False`).
   - Zero system library divergence across build environments.
 
 ---
@@ -48,7 +58,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ├── conanfile.py                   # Conan 2.x package recipe
 ├── conan.lock                     # Deterministic dependency lockfile
 ├── assets/
-│   └── ToyCar.glb                 # Benchmark glTF model (Clearcoat, Sheen, Transmission, AO)
+│   ├── Sponza.glb                 # High-detail Sponza architectural benchmark scene
+│   ├── ToyCar.glb                 # Benchmark glTF model (Clearcoat, Sheen, Transmission, AO)
+│   └── fonts/
+│       └── LiberationMono-Regular.ttf # High-legibility monospace font
 ├── src/
 │   ├── core/                      # -> libbgl_core.so
 │   │   ├── Camera.hpp/.cpp        # Orbit, Pan, Zoom camera with WebGPU reverse-Z projection
@@ -56,19 +69,26 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── Log.hpp/.cpp           # spdlog integration and RAII ScopedTimer profiling
 │   │   ├── MemoryPool.hpp/.cpp    # Block memory pool & PMR scratch arena
 │   │   ├── NetworkFetcher.hpp/.cpp# Asynchronous network ingestion
-│   │   └── Types.hpp              # AABB, Ray, 64-byte Vertex, GlobalUniforms, Result<T>
+│   │   └── Types.hpp              # AABB, Ray, Frustum, 64-byte Vertex, GlobalUniforms, Result<T>
 │   ├── gpu/                       # -> libbgl_gpu.so
-│   │   ├── Context.hpp/.cpp       # Hardware WebGPU device, adapter, surface, depth buffers
-│   │   ├── Pipeline.hpp/.cpp      # 10-slot BindGroupLayout, 1x1 fallback textures, render passes
-│   │   ├── Shaders.hpp            # Full glTF 2.0 Cook-Torrance PBR WGSL shader
-│   │   └── Skybox.hpp/.cpp        # Cubemap reflections and background pipeline
+│   │   ├── Context.hpp/.cpp       # Hardware WebGPU device, adapter, surface, depth buffers (4x MSAA)
+│   │   ├── Pipeline.hpp/.cpp      # 10-slot BindGroupLayout, 16x aniso, AABB wireframe pipelines
+│   │   ├── Shaders.hpp            # Full glTF 2.0 Cook-Torrance PBR & Wireframe WGSL shaders
+│   │   └── Skybox.hpp/.cpp        # Procedural Atmospheric Skybox with solar corona
 │   ├── scene/                     # -> libbgl_scene.so
 │   │   ├── AssetManager.hpp/.cpp  # 64-bit FNV-1a caching and PMR geometry allocation
 │   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF binary parser with full KHR extension support
 │   │   ├── Quadtree.hpp/.cpp      # 4-way spatial partition and LOD culling on XZ ground plane
 │   │   ├── RayPicker.hpp/.cpp     # Hierarchical Möller-Trumbore ray-triangle intersection
 │   │   ├── Scene.hpp              # Hierarchical scene graph and PMR mesh primitives
-│   │   └── TextureDecoder.hpp/.cpp# High-performance PNG, JPEG, WebP memory decoding
+│   │   └── TextureDecoder.hpp/.cpp# High-performance PNG, JPEG, WebP decoding with CPU mip-chains
+│   ├── text/                      # -> libbgl_text.so
+│   │   ├── EmbeddedFont.hpp/.cpp  # Zero-dependency embedded TrueType font data
+│   │   ├── FontAtlas.hpp/.cpp     # FreeType 2 rasterizer & dynamic 1024x1024 RGBA8 GPU texture atlas
+│   │   ├── TextShaper.hpp/.cpp    # HarfBuzz Unicode text shaper & multi-line layout engine
+│   │   └── TextRenderer.hpp/.cpp  # WebGPU 2D batched quad renderer with alpha blending
+│   ├── ui/                        # -> libbgl_ui.so
+│   │   └── DebugOverlay.hpp/.cpp  # In-engine glassmorphism HUD telemetry overlay
 │   ├── audio/                     # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp   # 3D spatial audio listener and sound source management
 │   ├── app/                       # -> libbgl_app.so
@@ -79,9 +99,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── test_memory_pool.cpp
 │   ├── test_asset_manager.cpp
 │   ├── test_quadtree_lod.cpp
-│   └── test_ray_picker.cpp
+│   ├── test_ray_picker.cpp
+│   └── test_text_rendering.cpp
 └── web/                           # Web viewer client
-    ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Drop Zone)
+    ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
     └── dist/                      # Precompiled WebAssembly artifacts
 ```
 
@@ -130,7 +151,11 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 - **Left Mouse Button Drag**: Orbit camera around target.
 - **Right Mouse Button / Shift + Drag**: Pan camera laterally and vertically.
 - **Mouse Wheel**: Smooth zoom.
-- **B Key**: Toggle bounding box wireframe debug overlay.
+- **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs (Gold for scene root, Cyan for mesh primitives).
+- **Q Key**: Toggle 3D Quadtree spatial ground partition boundaries (Emerald green).
+- **K Key**: Toggle Procedural Atmospheric Skybox with solar corona.
+- **O / F3 Key**: Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay HUD.
+- **File Drag-and-Drop**: Drop any `.glb` or `.gltf` model directly into the native viewer window.
 - **ESC**: Exit viewer.
 
 ### 5. Launch WebAssembly Browser Viewer

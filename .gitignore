@@ -7,4 +7,7 @@ build-wasm/
 bgl_viewer
 bgl_unit_tests
 .vscode/
+conan*env*.sh
+deactivate_conan*.sh
+
 

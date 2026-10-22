@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "0.6.4"
+    version = "0.6.6"
     package_type = "application"
     settings = "os", "arch", "compiler", "build_type"
 
@@ -14,7 +14,8 @@ class BglEngineRecipe(ConanFile):
     default_options = {
         "with_audio": True,
         "with_testing": True,
-        "spdlog/*:header_only": True
+        "spdlog/*:header_only": True,
+        "harfbuzz/*:with_glib": False
     }
 
     def requirements(self):
@@ -25,6 +26,8 @@ class BglEngineRecipe(ConanFile):
         self.requires("libjpeg-turbo/3.0.2")
         self.requires("libwebp/1.3.2")
         self.requires("miniaudio/0.11.21")
+        self.requires("freetype/2.13.2")
+        self.requires("harfbuzz/8.3.0")
         if self.options.with_testing:
             self.requires("gtest/1.14.0")
 

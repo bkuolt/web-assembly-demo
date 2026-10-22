@@ -29,6 +29,7 @@ public:
     [[nodiscard]] glm::vec3 GetPosition() const noexcept { return position_; }
     [[nodiscard]] glm::vec3 GetTarget() const noexcept { return target_; }
     [[nodiscard]] float GetDistance() const noexcept { return distance_; }
+    [[nodiscard]] Frustum GetFrustum() const noexcept { return Frustum::FromViewProjection(GetViewProjectionMatrix()); }
 
     /**
      * @brief Unproject screen coordinates (normalized 0..1) into a 3D ray in world space.

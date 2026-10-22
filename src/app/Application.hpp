@@ -17,6 +17,7 @@
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/RayPicker.hpp"
+#include "ui/DebugOverlay.hpp"
 
 namespace bgl::app {
 
@@ -37,10 +38,12 @@ public:
     void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }
     void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
     void ToggleSkybox() noexcept { skybox_.Toggle(); }
+    void ToggleDebugOverlay() noexcept { debugOverlay_.Toggle(); }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
     [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
+    [[nodiscard]] bool IsDebugOverlayEnabled() const noexcept { return debugOverlay_.IsVisible(); }
 
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
@@ -50,8 +53,11 @@ public:
     [[nodiscard]] core::Gamepad& GetGamepad() noexcept { return gamepad_; }
     [[nodiscard]] scene::AssetManager& GetAssetManager() noexcept { return assetManager_; }
     [[nodiscard]] audio::SoundEngine& GetSoundEngine() noexcept { return soundEngine_; }
+    [[nodiscard]] ui::DebugOverlay& GetDebugOverlay() noexcept { return debugOverlay_; }
 
 private:
+    void CacheSceneMetrics();
+
     bool running_ = false;
     bool showBoundingBoxes_ = true;
     bool showQuadtreeBounds_ = false;
@@ -61,12 +67,18 @@ private:
     gpu::Context gpuContext_;
     gpu::PipelineManager pipelineManager_;
     gpu::Skybox skybox_;
+    ui::DebugOverlay debugOverlay_;
     audio::SoundEngine soundEngine_;
     void* nativeWindow_ = nullptr;
     scene::AssetManager assetManager_;
     std::unique_ptr<scene::FastGltfLoader> gltfLoader_;
     std::shared_ptr<scene::Scene> activeScene_;
     std::unique_ptr<scene::Quadtree> quadtree_;
+
+    std::string currentModelName_ = "None";
+    size_t totalPrimitives_ = 0;
+    size_t totalVertices_ = 0;
+    size_t totalIndices_ = 0;
 };
 
 } // namespace bgl::app

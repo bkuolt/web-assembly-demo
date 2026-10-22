@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.6.4 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.6.6 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -45,6 +45,8 @@ find_package(PNG REQUIRED)
 find_package(libjpeg-turbo REQUIRED CONFIG)
 find_package(WebP REQUIRED CONFIG)
 find_package(miniaudio REQUIRED CONFIG)
+find_package(freetype REQUIRED CONFIG)
+find_package(harfbuzz REQUIRED CONFIG)
 
 # Determine correct Conan Targets
 if(TARGET spdlog::spdlog_header_only)
@@ -134,23 +136,55 @@ if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_scene PUBLIC OpenGL::GL)
 endif()
 
-# 5. libbgl_app.so
+# 5. libbgl_text.so (FreeType 2 & HarfBuzz)
+add_library(bgl_text SHARED
+    src/text/EmbeddedFont.cpp
+    src/text/FontAtlas.cpp
+    src/text/TextShaper.cpp
+    src/text/TextRenderer.cpp
+)
+target_include_directories(bgl_text PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include>
+)
+target_link_libraries(bgl_text PUBLIC
+    bgl_core
+    bgl_gpu
+    Freetype::Freetype
+    harfbuzz::harfbuzz
+)
+
+# 6. libbgl_ui.so (Debug Overlay & HUD)
+add_library(bgl_ui SHARED
+    src/ui/DebugOverlay.cpp
+)
+target_include_directories(bgl_ui PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include>
+)
+target_link_libraries(bgl_ui PUBLIC
+    bgl_core
+    bgl_gpu
+    bgl_text
+)
+
+# 7. libbgl_app.so
 add_library(bgl_app SHARED
     src/app/Application.cpp
 )
 target_include_directories(bgl_app PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
-target_link_libraries(bgl_app PUBLIC bgl_scene)
+target_link_libraries(bgl_app PUBLIC bgl_scene bgl_text bgl_ui)
 
-# 6. Native Viewer Executable
+# 8. Native Viewer Executable
 add_executable(bgl_viewer src/main.cpp)
 target_include_directories(bgl_viewer PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 target_link_libraries(bgl_viewer PRIVATE bgl_app)
 
-# 7. Unit Testing Suite
+# 9. Unit Testing Suite
 if(BGL_BUILD_TESTING)
     enable_testing()
     find_package(GTest REQUIRED CONFIG)
@@ -160,6 +194,7 @@ if(BGL_BUILD_TESTING)
         tests/test_asset_manager.cpp
         tests/test_quadtree_lod.cpp
         tests/test_ray_picker.cpp
+        tests/test_text_rendering.cpp
     )
     target_include_directories(bgl_unit_tests PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
