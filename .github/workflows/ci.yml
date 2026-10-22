@@ -6,30 +6,103 @@ on:
     tags: [ 'v*.*.*', '*.*.*' ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  build-and-test:
+  native-linux:
+    name: Linux amd64 (C++23, WebGPU, Conan 2)
     runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
     - name: Install System Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          cmake ninja-build libsdl2-dev libpng-dev libjpeg-dev libwebp-dev \
-          libgtest-dev libglm-dev libspdlog-dev
+          ninja-build \
+          libsdl2-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libvulkan-dev \
+          vulkan-tools \
+          xvfb
+
+    - name: Install Conan 2.x
+      run: |
+        pip install "conan>=2.0"
+        conan --version
+
+    - name: Cache Conan Packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.conan2/p
+        key: conan-${{ runner.os }}-${{ hashFiles('conan.lock', 'conanfile.py') }}
+        restore-keys: |
+          conan-${{ runner.os }}-
+
+    - name: Install Dependencies via Conan
+      run: |
+        conan profile detect --force
+        conan install . -s build_type=Release --build=missing
 
     - name: Configure CMake
       run: |
-        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBGL_BUILD_TESTING=ON
+        cmake -B build/Release -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
+          -DBGL_BUILD_TESTING=ON
 
-    - name: Build Libraries and Viewer
+    - name: Build Libraries and Viewer Executable
       run: |
-        cmake --build build -j$(nproc)
+        cmake --build build/Release -j$(nproc)
 
-    - name: Execute GTest Test Suites
+    - name: Execute GTest Unit Test Suites
       run: |
-        ctest --test-dir build --output-on-failure
+        ctest --test-dir build/Release --output-on-failure
 
+    - name: Package Native Binaries
+      run: |
+        mkdir -p dist-native
+        cp -f build/Release/bgl_viewer dist-native/
+        cp -f build/Release/bgl_unit_tests dist-native/
+        cp -f build/Release/libbgl_*.so dist-native/
+        cp -f third_party/wgpu-native/lib/libwgpu_native.so dist-native/
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: bgl_viewer-linux-amd64
+        path: dist-native/
+
+  release:
+    name: Publish Release Artifacts
+    needs: native-linux
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - name: Download Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: bgl_viewer-linux-amd64
+        path: dist-native/
+
+    - name: Create Release Tarball
+      run: |
+        tar -czvf bgl_viewer-linux-amd64.tar.gz -C dist-native .
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: bgl_viewer-linux-amd64.tar.gz
+        generate_release_notes: true

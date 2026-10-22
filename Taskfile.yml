@@ -2,29 +2,28 @@ version: '3'
 
 vars:
   BUILD_DIR: build/Release
-  CONAN_HOME_DIR: /tmp/conan_bgl
   WEB_PORT: 8080
 
 tasks:
   setup:
     desc: Install all dependencies via Conan 2.x from ConanCenter
     cmds:
-      - mkdir -p {{.CONAN_HOME_DIR}}
-      - CONAN_HOME={{.CONAN_HOME_DIR}} conan install . -pr:b=profiles/linux_amd64 -pr:h=profiles/linux_amd64 -b=missing
+      - conan install . -s build_type=Release --build=missing
 
   configure:
     desc: Configure CMake using Conan toolchain and presets
     deps: [setup]
     cmds:
-      - cp -f ConanPresets.json CMakePresets.json 2>/dev/null || true
-      - cmake --preset conan-release -DBGL_BUILD_TESTING=ON
+      - cmake -B {{.BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE={{.BUILD_DIR}}/generators/conan_toolchain.cmake -DBGL_BUILD_TESTING=ON
 
   build:
     desc: Build all native shared libraries, webgpu viewer and test executables
+    deps: [configure]
     cmds:
       - cmake --build {{.BUILD_DIR}} -j$(nproc)
       - mkdir -p build-native
       - cp -f {{.BUILD_DIR}}/bgl_viewer build-native/ 2>/dev/null || true
+      - cp -f {{.BUILD_DIR}}/bgl_unit_tests build-native/ 2>/dev/null || true
       - cp -f {{.BUILD_DIR}}/libbgl_*.so build-native/ 2>/dev/null || true
       - cp -f third_party/wgpu-native/lib/libwgpu_native.so build-native/ 2>/dev/null || true
 
@@ -34,11 +33,16 @@ tasks:
     cmds:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
+  ci:
+    desc: Run complete CI pipeline locally
+    cmds:
+      - bash scripts/run_ci_locally.sh
+
   run-native:
     desc: Run native WebGPU desktop viewer (bgl_viewer)
     deps: [build]
     cmds:
-      - LD_LIBRARY_PATH={{.BUILD_DIR}}:third_party/wgpu-native/lib:/tmp/conan_bgl/p/b/fmt15617d0094854/p/lib ./{{.BUILD_DIR}}/bgl_viewer
+      - ./build-native/bgl_viewer
 
   run-web:
     desc: Start local HTTP web server for the WebAssembly WebGPU viewer
@@ -50,4 +54,4 @@ tasks:
   clean:
     desc: Clean build directories and generated presets
     cmds:
-      - rm -rf build build-native build-wasm CMakePresets.json
+      - rm -rf build build-native dist-native CMakePresets.json
