@@ -42,6 +42,26 @@ PipelineManager::~PipelineManager() {
         wgpuTextureRelease(defaultWhiteTexture_);
         defaultWhiteTexture_ = nullptr;
     }
+    if (aabbBindGroup_) {
+        wgpuBindGroupRelease(aabbBindGroup_);
+        aabbBindGroup_ = nullptr;
+    }
+    if (aabbUniformBuffer_) {
+        wgpuBufferRelease(aabbUniformBuffer_);
+        aabbUniformBuffer_ = nullptr;
+    }
+    if (aabbVertexBuffer_) {
+        wgpuBufferRelease(aabbVertexBuffer_);
+        aabbVertexBuffer_ = nullptr;
+    }
+    if (aabbPipeline_) {
+        wgpuRenderPipelineRelease(aabbPipeline_);
+        aabbPipeline_ = nullptr;
+    }
+    if (aabbBindGroupLayout_) {
+        wgpuBindGroupLayoutRelease(aabbBindGroupLayout_);
+        aabbBindGroupLayout_ = nullptr;
+    }
     if (wireframePipeline_) {
         wgpuRenderPipelineRelease(wireframePipeline_);
         wireframePipeline_ = nullptr;
@@ -224,6 +244,119 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wireframePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
         wgpuShaderModuleRelease(wfShaderModule);
     }
+
+    // 8b. Create AABB Wireframe Render Pipeline
+    WGPUShaderSourceWGSL aabbWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
+    aabbWgslDesc.code = WGPUStringView{ kAabbShaderWGSL.data(), kAabbShaderWGSL.size() };
+
+    WGPUShaderModuleDescriptor aabbSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
+    aabbSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&aabbWgslDesc);
+    aabbSmDesc.label = WGPUStringView{ "AABB_WGSL", strlen("AABB_WGSL") };
+    WGPUShaderModule aabbShaderModule = wgpuDeviceCreateShaderModule(device_, &aabbSmDesc);
+
+    // AABB Bind Group Layout (Binding 0: AabbUniforms)
+    WGPUBindGroupLayoutEntry aabbBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    aabbBglEntry.binding = 0;
+    aabbBglEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    aabbBglEntry.buffer.type = WGPUBufferBindingType_Uniform;
+    aabbBglEntry.buffer.minBindingSize = sizeof(AabbUniforms);
+
+    WGPUBindGroupLayoutDescriptor aabbBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    aabbBglDesc.entryCount = 1;
+    aabbBglDesc.entries = &aabbBglEntry;
+    aabbBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &aabbBglDesc);
+
+    // AABB Pipeline Layout
+    WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    aabbPlDesc.bindGroupLayoutCount = 1;
+    aabbPlDesc.bindGroupLayouts = &aabbBindGroupLayout_;
+    WGPUPipelineLayout aabbPlLayout = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
+
+    // AABB Vertex Layout: pos vec3<f32>
+    WGPUVertexAttribute aabbAttr = {};
+    aabbAttr.format = WGPUVertexFormat_Float32x3;
+    aabbAttr.offset = 0;
+    aabbAttr.shaderLocation = 0;
+
+    WGPUVertexBufferLayout aabbVbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    aabbVbLayout.arrayStride = sizeof(float) * 3;
+    aabbVbLayout.stepMode = WGPUVertexStepMode_Vertex;
+    aabbVbLayout.attributeCount = 1;
+    aabbVbLayout.attributes = &aabbAttr;
+
+    WGPUFragmentState aabbFragState = WGPU_FRAGMENT_STATE_INIT;
+    aabbFragState.module = aabbShaderModule;
+    aabbFragState.entryPoint = WGPUStringView{ "fs_aabb", strlen("fs_aabb") };
+    aabbFragState.targetCount = 1;
+    aabbFragState.targets = &colorTarget;
+
+    WGPUDepthStencilState aabbDepthStencil = depthStencil;
+    aabbDepthStencil.depthWriteEnabled = WGPUOptionalBool_False;
+    aabbDepthStencil.depthCompare = WGPUCompareFunction_LessEqual;
+
+    WGPURenderPipelineDescriptor aabbRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    aabbRpDesc.layout = aabbPlLayout;
+    aabbRpDesc.vertex.module = aabbShaderModule;
+    aabbRpDesc.vertex.entryPoint = WGPUStringView{ "vs_aabb", strlen("vs_aabb") };
+    aabbRpDesc.vertex.bufferCount = 1;
+    aabbRpDesc.vertex.buffers = &aabbVbLayout;
+    aabbRpDesc.fragment = &aabbFragState;
+    aabbRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
+    aabbRpDesc.primitive.cullMode = WGPUCullMode_None;
+    aabbRpDesc.depthStencil = &aabbDepthStencil;
+    aabbRpDesc.multisample.count = sampleCount_;
+    aabbRpDesc.multisample.mask = 0xFFFFFFFF;
+    aabbRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
+
+    aabbPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &aabbRpDesc);
+
+    wgpuPipelineLayoutRelease(aabbPlLayout);
+    wgpuShaderModuleRelease(aabbShaderModule);
+
+    // AABB Unit Box Vertex Buffer
+    static constexpr float kUnitBoxVertices[] = {
+        // Bottom 4 lines (Y = 0)
+        0.0f, 0.0f, 0.0f,   1.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,   1.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 1.0f,   0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f,   0.0f, 0.0f, 0.0f,
+        // Top 4 lines (Y = 1)
+        0.0f, 1.0f, 0.0f,   1.0f, 1.0f, 0.0f,
+        1.0f, 1.0f, 0.0f,   1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,   0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 1.0f,   0.0f, 1.0f, 0.0f,
+        // 4 Vertical pillars
+        0.0f, 0.0f, 0.0f,   0.0f, 1.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,   1.0f, 1.0f, 0.0f,
+        1.0f, 0.0f, 1.0f,   1.0f, 1.0f, 1.0f,
+        0.0f, 0.0f, 1.0f,   0.0f, 1.0f, 1.0f,
+    };
+    WGPUBufferDescriptor boxVbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    boxVbDesc.size = sizeof(kUnitBoxVertices);
+    boxVbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+    boxVbDesc.label = WGPUStringView{ "AABB_BoxLines", strlen("AABB_BoxLines") };
+    aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &boxVbDesc);
+    wgpuQueueWriteBuffer(queue_, aabbVertexBuffer_, 0, kUnitBoxVertices, sizeof(kUnitBoxVertices));
+
+    // AABB Uniform Buffer
+    WGPUBufferDescriptor aabbUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    aabbUbDesc.size = sizeof(AabbUniforms);
+    aabbUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    aabbUbDesc.label = WGPUStringView{ "AABB_Uniforms", strlen("AABB_Uniforms") };
+    aabbUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &aabbUbDesc);
+
+    // AABB Bind Group
+    WGPUBindGroupEntry aabbBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+    aabbBgEntry.binding = 0;
+    aabbBgEntry.buffer = aabbUniformBuffer_;
+    aabbBgEntry.offset = 0;
+    aabbBgEntry.size = sizeof(AabbUniforms);
+
+    WGPUBindGroupDescriptor aabbBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+    aabbBgDesc.layout = aabbBindGroupLayout_;
+    aabbBgDesc.entryCount = 1;
+    aabbBgDesc.entries = &aabbBgEntry;
+    aabbBindGroup_ = wgpuDeviceCreateBindGroup(device_, &aabbBgDesc);
 
     wgpuPipelineLayoutRelease(pipelineLayout);
     wgpuShaderModuleRelease(pbrShaderModule);
@@ -644,6 +777,84 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
     } else {
         wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
+    }
+}
+
+void PipelineManager::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color) {
+    if (!pass || !aabbPipeline_ || !aabbVertexBuffer_ || !aabbUniformBuffer_ || !aabbBindGroup_) return;
+    if (aabb.minBound.x > aabb.maxBound.x) return;
+
+    glm::vec3 minB = aabb.minBound;
+    glm::vec3 size = glm::max(aabb.maxBound - aabb.minBound, glm::vec3(0.001f));
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), minB) * glm::scale(glm::mat4(1.0f), size);
+
+    AabbUniforms uniforms;
+    uniforms.viewProj = viewProj;
+    uniforms.model = model;
+    uniforms.color = color;
+
+    wgpuQueueWriteBuffer(queue_, aabbUniformBuffer_, 0, &uniforms, sizeof(uniforms));
+
+    static constexpr size_t kVertexSize = 24 * 3 * sizeof(float);
+    wgpuRenderPassEncoderSetPipeline(pass, aabbPipeline_);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, aabbBindGroup_, 0, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, 0, kVertexSize);
+    wgpuRenderPassEncoderDraw(pass, 24, 1, 0, 0);
+}
+
+void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB, bool showPrimitiveAABBs) {
+    if (!pass || !aabbPipeline_) return;
+
+    if (showSceneAABB && scene.sceneAABB.minBound.x <= scene.sceneAABB.maxBound.x) {
+        // Bright Gold for root Scene AABB
+        RenderAABB(pass, scene.sceneAABB, viewProj, glm::vec4(1.0f, 0.84f, 0.0f, 1.0f));
+    }
+
+    if (showPrimitiveAABBs) {
+        auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
+            glm::mat4 worldMat = parentTransform * node.localTransform;
+            for (const auto& prim : node.primitives) {
+                if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+                    core::AABB primWorldAABB;
+                    glm::vec3 c = prim.boundingBox.Center();
+                    glm::vec3 e = prim.boundingBox.Extents();
+                    glm::vec3 corners[8] = {
+                        c + glm::vec3(-e.x, -e.y, -e.z),
+                        c + glm::vec3( e.x, -e.y, -e.z),
+                        c + glm::vec3(-e.x,  e.y, -e.z),
+                        c + glm::vec3( e.x,  e.y, -e.z),
+                        c + glm::vec3(-e.x, -e.y,  e.z),
+                        c + glm::vec3( e.x, -e.y,  e.z),
+                        c + glm::vec3(-e.x,  e.y,  e.z),
+                        c + glm::vec3( e.x,  e.y,  e.z)
+                    };
+                    for (const auto& corner : corners) {
+                        glm::vec4 wc = worldMat * glm::vec4(corner, 1.0f);
+                        primWorldAABB.Expand(glm::vec3(wc));
+                    }
+                    // Vivid Cyan for mesh primitives
+                    RenderAABB(pass, primWorldAABB, viewProj, glm::vec4(0.2f, 0.85f, 1.0f, 0.8f));
+                }
+            }
+            for (const auto& child : node.children) {
+                if (child) self(self, *child, worldMat);
+            }
+        };
+
+        for (const auto& rootNode : scene.rootNodes) {
+            if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4(1.0f));
+        }
+    }
+}
+
+void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj) {
+    if (!pass || !aabbPipeline_) return;
+
+    std::vector<core::AABB> bounds;
+    quadtree.GetNodeBounds(bounds);
+    for (const auto& b : bounds) {
+        // Emerald Green for Quadtree spatial partitions
+        RenderAABB(pass, b, viewProj, glm::vec4(0.25f, 0.95f, 0.45f, 0.7f));
     }
 }
 

@@ -174,4 +174,20 @@ std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos) con
     return QueryVisible(infiniteFrustum, cameraPos);
 }
 
+void Quadtree::GetNodeBounds(std::vector<core::AABB>& boundsOut) const {
+    auto collect = [&](auto& self, const QuadtreeNode& n) -> void {
+        boundsOut.push_back(n.GetBounds());
+        if (!n.IsLeaf()) {
+            for (const auto& child : n.GetChildren()) {
+                if (child) {
+                    self(self, *child);
+                }
+            }
+        }
+    };
+    if (root_) {
+        collect(collect, *root_);
+    }
+}
+
 } // namespace bgl::scene

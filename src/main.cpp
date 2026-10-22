@@ -25,6 +25,16 @@ void bgl_toggle_bbox() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_quadtree() {
+    if (g_pApp) g_pApp->ToggleQuadtreeBounds();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_skybox() {
+    if (g_pApp) g_pApp->ToggleSkybox();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) {
     if (g_pApp && name && buffer && size > 0) {
         g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));

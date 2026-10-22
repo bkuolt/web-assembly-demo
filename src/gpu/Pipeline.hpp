@@ -65,6 +65,13 @@ struct alignas(16) PrimitiveUniforms {
 };
 static_assert(sizeof(PrimitiveUniforms) == 272, "PrimitiveUniforms must be exactly 272 bytes (16-byte aligned)");
 
+struct alignas(16) AabbUniforms {
+    glm::mat4 viewProj{1.0f};
+    glm::mat4 model{1.0f};
+    glm::vec4 color{0.2f, 0.8f, 1.0f, 1.0f};
+};
+static_assert(sizeof(AabbUniforms) == 144, "AabbUniforms must be 144 bytes");
+
 class PipelineManager {
 public:
     PipelineManager() = default;
@@ -74,6 +81,9 @@ public:
 
     void PrepareScene(scene::Scene& scene);
     void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr);
+    void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
+    void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
+    void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
 
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
@@ -90,6 +100,12 @@ private:
     WGPURenderPipeline opaquePipeline_ = nullptr;
     WGPURenderPipeline wireframePipeline_ = nullptr;
     WGPUBindGroupLayout bindGroupLayout_ = nullptr;
+
+    WGPURenderPipeline aabbPipeline_ = nullptr;
+    WGPUBindGroupLayout aabbBindGroupLayout_ = nullptr;
+    WGPUBuffer aabbVertexBuffer_ = nullptr;
+    WGPUBuffer aabbUniformBuffer_ = nullptr;
+    WGPUBindGroup aabbBindGroup_ = nullptr;
 
     // Default 1x1 Fallback Textures
     WGPUTexture defaultWhiteTexture_ = nullptr;

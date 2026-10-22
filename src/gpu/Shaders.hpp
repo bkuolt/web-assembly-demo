@@ -134,7 +134,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     // 2. Normal Calculation
     var N = normalize(in.normal);
     let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
-    if ((ubo.flags & 512u) != 0u) {
+    if ((ubo.flags & 512u) != 0u || dot(N, viewDir) < 0.0) {
         if (dot(N, viewDir) < 0.0) {
             N = -N;
         }
@@ -248,10 +248,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     directLighting = directLighting + sheenLobe * lightColor * NdotL;
 
-    let skyColor = vec3<f32>(0.24, 0.28, 0.35);
-    let groundColor = vec3<f32>(0.12, 0.11, 0.10);
+    let skyColor = vec3<f32>(0.38, 0.48, 0.62);
+    let groundColor = vec3<f32>(0.26, 0.22, 0.18);
     let hemiFactor = N.y * 0.5 + 0.5;
-    let ambientLight = mix(groundColor, skyColor, hemiFactor);
+    let ambientLight = mix(groundColor, skyColor, hemiFactor) * 1.5;
     let ambientDiffuse = diffuseColor * ambientLight * ao * (1.0 - transFactor);
     let ambientSpecular = mix(F0, vec3<f32>(1.0), pow(1.0 - NdotV, 5.0)) * ambientLight * (1.0 - roughness) * 0.5;
 
@@ -264,6 +264,29 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
 
     return vec4<f32>(finalColor, outAlpha);
+}
+)";
+
+/**
+ * @brief 3D Bounding-Box (AABB) and spatial volume wireframe debug shader.
+ */
+inline constexpr std::string_view kAabbShaderWGSL = R"(
+struct AabbUniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    color : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> ubo : AabbUniforms;
+
+@vertex
+fn vs_aabb(@location(0) pos : vec3<f32>) -> @builtin(position) vec4<f32> {
+    return ubo.viewProj * ubo.model * vec4<f32>(pos, 1.0);
+}
+
+@fragment
+fn fs_aabb() -> @location(0) vec4<f32> {
+    return ubo.color;
 }
 )";
 

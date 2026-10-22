@@ -48,6 +48,7 @@ public:
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
     [[nodiscard]] const std::vector<QuadtreeItem>& GetItems() const noexcept { return items_; }
     [[nodiscard]] bool IsLeaf() const noexcept { return isLeaf_; }
+    [[nodiscard]] const std::array<std::unique_ptr<QuadtreeNode>, 4>& GetChildren() const noexcept { return children_; }
 
 private:
     void Subdivide();
@@ -73,6 +74,7 @@ public:
 
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
+    void GetNodeBounds(std::vector<core::AABB>& boundsOut) const;
 
 private:
     core::AABB worldBounds_;

@@ -35,6 +35,13 @@ public:
     void Shutdown();
 
     void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }
+    void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
+    void ToggleSkybox() noexcept { skybox_.Toggle(); }
+
+    [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
+    [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
+    [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
+
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
     void RequestClose() noexcept { running_ = false; }
@@ -46,7 +53,8 @@ public:
 
 private:
     bool running_ = false;
-    bool showBoundingBoxes_ = false;
+    bool showBoundingBoxes_ = true;
+    bool showQuadtreeBounds_ = false;
 
     core::Camera camera_;
     core::Gamepad gamepad_;

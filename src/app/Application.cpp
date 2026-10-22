@@ -53,6 +53,10 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
         return res;
     }
 
+    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
+        BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
+    }
+
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
@@ -143,7 +147,13 @@ void Application::Update(float deltaTime) {
                     return;
                 } else if (event.key.keysym.sym == SDLK_b) {
                     ToggleBoundingBoxes();
-                    BGL_LOG_INFO("Toggled Bounding Box visibility: {}", showBoundingBoxes_);
+                    BGL_LOG_INFO("Toggled 3D Bounding Boxes & AABBs visibility: {}", showBoundingBoxes_);
+                } else if (event.key.keysym.sym == SDLK_q) {
+                    ToggleQuadtreeBounds();
+                    BGL_LOG_INFO("Toggled 3D Quadtree Spatial Bounds visibility: {}", showQuadtreeBounds_);
+                } else if (event.key.keysym.sym == SDLK_k) {
+                    ToggleSkybox();
+                    BGL_LOG_INFO("Toggled Atmospheric Skybox visibility: {}", skybox_.IsEnabled());
                 }
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
@@ -204,13 +214,24 @@ void Application::Render() {
     if (!pass) return;
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
-    skybox_.Render(vp);
+    glm::vec3 camPos = camera_.GetPosition();
+    glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+
+    // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry)
+    skybox_.Render(pass, vp, camPos, sunDir);
 
     if (activeScene_) {
-        pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), false, quadtree_.get());
+        // 2. Hardware 4x MSAA PBR Scene Rendering (16x Aniso + Quadtree Frustum Culling)
+        pipelineManager_.RenderScene(pass, *activeScene_, vp, camPos, false, quadtree_.get());
 
+        // 3. 3D Wireframe Bounding Boxes / AABBs (Gold for scene, Cyan for primitives)
         if (showBoundingBoxes_) {
-            pipelineManager_.RenderScene(pass, *activeScene_, vp, camera_.GetPosition(), true, quadtree_.get());
+            pipelineManager_.RenderSceneAABBs(pass, *activeScene_, vp, true, true);
+        }
+
+        // 4. 3D Quadtree Spatial Partition Bounds (Emerald green for ground quadrants)
+        if (showQuadtreeBounds_ && quadtree_) {
+            pipelineManager_.RenderQuadtreeBounds(pass, *quadtree_, vp);
         }
     }
 
