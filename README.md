@@ -1,10 +1,10 @@
-# WebAssembly an WebGPU Demo (bgl-Engine v0.7.0)
+# WebAssembly an WebGPU Demo (bgl-Engine v0.7.1)
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-65_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.7.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.7.1-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -130,10 +130,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   └── Skybox.hpp/.cpp        # Procedural Atmospheric Skybox with solar corona
 │   ├── scene/                     # -> libbgl_scene.so
 │   │   ├── AssetManager.hpp/.cpp  # 64-bit FNV-1a caching and PMR geometry allocation
-│   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF binary parser with full KHR extension support
-│   │   ├── Quadtree.hpp/.cpp      # 4-way spatial partition and loose-bounds culling on XZ ground plane
+│   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF/GLB parser with libcurl URI resolution & KHR extensions
+│   │   ├── Quadtree.hpp/.cpp      # 4-way XZ spatial partition, Front-to-Back Hi-Z occlusion culling
 │   │   ├── RayPicker.hpp/.cpp     # Hierarchical Möller-Trumbore ray-triangle intersection
-│   │   ├── Scene.hpp              # Hierarchical scene graph and PMR mesh primitives
+│   │   ├── Scene.hpp/.cpp         # Hierarchical scene graph, PMR mesh primitives & MikkTSpace tangents
 │   │   └── TextureDecoder.hpp/.cpp# PNG, JPEG, WebP, and KTX2 decoding with CPU mip-chains
 │   ├── text/                      # -> libbgl_text.so
 │   │   ├── EmbeddedFont.hpp/.cpp  # Zero-dependency embedded TrueType font data
@@ -353,7 +353,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `0.7.0` |
+| `-v`, `--version` | — | Print engine version string | `0.7.1` |
 | `--formats` | — | Query compiled texture decoders and `libcurl` streaming availability | — |
 | `-a`, `--asset` | `<path\|url>` | Load specified `.glb` or `.gltf` model from local path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |

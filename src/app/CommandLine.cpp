@@ -103,7 +103,7 @@ void CliOptions::PrintHelp(std::string_view programName) {
 
     std::cout <<
 R"(================================================================================
-WebAssembly an WebGPU Demo (bgl_viewer v0.7.0)
+WebAssembly an WebGPU Demo (bgl_viewer v0.7.1)
 ================================================================================
 
 USAGE:
@@ -157,7 +157,7 @@ INTERACTIVE CONTROLS:
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.7.0) [C++23 WebGPU glTF 2.1 Engine]\n";
+    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.7.1) [C++23 WebGPU glTF 2.1 Engine]\n";
 }
 
 void CliOptions::PrintFormats() {

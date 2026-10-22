@@ -1172,24 +1172,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         const glm::mat4 worldMat{parentTransform * node.localTransform};
         for (const auto& prim : node.primitives) {
             if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
-                core::AABB primWorldAABB{};
-                const glm::vec3 c{prim.boundingBox.Center()};
-                const glm::vec3 e{prim.boundingBox.Extents()};
-                const std::array<glm::vec3, 8> corners{{
-                    c + glm::vec3{-e.x, -e.y, -e.z},
-                    c + glm::vec3{ e.x, -e.y, -e.z},
-                    c + glm::vec3{-e.x,  e.y, -e.z},
-                    c + glm::vec3{ e.x,  e.y, -e.z},
-                    c + glm::vec3{-e.x, -e.y,  e.z},
-                    c + glm::vec3{ e.x, -e.y,  e.z},
-                    c + glm::vec3{-e.x,  e.y,  e.z},
-                    c + glm::vec3{ e.x,  e.y,  e.z}
-                }};
-                for (const auto& corner : corners) {
-                    const glm::vec4 wc{worldMat * glm::vec4{corner, 1.0f}};
-                    primWorldAABB.Expand(glm::vec3{wc});
-                }
-                AppendAABBLines(primWorldAABB, glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
+                AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
             }
         }
         for (const auto& child : node.children) {
@@ -1480,27 +1463,10 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
 
     if (showPrimitiveAABBs) {
         auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
-            glm::mat4 worldMat = parentTransform * node.localTransform;
+            const glm::mat4 worldMat{parentTransform * node.localTransform};
             for (const auto& prim : node.primitives) {
                 if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
-                    core::AABB primWorldAABB;
-                    glm::vec3 c = prim.boundingBox.Center();
-                    glm::vec3 e = prim.boundingBox.Extents();
-                    glm::vec3 corners[8] = {
-                        c + glm::vec3(-e.x, -e.y, -e.z),
-                        c + glm::vec3( e.x, -e.y, -e.z),
-                        c + glm::vec3(-e.x,  e.y, -e.z),
-                        c + glm::vec3( e.x,  e.y, -e.z),
-                        c + glm::vec3(-e.x, -e.y,  e.z),
-                        c + glm::vec3( e.x, -e.y,  e.z),
-                        c + glm::vec3(-e.x,  e.y,  e.z),
-                        c + glm::vec3( e.x,  e.y,  e.z)
-                    };
-                    for (const auto& corner : corners) {
-                        glm::vec4 wc = worldMat * glm::vec4(corner, 1.0f);
-                        primWorldAABB.Expand(glm::vec3(wc));
-                    }
-                    AppendAABBLines(primWorldAABB, glm::vec4(0.2f, 0.85f, 1.0f, 0.8f));
+                    AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
                 }
             }
             for (const auto& child : node.children) {
@@ -1509,7 +1475,7 @@ void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::
         };
 
         for (const auto& rootNode : scene.rootNodes) {
-            if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4(1.0f));
+            if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f});
         }
     }
 

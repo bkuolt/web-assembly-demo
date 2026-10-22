@@ -61,6 +61,27 @@ struct AABB {
         return (maxBound - minBound) * 0.5f;
     }
 
+    [[nodiscard]] AABB Transformed(const glm::mat4& transform) const noexcept {
+        if (minBound.x > maxBound.x) return AABB{};
+        const glm::vec3 c{Center()};
+        const glm::vec3 e{Extents()};
+        const std::array<glm::vec3, 8> corners{{
+            c + glm::vec3{-e.x, -e.y, -e.z},
+            c + glm::vec3{ e.x, -e.y, -e.z},
+            c + glm::vec3{-e.x,  e.y, -e.z},
+            c + glm::vec3{ e.x,  e.y, -e.z},
+            c + glm::vec3{-e.x, -e.y,  e.z},
+            c + glm::vec3{ e.x, -e.y,  e.z},
+            c + glm::vec3{-e.x,  e.y,  e.z},
+            c + glm::vec3{ e.x,  e.y,  e.z}
+        }};
+        AABB out{};
+        for (const auto& corner : corners) {
+            out.Expand(glm::vec3{transform * glm::vec4{corner, 1.0f}});
+        }
+        return out;
+    }
+
     [[nodiscard]] bool Intersects(const Ray& ray, float& tMinOut, float& tMaxOut) const noexcept {
         float tmin{0.0f};
         float tmax{1e30f};

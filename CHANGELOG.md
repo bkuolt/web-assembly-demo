@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.1] - 2026-10-22
+
+### Changed
+- **Modular Source Organization (`bgl::scene` & `bgl::core`):**
+  - Extracted `MeshPrimitive`, `SceneNode`, and `Scene` method implementations (including multithreaded MikkTSpace/Lengyel `ComputeTangents()`, hierarchical `UpdateTransforms()`, and WebGPU resource cleanup) from [`src/scene/Scene.hpp`](src/scene/Scene.hpp) into a dedicated compilation unit [`src/scene/Scene.cpp`](src/scene/Scene.cpp), removing `<thread>` from public headers and ensuring every subsystem in `src/scene/` follows a clean `.hpp`/`.cpp` separation.
+  - Added [`core::AABB::Transformed()`](src/core/Types.hpp) to centralize 8-corner world-space AABB transformation across `SceneNode::UpdateTransforms()`, `PipelineManager::PrepareScene()`, and `PipelineManager::RenderSceneAABBs()`.
+- **Git Commit History Standardization:**
+  - Standardized historical git commit messages across the repository to follow clear, descriptive Conventional Commits formatting (`feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `ci`, `chore`).
+
+---
+
 ## [0.7.0] - 2026-10-22
 
 ### Added

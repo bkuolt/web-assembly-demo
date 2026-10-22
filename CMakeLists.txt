@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.7.0 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.7.1 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -174,6 +174,7 @@ target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
 
 # 4. libbgl_scene.so
 add_library(bgl_scene SHARED
+    src/scene/Scene.cpp
     src/scene/TextureDecoder.cpp
     src/scene/AssetManager.cpp
     src/scene/FastGltfLoader.cpp

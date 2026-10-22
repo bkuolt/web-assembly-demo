@@ -419,7 +419,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "bgl-engine/0.7.0 (libcurl)");
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "bgl-engine/0.7.1 (libcurl)");
         curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
