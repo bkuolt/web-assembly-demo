@@ -198,13 +198,47 @@ void Context::Resize(uint32_t width, uint32_t height) {
 }
 
 void Context::BeginFrame() {
-    // Frame setup performed in render encoder
+    // Frame pass begun
 }
 
 void Context::EndFrame() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (surface_) {
-        wgpuSurfacePresent(surface_);
+    if (surface_ && device_ && queue_) {
+        WGPUSurfaceTexture surfaceTexture = {};
+        wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture);
+        if (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
+            surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+
+            WGPUTextureView currentView = wgpuTextureCreateView(surfaceTexture.texture, nullptr);
+            if (currentView) {
+                WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+
+                WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+                colorAttachment.view = currentView;
+                colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+                colorAttachment.loadOp = WGPULoadOp_Clear;
+                colorAttachment.storeOp = WGPUStoreOp_Store;
+                colorAttachment.clearValue = WGPUColor{ 0.08, 0.12, 0.18, 1.0 };
+
+                WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+                passDesc.colorAttachmentCount = 1;
+                passDesc.colorAttachments = &colorAttachment;
+
+                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+
+                WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder, nullptr);
+                wgpuCommandEncoderRelease(encoder);
+
+                wgpuQueueSubmit(queue_, 1, &cmdBuf);
+                wgpuCommandBufferRelease(cmdBuf);
+                wgpuTextureViewRelease(currentView);
+            }
+
+            wgpuTextureRelease(surfaceTexture.texture);
+            wgpuSurfacePresent(surface_);
+        }
     }
 #endif
 }

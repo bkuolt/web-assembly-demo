@@ -118,7 +118,8 @@ void Application::Update(float deltaTime) {
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
                 camera_.Pan(-event.motion.xrel * 0.01f, event.motion.yrel * 0.01f);
             } else if (event.type == SDL_MOUSEWHEEL) {
-                camera_.Zoom(event.wheel.y * 0.5f);
+                float zoomStep = std::max(camera_.GetPosition().length() * 0.1f, 1.0f);
+                camera_.Zoom(event.wheel.y * zoomStep);
             } else if (event.type == SDL_DROPFILE) {
                 char* droppedFile = event.drop.file;
                 if (droppedFile) {
