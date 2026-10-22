@@ -1,17 +1,15 @@
 /**
  * @file TextureDecoder.cpp
- * @brief Memory decoding for PNG, JPEG, WebP, and KTX2 textures using libpng, libjpeg-turbo, libwebp, and libktx.
+ * @brief Memory decoding for PNG, JPEG, WebP, and KTX2 textures using modular decoders.
  */
 #include "scene/TextureDecoder.hpp"
 #include "core/Log.hpp"
 #include <cstring>
 
 #if defined(BGL_PLATFORM_NATIVE)
-#include <png.h>
-#include <jpeglib.h>
-#include <webp/decode.h>
-#include <ktx.h>
 
+#if defined(BGL_ENABLE_PNG)
+#include <png.h>
 struct PngMemoryReader {
     const uint8_t* data;
     size_t size;
@@ -29,11 +27,26 @@ static void PngReadCallback(png_structp png_ptr, png_bytep outBytes, png_size_t 
 }
 #endif
 
+#if defined(BGL_ENABLE_JPEG)
+#include <jpeglib.h>
+#endif
+
+#if defined(BGL_ENABLE_WEBP)
+#include <webp/decode.h>
+#endif
+
+#if defined(BGL_ENABLE_KTX)
+#include <ktx.h>
+#endif
+
+#endif
+
 namespace bgl::scene {
 
 core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> data) {
-#if defined(BGL_PLATFORM_NATIVE)
-    if (data.size() < 8 || !png_check_sig(data.data(), 8)) {
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
+    static constexpr uint8_t kPngMagic[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (data.size() < 8 || std::memcmp(data.data(), kPngMagic, 8) != 0) {
         return std::unexpected("Data is not a valid PNG signature");
     }
 
@@ -85,7 +98,11 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
     png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
 
     return img;
+#elif defined(BGL_PLATFORM_NATIVE)
+    (void)data;
+    return std::unexpected("PNG texture decoder disabled at build time (-DBGL_ENABLE_PNG=OFF)");
 #else
+    (void)data;
     DecodedImage img;
     img.width = 2; img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
@@ -94,7 +111,7 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> data) {
-#if defined(BGL_PLATFORM_NATIVE)
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_WEBP)
     int width = 0, height = 0;
     uint8_t* decoded = WebPDecodeRGBA(data.data(), data.size(), &width, &height);
     if (!decoded) {
@@ -107,7 +124,11 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     img.rgbaData.assign(decoded, decoded + (width * height * 4));
     WebPFree(decoded);
     return img;
+#elif defined(BGL_PLATFORM_NATIVE)
+    (void)data;
+    return std::unexpected("WebP texture decoder disabled at build time (-DBGL_ENABLE_WEBP=OFF)");
 #else
+    (void)data;
     DecodedImage img;
     img.width = 2; img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
@@ -116,7 +137,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> data) {
-#if defined(BGL_PLATFORM_NATIVE)
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_JPEG)
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
 
@@ -156,7 +177,11 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
     jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
     return img;
+#elif defined(BGL_PLATFORM_NATIVE)
+    (void)data;
+    return std::unexpected("JPEG texture decoder disabled at build time (-DBGL_ENABLE_JPEG=OFF)");
 #else
+    (void)data;
     DecodedImage img;
     img.width = 2; img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
@@ -165,7 +190,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data) {
-#if defined(BGL_PLATFORM_NATIVE)
+#if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_KTX)
     if (data.size() < 12) {
         return std::unexpected("Data too small to be a valid KTX texture");
     }
@@ -230,7 +255,11 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 
     ktxTexture_Destroy(kTexture);
     return img;
+#elif defined(BGL_PLATFORM_NATIVE)
+    (void)data;
+    return std::unexpected("KTX/KTX2 texture decoder disabled at build time (-DBGL_ENABLE_KTX=OFF)");
 #else
+    (void)data;
     DecodedImage img;
     img.width = 2; img.height = 2;
     img.channels = 4;
@@ -244,9 +273,10 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
         return std::unexpected("Cannot decode empty image buffer");
     }
 
-    // 1. Content-based magic byte detection (uniquely robust regardless of glTF naming)
+    // 1. Content-based magic byte detection
     // PNG magic: 0x89 'P' 'N' 'G' 0x0D 0x0A 0x1A 0x0A
-    if (data.size() >= 8 && png_check_sig(data.data(), 8)) {
+    static constexpr uint8_t kPngMagic[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (data.size() >= 8 && std::memcmp(data.data(), kPngMagic, 8) == 0) {
         return DecodePNG(data);
     }
     // JPEG magic: 0xFF 0xD8 0xFF
@@ -280,11 +310,20 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
         return DecodeKTX2(data);
     }
 
-    // 3. Fallback attempts: try JPEG first, then WebP
+    // 3. Fallback attempts
     auto jpegRes = DecodeJPEG(data);
     if (jpegRes) return jpegRes;
 
     return DecodeWebP(data);
+}
+
+std::vector<std::string_view> TextureDecoder::GetSupportedFormats() {
+    std::vector<std::string_view> formats;
+    if constexpr (IsPngSupported()) formats.push_back("PNG");
+    if constexpr (IsJpegSupported()) formats.push_back("JPEG");
+    if constexpr (IsWebpSupported()) formats.push_back("WebP");
+    if constexpr (IsKtxSupported()) formats.push_back("KTX2 (Basis Universal)");
+    return formats;
 }
 
 } // namespace bgl::scene

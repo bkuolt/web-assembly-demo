@@ -10,13 +10,13 @@
 1. **Unified Root Namespace:**
    - All C++ code must reside within the root namespace `bgl`.
    - Modules are strictly organized as:
-     - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR staging arenas, logging.
+     - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR staging arenas, POSIX signal handling, C++23 `std::stacktrace` crash diagnosis, logging.
      - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, atmospheric skybox, AABB wireframe pipelines.
-     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), KTX/KTX2 texture decoding with Basis Universal transcoding, 16x anisotropic filtering, full CPU mip-map generation, spatial Quadtree partitioning, Möller-Trumbore ray picking.
+     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), modular texture decoders (PNG, JPEG, WebP, KTX2) with CMake compile toggles, Basis Universal transcoding, 16x anisotropic filtering, full CPU mip-map generation, spatial Quadtree partitioning, Möller-Trumbore ray picking.
      - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
      - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD with smoothed FPS, camera metrics, scene info, and spatial telemetry.
      - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
-     - `bgl::app`: Multiplatform application lifecycle and runtime event loop.
+     - `bgl::app`: Multiplatform application lifecycle, CLI argument parsing (`--help`, `--version`, `--formats`, `--asset`, etc.), and runtime event loop.
 2. **Modern C++23 Standard:**
    - Strict 100% C++23 (`-std=c++23`).
    - No exceptions across module or C-ABI boundaries: use `bgl::core::Result<T>` (`std::expected<T, std::string>`).

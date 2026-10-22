@@ -37,17 +37,43 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
+# ==============================================================================
+# Texture Format Options (All ON by default)
+# ==============================================================================
+option(BGL_ENABLE_PNG "Enable PNG texture format decoding (libpng)" ON)
+option(BGL_ENABLE_JPEG "Enable JPEG texture format decoding (libjpeg-turbo)" ON)
+option(BGL_ENABLE_WEBP "Enable WebP texture format decoding (libwebp)" ON)
+option(BGL_ENABLE_KTX "Enable KTX and KTX2 texture format decoding (libktx)" ON)
+
+message(STATUS "bgl-Engine Texture Formats Configuration:")
+message(STATUS "  - PNG:  ${BGL_ENABLE_PNG}")
+message(STATUS "  - JPEG: ${BGL_ENABLE_JPEG}")
+message(STATUS "  - WebP: ${BGL_ENABLE_WEBP}")
+message(STATUS "  - KTX:  ${BGL_ENABLE_KTX}")
+
 # Find Conan-managed Dependencies
 find_package(fastgltf REQUIRED CONFIG)
 find_package(glm REQUIRED CONFIG)
 find_package(spdlog REQUIRED CONFIG)
-find_package(PNG REQUIRED)
-find_package(libjpeg-turbo REQUIRED CONFIG)
-find_package(WebP REQUIRED CONFIG)
 find_package(miniaudio REQUIRED CONFIG)
 find_package(freetype REQUIRED CONFIG)
 find_package(harfbuzz REQUIRED CONFIG)
-find_package(Ktx REQUIRED CONFIG)
+
+if(BGL_ENABLE_PNG)
+    find_package(PNG REQUIRED)
+endif()
+
+if(BGL_ENABLE_JPEG)
+    find_package(libjpeg-turbo REQUIRED CONFIG)
+endif()
+
+if(BGL_ENABLE_WEBP)
+    find_package(WebP REQUIRED CONFIG)
+endif()
+
+if(BGL_ENABLE_KTX)
+    find_package(Ktx REQUIRED CONFIG)
+endif()
 
 # Determine correct Conan Targets
 if(TARGET spdlog::spdlog_header_only)
@@ -78,6 +104,7 @@ add_library(bgl_core SHARED
     src/core/NetworkFetcher.cpp
     src/core/Gamepad.cpp
     src/core/Camera.cpp
+    src/core/CrashHandler.cpp
 )
 target_include_directories(bgl_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -85,8 +112,31 @@ target_include_directories(bgl_core PUBLIC
 )
 target_link_libraries(bgl_core PUBLIC ${BGL_SPDLOG_TARGET} ${BGL_GLM_TARGET})
 if(NOT EMSCRIPTEN)
-    target_link_libraries(bgl_core PUBLIC ${SDL2_LIBRARIES})
+    target_link_libraries(bgl_core PUBLIC ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
     target_include_directories(bgl_core PUBLIC ${SDL2_INCLUDE_DIRS})
+
+    # C++23 std::stacktrace detection
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+    check_cxx_source_compiles("
+    #include <stacktrace>
+    int main() { (void)std::stacktrace::current(); }
+    " BGL_HAVE_STD_STACKTRACE_BUILTIN)
+
+    if(BGL_HAVE_STD_STACKTRACE_BUILTIN)
+        target_compile_definitions(bgl_core PUBLIC BGL_HAS_STD_STACKTRACE)
+    else()
+        set(CMAKE_REQUIRED_LIBRARIES stdc++exp)
+        check_cxx_source_compiles("
+        #include <stacktrace>
+        int main() { (void)std::stacktrace::current(); }
+        " BGL_HAVE_STD_STACKTRACE_EXP)
+        unset(CMAKE_REQUIRED_LIBRARIES)
+        if(BGL_HAVE_STD_STACKTRACE_EXP)
+            target_link_libraries(bgl_core PUBLIC stdc++exp)
+            target_compile_definitions(bgl_core PUBLIC BGL_HAS_STD_STACKTRACE)
+        endif()
+    endif()
 endif()
 
 # 2. libbgl_gpu.so
@@ -129,11 +179,23 @@ target_link_libraries(bgl_scene PUBLIC
     bgl_gpu
     bgl_audio
     fastgltf::fastgltf
-    PNG::PNG
-    libjpeg-turbo::libjpeg-turbo
-    libwebp::libwebp
-    KTX::ktx
 )
+if(BGL_ENABLE_PNG)
+    target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_PNG)
+    target_link_libraries(bgl_scene PUBLIC PNG::PNG)
+endif()
+if(BGL_ENABLE_JPEG)
+    target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_JPEG)
+    target_link_libraries(bgl_scene PUBLIC libjpeg-turbo::libjpeg-turbo)
+endif()
+if(BGL_ENABLE_WEBP)
+    target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_WEBP)
+    target_link_libraries(bgl_scene PUBLIC libwebp::libwebp)
+endif()
+if(BGL_ENABLE_KTX)
+    target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_KTX)
+    target_link_libraries(bgl_scene PUBLIC KTX::ktx)
+endif()
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_scene PUBLIC OpenGL::GL)
 endif()
@@ -173,6 +235,7 @@ target_link_libraries(bgl_ui PUBLIC
 # 7. libbgl_app.so
 add_library(bgl_app SHARED
     src/app/Application.cpp
+    src/app/CommandLine.cpp
 )
 target_include_directories(bgl_app PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -197,6 +260,7 @@ if(BGL_BUILD_TESTING)
         tests/test_quadtree_lod.cpp
         tests/test_ray_picker.cpp
         tests/test_text_rendering.cpp
+        tests/test_crash_handler.cpp
     )
     target_include_directories(bgl_unit_tests PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

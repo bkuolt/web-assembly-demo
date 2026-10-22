@@ -20,8 +20,19 @@ Application::~Application() {
 }
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
-    core::InitLogging();
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.7...");
+    ApplicationConfig config;
+    config.width = width;
+    config.height = height;
+    return Initialize(config);
+}
+
+core::Result<void> Application::Initialize(const ApplicationConfig& config) {
+    const uint32_t width = config.width;
+    const uint32_t height = config.height;
+    BGL_LOG_INFO("Initializing bgl Engine v0.6.7 ({}x{})...", width, height);
+
+    showBoundingBoxes_ = config.enableBoundingBoxes;
+    showQuadtreeBounds_ = config.enableQuadtreeBounds;
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -56,42 +67,46 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
     }
+    skybox_.SetEnabled(config.enableSkybox);
 
     if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Debug Overlay: {}", res.error());
     }
+    debugOverlay_.SetVisible(config.enableDebugOverlay);
 
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
-    // Auto-load Sponza.glb (primary) or ToyCar.glb (fallback) if present
-    std::string defaultAssetPath = "";
-    const std::vector<std::string> searchPaths = {
-        "assets/Sponza.glb",
-        "../assets/Sponza.glb",
-        "assets/ToyCar.glb",
-        "../assets/ToyCar.glb"
-    };
-    for (const auto& path : searchPaths) {
-        if (std::filesystem::exists(path)) {
-            defaultAssetPath = path;
-            break;
+    // Resolve model asset path from config or auto-detect Sponza.glb (primary) / ToyCar.glb (fallback)
+    std::string assetPathToLoad = config.assetPath;
+    if (assetPathToLoad.empty()) {
+        const std::vector<std::string> searchPaths = {
+            "assets/Sponza.glb",
+            "../assets/Sponza.glb",
+            "assets/ToyCar.glb",
+            "../assets/ToyCar.glb"
+        };
+        for (const auto& path : searchPaths) {
+            if (std::filesystem::exists(path)) {
+                assetPathToLoad = path;
+                break;
+            }
         }
     }
 
-    if (!defaultAssetPath.empty()) {
-        BGL_LOG_INFO("Found default asset '{}', loading scene...", defaultAssetPath);
-        auto sceneRes = gltfLoader_->LoadFromFile(defaultAssetPath);
+    if (!assetPathToLoad.empty()) {
+        BGL_LOG_INFO("Loading glTF/GLB asset '{}'...", assetPathToLoad);
+        auto sceneRes = gltfLoader_->LoadFromFile(assetPathToLoad);
         if (sceneRes) {
             activeScene_ = *sceneRes;
-            currentModelName_ = std::filesystem::path(defaultAssetPath).filename().string();
+            currentModelName_ = std::filesystem::path(assetPathToLoad).filename().string();
             CacheSceneMetrics();
             pipelineManager_.PrepareScene(*activeScene_);
 
             glm::vec3 center = activeScene_->sceneAABB.Center();
             float radius = glm::length(activeScene_->sceneAABB.Extents()) * 0.5f;
 
-            if (defaultAssetPath.find("Sponza") != std::string::npos) {
+            if (assetPathToLoad.find("Sponza") != std::string::npos) {
                 // Sponza atrium camera perspective: centered in courtyard
                 glm::vec3 courtyardCenter = glm::vec3(-60.0f, 250.0f, -38.0f);
                 float camDistance = 800.0f;
@@ -104,7 +119,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
                 camera_ = core::Camera(center, targetDistance);
                 camera_.Orbit(0.8f, 0.4f);
                 BGL_LOG_INFO("{} loaded: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                             defaultAssetPath, center.x, center.y, center.z, radius, targetDistance);
+                             assetPathToLoad, center.x, center.y, center.z, radius, targetDistance);
             }
 
             // Build Quadtree spatial partitioning structure fitted to scene AABB
@@ -118,7 +133,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
             }
             cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
         } else {
-            BGL_LOG_WARN("Could not load {}: {}", defaultAssetPath, sceneRes.error());
+            BGL_LOG_WARN("Could not load {}: {}", assetPathToLoad, sceneRes.error());
         }
     }
 

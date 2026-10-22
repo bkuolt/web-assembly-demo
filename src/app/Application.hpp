@@ -22,6 +22,20 @@
 namespace bgl::app {
 
 /**
+ * @struct ApplicationConfig
+ * @brief Startup parameters and initial rendering states.
+ */
+struct ApplicationConfig {
+    uint32_t width = 1280;
+    uint32_t height = 720;
+    std::string assetPath = "";
+    bool enableSkybox = true;
+    bool enableBoundingBoxes = true;
+    bool enableQuadtreeBounds = false;
+    bool enableDebugOverlay = true;
+};
+
+/**
  * @class Application
  * @brief Main engine application runtime coordinating rendering, physics, audio, and inputs.
  */
@@ -30,7 +44,8 @@ public:
     Application();
     ~Application();
 
-    core::Result<void> Initialize(uint32_t width = 1280, uint32_t height = 720);
+    core::Result<void> Initialize(const ApplicationConfig& config = {});
+    core::Result<void> Initialize(uint32_t width, uint32_t height);
     void Update(float deltaTime);
     void Render();
     void Shutdown();

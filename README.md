@@ -11,13 +11,24 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ### Key Architecture Highlights
 
 - **100% Modern C++23 & Root Namespace `bgl`**:
-  - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR arenas, logging.
+  - `bgl::core`: Math, types, AABB, ray intersection, camera, memory pools, PMR arenas, POSIX signal handling, C++23 `std::stacktrace` crash diagnosis, logging.
   - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, procedural atmospheric skybox, 3D wireframe bounding boxes.
-  - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), KTX / KTX2 texture decoding with Basis Universal transcoding, 16x anisotropic texture filtering with full CPU mip-mapping, spatial Quadtree partitioning, Möller-Trumbore ray picking.
+  - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), modular KTX / PNG / JPEG / WebP decoders with CMake toggles, Basis Universal transcoding, 16x anisotropic texture filtering with full CPU mip-mapping, spatial Quadtree partitioning, Möller-Trumbore ray picking.
   - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode script and bidi text shaping, batched 2D quad renderer with alpha blending.
   - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD displaying real-time FPS, frame timing, camera coordinates, glTF scene metrics, and spatial culling telemetry.
   - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
-  - `bgl::app`: Multiplatform application lifecycle and runtime loop.
+  - `bgl::app`: Multiplatform application lifecycle, CLI argument parser (`--help`, `--version`, `--formats`, `--asset`, etc.), and runtime loop.
+- **POSIX Crash Signal Handler & Callstack Diagnostics**:
+  - Catches `SIGSEGV`, `SIGABRT`, `SIGFPE`, `SIGILL`, and `SIGBUS` via `sigaction` with an alternate signal stack (`sigaltstack`).
+  - Safe, immediate async-signal-safe error logging: signal name, fault address, PID, and TID.
+  - Dual stack unwinding: raw `execinfo` backtrace plus demangled C++23 `std::stacktrace` with function signatures and file line numbers.
+  - Intentional test crashes accessible via `--test-crash [segv|abrt|fpe]`.
+- **Modular Texture Format CMake Options (All ON by Default)**:
+  - `-DBGL_ENABLE_PNG=ON/OFF` (libpng)
+  - `-DBGL_ENABLE_JPEG=ON/OFF` (libjpeg-turbo)
+  - `-DBGL_ENABLE_WEBP=ON/OFF` (libwebp)
+  - `-DBGL_ENABLE_KTX=ON/OFF` (libktx 4.3.2)
+  - Queryable at runtime via `./bgl_viewer --formats` or `TextureDecoder::GetSupportedFormats()`.
 - **Multithreaded glTF Asset Ingestion**:
   - Lock-free parallel texture decoding across hardware worker threads (`std::jthread`, `std::atomic<size_t>` task dispatch).
   - Parallel scene node extraction, transform hierarchy evaluation, and mesh primitive parsing (vertex attributes, bounding boxes, indices).
@@ -73,6 +84,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ├── src/
 │   ├── core/                      # -> libbgl_core.so
 │   │   ├── Camera.hpp/.cpp        # Orbit, Pan, Zoom camera with WebGPU reverse-Z projection
+│   │   ├── CrashHandler.hpp/.cpp  # POSIX crash interception, signal handling & C++23 stacktrace
 │   │   ├── Gamepad.hpp/.cpp       # Controller support with 0.12f deadzone calibration
 │   │   ├── Log.hpp/.cpp           # spdlog integration and RAII ScopedTimer profiling
 │   │   ├── MemoryPool.hpp/.cpp    # Block memory pool & PMR scratch arena
@@ -100,7 +112,8 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── audio/                     # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp   # 3D spatial audio listener and sound source management
 │   ├── app/                       # -> libbgl_app.so
-│   │   └── Application.hpp/.cpp   # Main application lifecycle and runtime loop
+│   │   ├── Application.hpp/.cpp   # Main application lifecycle and runtime loop
+│   │   └── CommandLine.hpp/.cpp   # CLI argument parsing, help screen, and format inspection
 │   └── main.cpp                   # Native desktop viewer entry point
 ├── tests/                         # GTest unit test suite
 │   ├── test_main.cpp
@@ -108,7 +121,8 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── test_asset_manager.cpp
 │   ├── test_quadtree_lod.cpp
 │   ├── test_ray_picker.cpp
-│   └── test_text_rendering.cpp
+│   ├── test_text_rendering.cpp
+│   └── test_crash_handler.cpp
 └── web/                           # Web viewer client
     ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
     └── dist/                      # Precompiled WebAssembly artifacts
@@ -136,10 +150,21 @@ conan install . -s build_type=Release --build=missing
 ### 2. Configure and Build
 
 ```bash
-# Configure with CMake using Conan-generated toolchain
-cmake -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake
+# Configure with CMake using Conan-generated toolchain (all texture formats ON by default)
+cmake -B build/Release -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
+  -DBGL_ENABLE_PNG=ON \
+  -DBGL_ENABLE_JPEG=ON \
+  -DBGL_ENABLE_WEBP=ON \
+  -DBGL_ENABLE_KTX=ON
+
+# Compile the native viewer and libraries
 cmake --build build/Release -j$(nproc)
 ```
+
+> [!NOTE]
+> Each texture format decoder can be independently disabled at configure time (e.g., `-DBGL_ENABLE_KTX=OFF` or `-DBGL_ENABLE_WEBP=OFF`). The engine automatically adjusts runtime decoding and reports available formats.
 
 ### 3. Run Unit Tests
 
@@ -152,10 +177,39 @@ ctest --test-dir build/Release --output-on-failure
 The executable automatically resolves relative RPATHs to its shared libraries and WebGPU backend:
 
 ```bash
+# Launch with default model (Sponza.glb)
 ./build/Release/bgl_viewer
+
+# Print comprehensive CLI help and hotkeys
+./build/Release/bgl_viewer --help
+
+# Query compiled texture and asset format support
+./build/Release/bgl_viewer --formats
+
+# Load a specific glTF / GLB model at custom resolution
+./build/Release/bgl_viewer --asset assets/ToyCar.glb -w 1600 -H 900 --log-level debug
+
+# Test crash signal interception and stacktrace diagnostics
+./build/Release/bgl_viewer --test-crash segv
 ```
 
-*Controls:*
+#### Command-Line Arguments
+| Option | Argument | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
+| `-v`, `--version` | — | Print engine version string | `0.6.7` |
+| `--formats` | — | Query compiled texture decoders and format availability | — |
+| `-a`, `--asset` | `<path>` | Load specified `.glb` or `.gltf` model path | Auto-detect |
+| `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
+| `-H`, `--height` | `<pixels>` | Initial window height | `720` |
+| `-l`, `--log-level` | `<level>` | Logging level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
+| `--no-skybox` | — | Start with procedural atmospheric skybox disabled | `Enabled` |
+| `--no-hud` | — | Start with in-engine Debug Overlay HUD hidden | `Visible` |
+| `--no-bounds` | — | Start with 3D wireframe bounding boxes hidden | `Visible` |
+| `--quadtree` | — | Start with 3D Quadtree ground boundaries enabled | `Disabled` |
+| `--test-crash` | `[segv\|abrt\|fpe]` | Trigger intentional crash to verify signal handler and stacktrace | `segv` |
+
+#### Interactive Controls:
 - **Left Mouse Button Drag**: Orbit camera around target.
 - **Right Mouse Button / Shift + Drag**: Pan camera laterally and vertically.
 - **Mouse Wheel**: Smooth zoom.

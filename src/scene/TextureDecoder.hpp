@@ -34,6 +34,43 @@ public:
     static core::Result<DecodedImage> DecodeWebP(std::span<const uint8_t> data);
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data);
     static core::Result<DecodedImage> DecodeAuto(std::span<const uint8_t> data, std::string_view mimeOrPath);
+
+    /**
+     * @brief Queries compile-time availability of format decoders.
+     */
+    static constexpr bool IsPngSupported() noexcept {
+#if defined(BGL_ENABLE_PNG)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    static constexpr bool IsJpegSupported() noexcept {
+#if defined(BGL_ENABLE_JPEG)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    static constexpr bool IsWebpSupported() noexcept {
+#if defined(BGL_ENABLE_WEBP)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    static constexpr bool IsKtxSupported() noexcept {
+#if defined(BGL_ENABLE_KTX)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    static std::vector<std::string_view> GetSupportedFormats();
 };
 
 } // namespace bgl::scene

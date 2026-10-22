@@ -56,11 +56,52 @@ int main() {
 
 #include <chrono>
 #include <thread>
+#include "app/CommandLine.hpp"
+#include "core/CrashHandler.hpp"
 
 int main(int argc, char** argv) {
-    (void)argc; (void)argv;
+    // 1. Install crash signal handling immediately
+    bgl::core::InstallCrashHandler();
+
+    // 2. Parse command-line arguments
+    auto cli = bgl::app::CliOptions::Parse(argc, argv);
+
+    if (cli.showHelp) {
+        bgl::app::CliOptions::PrintHelp(argv[0]);
+        return 0;
+    }
+
+    if (cli.showVersion) {
+        bgl::app::CliOptions::PrintVersion();
+        return 0;
+    }
+
+    if (cli.listFormats) {
+        bgl::app::CliOptions::PrintFormats();
+        return 0;
+    }
+
+    if (cli.testCrash) {
+        bgl::core::InitLogging(cli.logLevel);
+        BGL_LOG_WARN("Executing intentional test crash (signal type {})...", cli.testCrashSignal);
+        bgl::core::TriggerTestCrash(cli.testCrashSignal);
+    }
+
+    // 3. Initialize logging with CLI level
+    bgl::core::InitLogging(cli.logLevel);
+
+    // 4. Configure and initialize Application
+    bgl::app::ApplicationConfig config;
+    config.width = cli.width;
+    config.height = cli.height;
+    config.assetPath = cli.assetPath;
+    config.enableSkybox = cli.enableSkybox;
+    config.enableBoundingBoxes = cli.enableBoundingBoxes;
+    config.enableQuadtreeBounds = cli.enableQuadtreeBounds;
+    config.enableDebugOverlay = cli.enableDebugOverlay;
+
     bgl::app::Application app;
-    if (auto res = app.Initialize(1280, 720); !res) {
+    if (auto res = app.Initialize(config); !res) {
         BGL_LOG_ERROR("Initialization error: {}", res.error());
         return -1;
     }
@@ -80,6 +121,7 @@ int main(int argc, char** argv) {
     }
 
     app.Shutdown();
+    bgl::core::UninstallCrashHandler();
     BGL_LOG_INFO("bgl_viewer execution finished cleanly.");
     return 0;
 }
