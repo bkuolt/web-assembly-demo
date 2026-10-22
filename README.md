@@ -1,4 +1,4 @@
-# bgl-Engine (v0.6.0)
+# bgl-Engine (v0.6.1)
 
 Modular C++23 WebGPU & glTF 2.1 High-Performance 3D Renderer for Linux amd64 and WebAssembly (Wasm).
 
