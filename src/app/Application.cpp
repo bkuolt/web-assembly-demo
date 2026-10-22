@@ -74,12 +74,13 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetReflectionsEnabled(config.enableReflections);
     pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
 
-    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
+    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(), gpuContext_.GetSampleCount()); !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
     }
     skybox_.SetEnabled(config.enableSkybox);
+    skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
 
-    if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
+    if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), 1); !res) {
         BGL_LOG_WARN("Could not initialize Debug Overlay: {}", res.error());
     }
     debugOverlay_.SetVisible(config.enableDebugOverlay);
@@ -146,9 +147,6 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_q) {
                     ToggleQuadtreeBounds();
                     BGL_LOG_INFO("Toggled 3D Quadtree Spatial Bounds visibility: {}", showQuadtreeBounds_);
-                } else if (event.key.keysym.sym == SDLK_k) {
-                    ToggleSkybox();
-                    BGL_LOG_INFO("Toggled Atmospheric Skybox visibility: {}", skybox_.IsEnabled());
                 } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
                     ToggleDebugOverlay();
                     BGL_LOG_INFO("Toggled In-Engine Debug Overlay visibility: {}", debugOverlay_.IsVisible());
@@ -170,6 +168,25 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_c) {
                     ToggleOcclusionCulling();
                     BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling: {}", pipelineManager_.IsOcclusionCullingEnabled());
+                } else if (event.key.keysym.sym == SDLK_t) {
+                    CycleTonemapper();
+                    BGL_LOG_INFO("Switched Tonemapper: {}", pipelineManager_.GetToneMapOperatorName(pipelineManager_.GetToneMapOperator()));
+                } else if (event.key.keysym.sym == SDLK_e) {
+                    CycleEnvironmentPreset();
+                    BGL_LOG_INFO("Switched Environment Preset: {}", pipelineManager_.GetEnvironmentPresetName(pipelineManager_.GetEnvironmentPreset()));
+                } else if (event.key.keysym.sym == SDLK_k) {
+                    CycleSkyboxMode();
+                    BGL_LOG_INFO("Switched Skybox Mode: {}", skybox_.GetModeName(skybox_.GetMode()));
+                } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS || event.key.keysym.sym == SDLK_EQUALS) {
+                    AdjustExposure(0.15f);
+                    BGL_LOG_INFO("Exposure increased: {:.2f}", pipelineManager_.GetExposure());
+                } else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS) {
+                    AdjustExposure(-0.15f);
+                    BGL_LOG_INFO("Exposure decreased: {:.2f}", pipelineManager_.GetExposure());
+                } else if (event.key.keysym.sym == SDLK_LEFTBRACKET) {
+                    RotateEnvironment(-0.0872665f); // -5 degrees
+                } else if (event.key.keysym.sym == SDLK_RIGHTBRACKET) {
+                    RotateEnvironment(0.0872665f);  // +5 degrees
                 }
             } else if (event.type == SDL_MOUSEBUTTONDOWN &&
                        (event.button.button == SDL_BUTTON_MIDDLE ||
@@ -276,15 +293,28 @@ void Application::Render() {
         pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
     }
 
-    WGPURenderPassEncoder pass = gpuContext_.BeginFrame();
-    if (!pass) return;
+    WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
+    if (!hdrPass) return;
 
-    // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry)
-    skybox_.Render(pass, vp, camPos, sunDir);
+    // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry into RGBA16Float)
+    skybox_.Render(hdrPass, vp, camPos, sunDir);
 
     if (activeScene_) {
-        // 2. Hardware 4x MSAA PBR Scene Rendering (16x Aniso + Quadtree Frustum Culling)
-        pipelineManager_.RenderScene(pass, *activeScene_, vp, camPos, false, quadtree_.get());
+        // 2. Hardware 4x MSAA PBR Scene Rendering (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
+        pipelineManager_.RenderScene(
+            hdrPass,
+            *activeScene_,
+            vp,
+            camPos,
+            false,
+            quadtree_.get(),
+            camera_.GetViewMatrix(),
+            camera_.GetProjectionMatrix(),
+            gpuContext_.GetWidth(),
+            gpuContext_.GetHeight(),
+            camera_.GetNearPlane(),
+            camera_.GetFarPlane()
+        );
 
         // 3. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
         if (showBoundingBoxes_) {
@@ -294,14 +324,21 @@ void Application::Render() {
             pipelineManager_.BatchQuadtreeBounds(*quadtree_);
         }
         if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_)) {
-            pipelineManager_.FlushAABBLines(pass, vp);
+            pipelineManager_.FlushAABBLines(hdrPass, vp);
         }
     }
 
-    // 5. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD)
-    debugOverlay_.Render(pass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+    // 4. Resolve HDR RGBA16F (MSAA -> 1x) and begin Swapchain Post-Processing Pass (Surface format)
+    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(hdrPass);
+    if (!swapchainPass) return;
 
-    gpuContext_.EndFrame(pass);
+    // 5. Fullscreen HDR Tonemapping (Khronos PBR Neutral / AgX / ACES) + Exposure Scaling
+    pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView());
+
+    // 6. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD) onto swapchain
+    debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+
+    gpuContext_.EndFrame(swapchainPass);
 }
 
 void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri) {

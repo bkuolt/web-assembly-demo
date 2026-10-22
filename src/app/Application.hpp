@@ -65,6 +65,18 @@ public:
     void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
     void ToggleAmbientOcclusion() noexcept { pipelineManager_.ToggleAmbientOcclusion(); }
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
+    void CycleTonemapper() noexcept { pipelineManager_.CycleToneMapOperator(); }
+    void CycleEnvironmentPreset() noexcept {
+        pipelineManager_.CycleEnvironmentPreset(activeScene_.get());
+        skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
+    }
+    void CycleSkyboxMode() noexcept { skybox_.CycleMode(); }
+    void AdjustExposure(float delta) noexcept { pipelineManager_.SetExposure(pipelineManager_.GetExposure() + delta); }
+    void RotateEnvironment(float deltaRad) noexcept {
+        const float newRot{pipelineManager_.GetEnvironmentRotation() + deltaRad};
+        pipelineManager_.SetEnvironmentRotation(newRot);
+        skybox_.SetRotation(newRot);
+    }
 
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }

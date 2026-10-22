@@ -165,12 +165,7 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
-    // 7. Depth State (Overlays draw over 3D scene without depth testing or writing)
-    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-    depthStencil.format = WGPUTextureFormat_Depth24Plus;
-    depthStencil.depthWriteEnabled = WGPUOptionalBool_False;
-    depthStencil.depthCompare = WGPUCompareFunction_Always;
-
+    // 7. Render Pipeline (Overlays draw over 2D swapchain pass without depth stencil attachment)
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.layout = pipelineLayout;
     rpDesc.vertex.module = shaderModule;
@@ -180,7 +175,7 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     rpDesc.fragment = &fragmentState;
     rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     rpDesc.primitive.cullMode = WGPUCullMode_None;
-    rpDesc.depthStencil = &depthStencil;
+    rpDesc.depthStencil = nullptr;
     rpDesc.multisample.count = sampleCount_;
     rpDesc.multisample.mask = 0xFFFFFFFF;
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;

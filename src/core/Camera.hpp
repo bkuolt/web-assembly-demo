@@ -29,6 +29,8 @@ public:
     [[nodiscard]] glm::vec3 GetPosition() const noexcept { return position_; }
     [[nodiscard]] glm::vec3 GetTarget() const noexcept { return target_; }
     [[nodiscard]] float GetDistance() const noexcept { return distance_; }
+    [[nodiscard]] float GetNearPlane() const noexcept { return nearPlane_; }
+    [[nodiscard]] float GetFarPlane() const noexcept { return farPlane_; }
     [[nodiscard]] Frustum GetFrustum() const noexcept { return Frustum::FromViewProjection(GetViewProjectionMatrix()); }
 
     /**
