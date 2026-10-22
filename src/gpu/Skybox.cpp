@@ -95,11 +95,11 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
 
     // 1. Compile WGSL Shader
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.code = WGPUStringView{ kSkyboxWGSL.data(), kSkyboxWGSL.size() };
+    wgslDesc.code = ToWgpuStringView(kSkyboxWGSL);
 
     WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
-    smDesc.label = WGPUStringView{ "Skybox_WGSL", strlen("Skybox_WGSL") };
+    smDesc.label = ToWgpuStringView("Skybox_WGSL");
     ShaderModuleHandle shaderModule{wgpuDeviceCreateShaderModule(device_, &smDesc)};
     if (!shaderModule) {
         return std::unexpected("Failed to compile WGSL atmospheric skybox shader");
@@ -118,10 +118,9 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
 
     // 3. Pipeline Layout
-    WGPUBindGroupLayout rawBgl{bindGroupLayout_.Get()};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &rawBgl;
+    plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
     PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
 
     // 4. Color Target & Depth State
@@ -131,7 +130,7 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = WGPUStringView{ "fs_sky", strlen("fs_sky") };
+    fragmentState.entryPoint = ToWgpuStringView("fs_sky");
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
@@ -144,7 +143,7 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.layout = pipelineLayout;
     rpDesc.vertex.module = shaderModule;
-    rpDesc.vertex.entryPoint = WGPUStringView{ "vs_sky", strlen("vs_sky") };
+    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_sky");
     rpDesc.vertex.bufferCount = 0;
     rpDesc.vertex.buffers = nullptr;
     rpDesc.fragment = &fragmentState;
@@ -161,7 +160,7 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     ubDesc.size = sizeof(SkyboxUniforms);
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    ubDesc.label = WGPUStringView{ "SkyboxUniformBuffer", strlen("SkyboxUniformBuffer") };
+    ubDesc.label = ToWgpuStringView("SkyboxUniformBuffer");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
 
     // 7. Bind Group

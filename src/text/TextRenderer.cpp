@@ -5,7 +5,7 @@
 #include "text/TextRenderer.hpp"
 #include "core/Log.hpp"
 #include <glm/gtc/matrix_transform.hpp>
-#include <cstring>
+#include <array>
 
 namespace bgl::text {
 
@@ -52,32 +52,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
 TextRenderer::TextRenderer() = default;
 
-TextRenderer::~TextRenderer() {
-    if (bindGroup_) {
-        wgpuBindGroupRelease(bindGroup_);
-        bindGroup_ = nullptr;
-    }
-    if (uniformBuffer_) {
-        wgpuBufferRelease(uniformBuffer_);
-        uniformBuffer_ = nullptr;
-    }
-    if (vertexBuffer_) {
-        wgpuBufferRelease(vertexBuffer_);
-        vertexBuffer_ = nullptr;
-    }
-    if (indexBuffer_) {
-        wgpuBufferRelease(indexBuffer_);
-        indexBuffer_ = nullptr;
-    }
-    if (pipeline_) {
-        wgpuRenderPipelineRelease(pipeline_);
-        pipeline_ = nullptr;
-    }
-    if (bindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(bindGroupLayout_);
-        bindGroupLayout_ = nullptr;
-    }
-}
+TextRenderer::~TextRenderer() = default;
 
 core::Result<void> TextRenderer::Initialize(WGPUDevice device,
                                             WGPUQueue queue,
@@ -99,12 +74,12 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
 
     // 1. Shader Module
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.code = WGPUStringView{ kTextWGSL.data(), kTextWGSL.size() };
+    wgslDesc.code = gpu::ToWgpuStringView(kTextWGSL);
 
     WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
-    smDesc.label = WGPUStringView{ "TextShader_WGSL", strlen("TextShader_WGSL") };
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &smDesc);
+    smDesc.label = gpu::ToWgpuStringView("TextShader_WGSL");
+    gpu::ShaderModuleHandle shaderModule{wgpuDeviceCreateShaderModule(device_, &smDesc)};
     if (!shaderModule) {
         return std::unexpected("Failed to create TextRenderer WGSL shader module");
     }
@@ -113,11 +88,11 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     ubDesc.size = sizeof(glm::mat4);
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    ubDesc.label = WGPUStringView{ "TextUniformBuffer", strlen("TextUniformBuffer") };
+    ubDesc.label = gpu::ToWgpuStringView("TextUniformBuffer");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
 
     // 3. Bind Group Layout
-    WGPUBindGroupLayoutEntry bglEntries[3] = {};
+    std::array<WGPUBindGroupLayoutEntry, 3> bglEntries{};
     // Binding 0: Uniform Buffer
     bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     bglEntries[0].binding = 0;
@@ -139,18 +114,18 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     bglEntries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
 
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = 3;
-    bglDesc.entries = bglEntries;
+    bglDesc.entryCount = bglEntries.size();
+    bglDesc.entries = bglEntries.data();
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
 
     // 4. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &bindGroupLayout_;
-    WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
+    gpu::PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
 
     // 5. Vertex Layout
-    WGPUVertexAttribute vertAttrs[3] = {};
+    std::array<WGPUVertexAttribute, 3> vertAttrs{};
     // Location 0: pos (vec2<f32>)
     vertAttrs[0].format = WGPUVertexFormat_Float32x2;
     vertAttrs[0].offset = offsetof(TextVertex, pos);
@@ -167,8 +142,8 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vbLayout.arrayStride = sizeof(TextVertex);
     vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = 3;
-    vbLayout.attributes = vertAttrs;
+    vbLayout.attributeCount = vertAttrs.size();
+    vbLayout.attributes = vertAttrs.data();
 
     // 6. Alpha Blend State
     WGPUBlendState blendState = WGPU_BLEND_STATE_INIT;
@@ -186,7 +161,7 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = WGPUStringView{ "fs_main", strlen("fs_main") };
+    fragmentState.entryPoint = gpu::ToWgpuStringView("fs_main");
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
@@ -199,7 +174,7 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.layout = pipelineLayout;
     rpDesc.vertex.module = shaderModule;
-    rpDesc.vertex.entryPoint = WGPUStringView{ "vs_main", strlen("vs_main") };
+    rpDesc.vertex.entryPoint = gpu::ToWgpuStringView("vs_main");
     rpDesc.vertex.bufferCount = 1;
     rpDesc.vertex.buffers = &vbLayout;
     rpDesc.fragment = &fragmentState;
@@ -212,11 +187,8 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
 
-    wgpuPipelineLayoutRelease(pipelineLayout);
-    wgpuShaderModuleRelease(shaderModule);
-
     // 8. Create Bind Group
-    WGPUBindGroupEntry bgEntries[3] = {};
+    std::array<WGPUBindGroupEntry, 3> bgEntries{};
     bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
     bgEntries[0].binding = 0;
     bgEntries[0].buffer = uniformBuffer_;
@@ -233,8 +205,8 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
 
     WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     bgDesc.layout = bindGroupLayout_;
-    bgDesc.entryCount = 3;
-    bgDesc.entries = bgEntries;
+    bgDesc.entryCount = bgEntries.size();
+    bgDesc.entries = bgEntries.data();
     bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
 
     BGL_LOG_INFO("TextRenderer initialized: format={}, sampleCount={}", static_cast<int>(surfaceFormat_), sampleCount_);
@@ -243,26 +215,20 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device,
 
 void TextRenderer::EnsureBuffers(size_t vertexCount, size_t indexCount) {
     if (vertexCount > vertexBufferCapacity_) {
-        if (vertexBuffer_) {
-            wgpuBufferRelease(vertexBuffer_);
-        }
         vertexBufferCapacity_ = std::max(vertexCount * 2, size_t{1024});
         WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
         vbDesc.size = (vertexBufferCapacity_ * sizeof(TextVertex) + 3) & ~3;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-        vbDesc.label = WGPUStringView{ "TextVertexBuffer", strlen("TextVertexBuffer") };
+        vbDesc.label = gpu::ToWgpuStringView("TextVertexBuffer");
         vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
     }
 
     if (indexCount > indexBufferCapacity_) {
-        if (indexBuffer_) {
-            wgpuBufferRelease(indexBuffer_);
-        }
         indexBufferCapacity_ = std::max(indexCount * 2, size_t{2048});
         WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
         ibDesc.size = (indexBufferCapacity_ * sizeof(uint32_t) + 3) & ~3;
         ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-        ibDesc.label = WGPUStringView{ "TextIndexBuffer", strlen("TextIndexBuffer") };
+        ibDesc.label = gpu::ToWgpuStringView("TextIndexBuffer");
         indexBuffer_ = wgpuDeviceCreateBuffer(device_, &ibDesc);
     }
 }

@@ -5,10 +5,18 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
+#include <string_view>
 #include <utility>
 #include <concepts>
 
 namespace bgl::gpu {
+
+/**
+ * @brief Converts a C++ `std::string_view` to a `WGPUStringView` at compile time without `strlen`.
+ */
+[[nodiscard]] constexpr WGPUStringView ToWgpuStringView(std::string_view str) noexcept {
+    return WGPUStringView{str.data(), str.size()};
+}
 
 /**
  * @class Handle
@@ -64,6 +72,10 @@ public:
 
     [[nodiscard]] constexpr T Get() const noexcept {
         return handle_;
+    }
+
+    [[nodiscard]] constexpr const T* AddressOf() const noexcept {
+        return &handle_;
     }
 
     [[nodiscard]] constexpr operator T() const noexcept {

@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 #include <webgpu/webgpu.h>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 #include "text/FontAtlas.hpp"
 #include "text/TextShaper.hpp"
 
@@ -85,13 +86,13 @@ private:
     uint32_t sampleCount_{4};
     FontAtlas* fontAtlas_{nullptr};
 
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
-    WGPURenderPipeline pipeline_{nullptr};
-    WGPUBuffer uniformBuffer_{nullptr};
-    WGPUBindGroup bindGroup_{nullptr};
+    gpu::BindGroupLayoutHandle bindGroupLayout_{};
+    gpu::RenderPipelineHandle pipeline_{};
+    gpu::BufferHandle uniformBuffer_{};
+    gpu::BindGroupHandle bindGroup_{};
 
-    WGPUBuffer vertexBuffer_{nullptr};
-    WGPUBuffer indexBuffer_{nullptr};
+    gpu::BufferHandle vertexBuffer_{};
+    gpu::BufferHandle indexBuffer_{};
     size_t vertexBufferCapacity_{0};
     size_t indexBufferCapacity_{0};
 

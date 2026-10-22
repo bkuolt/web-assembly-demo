@@ -21,39 +21,32 @@ FontAtlas::~FontAtlas() {
 }
 
 FontAtlas::FontAtlas(FontAtlas&& other) noexcept
-    : ftLibrary_(other.ftLibrary_)
-    , ftFace_(other.ftFace_)
-    , hbFont_(other.hbFont_)
-    , fontDataBuffer_(std::move(other.fontDataBuffer_))
-    , pixelSize_(other.pixelSize_)
-    , lineHeight_(other.lineHeight_)
-    , ascender_(other.ascender_)
-    , descender_(other.descender_)
-    , atlasDim_(other.atlasDim_)
-    , cpuAtlas_(std::move(other.cpuAtlas_))
-    , isDirty_(other.isDirty_)
-    , packX_(other.packX_)
-    , packY_(other.packY_)
-    , rowHeight_(other.rowHeight_)
-    , whitePixelUV_(other.whitePixelUV_)
-    , glyphCache_(std::move(other.glyphCache_))
-    , gpuTexture_(other.gpuTexture_)
-    , gpuTextureView_(other.gpuTextureView_)
-    , gpuSampler_(other.gpuSampler_) {
-    other.ftLibrary_ = nullptr;
-    other.ftFace_ = nullptr;
-    other.hbFont_ = nullptr;
-    other.gpuTexture_ = nullptr;
-    other.gpuTextureView_ = nullptr;
-    other.gpuSampler_ = nullptr;
-}
+    : ftLibrary_{std::exchange(other.ftLibrary_, nullptr)}
+    , ftFace_{std::exchange(other.ftFace_, nullptr)}
+    , hbFont_{std::exchange(other.hbFont_, nullptr)}
+    , fontDataBuffer_{std::move(other.fontDataBuffer_)}
+    , pixelSize_{other.pixelSize_}
+    , lineHeight_{other.lineHeight_}
+    , ascender_{other.ascender_}
+    , descender_{other.descender_}
+    , atlasDim_{other.atlasDim_}
+    , cpuAtlas_{std::move(other.cpuAtlas_)}
+    , isDirty_{other.isDirty_}
+    , packX_{other.packX_}
+    , packY_{other.packY_}
+    , rowHeight_{other.rowHeight_}
+    , whitePixelUV_{other.whitePixelUV_}
+    , glyphCache_{std::move(other.glyphCache_)}
+    , gpuTexture_{std::move(other.gpuTexture_)}
+    , gpuTextureView_{std::move(other.gpuTextureView_)}
+    , gpuSampler_{std::move(other.gpuSampler_)} {}
 
 FontAtlas& FontAtlas::operator=(FontAtlas&& other) noexcept {
     if (this != &other) {
         Cleanup();
-        ftLibrary_ = other.ftLibrary_;
-        ftFace_ = other.ftFace_;
-        hbFont_ = other.hbFont_;
+        ftLibrary_ = std::exchange(other.ftLibrary_, nullptr);
+        ftFace_ = std::exchange(other.ftFace_, nullptr);
+        hbFont_ = std::exchange(other.hbFont_, nullptr);
         fontDataBuffer_ = std::move(other.fontDataBuffer_);
         pixelSize_ = other.pixelSize_;
         lineHeight_ = other.lineHeight_;
@@ -67,33 +60,17 @@ FontAtlas& FontAtlas::operator=(FontAtlas&& other) noexcept {
         rowHeight_ = other.rowHeight_;
         whitePixelUV_ = other.whitePixelUV_;
         glyphCache_ = std::move(other.glyphCache_);
-        gpuTexture_ = other.gpuTexture_;
-        gpuTextureView_ = other.gpuTextureView_;
-        gpuSampler_ = other.gpuSampler_;
-
-        other.ftLibrary_ = nullptr;
-        other.ftFace_ = nullptr;
-        other.hbFont_ = nullptr;
-        other.gpuTexture_ = nullptr;
-        other.gpuTextureView_ = nullptr;
-        other.gpuSampler_ = nullptr;
+        gpuTexture_ = std::move(other.gpuTexture_);
+        gpuTextureView_ = std::move(other.gpuTextureView_);
+        gpuSampler_ = std::move(other.gpuSampler_);
     }
     return *this;
 }
 
 void FontAtlas::Cleanup() {
-    if (gpuSampler_) {
-        wgpuSamplerRelease(gpuSampler_);
-        gpuSampler_ = nullptr;
-    }
-    if (gpuTextureView_) {
-        wgpuTextureViewRelease(gpuTextureView_);
-        gpuTextureView_ = nullptr;
-    }
-    if (gpuTexture_) {
-        wgpuTextureRelease(gpuTexture_);
-        gpuTexture_ = nullptr;
-    }
+    gpuSampler_.Reset();
+    gpuTextureView_.Reset();
+    gpuTexture_.Reset();
     if (hbFont_) {
         hb_font_destroy(hbFont_);
         hbFont_ = nullptr;
@@ -283,7 +260,7 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
         texDesc.dimension = WGPUTextureDimension_2D;
         texDesc.format = WGPUTextureFormat_RGBA8Unorm;
         texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
-        texDesc.label = WGPUStringView{ "FontAtlasTexture", strlen("FontAtlasTexture") };
+        texDesc.label = gpu::ToWgpuStringView("FontAtlasTexture");
         gpuTexture_ = wgpuDeviceCreateTexture(device, &texDesc);
 
         WGPUTextureViewDescriptor viewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;

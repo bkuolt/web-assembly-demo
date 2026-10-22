@@ -8,11 +8,12 @@
 #include "scene/Scene.hpp"
 #include "scene/Quadtree.hpp"
 #include "core/Log.hpp"
-#include <cstring>
 #include <cmath>
 #include <algorithm>
 #include <array>
 #include <span>
+#include <bit>
+#include <utility>
 #include <atomic>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
@@ -26,113 +27,38 @@ PipelineManager::~PipelineManager() {
 }
 
 void PipelineManager::Shutdown() noexcept {
-    if (noMipSampler_) {
-        wgpuSamplerRelease(noMipSampler_);
-        noMipSampler_ = nullptr;
-    }
-    if (defaultSampler_) {
-        wgpuSamplerRelease(defaultSampler_);
-        defaultSampler_ = nullptr;
-    }
-    if (shadowSampler_) {
-        wgpuSamplerRelease(shadowSampler_);
-        shadowSampler_ = nullptr;
-    }
-    if (shadowDepthView_) {
-        wgpuTextureViewRelease(shadowDepthView_);
-        shadowDepthView_ = nullptr;
-    }
-    if (shadowDepthTexture_) {
-        wgpuTextureRelease(shadowDepthTexture_);
-        shadowDepthTexture_ = nullptr;
-    }
-    if (shadowPipeline_) {
-        wgpuRenderPipelineRelease(shadowPipeline_);
-        shadowPipeline_ = nullptr;
-    }
-    if (shadowBindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(shadowBindGroupLayout_);
-        shadowBindGroupLayout_ = nullptr;
-    }
-    if (envCubemapView_) {
-        wgpuTextureViewRelease(envCubemapView_);
-        envCubemapView_ = nullptr;
-    }
-    if (envCubemapTexture_) {
-        wgpuTextureRelease(envCubemapTexture_);
-        envCubemapTexture_ = nullptr;
-    }
-    if (defaultBlackTextureView_) {
-        wgpuTextureViewRelease(defaultBlackTextureView_);
-        defaultBlackTextureView_ = nullptr;
-    }
-    if (defaultBlackTexture_) {
-        wgpuTextureRelease(defaultBlackTexture_);
-        defaultBlackTexture_ = nullptr;
-    }
-    if (defaultNormalTextureView_) {
-        wgpuTextureViewRelease(defaultNormalTextureView_);
-        defaultNormalTextureView_ = nullptr;
-    }
-    if (defaultNormalTexture_) {
-        wgpuTextureRelease(defaultNormalTexture_);
-        defaultNormalTexture_ = nullptr;
-    }
-    if (defaultWhiteTextureView_) {
-        wgpuTextureViewRelease(defaultWhiteTextureView_);
-        defaultWhiteTextureView_ = nullptr;
-    }
-    if (defaultWhiteTexture_) {
-        wgpuTextureRelease(defaultWhiteTexture_);
-        defaultWhiteTexture_ = nullptr;
-    }
-    if (aabbBindGroup_) {
-        wgpuBindGroupRelease(aabbBindGroup_);
-        aabbBindGroup_ = nullptr;
-    }
-    if (aabbUniformBuffer_) {
-        wgpuBufferRelease(aabbUniformBuffer_);
-        aabbUniformBuffer_ = nullptr;
-    }
-    if (aabbVertexBuffer_) {
-        wgpuBufferRelease(aabbVertexBuffer_);
-        aabbVertexBuffer_ = nullptr;
-    }
-    if (aabbPipeline_) {
-        wgpuRenderPipelineRelease(aabbPipeline_);
-        aabbPipeline_ = nullptr;
-    }
-    if (aabbBindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(aabbBindGroupLayout_);
-        aabbBindGroupLayout_ = nullptr;
-    }
-    if (wireframePipeline_) {
-        wgpuRenderPipelineRelease(wireframePipeline_);
-        wireframePipeline_ = nullptr;
-    }
-    if (opaqueBackCulledPipeline_) {
-        wgpuRenderPipelineRelease(opaqueBackCulledPipeline_);
-        opaqueBackCulledPipeline_ = nullptr;
-    }
-    if (opaquePipeline_) {
-        wgpuRenderPipelineRelease(opaquePipeline_);
-        opaquePipeline_ = nullptr;
-    }
-    if (bindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(bindGroupLayout_);
-        bindGroupLayout_ = nullptr;
-    }
+    noMipSampler_.Reset();
+    defaultSampler_.Reset();
+    shadowSampler_.Reset();
+    shadowDepthView_.Reset();
+    shadowDepthTexture_.Reset();
+    shadowPipeline_.Reset();
+    shadowBindGroupLayout_.Reset();
+    envCubemapView_.Reset();
+    envCubemapTexture_.Reset();
+    defaultBlackTextureView_.Reset();
+    defaultBlackTexture_.Reset();
+    defaultNormalTextureView_.Reset();
+    defaultNormalTexture_.Reset();
+    defaultWhiteTextureView_.Reset();
+    defaultWhiteTexture_.Reset();
+    aabbBindGroup_.Reset();
+    aabbUniformBuffer_.Reset();
+    aabbVertexBuffer_.Reset();
+    aabbPipeline_.Reset();
+    aabbBindGroupLayout_.Reset();
+    wireframePipeline_.Reset();
+    opaqueBackCulledPipeline_.Reset();
+    opaquePipeline_.Reset();
+    bindGroupLayout_.Reset();
+    device_ = nullptr;
+    queue_ = nullptr;
     initialized_ = false;
 }
 
 uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) noexcept {
     const uint32_t maxDim{std::max(width, height)};
-    if (maxDim == 0) return 1;
-    uint32_t levels{1};
-    while ((maxDim >> levels) > 0) {
-        levels++;
-    }
-    return levels;
+    return std::max(1u, static_cast<uint32_t>(std::bit_width(maxDim)));
 }
 
 std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap) {
@@ -313,36 +239,36 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     // 1. Compile WGSL PBR Shader Module
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.code = WGPUStringView{ kPbrShaderWGSL.data(), kPbrShaderWGSL.size() };
+    wgslDesc.code = ToWgpuStringView(kPbrShaderWGSL);
 
     WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
-    smDesc.label = WGPUStringView{ "PBR_WGSL", strlen("PBR_WGSL") };
+    smDesc.label = ToWgpuStringView("PBR_WGSL");
 
-    WGPUShaderModule pbrShaderModule = wgpuDeviceCreateShaderModule(device_, &smDesc);
+    ShaderModuleHandle pbrShaderModule{wgpuDeviceCreateShaderModule(device_, &smDesc)};
     if (!pbrShaderModule) {
         return std::unexpected("Failed to compile embedded WGSL PBR shader module");
     }
 
     // 2. Compile WGSL Wireframe Shader Module
     WGPUShaderSourceWGSL wfWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wfWgslDesc.code = WGPUStringView{ kWireframeShaderWGSL.data(), kWireframeShaderWGSL.size() };
+    wfWgslDesc.code = ToWgpuStringView(kWireframeShaderWGSL);
 
     WGPUShaderModuleDescriptor wfSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     wfSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wfWgslDesc);
-    wfSmDesc.label = WGPUStringView{ "Wireframe_WGSL", strlen("Wireframe_WGSL") };
+    wfSmDesc.label = ToWgpuStringView("Wireframe_WGSL");
 
-    WGPUShaderModule wfShaderModule = wgpuDeviceCreateShaderModule(device_, &wfSmDesc);
+    ShaderModuleHandle wfShaderModule{wgpuDeviceCreateShaderModule(device_, &wfSmDesc)};
 
     // 3. Compile WGSL Shadow Shader Module
     WGPUShaderSourceWGSL shadowWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    shadowWgslDesc.code = WGPUStringView{ kShadowShaderWGSL.data(), kShadowShaderWGSL.size() };
+    shadowWgslDesc.code = ToWgpuStringView(kShadowShaderWGSL);
 
     WGPUShaderModuleDescriptor shadowSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     shadowSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&shadowWgslDesc);
-    shadowSmDesc.label = WGPUStringView{ "Shadow_WGSL", strlen("Shadow_WGSL") };
+    shadowSmDesc.label = ToWgpuStringView("Shadow_WGSL");
 
-    WGPUShaderModule shadowShaderModule = wgpuDeviceCreateShaderModule(device_, &shadowSmDesc);
+    ShaderModuleHandle shadowShaderModule{wgpuDeviceCreateShaderModule(device_, &shadowSmDesc)};
 
     // 4. Bind Group Layout (13 entries):
     // 0: Uniform buffer
@@ -351,7 +277,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     // 10: Environment Cubemap (texture_cube<f32>)
     // 11: Shadow Depth Map (texture_depth_2d)
     // 12: Shadow Comparison Sampler (sampler_comparison)
-    WGPUBindGroupLayoutEntry bglEntries[13] = {};
+    std::array<WGPUBindGroupLayoutEntry, 13> bglEntries{};
 
     // Binding 0: Uniform buffer
     bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -367,7 +293,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     bglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
     // Bindings 2..9: 2D Sampled Textures
-    for (uint32_t b = 2; b < 10; ++b) {
+    for (uint32_t b{2}; b < 10; ++b) {
         bglEntries[b] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         bglEntries[b].binding = b;
         bglEntries[b].visibility = WGPUShaderStage_Fragment;
@@ -399,8 +325,8 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     bglEntries[12].sampler.type = WGPUSamplerBindingType_Comparison;
 
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = 13;
-    bglDesc.entries = bglEntries;
+    bglDesc.entryCount = bglEntries.size();
+    bglDesc.entries = bglEntries.data();
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
     if (!bindGroupLayout_) {
         return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
@@ -421,16 +347,16 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     // 5. Pipeline Layouts
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &bindGroupLayout_;
-    WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
+    PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
 
     WGPUPipelineLayoutDescriptor shadowPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     shadowPlDesc.bindGroupLayoutCount = 1;
-    shadowPlDesc.bindGroupLayouts = &shadowBindGroupLayout_;
-    WGPUPipelineLayout shadowPipelineLayout = wgpuDeviceCreatePipelineLayout(device_, &shadowPlDesc);
+    shadowPlDesc.bindGroupLayouts = shadowBindGroupLayout_.AddressOf();
+    PipelineLayoutHandle shadowPipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &shadowPlDesc)};
 
     // 6. Vertex Layout (Position, Normal, Tangent, UV)
-    WGPUVertexAttribute vertAttrs[4] = {};
+    std::array<WGPUVertexAttribute, 4> vertAttrs{};
     vertAttrs[0].format = WGPUVertexFormat_Float32x3;
     vertAttrs[0].offset = offsetof(core::Vertex, position);
     vertAttrs[0].shaderLocation = 0;
@@ -450,8 +376,8 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vbLayout.arrayStride = sizeof(core::Vertex);
     vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = 4;
-    vbLayout.attributes = vertAttrs;
+    vbLayout.attributeCount = vertAttrs.size();
+    vbLayout.attributes = vertAttrs.data();
 
     // 7. Color Target & Depth State
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
@@ -460,7 +386,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = pbrShaderModule;
-    fragmentState.entryPoint = WGPUStringView{ "fs_main", strlen("fs_main") };
+    fragmentState.entryPoint = ToWgpuStringView("fs_main");
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
@@ -473,7 +399,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.layout = pipelineLayout;
     rpDesc.vertex.module = pbrShaderModule;
-    rpDesc.vertex.entryPoint = WGPUStringView{ "vs_main", strlen("vs_main") };
+    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
     rpDesc.vertex.bufferCount = 1;
     rpDesc.vertex.buffers = &vbLayout;
     rpDesc.fragment = &fragmentState;
@@ -503,7 +429,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         WGPURenderPipelineDescriptor shadowRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
         shadowRpDesc.layout = shadowPipelineLayout;
         shadowRpDesc.vertex.module = shadowShaderModule;
-        shadowRpDesc.vertex.entryPoint = WGPUStringView{ "vs_shadow", strlen("vs_shadow") };
+        shadowRpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
         shadowRpDesc.vertex.bufferCount = 1;
         shadowRpDesc.vertex.buffers = &vbLayout;
         shadowRpDesc.fragment = nullptr; // Depth-only pass
@@ -515,15 +441,13 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         shadowRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
         shadowPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &shadowRpDesc);
-        wgpuShaderModuleRelease(shadowShaderModule);
     }
-    wgpuPipelineLayoutRelease(shadowPipelineLayout);
 
     // 8c. Create Wireframe Render Pipeline
     if (wfShaderModule) {
         WGPUFragmentState wfFragState = WGPU_FRAGMENT_STATE_INIT;
         wfFragState.module = wfShaderModule;
-        wfFragState.entryPoint = WGPUStringView{ "fs_main", strlen("fs_main") };
+        wfFragState.entryPoint = ToWgpuStringView("fs_main");
         wfFragState.targetCount = 1;
         wfFragState.targets = &colorTarget;
 
@@ -533,7 +457,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         WGPURenderPipelineDescriptor wfRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
         wfRpDesc.layout = pipelineLayout;
         wfRpDesc.vertex.module = wfShaderModule;
-        wfRpDesc.vertex.entryPoint = WGPUStringView{ "vs_main", strlen("vs_main") };
+        wfRpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
         wfRpDesc.vertex.bufferCount = 1;
         wfRpDesc.vertex.buffers = &vbLayout;
         wfRpDesc.fragment = &wfFragState;
@@ -545,17 +469,16 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wfRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
         wireframePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
-        wgpuShaderModuleRelease(wfShaderModule);
     }
 
     // 8d. Create AABB Wireframe Render Pipeline
     WGPUShaderSourceWGSL aabbWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    aabbWgslDesc.code = WGPUStringView{ kAabbShaderWGSL.data(), kAabbShaderWGSL.size() };
+    aabbWgslDesc.code = ToWgpuStringView(kAabbShaderWGSL);
 
     WGPUShaderModuleDescriptor aabbSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     aabbSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&aabbWgslDesc);
-    aabbSmDesc.label = WGPUStringView{ "AABB_WGSL", strlen("AABB_WGSL") };
-    WGPUShaderModule aabbShaderModule = wgpuDeviceCreateShaderModule(device_, &aabbSmDesc);
+    aabbSmDesc.label = ToWgpuStringView("AABB_WGSL");
+    ShaderModuleHandle aabbShaderModule{wgpuDeviceCreateShaderModule(device_, &aabbSmDesc)};
 
     WGPUBindGroupLayoutEntry aabbBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     aabbBglEntry.binding = 0;
@@ -570,10 +493,10 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     aabbPlDesc.bindGroupLayoutCount = 1;
-    aabbPlDesc.bindGroupLayouts = &aabbBindGroupLayout_;
-    WGPUPipelineLayout aabbPlLayout = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
+    aabbPlDesc.bindGroupLayouts = aabbBindGroupLayout_.AddressOf();
+    PipelineLayoutHandle aabbPlLayout{wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc)};
 
-    WGPUVertexAttribute aabbAttrs[2] = {};
+    std::array<WGPUVertexAttribute, 2> aabbAttrs{};
     aabbAttrs[0].format = WGPUVertexFormat_Float32x3;
     aabbAttrs[0].offset = 0;
     aabbAttrs[0].shaderLocation = 0;
@@ -585,12 +508,12 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     WGPUVertexBufferLayout aabbVbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     aabbVbLayout.arrayStride = sizeof(AabbVertex);
     aabbVbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    aabbVbLayout.attributeCount = 2;
-    aabbVbLayout.attributes = aabbAttrs;
+    aabbVbLayout.attributeCount = aabbAttrs.size();
+    aabbVbLayout.attributes = aabbAttrs.data();
 
     WGPUFragmentState aabbFragState = WGPU_FRAGMENT_STATE_INIT;
     aabbFragState.module = aabbShaderModule;
-    aabbFragState.entryPoint = WGPUStringView{ "fs_aabb", strlen("fs_aabb") };
+    aabbFragState.entryPoint = ToWgpuStringView("fs_aabb");
     aabbFragState.targetCount = 1;
     aabbFragState.targets = &colorTarget;
 
@@ -601,7 +524,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     WGPURenderPipelineDescriptor aabbRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     aabbRpDesc.layout = aabbPlLayout;
     aabbRpDesc.vertex.module = aabbShaderModule;
-    aabbRpDesc.vertex.entryPoint = WGPUStringView{ "vs_aabb", strlen("vs_aabb") };
+    aabbRpDesc.vertex.entryPoint = ToWgpuStringView("vs_aabb");
     aabbRpDesc.vertex.bufferCount = 1;
     aabbRpDesc.vertex.buffers = &aabbVbLayout;
     aabbRpDesc.fragment = &aabbFragState;
@@ -614,20 +537,17 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     aabbPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &aabbRpDesc);
 
-    wgpuPipelineLayoutRelease(aabbPlLayout);
-    wgpuShaderModuleRelease(aabbShaderModule);
-
     aabbVertexBufferSize_ = 512 * 1024;
     WGPUBufferDescriptor boxVbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     boxVbDesc.size = aabbVertexBufferSize_;
     boxVbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-    boxVbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
+    boxVbDesc.label = ToWgpuStringView("AABB_DynamicVertexBuffer");
     aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &boxVbDesc);
 
     WGPUBufferDescriptor aabbUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     aabbUbDesc.size = sizeof(AabbUniforms);
     aabbUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    aabbUbDesc.label = WGPUStringView{ "AABB_Uniforms", strlen("AABB_Uniforms") };
+    aabbUbDesc.label = ToWgpuStringView("AABB_Uniforms");
     aabbUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &aabbUbDesc);
 
     WGPUBindGroupEntry aabbBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -642,9 +562,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     aabbBgDesc.entries = &aabbBgEntry;
     aabbBindGroup_ = wgpuDeviceCreateBindGroup(device_, &aabbBgDesc);
 
-    wgpuPipelineLayoutRelease(pipelineLayout);
-    wgpuShaderModuleRelease(pbrShaderModule);
-
     // 9. Create Shadow Map 2048x2048 Depth32Float Texture & Comparison Sampler
     WGPUTextureDescriptor shadowTexDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     shadowTexDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
@@ -653,7 +570,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     shadowTexDesc.format = WGPUTextureFormat_Depth32Float;
     shadowTexDesc.mipLevelCount = 1;
     shadowTexDesc.sampleCount = 1;
-    shadowTexDesc.label = WGPUStringView{ "DirectionalShadowMap", strlen("DirectionalShadowMap") };
+    shadowTexDesc.label = ToWgpuStringView("DirectionalShadowMap");
     shadowDepthTexture_ = wgpuDeviceCreateTexture(device_, &shadowTexDesc);
     if (shadowDepthTexture_) {
         shadowDepthView_ = wgpuTextureCreateView(shadowDepthTexture_, nullptr);
@@ -672,7 +589,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     // Initialize shadow map with cleared depth (1.0f) so first frame has valid depth contents even if shadows are toggled off
     if (shadowDepthView_) {
-        WGPUCommandEncoder initEnc = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+        CommandEncoderHandle initEnc{wgpuDeviceCreateCommandEncoder(device_, nullptr)};
         WGPURenderPassDepthStencilAttachment clearDepth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
         clearDepth.view = shadowDepthView_;
         clearDepth.depthLoadOp = WGPULoadOp_Clear;
@@ -682,13 +599,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         WGPURenderPassDescriptor clearPassDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
         clearPassDesc.colorAttachmentCount = 0;
         clearPassDesc.depthStencilAttachment = &clearDepth;
-        WGPURenderPassEncoder clearPass = wgpuCommandEncoderBeginRenderPass(initEnc, &clearPassDesc);
+        RenderPassEncoderHandle clearPass{wgpuCommandEncoderBeginRenderPass(initEnc, &clearPassDesc)};
         wgpuRenderPassEncoderEnd(clearPass);
-        wgpuRenderPassEncoderRelease(clearPass);
-        WGPUCommandBuffer initCmd = wgpuCommandEncoderFinish(initEnc, nullptr);
-        wgpuCommandEncoderRelease(initEnc);
-        wgpuQueueSubmit(queue_, 1, &initCmd);
-        wgpuCommandBufferRelease(initCmd);
+        CommandBufferHandle initCmd{wgpuCommandEncoderFinish(initEnc, nullptr)};
+        WGPUCommandBuffer rawCmd{initCmd.Get()};
+        wgpuQueueSubmit(queue_, 1, &rawCmd);
     }
 
     // 10. Create Pre-filtered Environment Cubemap (6 faces, 7 mip levels for roughness IBL, multithreaded across faces)
@@ -700,7 +615,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     cubeDesc.format = WGPUTextureFormat_RGBA8Unorm;
     cubeDesc.mipLevelCount = envMipLevels_;
     cubeDesc.sampleCount = 1;
-    cubeDesc.label = WGPUStringView{ "EnvironmentCubemap", strlen("EnvironmentCubemap") };
+    cubeDesc.label = ToWgpuStringView("EnvironmentCubemap");
     envCubemapTexture_ = wgpuDeviceCreateTexture(device_, &cubeDesc);
 
     std::array<std::vector<std::vector<uint8_t>>, 6> faceMipData{};
@@ -856,7 +771,7 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
         return fallback;
     };
 
-    WGPUSampler activeSampler = mipmappingEnabled_ ? defaultSampler_ : noMipSampler_;
+    WGPUSampler activeSampler{mipmappingEnabled_ ? defaultSampler_.Get() : noMipSampler_.Get()};
 
     auto rebuildNode = [&](auto& self, scene::SceneNode& node) -> void {
         for (auto& prim : node.primitives) {
@@ -866,14 +781,14 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
                 prim.gpuBindGroup = nullptr;
             }
 
-            int baseColorTexIdx = -1;
-            int mrTexIdx = -1;
-            int normalTexIdx = -1;
-            int emissiveTexIdx = -1;
-            int occlusionTexIdx = -1;
-            int clearcoatTexIdx = -1;
-            int transmissionTexIdx = -1;
-            int sheenTexIdx = -1;
+            int baseColorTexIdx{-1};
+            int mrTexIdx{-1};
+            int normalTexIdx{-1};
+            int emissiveTexIdx{-1};
+            int occlusionTexIdx{-1};
+            int clearcoatTexIdx{-1};
+            int transmissionTexIdx{-1};
+            int sheenTexIdx{-1};
 
             if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
                 const auto& mat = scene.materials[prim.materialIndex];
@@ -887,7 +802,7 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
                 sheenTexIdx = mat.sheenColorTextureIndex;
             }
 
-            WGPUBindGroupEntry bgEntries[13] = {};
+            std::array<WGPUBindGroupEntry, 13> bgEntries{};
             bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
             bgEntries[0].binding = 0;
             bgEntries[0].buffer = prim.gpuUniformBuffer;
@@ -944,8 +859,8 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
             WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
             bgDesc.layout = bindGroupLayout_;
-            bgDesc.entryCount = 13;
-            bgDesc.entries = bgEntries;
+            bgDesc.entryCount = bgEntries.size();
+            bgDesc.entries = bgEntries.data();
             prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
         }
 
@@ -1064,7 +979,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             texDesc.format = isSrgbTexture[i] ? WGPUTextureFormat_RGBA8UnormSrgb : WGPUTextureFormat_RGBA8Unorm;
             texDesc.mipLevelCount = mipLevels;
             texDesc.sampleCount = 1;
-            texDesc.label = WGPUStringView{ "glTF_Texture", strlen("glTF_Texture") };
+            texDesc.label = ToWgpuStringView("glTF_Texture");
             WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
 
             // Mip 0 upload
@@ -1120,18 +1035,18 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
     // 2. Prepare vertex buffers, index buffers, uniform buffers, and shadow/main bind groups for each primitive
     auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (size_t pIdx = 0; pIdx < node.primitives.size(); ++pIdx) {
+        for (size_t pIdx{0}; pIdx < node.primitives.size(); ++pIdx) {
             auto& prim = node.primitives[pIdx];
             if (prim.vertices.empty()) continue;
 
-            size_t vbSize = prim.vertices.size() * sizeof(core::Vertex);
-            size_t ibSize = prim.indices.size() * sizeof(uint32_t);
+            const size_t vbSize{prim.vertices.size() * sizeof(core::Vertex)};
+            const size_t ibSize{prim.indices.size() * sizeof(uint32_t)};
 
             if (!prim.gpuVertexBuffer) {
                 WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 vbDesc.size = (vbSize + 3) & ~3;
                 vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-                vbDesc.label = WGPUStringView{ "VertexBuffer", strlen("VertexBuffer") };
+                vbDesc.label = ToWgpuStringView("VertexBuffer");
                 prim.gpuVertexBuffer = wgpuDeviceCreateBuffer(device_, &vbDesc);
                 wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), vbSize);
             }
@@ -1140,7 +1055,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ibDesc.size = (ibSize + 3) & ~3;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = WGPUStringView{ "IndexBuffer", strlen("IndexBuffer") };
+                ibDesc.label = ToWgpuStringView("IndexBuffer");
                 prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
             }
@@ -1149,7 +1064,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ubDesc.size = sizeof(PrimitiveUniforms);
                 ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-                ubDesc.label = WGPUStringView{ "PrimitiveUniforms", strlen("PrimitiveUniforms") };
+                ubDesc.label = ToWgpuStringView("PrimitiveUniforms");
                 prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
             }
 
@@ -1236,9 +1151,9 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
     passDesc.colorAttachmentCount = 0;
     passDesc.colorAttachments = nullptr;
     passDesc.depthStencilAttachment = &depthAttachment;
-    passDesc.label = WGPUStringView{ "DirectionalShadowPass", strlen("DirectionalShadowPass") };
+    passDesc.label = ToWgpuStringView("DirectionalShadowPass");
 
-    WGPURenderPassEncoder shadowPass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+    RenderPassEncoderHandle shadowPass{wgpuCommandEncoderBeginRenderPass(encoder, &passDesc)};
     if (!shadowPass) return;
 
     wgpuRenderPassEncoderSetPipeline(shadowPass, shadowPipeline_);
@@ -1250,7 +1165,6 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
     }
 
     wgpuRenderPassEncoderEnd(shadowPass);
-    wgpuRenderPassEncoderRelease(shadowPass);
 
     shadowMapDirty_ = false;
     lastShadowScene_ = &scene;
@@ -1362,7 +1276,7 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.occlusionStrength = mat.occlusionStrength;
         uniforms.emissiveFactor = glm::vec4{mat.emissiveFactor, mat.emissiveStrength};
         uniforms.alphaCutoff = mat.alphaCutoff;
-        uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
+        uniforms.alphaMode = std::to_underlying(mat.alphaMode);
         uniforms.ior = mat.ior;
         uniforms.clearcoatFactor = mat.clearcoatFactor;
         uniforms.clearcoatRoughness = mat.clearcoatRoughnessFactor;
@@ -1410,28 +1324,28 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
 
 void PipelineManager::AppendAABBLines(const core::AABB& aabb, const glm::vec4& color) {
     if (aabb.minBound.x > aabb.maxBound.x) return;
-    const glm::vec3 minB = aabb.minBound;
-    const glm::vec3 maxB = aabb.maxBound;
+    const glm::vec3 minB{aabb.minBound};
+    const glm::vec3 maxB{aabb.maxBound};
 
-    const glm::vec3 c[8] = {
-        glm::vec3(minB.x, minB.y, minB.z),
-        glm::vec3(maxB.x, minB.y, minB.z),
-        glm::vec3(maxB.x, maxB.y, minB.z),
-        glm::vec3(minB.x, maxB.y, minB.z),
-        glm::vec3(minB.x, minB.y, maxB.z),
-        glm::vec3(maxB.x, minB.y, maxB.z),
-        glm::vec3(maxB.x, maxB.y, maxB.z),
-        glm::vec3(minB.x, maxB.y, maxB.z)
-    };
+    const std::array<glm::vec3, 8> c{{
+        glm::vec3{minB.x, minB.y, minB.z},
+        glm::vec3{maxB.x, minB.y, minB.z},
+        glm::vec3{maxB.x, maxB.y, minB.z},
+        glm::vec3{minB.x, maxB.y, minB.z},
+        glm::vec3{minB.x, minB.y, maxB.z},
+        glm::vec3{maxB.x, minB.y, maxB.z},
+        glm::vec3{maxB.x, maxB.y, maxB.z},
+        glm::vec3{minB.x, maxB.y, maxB.z}
+    }};
 
-    static constexpr size_t kIndices[24] = {
+    static constexpr std::array<size_t, 24> kIndices{{
         0, 1,  1, 2,  2, 3,  3, 0,
         4, 5,  5, 6,  6, 7,  7, 4,
         0, 4,  1, 5,  2, 6,  3, 7
-    };
+    }};
 
     for (size_t idx : kIndices) {
-        batchedAabbVertices_.push_back({ c[idx], 0.0f, color });
+        batchedAabbVertices_.push_back(AabbVertex{ .pos = c[idx], ._pad = 0.0f, .color = color });
     }
 }
 
@@ -1446,15 +1360,11 @@ void PipelineManager::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4
     const size_t totalNeeded{writeOffset + requiredBytes};
 
     if (totalNeeded > aabbVertexBufferSize_ || !aabbVertexBuffer_) {
-        if (aabbVertexBuffer_) {
-            wgpuBufferRelease(aabbVertexBuffer_);
-            aabbVertexBuffer_ = nullptr;
-        }
-        aabbVertexBufferSize_ = std::max(totalNeeded * 2, size_t(512 * 1024));
+        aabbVertexBufferSize_ = std::max(totalNeeded * 2, size_t{512 * 1024});
         WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
         vbDesc.size = aabbVertexBufferSize_;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-        vbDesc.label = WGPUStringView{ "AABB_DynamicVertexBuffer", strlen("AABB_DynamicVertexBuffer") };
+        vbDesc.label = ToWgpuStringView("AABB_DynamicVertexBuffer");
         aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
         writeOffset = 0;
     }
@@ -1470,7 +1380,7 @@ void PipelineManager::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, aabbVertexBuffer_, writeOffset, requiredBytes);
     wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(batchedAabbVertices_.size()), 1, 0, 0);
 
-    aabbFrameByteOffset_ = (writeOffset + requiredBytes + 255u) & ~size_t(255u);
+    aabbFrameByteOffset_ = (writeOffset + requiredBytes + 255u) & ~size_t{255u};
     batchedAabbVertices_.clear();
 }
 

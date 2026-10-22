@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <webgpu/webgpu.h>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 
 // Forward declarations for third-party C types
 typedef struct FT_LibraryRec_* FT_Library;
@@ -87,9 +88,9 @@ public:
     [[nodiscard]] float GetAscender() const noexcept { return ascender_; }
     [[nodiscard]] float GetDescender() const noexcept { return descender_; }
 
-    [[nodiscard]] WGPUTexture GetGPUTexture() const noexcept { return gpuTexture_; }
-    [[nodiscard]] WGPUTextureView GetGPUTextureView() const noexcept { return gpuTextureView_; }
-    [[nodiscard]] WGPUSampler GetGPUSampler() const noexcept { return gpuSampler_; }
+    [[nodiscard]] WGPUTexture GetGPUTexture() const noexcept { return gpuTexture_.Get(); }
+    [[nodiscard]] WGPUTextureView GetGPUTextureView() const noexcept { return gpuTextureView_.Get(); }
+    [[nodiscard]] WGPUSampler GetGPUSampler() const noexcept { return gpuSampler_.Get(); }
     [[nodiscard]] glm::vec2 GetWhitePixelUV() const noexcept { return whitePixelUV_; }
     [[nodiscard]] uint32_t GetAtlasDimension() const noexcept { return atlasDim_; }
 
@@ -119,10 +120,10 @@ private:
 
     std::unordered_map<uint32_t, GlyphInfo> glyphCache_{};
 
-    // WebGPU resources
-    WGPUTexture gpuTexture_{nullptr};
-    WGPUTextureView gpuTextureView_{nullptr};
-    WGPUSampler gpuSampler_{nullptr};
+    // WebGPU RAII resources
+    gpu::TextureHandle gpuTexture_{};
+    gpu::TextureViewHandle gpuTextureView_{};
+    gpu::SamplerHandle gpuSampler_{};
 };
 
 } // namespace bgl::text

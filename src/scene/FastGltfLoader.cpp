@@ -594,12 +594,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     // 8. Print ASCII Hierarchy Tree Diagram
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
     BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
-    auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
+    auto printTree = [&](this auto&& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
         if (!n) return;
-        std::string nodeInfo = n->name.empty() ? "(Unnamed Node)" : n->name;
+        std::string nodeInfo{n->name.empty() ? "(Unnamed Node)" : n->name};
         if (!n->primitives.empty()) {
-            size_t totalVerts = 0;
-            size_t totalIndices = 0;
+            size_t totalVerts{0};
+            size_t totalIndices{0};
             for (const auto& p : n->primitives) {
                 totalVerts += p.vertices.size();
                 totalIndices += p.indices.size();
@@ -608,13 +608,13 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                         std::to_string(totalVerts) + " verts, " + std::to_string(totalIndices / 3) + " tris]";
         }
         BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", nodeInfo);
-        for (size_t c = 0; c < n->children.size(); ++c) {
-            bool childLast = (c + 1 == n->children.size());
-            self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
+        for (size_t c{0}; c < n->children.size(); ++c) {
+            const bool childLast{c + 1 == n->children.size()};
+            self(n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
         }
     };
-    for (size_t r = 0; r < scene->rootNodes.size(); ++r) {
-        printTree(printTree, scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
+    for (size_t r{0}; r < scene->rootNodes.size(); ++r) {
+        printTree(scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
     }
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
 

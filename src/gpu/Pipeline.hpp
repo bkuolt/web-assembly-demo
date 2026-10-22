@@ -10,6 +10,7 @@
 #include <vector>
 #include <span>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 
 namespace bgl::scene {
 struct Scene;
@@ -178,46 +179,46 @@ private:
     WGPUQueue queue_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
 
-    WGPURenderPipeline opaquePipeline_{nullptr};
-    WGPURenderPipeline opaqueBackCulledPipeline_{nullptr};
-    WGPURenderPipeline wireframePipeline_{nullptr};
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
+    RenderPipelineHandle opaquePipeline_{};
+    RenderPipelineHandle opaqueBackCulledPipeline_{};
+    RenderPipelineHandle wireframePipeline_{};
+    BindGroupLayoutHandle bindGroupLayout_{};
 
     // Directional Shadow Mapping Resources
-    WGPURenderPipeline shadowPipeline_{nullptr};
-    WGPUBindGroupLayout shadowBindGroupLayout_{nullptr};
-    WGPUTexture shadowDepthTexture_{nullptr};
-    WGPUTextureView shadowDepthView_{nullptr};
-    WGPUSampler shadowSampler_{nullptr};
+    RenderPipelineHandle shadowPipeline_{};
+    BindGroupLayoutHandle shadowBindGroupLayout_{};
+    TextureHandle shadowDepthTexture_{};
+    TextureViewHandle shadowDepthView_{};
+    SamplerHandle shadowSampler_{};
 
     // Pre-filtered Environment Cubemap Resources
-    WGPUTexture envCubemapTexture_{nullptr};
-    WGPUTextureView envCubemapView_{nullptr};
+    TextureHandle envCubemapTexture_{};
+    TextureViewHandle envCubemapView_{};
 
     // AABB Wireframe Resources
-    WGPURenderPipeline aabbPipeline_{nullptr};
-    WGPUBindGroupLayout aabbBindGroupLayout_{nullptr};
-    WGPUBuffer aabbVertexBuffer_{nullptr};
-    WGPUBuffer aabbUniformBuffer_{nullptr};
-    WGPUBindGroup aabbBindGroup_{nullptr};
+    RenderPipelineHandle aabbPipeline_{};
+    BindGroupLayoutHandle aabbBindGroupLayout_{};
+    BufferHandle aabbVertexBuffer_{};
+    BufferHandle aabbUniformBuffer_{};
+    BindGroupHandle aabbBindGroup_{};
     size_t aabbVertexBufferSize_{0};
     size_t aabbFrameByteOffset_{0};
     std::vector<AabbVertex> batchedAabbVertices_{};
     std::vector<AabbVertex> cachedSceneAabbVertices_{};
 
     // Default 1x1 Fallback Textures
-    WGPUTexture defaultWhiteTexture_{nullptr};
-    WGPUTextureView defaultWhiteTextureView_{nullptr};
+    TextureHandle defaultWhiteTexture_{};
+    TextureViewHandle defaultWhiteTextureView_{};
 
-    WGPUTexture defaultNormalTexture_{nullptr};
-    WGPUTextureView defaultNormalTextureView_{nullptr};
+    TextureHandle defaultNormalTexture_{};
+    TextureViewHandle defaultNormalTextureView_{};
 
-    WGPUTexture defaultBlackTexture_{nullptr};
-    WGPUTextureView defaultBlackTextureView_{nullptr};
+    TextureHandle defaultBlackTexture_{};
+    TextureViewHandle defaultBlackTextureView_{};
 
     // Samplers (Trilinear 16x Aniso vs Nearest Mip-0)
-    WGPUSampler defaultSampler_{nullptr};
-    WGPUSampler noMipSampler_{nullptr};
+    SamplerHandle defaultSampler_{};
+    SamplerHandle noMipSampler_{};
 };
 
 } // namespace bgl::gpu

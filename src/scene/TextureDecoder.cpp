@@ -4,7 +4,9 @@
  */
 #include "scene/TextureDecoder.hpp"
 #include "core/Log.hpp"
+#include <array>
 #include <cstring>
+#include <memory>
 
 #if defined(BGL_PLATFORM_NATIVE)
 
@@ -188,8 +190,8 @@ static bool ReadJpegStreamIsolateSetjmp(
 
 core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> data) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
-    static constexpr uint8_t kPngMagic[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    if (data.size() < 8 || std::memcmp(data.data(), kPngMagic, 8) != 0) {
+    static constexpr std::array<uint8_t, 8> kPngMagic{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (data.size() < kPngMagic.size() || std::memcmp(data.data(), kPngMagic.data(), kPngMagic.size()) != 0) {
         return std::unexpected("Data is not a valid PNG signature");
     }
 
@@ -230,14 +232,16 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     }
     int width{0};
     int height{0};
-    uint8_t* decoded{WebPDecodeRGBA(data.data(), data.size(), &width, &height)};
+    std::unique_ptr<uint8_t, decltype(&WebPFree)> decoded{
+        WebPDecodeRGBA(data.data(), data.size(), &width, &height),
+        &WebPFree
+    };
     if (!decoded) {
         return std::unexpected("Failed to decode WebP stream");
     }
     if (width <= 0 || height <= 0 ||
         static_cast<size_t>(width) > kMaxTextureDimension ||
         static_cast<size_t>(height) > kMaxTextureDimension) {
-        WebPFree(decoded);
         return std::unexpected("WebP image dimensions exceed maximum allowed limits");
     }
     const size_t totalBytes{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
@@ -245,8 +249,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     img.width = static_cast<uint32_t>(width);
     img.height = static_cast<uint32_t>(height);
     img.channels = 4;
-    img.rgbaData.assign(decoded, decoded + totalBytes);
-    WebPFree(decoded);
+    img.rgbaData.assign(decoded.get(), decoded.get() + totalBytes);
     return img;
 #elif defined(BGL_PLATFORM_NATIVE)
     (void)data;
@@ -290,25 +293,28 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         return std::unexpected("Data too small to be a valid KTX texture");
     }
 
-    ktxTexture* kTexture = nullptr;
-    KTX_error_code result = ktxTexture_CreateFromMemory(
+    ktxTexture* rawKtx{nullptr};
+    KTX_error_code result{ktxTexture_CreateFromMemory(
         data.data(),
         data.size(),
         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-        &kTexture
-    );
+        &rawKtx
+    )};
 
-    if (result != KTX_SUCCESS || !kTexture) {
+    if (result != KTX_SUCCESS || !rawKtx) {
         return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));
     }
+    const auto ktxDeleter = [](ktxTexture* t) noexcept {
+        if (t) ktxTexture_Destroy(t);
+    };
+    std::unique_ptr<ktxTexture, decltype(ktxDeleter)> kTexture{rawKtx, ktxDeleter};
 
     // Check if transcoding is needed for Basis Universal KTX2 textures (UASTC / ETC1S)
     if (kTexture->classId == ktxTexture2_c) {
-        auto* ktx2 = reinterpret_cast<ktxTexture2*>(kTexture);
+        auto* ktx2{reinterpret_cast<ktxTexture2*>(kTexture.get())};
         if (ktxTexture2_NeedsTranscoding(ktx2)) {
             result = ktxTexture2_TranscodeBasis(ktx2, KTX_TTF_RGBA32, 0);
             if (result != KTX_SUCCESS) {
-                ktxTexture_Destroy(kTexture);
                 return std::unexpected(std::string("ktxTexture2_TranscodeBasis to RGBA32 failed: error ") + std::to_string(result));
             }
         }
@@ -316,14 +322,13 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 
     const uint32_t width{kTexture->baseWidth};
     const uint32_t height{kTexture->baseHeight};
-    const ktx_size_t imageSize{ktxTexture_GetImageSize(kTexture, 0)};
+    const ktx_size_t imageSize{ktxTexture_GetImageSize(kTexture.get(), 0)};
     ktx_size_t level0Offset{0};
-    ktxTexture_GetImageOffset(kTexture, 0, 0, 0, &level0Offset);
-    const ktx_uint8_t* baseDataPtr{ktxTexture_GetData(kTexture)};
+    ktxTexture_GetImageOffset(kTexture.get(), 0, 0, 0, &level0Offset);
+    const ktx_uint8_t* baseDataPtr{ktxTexture_GetData(kTexture.get())};
 
     if (!baseDataPtr || imageSize == 0 || width == 0 || height == 0 ||
         width > kMaxTextureDimension || height > kMaxTextureDimension) {
-        ktxTexture_Destroy(kTexture);
         return std::unexpected("KTX texture contains no image data or invalid dimensions");
     }
     const ktx_uint8_t* imageBytes{baseDataPtr + level0Offset};
@@ -341,7 +346,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         std::memcpy(img.rgbaData.data(), imageBytes, expectedRgbaSize);
     } else if (imageSize == expectedRgbSize) {
         img.rgbaData.resize(expectedRgbaSize);
-        for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+        for (size_t i{0}; i < static_cast<size_t>(width) * height; ++i) {
             img.rgbaData[i * 4 + 0] = imageBytes[i * 3 + 0];
             img.rgbaData[i * 4 + 1] = imageBytes[i * 3 + 1];
             img.rgbaData[i * 4 + 2] = imageBytes[i * 3 + 2];
@@ -352,7 +357,6 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         std::memcpy(img.rgbaData.data(), imageBytes, imageSize);
     }
 
-    ktxTexture_Destroy(kTexture);
     return img;
 #elif defined(BGL_PLATFORM_NATIVE)
     (void)data;
@@ -374,8 +378,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
 
     // 1. Content-based magic byte detection
     // PNG magic: 0x89 'P' 'N' 'G' 0x0D 0x0A 0x1A 0x0A
-    static constexpr uint8_t kPngMagic[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    if (data.size() >= 8 && std::memcmp(data.data(), kPngMagic, 8) == 0) {
+    static constexpr std::array<uint8_t, 8> kPngMagic{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (data.size() >= kPngMagic.size() && std::memcmp(data.data(), kPngMagic.data(), kPngMagic.size()) == 0) {
         return DecodePNG(data);
     }
     // JPEG magic: 0xFF 0xD8 0xFF

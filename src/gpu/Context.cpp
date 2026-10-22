@@ -22,42 +22,21 @@ Context::~Context() {
 void Context::Shutdown() noexcept {
     if (!initialized_ && !instance_) return;
 #if defined(BGL_PLATFORM_NATIVE)
-    if (msaaColorView_) {
-        wgpuTextureViewRelease(msaaColorView_);
-        msaaColorView_ = nullptr;
+    encoder_.Reset();
+    currentView_.Reset();
+    if (surfaceTexture_.texture) {
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
     }
-    if (msaaColorTexture_) {
-        wgpuTextureRelease(msaaColorTexture_);
-        msaaColorTexture_ = nullptr;
-    }
-    if (depthView_) {
-        wgpuTextureViewRelease(depthView_);
-        depthView_ = nullptr;
-    }
-    if (depthTexture_) {
-        wgpuTextureRelease(depthTexture_);
-        depthTexture_ = nullptr;
-    }
-    if (queue_) {
-        wgpuQueueRelease(queue_);
-        queue_ = nullptr;
-    }
-    if (device_) {
-        wgpuDeviceRelease(device_);
-        device_ = nullptr;
-    }
-    if (surface_) {
-        wgpuSurfaceRelease(surface_);
-        surface_ = nullptr;
-    }
-    if (adapter_) {
-        wgpuAdapterRelease(adapter_);
-        adapter_ = nullptr;
-    }
-    if (instance_) {
-        wgpuInstanceRelease(instance_);
-        instance_ = nullptr;
-    }
+    msaaColorView_.Reset();
+    msaaColorTexture_.Reset();
+    depthView_.Reset();
+    depthTexture_.Reset();
+    queue_.Reset();
+    device_.Reset();
+    surface_.Reset();
+    adapter_.Reset();
+    instance_.Reset();
 #endif
     initialized_ = false;
     BGL_LOG_INFO("Native WebGPU Context cleanly shut down.");
@@ -65,22 +44,10 @@ void Context::Shutdown() noexcept {
 
 void Context::CreateRenderBuffers() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (msaaColorView_) {
-        wgpuTextureViewRelease(msaaColorView_);
-        msaaColorView_ = nullptr;
-    }
-    if (msaaColorTexture_) {
-        wgpuTextureRelease(msaaColorTexture_);
-        msaaColorTexture_ = nullptr;
-    }
-    if (depthView_) {
-        wgpuTextureViewRelease(depthView_);
-        depthView_ = nullptr;
-    }
-    if (depthTexture_) {
-        wgpuTextureRelease(depthTexture_);
-        depthTexture_ = nullptr;
-    }
+    msaaColorView_.Reset();
+    msaaColorTexture_.Reset();
+    depthView_.Reset();
+    depthTexture_.Reset();
 
     // 1. Create 4x MSAA Color Texture & View (if multisampling enabled)
     if (sampleCount_ > 1) {
@@ -91,7 +58,7 @@ void Context::CreateRenderBuffers() {
         msaaDesc.format = format_;
         msaaDesc.mipLevelCount = 1;
         msaaDesc.sampleCount = sampleCount_;
-        msaaDesc.label = WGPUStringView{ "MSAAColorTexture", strlen("MSAAColorTexture") };
+        msaaDesc.label = ToWgpuStringView("MSAAColorTexture");
         msaaColorTexture_ = wgpuDeviceCreateTexture(device_, &msaaDesc);
         if (msaaColorTexture_) {
             msaaColorView_ = wgpuTextureCreateView(msaaColorTexture_, nullptr);
@@ -106,7 +73,7 @@ void Context::CreateRenderBuffers() {
     depthDesc.format = WGPUTextureFormat_Depth24Plus;
     depthDesc.mipLevelCount = 1;
     depthDesc.sampleCount = sampleCount_;
-    depthDesc.label = WGPUStringView{ "DepthBuffer", strlen("DepthBuffer") };
+    depthDesc.label = ToWgpuStringView("DepthBuffer");
     depthTexture_ = wgpuDeviceCreateTexture(device_, &depthDesc);
     if (depthTexture_) {
         depthView_ = wgpuTextureCreateView(depthTexture_, nullptr);
@@ -213,7 +180,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
 
     // 4. Request Device
     WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
-    devDesc.label = WGPUStringView{ "BglDevice", strlen("BglDevice") };
+    devDesc.label = ToWgpuStringView("BglDevice");
 
     struct DeviceData {
         WGPUDevice device = nullptr;
@@ -425,22 +392,18 @@ void Context::EndFrame(WGPURenderPassEncoder pass) {
     }
 
     if (encoder_) {
-        WGPUCommandBuffer cmdBuf = wgpuCommandEncoderFinish(encoder_, nullptr);
-        wgpuCommandEncoderRelease(encoder_);
-        encoder_ = nullptr;
+        CommandBufferHandle cmdBuf{wgpuCommandEncoderFinish(encoder_, nullptr)};
+        encoder_.Reset();
 
-        wgpuQueueSubmit(queue_, 1, &cmdBuf);
-        wgpuCommandBufferRelease(cmdBuf);
+        WGPUCommandBuffer rawCmd{cmdBuf.Get()};
+        wgpuQueueSubmit(queue_, 1, &rawCmd);
     }
 
     if (surface_) {
         wgpuSurfacePresent(surface_);
     }
 
-    if (currentView_) {
-        wgpuTextureViewRelease(currentView_);
-        currentView_ = nullptr;
-    }
+    currentView_.Reset();
 
     if (surfaceTexture_.texture) {
         wgpuTextureRelease(surfaceTexture_.texture);

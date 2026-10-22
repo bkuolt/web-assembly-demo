@@ -7,9 +7,12 @@
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstring>
+#include <memory>
 #include <mutex>
+#include <ranges>
 #include <sstream>
 
 #if defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
@@ -24,13 +27,13 @@ namespace {
 
 [[nodiscard]] bool StartsWithCaseInsensitive(std::string_view str, std::string_view prefix) noexcept {
     if (str.size() < prefix.size()) return false;
-    for (size_t i{0}; i < prefix.size(); ++i) {
-        if (std::tolower(static_cast<unsigned char>(str[i])) !=
-            std::tolower(static_cast<unsigned char>(prefix[i]))) {
-            return false;
+    return std::ranges::equal(
+        str.substr(0, prefix.size()),
+        prefix,
+        [](unsigned char a, unsigned char b) noexcept {
+            return std::tolower(a) == std::tolower(b);
         }
-    }
-    return true;
+    );
 }
 
 [[nodiscard]] int HexVal(char c) noexcept {
@@ -401,7 +404,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
 #elif defined(BGL_HAS_CURL)
         EnsureCurlGlobalInitialized();
 
-        CURL* curl{curl_easy_init()};
+        std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl{curl_easy_init(), &curl_easy_cleanup};
         if (!curl) {
             return std::unexpected("Failed to initialize libcurl easy handle");
         }
@@ -412,29 +415,27 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         std::array<char, CURL_ERROR_SIZE> errBuf{};
         errBuf.fill('\0');
 
-        curl_easy_setopt(curl, CURLOPT_URL, cleanedUri.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBuffer);
-        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errBuf.data());
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
-        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "bgl-engine/0.7.1 (libcurl)");
-        curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+        curl_easy_setopt(curl.get(), CURLOPT_URL, cleanedUri.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, CurlWriteCallback);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBuffer);
+        curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errBuf.data());
+        curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_MAXREDIRS, 10L);
+        curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "bgl-engine/0.7.2 (libcurl)");
+        curl_easy_setopt(curl.get(), CURLOPT_ACCEPT_ENCODING, "");
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 15L);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 120L);
 
         BGL_LOG_INFO("[NetworkFetcher] Downloading via libcurl: '{}'", cleanedUri);
-        const CURLcode res{curl_easy_perform(curl)};
+        const CURLcode res{curl_easy_perform(curl.get())};
         if (res != CURLE_OK) {
             const std::string detail{errBuf[0] != '\0' ? errBuf.data() : curl_easy_strerror(res)};
-            curl_easy_cleanup(curl);
             return std::unexpected("libcurl download failed for '" + cleanedUri + "': " + detail);
         }
 
         long httpCode{0};
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-        curl_easy_cleanup(curl);
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
 
         if (httpCode >= 400 || (httpCode != 0 && (httpCode < 200 || httpCode >= 300))) {
             return std::unexpected("HTTP error " + std::to_string(httpCode) + " when fetching URL: " + cleanedUri);

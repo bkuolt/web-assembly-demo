@@ -7,6 +7,7 @@
 #include <webgpu/webgpu.h>
 #include <string>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 
 namespace bgl::gpu {
 
@@ -40,14 +41,14 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
     [[nodiscard]] uint32_t GetWidth() const noexcept { return width_; }
     [[nodiscard]] uint32_t GetHeight() const noexcept { return height_; }
-    [[nodiscard]] WGPUDevice GetDevice() const noexcept { return device_; }
-    [[nodiscard]] WGPUQueue GetQueue() const noexcept { return queue_; }
+    [[nodiscard]] WGPUDevice GetDevice() const noexcept { return device_.Get(); }
+    [[nodiscard]] WGPUQueue GetQueue() const noexcept { return queue_.Get(); }
     [[nodiscard]] WGPUTextureFormat GetPreferredFormat() const noexcept { return format_; }
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
     void Resize(uint32_t width, uint32_t height);
     bool PrepareFrame();
-    [[nodiscard]] WGPUCommandEncoder GetCommandEncoder() const noexcept { return encoder_; }
+    [[nodiscard]] WGPUCommandEncoder GetCommandEncoder() const noexcept { return encoder_.Get(); }
     WGPURenderPassEncoder BeginFrame();
     void EndFrame(WGPURenderPassEncoder pass);
 
@@ -59,22 +60,22 @@ private:
     uint32_t height_{720};
     uint32_t sampleCount_{4};
 
-    WGPUInstance instance_{nullptr};
-    WGPUAdapter adapter_{nullptr};
-    WGPUDevice device_{nullptr};
-    WGPUQueue queue_{nullptr};
-    WGPUSurface surface_{nullptr};
+    InstanceHandle instance_{};
+    AdapterHandle adapter_{};
+    DeviceHandle device_{};
+    QueueHandle queue_{};
+    SurfaceHandle surface_{};
     WGPUTextureFormat format_{WGPUTextureFormat_BGRA8Unorm};
 
-    WGPUTexture msaaColorTexture_{nullptr};
-    WGPUTextureView msaaColorView_{nullptr};
+    TextureHandle msaaColorTexture_{};
+    TextureViewHandle msaaColorView_{};
 
-    WGPUTexture depthTexture_{nullptr};
-    WGPUTextureView depthView_{nullptr};
+    TextureHandle depthTexture_{};
+    TextureViewHandle depthView_{};
 
     WGPUSurfaceTexture surfaceTexture_{};
-    WGPUTextureView currentView_{nullptr};
-    WGPUCommandEncoder encoder_{nullptr};
+    TextureViewHandle currentView_{};
+    CommandEncoderHandle encoder_{};
 
     void* nativeWindow_{nullptr};
 };
