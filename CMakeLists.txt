@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.6.2 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.6.3 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)

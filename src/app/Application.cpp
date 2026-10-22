@@ -21,7 +21,7 @@ Application::~Application() {
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     core::InitLogging();
-    BGL_LOG_INFO("Initializing bgl Engine v0.6.2...");
+    BGL_LOG_INFO("Initializing bgl Engine v0.6.3...");
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {

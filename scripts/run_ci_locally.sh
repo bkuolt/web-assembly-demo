@@ -39,3 +39,4 @@ timeout 2s ./"${BUILD_DIR}/bgl_viewer" || [ $? -eq 124 ]
 echo "================================================================================"
 echo "[Local CI Runner] SUCCESS: All CI pipeline stages passed cleanly!"
 echo "================================================================================"
+
