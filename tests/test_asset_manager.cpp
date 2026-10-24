@@ -45,3 +45,28 @@ TEST(AssetManagerTest, KtxTextureDecoderValidation) {
     EXPECT_FALSE(resTrunc.has_value());
 }
 
+TEST(AssetManagerTest, ClearCacheAndScratchArena) {
+    bgl::scene::AssetManager mgr;
+    uint64_t hash = 0x1122334455667788ULL;
+
+    auto img = std::make_shared<bgl::scene::DecodedImage>();
+    img->width = 128;
+    img->height = 128;
+    mgr.InsertTexture(hash, img);
+    EXPECT_TRUE(mgr.HasTexture(hash));
+
+    // Clear must purge the cache
+    mgr.Clear();
+    EXPECT_FALSE(mgr.HasTexture(hash));
+
+    // Scratch arena must be accessible and provide valid memory resource
+    auto& arena = mgr.GetScratchArena();
+    EXPECT_GT(arena.Capacity(), 0u);
+    auto* mr = arena.GetResource();
+    ASSERT_NE(mr, nullptr);
+    void* mem = mr->allocate(256, alignof(std::max_align_t));
+    ASSERT_NE(mem, nullptr);
+    mr->deallocate(mem, 256, alignof(std::max_align_t));
+    arena.Reset();
+}
+

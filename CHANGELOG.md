@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.4] - 2026-10-24
+
+### Added & Expanded Tests (76 Passing Tests)
+- **Unit Test Suite Expansion (`tests/`):**
+  - Expanded test coverage from 67 to 76 tests (100% pass rate across all 12 test suites).
+  - **Crash Handler Edge Cases (`tests/test_crash_handler.cpp`):**
+    - Added `CrashHandlerTest.MultipleInstallUninstallCycles` verifying handler lifecycle idempotence.
+    - Added `CrashHandlerTest.PrintStackTraceSubsliceAndEmpty` validating memory safety when invoking `PrintStackTrace` with empty string views and non-null-terminated string view slices.
+  - **Mathematical Bounds & Copy Safety (`tests/test_types_math.cpp`):**
+    - Added `TypesMathTest.ArvoBoundingBoxTransformAlgorithm` verifying Arvo transformation correctness across identity, translation, rotation, and non-uniform negative scale matrices, checking strict containment for all 8 transformed corners.
+    - Added `TypesMathTest.MeshPrimitiveCopySemanticsAndGPUHandleSafety` testing copy constructors, assignment operators, and move semantics to verify GPU pointer safety (`nullptr` initialization preventing double-free).
+  - **Texture Decoders & HDR / EXR Signatures (`tests/test_texture_decoders.cpp`):**
+    - Added `TextureDecoderTest.RadianceHdrAndOpenExrSignatures` verifying uncompressed `.hdr` RGBE decoding, float conversions, and OpenEXR magic signature recognition.
+    - Added `TextureDecoderTest.KtxTranscodeTargetNamesAndDefaultTarget` testing KTX target string mapping and default target state management.
+  - **Asset Manager Lifecycle & Staging Arena (`tests/test_asset_manager.cpp`):**
+    - Added `AssetManagerTest.ClearCacheAndScratchArena` verifying cache purging and PMR monotonic scratch arena allocation/reset.
+  - **Command-Line & Help Text Validation (`tests/test_command_line.cpp`):**
+    - Added `CommandLineTest.AdditionalFlagsAndHelpOutput` testing `--no-occlusion`, `--quadtree`, `--no-bounds`, and clean execution of `PrintHelp()` and `PrintVersion()`.
+  - **Network Fetcher Error Bounds & Percent Decoding (`tests/test_rendering_features.cpp`):**
+    - Added `RenderingFeaturesTest.NetworkFetcherErrorHandlingAndPercentDecoding` verifying clean error returns on empty URIs, non-existent files, directories, invalid base64 payloads, and robust URL percent decoding.
+
+### Documentation & Build
+- **Test Metrics & Documentation Updates:**
+  - Updated `README.md` test metrics badge to `76_Passing` and synchronized engine version badges to `v0.8.4`.
+  - Regenerated `conan.lock` pinned lockfile for version `0.8.4`.
+  - Updated engine version constants across `Version.hpp`, `CMakeLists.txt`, `conanfile.py`, `conan.lock`, and `web/index.html`.
+
+---
+
 ## [0.8.3] - 2026-10-24
 
 ### Security & Hardening

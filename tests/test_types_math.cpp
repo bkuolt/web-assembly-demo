@@ -266,4 +266,97 @@ TEST(TypesMathTest, DirectionalShadowLightMatrixAndEnvCubemapGeneration) {
     }
 }
 
+TEST(TypesMathTest, ArvoBoundingBoxTransformAlgorithm) {
+    AABB box;
+    box.Expand(glm::vec3(1.0f, 2.0f, 3.0f));
+    box.Expand(glm::vec3(3.0f, 5.0f, 7.0f));
+
+    // Test 1: Identity transform must return exact same bounds
+    AABB identBox = box.Transformed(glm::mat4(1.0f));
+    EXPECT_FLOAT_EQ(identBox.minBound.x, box.minBound.x);
+    EXPECT_FLOAT_EQ(identBox.minBound.y, box.minBound.y);
+    EXPECT_FLOAT_EQ(identBox.minBound.z, box.minBound.z);
+    EXPECT_FLOAT_EQ(identBox.maxBound.x, box.maxBound.x);
+    EXPECT_FLOAT_EQ(identBox.maxBound.y, box.maxBound.y);
+    EXPECT_FLOAT_EQ(identBox.maxBound.z, box.maxBound.z);
+
+    // Test 2: Translation
+    glm::mat4 transMat = glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 20.0f, 5.0f));
+    AABB transBox = box.Transformed(transMat);
+    EXPECT_FLOAT_EQ(transBox.minBound.x, box.minBound.x - 10.0f);
+    EXPECT_FLOAT_EQ(transBox.minBound.y, box.minBound.y + 20.0f);
+    EXPECT_FLOAT_EQ(transBox.minBound.z, box.minBound.z + 5.0f);
+    EXPECT_FLOAT_EQ(transBox.maxBound.x, box.maxBound.x - 10.0f);
+    EXPECT_FLOAT_EQ(transBox.maxBound.y, box.maxBound.y + 20.0f);
+    EXPECT_FLOAT_EQ(transBox.maxBound.z, box.maxBound.z + 5.0f);
+
+    // Test 3: Complex rotation & scaling (ensure all 8 transformed corners are contained)
+    glm::mat4 complexTransform = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, -3.0f, 4.0f)) *
+                                 glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f)) *
+                                 glm::scale(glm::mat4(1.0f), glm::vec3(1.5f, -2.0f, 0.8f));
+
+    AABB transformedBox = box.Transformed(complexTransform);
+    EXPECT_LE(transformedBox.minBound.x, transformedBox.maxBound.x);
+    EXPECT_LE(transformedBox.minBound.y, transformedBox.maxBound.y);
+    EXPECT_LE(transformedBox.minBound.z, transformedBox.maxBound.z);
+
+    // Generate all 8 original corners and check containment in transformed AABB
+    for (float x : {box.minBound.x, box.maxBound.x}) {
+        for (float y : {box.minBound.y, box.maxBound.y}) {
+            for (float z : {box.minBound.z, box.maxBound.z}) {
+                glm::vec4 pt = complexTransform * glm::vec4(x, y, z, 1.0f);
+                glm::vec3 worldPt = glm::vec3(pt) / pt.w;
+                EXPECT_GE(worldPt.x, transformedBox.minBound.x - 1e-4f);
+                EXPECT_LE(worldPt.x, transformedBox.maxBound.x + 1e-4f);
+                EXPECT_GE(worldPt.y, transformedBox.minBound.y - 1e-4f);
+                EXPECT_LE(worldPt.y, transformedBox.maxBound.y + 1e-4f);
+                EXPECT_GE(worldPt.z, transformedBox.minBound.z - 1e-4f);
+                EXPECT_LE(worldPt.z, transformedBox.maxBound.z + 1e-4f);
+            }
+        }
+    }
+}
+
+TEST(TypesMathTest, MeshPrimitiveCopySemanticsAndGPUHandleSafety) {
+    bgl::scene::MeshPrimitive orig;
+    orig.materialIndex = 42;
+    orig.boundingBox.minBound = glm::vec3(-1.0f, -2.0f, -3.0f);
+    orig.boundingBox.maxBound = glm::vec3(1.0f, 2.0f, 3.0f);
+
+    Vertex v1{}; v1.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    Vertex v2{}; v2.position = glm::vec3(-1.0f, 0.0f, 0.0f);
+    Vertex v3{}; v3.position = glm::vec3(1.0f, 0.0f, 0.0f);
+    orig.vertices = {v1, v2, v3};
+    orig.indices = {0, 1, 2};
+
+    // 1. Copy Constructor: CPU data copied, GPU handles set to nullptr
+    bgl::scene::MeshPrimitive copied(orig);
+    EXPECT_EQ(copied.materialIndex, 42);
+    EXPECT_EQ(copied.vertices.size(), 3u);
+    EXPECT_EQ(copied.indices.size(), 3u);
+    EXPECT_EQ(copied.boundingBox.minBound, orig.boundingBox.minBound);
+    EXPECT_EQ(copied.boundingBox.maxBound, orig.boundingBox.maxBound);
+    EXPECT_EQ(copied.gpuVertexBuffer, nullptr);
+    EXPECT_EQ(copied.gpuIndexBuffer, nullptr);
+    EXPECT_EQ(copied.gpuWireframeIndexBuffer, nullptr);
+    EXPECT_EQ(copied.gpuUniformBuffer, nullptr);
+    EXPECT_EQ(copied.gpuBindGroup, nullptr);
+    EXPECT_EQ(copied.gpuShadowBindGroup, nullptr);
+
+    // 2. Copy Assignment
+    bgl::scene::MeshPrimitive assigned;
+    assigned = orig;
+    EXPECT_EQ(assigned.materialIndex, 42);
+    EXPECT_EQ(assigned.vertices.size(), 3u);
+    EXPECT_EQ(assigned.indices.size(), 3u);
+    EXPECT_EQ(assigned.gpuVertexBuffer, nullptr);
+
+    // 3. Move Constructor: transfers ownership, nulls source
+    bgl::scene::MeshPrimitive moved(std::move(copied));
+    EXPECT_EQ(moved.materialIndex, 42);
+    EXPECT_EQ(moved.vertices.size(), 3u);
+    EXPECT_TRUE(copied.vertices.empty());
+    EXPECT_TRUE(copied.indices.empty());
+}
+
 

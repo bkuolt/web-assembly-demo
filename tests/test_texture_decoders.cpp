@@ -81,3 +81,51 @@ TEST(TextureDecoderTest, MagicByteSniffingAutoRouting) {
     auto resKtx2 = TextureDecoder::DecodeAuto(fakeKtx2, "unknown_file");
     EXPECT_FALSE(resKtx2.has_value());
 }
+
+TEST(TextureDecoderTest, RadianceHdrAndOpenExrSignatures) {
+    // 1. Empty buffer rejection
+    std::vector<uint8_t> emptyHdr;
+    auto resEmpty = TextureDecoder::DecodeHdrAuto(emptyHdr, "sky.hdr");
+    EXPECT_FALSE(resEmpty.has_value());
+
+    // 2. Minimal valid uncompressed Radiance HDR payload
+    std::string validHdrStr =
+        "#?RADIANCE\n"
+        "FORMAT=32-bit_rle_rgbe\n\n"
+        "-Y 1 +X 2\n";
+    // 2 uncompressed pixels: black (0,0,0,0) and unit white (128,128,128,128)
+    std::vector<uint8_t> hdrBytes(validHdrStr.begin(), validHdrStr.end());
+    hdrBytes.insert(hdrBytes.end(), { 0, 0, 0, 0,  128, 128, 128, 128 });
+
+    auto resHdr = TextureDecoder::DecodeHDR(hdrBytes);
+    ASSERT_TRUE(resHdr.has_value()) << (resHdr.has_value() ? "" : resHdr.error());
+    EXPECT_EQ(resHdr->width, 2u);
+    EXPECT_EQ(resHdr->height, 1u);
+    ASSERT_EQ(resHdr->rgbaFloat.size(), 8u); // 2 pixels * 4 components
+    EXPECT_FLOAT_EQ(resHdr->rgbaFloat[0], 0.0f); // pixel 0 R
+    EXPECT_FLOAT_EQ(resHdr->rgbaFloat[3], 1.0f); // pixel 0 A
+    EXPECT_GT(resHdr->rgbaFloat[4], 0.0f);       // pixel 1 R > 0
+
+    // 3. OpenEXR magic signature detection (0x76, 0x2F, 0x31, 0x01)
+    std::vector<uint8_t> fakeExr = { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00 };
+    auto resExr = TextureDecoder::DecodeEXR(fakeExr);
+    // Signature detected but payload truncated: cleanly returns error result
+    EXPECT_FALSE(resExr.has_value());
+
+    // 4. Auto-routing by extension
+    auto autoRes = TextureDecoder::DecodeHdrAuto(hdrBytes, "environment.hdr");
+    EXPECT_TRUE(autoRes.has_value());
+}
+
+TEST(TextureDecoderTest, KtxTranscodeTargetNamesAndDefaultTarget) {
+    EXPECT_EQ(TextureDecoder::GetKtxTargetName(KtxTranscodeTarget::Rgba32), "RGBA32");
+    EXPECT_EQ(TextureDecoder::GetKtxTargetName(KtxTranscodeTarget::Bc7), "BC7_RGBA");
+    EXPECT_EQ(TextureDecoder::GetKtxTargetName(KtxTranscodeTarget::Astc4x4), "ASTC_4x4_RGBA");
+    EXPECT_EQ(TextureDecoder::GetKtxTargetName(KtxTranscodeTarget::Etc2Rgba), "ETC2_RGBA8");
+
+    // Setting and getting default KTX target
+    TextureDecoder::SetDefaultKtxTarget(KtxTranscodeTarget::Bc7);
+    EXPECT_EQ(TextureDecoder::GetDefaultKtxTarget(), KtxTranscodeTarget::Bc7);
+    TextureDecoder::SetDefaultKtxTarget(KtxTranscodeTarget::Rgba32);
+    EXPECT_EQ(TextureDecoder::GetDefaultKtxTarget(), KtxTranscodeTarget::Rgba32);
+}

@@ -628,4 +628,29 @@ TEST(RenderingFeaturesTest, RayPickerHitsTranslatedAndScaledPrimitiveAABB) {
     EXPECT_EQ(hit->hitNode, node);
 }
 
+TEST(RenderingFeaturesTest, NetworkFetcherErrorHandlingAndPercentDecoding) {
+    // 1. Empty URI fetch rejection
+    auto resEmpty = core::NetworkFetcher::FetchSync("");
+    EXPECT_FALSE(resEmpty.has_value());
+
+    // 2. Non-existent file path
+    auto resNonExistent = core::NetworkFetcher::FetchSync("/nonexistent/file/path/that/cannot/exist/model.glb");
+    EXPECT_FALSE(resNonExistent.has_value());
+
+    // 3. Directory path instead of regular file
+    auto resDir = core::NetworkFetcher::FetchSync("/tmp");
+    EXPECT_FALSE(resDir.has_value());
+
+    // 4. Invalid base64 data URI
+    auto resBadB64 = core::NetworkFetcher::FetchSync("data:application/octet-stream;base64,!!!NotBase64!!!");
+    EXPECT_FALSE(resBadB64.has_value());
+
+    // 5. Percent decoding
+    EXPECT_EQ(core::NetworkFetcher::DecodeUrlPercent("Hello%20World%21"), "Hello World!");
+    EXPECT_EQ(core::NetworkFetcher::DecodeUrlPercent("models%2Fscene%2Eglb"), "models/scene.glb");
+    // Invalid / partial percent escape sequences should pass through safely without crash
+    EXPECT_EQ(core::NetworkFetcher::DecodeUrlPercent("test%2"), "test%2");
+    EXPECT_EQ(core::NetworkFetcher::DecodeUrlPercent("test%ZZ"), "test%ZZ");
+}
+
 

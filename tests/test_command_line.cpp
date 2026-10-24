@@ -131,5 +131,32 @@ TEST(CommandLineTest, TestCrashSignalSelection) {
     auto optAbrt = CliOptions::Parse(3, argvAbrt);
     EXPECT_TRUE(optAbrt.testCrash);
     EXPECT_EQ(optAbrt.testCrashSignal, 1);
+
+    char* argvFpe[] = {
+        const_cast<char*>("bgl_viewer"),
+        const_cast<char*>("--test-crash"),
+        const_cast<char*>("fpe")
+    };
+    auto optFpe = CliOptions::Parse(3, argvFpe);
+    EXPECT_TRUE(optFpe.testCrash);
+    EXPECT_EQ(optFpe.testCrashSignal, 2);
+}
+
+TEST(CommandLineTest, AdditionalFlagsAndHelpOutput) {
+    const std::array<const char*, 4> args{
+        "bgl_viewer",
+        "--no-occlusion",
+        "--quadtree",
+        "--no-bounds"
+    };
+    auto opt = CliOptions::Parse(std::span<const char* const>{args});
+    EXPECT_FALSE(opt.enableOcclusionCulling);
+    EXPECT_TRUE(opt.enableQuadtreeBounds);
+    EXPECT_FALSE(opt.enableBoundingBoxes);
+
+    // Verify PrintHelp and PrintVersion execute cleanly
+    CliOptions::PrintHelp("bgl_viewer");
+    CliOptions::PrintVersion();
+    SUCCEED();
 }
 
