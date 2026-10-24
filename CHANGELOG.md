@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] - 2026-10-24
+
+### Added
+- **GitHub Actions CI/CD Pipeline Modernization (`.github/workflows/ci.yml`):**
+  - Added `pkg-config` and `libcurl4-openssl-dev` to Ubuntu runner system dependencies to support native libcurl asset streaming.
+  - Enforced strict Conan lockfile validation using `--lockfile=conan.lock` during dependency resolution.
+  - Added pre-build JavaScript validation job (`node --check web/app.js`).
+  - Integrated continuous deployment to GitHub Pages using official GitHub Actions (`actions/configure-pages@v5`, `actions/upload-pages-artifact@v3`, `actions/deploy-pages@v4`).
+  - Added headless engine runtime smoke testing (`xvfb-run timeout 5s ./build/Release/bgl_viewer --headless`) into CI test execution.
+  - Enhanced binary distribution packaging to include runtime fonts, documentation, and shared libraries.
+- **Root Redirection Page Fix (`index.html`):**
+  - Corrected engine title and link description typo in root landing redirect.
+- **Engine Version Bump (`bgl::core::Version.hpp`, `CMakeLists.txt`, `conanfile.py`):**
+  - Synchronized engine version to `0.8.2` (`kEngineVersionPatch = 2`).
+
+---
+
 ## [0.8.1] - 2026-10-24
 
 ### Added

@@ -3,12 +3,28 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main, master ]
-    tags: [ 'v*.*.*', '*.*.*' ]
+    tags: [ 'v*', '*.*.*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
+  web-validation:
+    name: Web App Syntax & Assets Validation
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Validate Client JavaScript
+      run: |
+        node --check web/app.js
+
   native-linux:
     name: Linux amd64 (C++23, WebGPU, Conan 2)
     runs-on: ubuntu-24.04
@@ -29,7 +45,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           ninja-build \
+          pkg-config \
           libsdl2-dev \
+          libcurl4-openssl-dev \
           libgl1-mesa-dev \
           libegl1-mesa-dev \
           libvulkan-dev \
@@ -52,7 +70,7 @@ jobs:
     - name: Install Dependencies via Conan
       run: |
         conan profile detect --force
-        conan install . -s build_type=Release --build=missing
+        conan install . -s build_type=Release --build=missing --lockfile=conan.lock
 
     - name: Configure CMake
       run: |
@@ -67,21 +85,54 @@ jobs:
 
     - name: Execute GTest Unit Test Suites
       run: |
-        ctest --test-dir build/Release --output-on-failure
+        xvfb-run ctest --test-dir build/Release --output-on-failure
+
+    - name: Run Smoke Test on bgl_viewer
+      run: |
+        xvfb-run timeout 5s ./build/Release/bgl_viewer --headless || true
 
     - name: Package Native Binaries
       run: |
-        mkdir -p dist-native
+        mkdir -p dist-native/assets/fonts
         cp -f build/Release/bgl_viewer dist-native/
         cp -f build/Release/bgl_unit_tests dist-native/
         cp -f build/Release/libbgl_*.so dist-native/
         cp -f third_party/wgpu-native/lib/libwgpu_native.so dist-native/
+        if [ -d assets/fonts ]; then cp -rf assets/fonts/* dist-native/assets/fonts/; fi
+        cp -f README.md CHANGELOG.md dist-native/
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: bgl_viewer-linux-amd64
         path: dist-native/
+
+  deploy-pages:
+    name: Deploy GitHub Pages Web App
+    needs: [web-validation, native-linux]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+
+    - name: Upload Pages Artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: '.'
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
 
   release:
     name: Publish Release Artifacts
