@@ -1,10 +1,10 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.8.7)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.8.8)
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-82_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.8.7-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.8.8-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -410,10 +410,14 @@ python3 -m http.server 8080 --directory web
 ```
 
 Navigate to `http://localhost:8080` to access the full-featured browser viewer:
+- **Streaming WebAssembly Compilation**: Near-instant startup leveraging `WebAssembly.instantiateStreaming` to compile bytecodes concurrently as they arrive across the network.
+- **Real-Time Streaming Asset Transfer**: Live byte-level transfer progress indicator tracking received megabytes, total size, percentages, and bandwidth (`MB/s`).
+- **User-Facing Toast Notifications**: Non-intrusive floating toast banners alerting users to network errors, HTTP 404/500 responses, dropped file parse issues, or WebGPU context warnings.
+- **Structured Developer Logging**: Rich, color-coded console logs (`[Engine]`, `[Wasm]`, `[WebGPU]`, `[Network]`, `[glTF]`, `[Perf]`) with millisecond timestamps and timing benchmarks.
 - **Interactive Scene Graph Tree**: Inspect the live hierarchy of nodes, meshes, vertices, and triangle counts.
 - **Collapsible glTF JSON Inspector**: Browse the underlying glTF 2.0 JSON structure in a syntax-highlighted, expandable tree view.
 - **Live Spatial Telemetry Card**: Real-time display of Scene AABB dimensions (width, height, depth), min/max bounding coordinates, scene center, and geometry metrics.
-- **Pills & Quick Toggles**: One-click toggles for Bounding Boxes `[B]`, Quadtree Bounds `[Q]`, Atmospheric Skybox `[K]`, and In-Engine HUD `[O]`.
+- **Pills & Quick Toggles**: One-click toggles for Bounding Boxes `[B]`, Quadtree Bounds `[Q]`, Atmospheric Skybox `[K]`, In-Engine HUD `[O]`, and instant model switching between ToyCar (`5 MB`) and Sponza (`52 MB`).
 
 ### Packaging the Minimal Web App (Zip)
 
@@ -433,22 +437,22 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes a comprehensive test suite with **60 tests across 12 test suites** implemented using GoogleTest:
+The engine includes a comprehensive test suite with **82 tests across 12 test suites** implemented using GoogleTest:
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
-| `TypesMathTest` | 10 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, and 6-face cubemap mip generation. |
-| `RenderingFeaturesTest` | 10 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety), and Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states). |
+| `TypesMathTest` | 14 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, 6-face cubemap mip generation, Arvo box transform, copy semantics handle safety, ray segment parametric evaluator, and scene destructor sampler nulling. |
+| `RenderingFeaturesTest` | 19 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback, scaled model matrix TBN invariance), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety), Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states), NetworkFetcher URI resolution and error handling, RAII GPU handle lifecycle, ray picker primitive hits, clustered forward bounds validation, and spherical harmonics reconstruction. |
+| `QuadtreeTest` | 7 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark, hierarchical occlusion culling, front-to-back ordering, and occlusion buffer direct tile operations. |
+| `CommandLineTest` | 7 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), test crash signal selection, and `--headless` automated smoke testing. |
 | `CameraTest` | 5 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection matrix composition, screen-point-to-ray unprojection. |
+| `TextureDecoderTest` | 5 | Supported formats query, empty/invalid buffer handling, magic-byte sniffing (PNG, JPEG, WebP, KTX2), Radiance HDR/OpenEXR signatures, and KTX transcode target names. |
+| `TextRenderingTest` | 5 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout. |
 | `MemoryPoolTest` | 4 | Fixed-size block allocation, multi-block chaining, free-list slot reuse, PMR ScratchArena resets. |
-| `AssetManagerTest` | 3 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation. |
-| `QuadtreeTest` | 5 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark. |
+| `AssetManagerTest` | 4 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation, and cache clearing. |
 | `RayPickerTest` | 4 | Möller-Trumbore ray-triangle direct hits, misses, edge hits, degenerate triangles, scene hierarchy picking. |
 | `GltfLoaderTest` | 4 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation, and optional 1 GB megacity stress-test ingestion. |
-| `TextureDecoderTest` | 3 | Format availability querying, magic-byte sniffing (PNG, JPEG, WebP, KTX2), empty and truncated buffer rejection. |
-| `TextRenderingTest` | 5 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout. |
-| `CrashHandlerTest` | 2 | POSIX signal handler installation/removal, `std::stacktrace` callstack formatting. |
-| `CommandLineTest` | 5 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), crash signal selection. |
+| `CrashHandlerTest` | 4 | POSIX signal handler installation/removal, multiple lifecycle cycles, and `std::stacktrace` callstack printing. |
 
 ---
 

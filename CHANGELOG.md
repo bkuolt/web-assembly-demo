@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.8] - 2026-10-24
+
+### Optimized Web App & Client Runtime
+- **High-Performance Streaming Compilation & Fast Startup:**
+  - Implemented streaming WebAssembly compilation via `WebAssembly.instantiateStreaming` for concurrent background compilation during byte download, drastically reducing initial engine boot latency.
+  - Added HTML `<link rel="preload">` resource hint in `web/index.html` for `dist/bgl_engine.wasm`.
+  - Re-architected startup flow into non-blocking parallel `Promise.all([initWasm(), loadDefaultModel()])`.
+  - Added real-time streaming asset download reader (`ReadableStream`) reporting live byte counters, percentages, and transfer bandwidth (`MB/s`) to HUD progress indicator.
+  - Added instant scene preset pills in HUD to switch between fast demo asset (`ToyCar.glb` ~5.1 MB) and architectural benchmark (`Sponza.glb` ~52.6 MB).
+- **User-Facing Floating Toast Notification System (`BglNotifier`):**
+  - Introduced floating glassmorphism toast notification container (`#user-toast-container`) providing instant visual feedback for runtime events.
+  - User-friendly error banners for network failures (HTTP 404/500), CORS policy blocks, corrupted glTF/GLB containers, invalid dropped files, and WebGPU context loss.
+  - Interactive auto-dismiss with pause-on-hover and close button.
+- **Structured Developer Logging (`BglLogger`):**
+  - Integrated color-coded console badges with millisecond timestamps (`[Engine]`, `[Wasm]`, `[WebGPU]`, `[Network]`, `[glTF]`, `[Perf]`, `[UI]`, `[Error]`).
+  - Added high-resolution performance timers (`performance.now()`) measuring compilation, glTF JSON chunk extraction, and scene hierarchy generation.
+  - Added startup platform diagnostic banner reporting User Agent, Viewport Dimensions, Device Pixel Ratio, Secure Context status, and WebGPU adapter vendor/architecture metadata.
+- **Code Modularity & Readability:**
+  - Modernized `web/app.js` into clean, modular, self-contained components (`BglLogger`, `BglNotifier`, `BglNetwork`, `BglWasmBridge`, `BglGltf`, `BglUI`).
+  - Cached DOM selectors and eliminated redundant queries and unhandled promise rejections.
+
+---
+
 ## [0.8.7] - 2026-10-24
 
 ### Added & Hardened

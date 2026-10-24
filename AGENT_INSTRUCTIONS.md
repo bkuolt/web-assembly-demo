@@ -1,7 +1,7 @@
 # Master Specification & Architecture Guide (bgl-Engine)
 **Project:** Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance Renderer (`bgl`-Engine)  
 **Target Environments:** Linux (amd64) Desktop (`bgl_viewer`) & WebAssembly (`wasm32-unknown-emscripten`)  
-**Version:** `0.8.7`
+**Version:** `0.8.8`
 
 ---
 
@@ -117,3 +117,18 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
 - **Double-Click / Middle Mouse Button**: Pick geometry node with RayPicker.
 - **File Drag-and-Drop**: Drop any `.glb`, `.gltf`, or HTTP/HTTPS URL directly onto the window.
 - **ESC**: Exit viewer.
+
+---
+
+## 5. Web Client Runtime Architecture (`web/app.js`)
+
+- **Streaming WebAssembly Compilation**:
+  - Leverages `WebAssembly.instantiateStreaming` to compile WASM bytecode concurrently in a background thread while downloading across the network, with seamless fallback to `fetch().arrayBuffer()`.
+- **High-Speed Streaming Asset Downloader (`BglNetwork`)**:
+  - Streams chunks via `ReadableStream` reader, calculating real-time downloaded bytes, total payload, percentage, and bandwidth speed in MB/s for fluid UI updates.
+- **Structured Subsystem Logging (`BglLogger`)**:
+  - Console badges with millisecond timestamps (`[Engine]`, `[Wasm]`, `[WebGPU]`, `[Network]`, `[glTF]`, `[Perf]`, `[UI]`, `[Error]`) and `performance.now()` operation benchmarking.
+- **User-Facing Toast Notifications (`BglNotifier`)**:
+  - Floating glassmorphism notifications (`#user-toast-container`) for network errors (HTTP 404/500), CORS restrictions, glTF corruption, invalid file drops, and WebGPU context loss.
+- **Scene Graph Hierarchy & JSON Inspector (`BglGltf`)**:
+  - Live ASCII/visual tree diagram with node icons, primitive/vertex counters, material names, bounding box telemetry, and interactive collapsible JSON inspector.

@@ -4,9 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WebAssembly and WebGPU Demo</title>
+  <!-- Preload WebAssembly module for rapid startup -->
+  <link rel="preload" href="dist/bgl_engine.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+  <!-- Floating Toast Notification System (User-Facing Errors, Warnings & Feedback) -->
+  <div id="user-toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <!-- 3D WebGPU Canvas -->
   <canvas id="canvas"></canvas>
@@ -39,11 +44,16 @@
 
   <!-- Top-Left In-Engine Telemetry HUD -->
   <div id="ui-hud">
-    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.8.7</span></h1>
+    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.8.8</span></h1>
     <p>Professional WebGPU 3D Runtime with 4× MSAA, 16× Anisotropic Mipmapping, Normal &amp; Bump Mapping, PCF Soft Shadows, Cubemap IBL Reflections, and Spatial Quadtree Culling.</p>
     <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Initializing WebAssembly runtime...</div>
     <div class="progress-bar-container">
       <div id="progress-bar" class="progress-bar"></div>
+    </div>
+    <div class="model-quick-bar">
+      <span class="quick-label">Scene:</span>
+      <button class="pill-btn" id="btn-load-toycar" onclick="loadPresetModel('ToyCar.glb')" title="Fast lightweight glTF model (~5.1 MB)">ToyCar (5 MB)</button>
+      <button class="pill-btn" id="btn-load-sponza" onclick="loadPresetModel('Sponza.glb')" title="Architectural benchmark glTF (~52.6 MB)">Sponza (52 MB)</button>
     </div>
     <div class="hud-grid">
       <button class="btn" id="btn-bump" onclick="toggleBump()" style="background: #0284c7;">Bump Mapping [V]</button>
