@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.5] - 2026-10-24
+
+### Added & Improved
+- **Automated GitHub Pages Deployment & Dual-Target Hosting (`.github/workflows/ci.yml`):**
+  - Configured resilient GitHub Pages workflow supporting both **GitHub Actions Pages** (`actions/deploy-pages@v4`) and branch-based deployment (**`gh-pages`** via `peaceiris/actions-gh-pages@v4`).
+  - Added dedicated `_site` staging pipeline with `.nojekyll` generation to prevent Jekyll from skipping underscore folders or WebAssembly binary chunks.
+  - Mirrored web app files across both root (`/`) and `/web/` subpaths, enabling instant direct browser access at `https://bkuolt.github.io/web-assembly-demo/` with zero redirect latency, as well as via `https://bkuolt.github.io/web-assembly-demo/web/index.html`.
+  - Added automated minimal web viewer packaging (`dist/bgl_web_app_minimal.zip`) attached directly to GitHub release assets alongside desktop Linux binaries.
+  - Enabled automated Pages deployment on pushes to `main`, annotated release tags (`v*`), and manual `workflow_dispatch`.
+- **Client WebAssembly Initialization Refinement (`web/app.js`):**
+  - Standardized English status message when WebAssembly is unsupported in the host environment.
+- **Version Alignment:**
+  - Synchronized engine version constants to `0.8.5` across `Version.hpp`, `CMakeLists.txt`, `conanfile.py`, `conan.lock`, `README.md`, and `web/index.html`.
+
+---
+
 ## [0.8.4] - 2026-10-24
 
 ### Added & Expanded Tests (76 Passing Tests)

@@ -926,7 +926,7 @@
   async function initWasm() {
     const isCompat = await checkBrowserCompatibility();
     if (typeof WebAssembly === 'undefined' || !WebAssembly.instantiate) {
-      updateLoadProgress(100, "WebAssembly nicht unterstützt.");
+      updateLoadProgress(100, "WebAssembly is not supported in this browser environment.");
       return;
     }
 

@@ -110,9 +110,10 @@ jobs:
   deploy-pages:
     name: Deploy GitHub Pages Web App
     needs: [web-validation, native-linux]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     permissions:
+      contents: write
       pages: write
       id-token: write
     environment:
@@ -125,14 +126,41 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@v5
 
+    - name: Stage GitHub Pages Site
+      run: |
+        mkdir -p _site/dist _site/assets _site/web/dist _site/web/assets
+        # 1. Root level assets for direct domain access (https://<user>.github.io/<repo>/)
+        cp -f web/index.html _site/index.html
+        cp -f web/style.css _site/style.css
+        cp -f web/app.js _site/app.js
+        cp -f web/dist/* _site/dist/
+        cp -f web/assets/* _site/assets/
+        # 2. Subdirectory assets for subpath access (https://<user>.github.io/<repo>/web/index.html)
+        cp -f web/index.html _site/web/index.html
+        cp -f web/style.css _site/web/style.css
+        cp -f web/app.js _site/web/app.js
+        cp -f web/dist/* _site/web/dist/
+        cp -f web/assets/* _site/web/assets/
+        # 3. Add .nojekyll to prevent Jekyll from skipping underscore files or assets
+        touch _site/.nojekyll
+
+    - name: Deploy to gh-pages Branch
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./_site
+        keep_files: false
+        force_orphan: true
+
     - name: Upload Pages Artifact
       uses: actions/upload-pages-artifact@v3
       with:
-        path: '.'
+        path: '_site'
 
-    - name: Deploy to GitHub Pages
+    - name: Deploy to GitHub Pages Action Environment
       id: deployment
       uses: actions/deploy-pages@v4
+      continue-on-error: true
 
   release:
     name: Publish Release Artifacts
@@ -142,18 +170,24 @@ jobs:
     permissions:
       contents: write
     steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
     - name: Download Build Artifacts
       uses: actions/download-artifact@v4
       with:
         name: bgl_viewer-linux-amd64
         path: dist-native/
 
-    - name: Create Release Tarball
+    - name: Create Release Tarballs
       run: |
         tar -czvf bgl_viewer-linux-amd64.tar.gz -C dist-native .
+        python3 scripts/package_web.py --output dist/bgl_web_app_minimal.zip
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        files: bgl_viewer-linux-amd64.tar.gz
+        files: |
+          bgl_viewer-linux-amd64.tar.gz
+          dist/bgl_web_app_minimal.zip
         generate_release_notes: true
