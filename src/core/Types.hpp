@@ -61,6 +61,16 @@ struct AABB {
         return (maxBound - minBound) * 0.5f;
     }
 
+    /**
+     * @brief Transforms the Axis-Aligned Bounding Box by an affine 4x4 matrix using Arvo's algorithm.
+     * Computes the new center and transformed extents via scalar absolute dot products:
+     *   c' = M * c
+     *   e'_k = sum_j (|M_jk| * e_j)
+     * This eliminates the need to compute, transform, and bound 8 separate corners,
+     * maintaining high performance during scene graph traversal and hierarchical culling.
+     * @param transform 4x4 affine transformation matrix.
+     * @return Newly computed enclosing Axis-Aligned Bounding Box in target space.
+     */
     [[nodiscard]] AABB Transformed(const glm::mat4& transform) const noexcept {
         if (minBound.x > maxBound.x) return AABB{};
         const glm::vec3 c{Center()};
@@ -77,6 +87,13 @@ struct AABB {
         };
     }
 
+    /**
+     * @brief Computes ray-AABB intersection using Kay-Kajiya slab testing with copysign preservation.
+     * @param ray 3D ray with origin and normalized direction.
+     * @param[out] tMinOut Parametric distance to the entry point along the ray.
+     * @param[out] tMaxOut Parametric distance to the exit point along the ray.
+     * @return true if an intersection occurs along the ray; false otherwise.
+     */
     [[nodiscard]] bool Intersects(const Ray& ray, float& tMinOut, float& tMaxOut) const noexcept {
         float tmin{0.0f};
         float tmax{1e30f};

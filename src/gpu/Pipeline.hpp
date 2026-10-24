@@ -146,6 +146,11 @@ struct alignas(16) AabbVertex {
 };
 static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 
+/**
+ * @class PipelineManager
+ * @brief High-level orchestrator for WebGPU render pipelines, HDR post-processing,
+ *        Forward+ clustered lighting, IBL environment computation, and shadow passes.
+ */
 class PipelineManager {
 public:
     static constexpr uint32_t kShadowMapSize{2048};
@@ -159,21 +164,93 @@ public:
     PipelineManager() = default;
     ~PipelineManager();
 
+    /**
+     * @brief Initializes shaders, compute pipelines, bind group layouts, and default GPU textures.
+     * @param device WebGPU device handle.
+     * @param queue WebGPU default queue handle.
+     * @param surfaceFormat Final swapchain presentation surface texture format.
+     * @param sampleCount Multisample count (e.g. 4 for 4x MSAA).
+     * @return Result indicating success or error string.
+     */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount = 4);
+
+    /**
+     * @brief Releases all GPU pipeline layouts, pipelines, uniform buffers, and textures.
+     */
     void Shutdown() noexcept;
 
+    /**
+     * @brief Prepares and uploads GPU buffers, textures, samplers, and bind groups for a scene.
+     * @param scene Scene whose primitives and textures will be registered with WebGPU.
+     */
     void PrepareScene(scene::Scene& scene);
+
+    /**
+     * @brief Rebuilds texture and sampler bind groups following dynamic material changes.
+     * @param scene Target scene whose material bind groups need updating.
+     */
     void RebuildMaterialBindGroups(scene::Scene& scene);
 
+    /**
+     * @brief Executes the directional shadow map depth pre-pass.
+     * @param encoder Command encoder to record the render pass into.
+     * @param scene Scene containing geometry to cast shadows.
+     * @param lightDir Normalized vector pointing towards the light source.
+     * @param spatialIndex Optional spatial Quadtree for accelerated shadow frustum culling.
+     */
     void RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex = nullptr);
+
+    /**
+     * @brief Executes the primary HDR forward+ clustered scene render pass.
+     * @param pass Active WebGPU render pass encoder targeting the HDR color/depth attachments.
+     * @param scene Scene to render.
+     * @param viewProj Combined view-projection matrix.
+     * @param cameraPos World-space camera eye position.
+     * @param wireframe Render in wireframe mode if true.
+     * @param spatialIndex Optional spatial Quadtree for view frustum and occlusion culling.
+     */
     void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr, const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f}, uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+
+    /**
+     * @brief Executes the fullscreen tonemapping and color space conversion pass onto the swapchain.
+     * @param swapchainPass Render pass encoder targeting the final presentation surface.
+     * @param hdrResolveView Resolved RGBA16Float HDR input texture view.
+     */
     void RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView);
+
+    /**
+     * @brief Renders a single 3D wireframe Axis-Aligned Bounding Box.
+     */
     void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
+
+    /**
+     * @brief Batches scene root and mesh primitive bounding box line geometry into CPU buffers.
+     */
     void BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
+
+    /**
+     * @brief Batches spatial Quadtree cell boundary lines into CPU buffers.
+     */
     void BatchQuadtreeBounds(const scene::Quadtree& quadtree);
+
+    /**
+     * @brief Batches and renders scene bounding boxes in a single draw call.
+     */
     void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
+
+    /**
+     * @brief Batches and renders Quadtree cell boundaries in a single draw call.
+     */
     void RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj);
+
+    /**
+     * @brief Appends 12 line segments of an AABB to the wireframe batch.
+     */
     void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);
+
+    /**
+     * @brief Flushes all accumulated wireframe line vertices to the GPU in a single batched draw call.
+     */
     void FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj);
 
     // Environment & IBL Management

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.1] - 2026-10-24
+
+### Added
+- **Browser Compatibility Warning System (`web/index.html`, `web/app.js`, `web/style.css`):**
+  - Implemented pre-flight checks validating WebAssembly support, WebGPU API availability (`navigator.gpu`), GPU adapter initialization (`requestAdapter`), and Secure Context compliance (`window.isSecureContext`).
+  - Created a glassmorphism warning dialog with detailed technical diagnostic cards and browser troubleshooting guidance (Chrome 113+, Edge 113+, Firefox `dom.webgpu.enabled`, hardware acceleration, and GPU driver requirements).
+  - Integrated status warnings into the in-engine telemetry HUD and wired dismiss controls to mouse events and the `Escape` key.
+- **glTF Image Deduplication & Mesh Pre-Parsing Optimizations (`bgl::scene::FastGltfLoader`):**
+  - Implemented image decoding deduplication by processing unique `asset.images` entries across worker threads, eliminating redundant decoding passes for textures sharing image buffers.
+  - Implemented mesh pre-parsing to compute vertex buffers, fallback flat normals, and MikkTSpace / Lengyel tangents once per `asset.meshes` before instantiating scene nodes.
+- **Arvo Bounding Box Transformation Algorithm (`bgl::core::AABB::Transformed`):**
+  - Replaced 8-corner matrix multiplication with Arvo's Center-Extents transformation algorithm ($c' = M \cdot c$ and $e'_k = \sum_j |M_{jk}| e_j$), accelerating hierarchical spatial queries and view frustum culling.
+- **Conan 2.x Lockfile Synchronization (`conan.lock`, `conanfile.py`):**
+  - Updated recipe package version to `0.8.1` and regenerated the Conan 2.x lockfile to lock all 17 direct and transitive dependencies and build tools.
+- **In-Code API Documentation Modernization:**
+  - Enriched Doxygen class headers, method descriptions, parameter tags (`@param`, `@return`), and architectural documentation across `Types.hpp`, `Pipeline.hpp`, `Context.hpp`, `Skybox.hpp`, and `FastGltfLoader.hpp`.
+
+---
+
 ## [0.8.0] - 2026-10-24
 
 ### Added

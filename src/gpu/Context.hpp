@@ -35,7 +35,16 @@ public:
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
 
+    /**
+     * @brief Creates WebGPU instance, adapter, device, surface, and multisampled HDR render buffers.
+     * @param config Window dimensions, MSAA sample count, and native handle.
+     * @return Result indicating success or error description.
+     */
     core::Result<void> Initialize(const ContextConfig& config);
+
+    /**
+     * @brief Releases all allocated WebGPU swapchain surfaces, views, and device handles.
+     */
     void Shutdown() noexcept;
 
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
@@ -52,11 +61,38 @@ public:
     [[nodiscard]] bool SupportsASTC() const noexcept { return supportsASTC_; }
     [[nodiscard]] bool SupportsETC2() const noexcept { return supportsETC2_; }
 
+    /**
+     * @brief Reconfigures swapchain surface and recreates multisampled HDR buffers upon window resize.
+     * @param width New window width in pixels.
+     * @param height New window height in pixels.
+     */
     void Resize(uint32_t width, uint32_t height);
+
+    /**
+     * @brief Obtains the next swapchain presentation texture and begins command encoding.
+     * @return true if presentation target was successfully acquired; false on device loss or retry.
+     */
     bool PrepareFrame();
+
     [[nodiscard]] WGPUCommandEncoder GetCommandEncoder() const noexcept { return encoder_.Get(); }
+
+    /**
+     * @brief Begins the primary multisampled RGBA16Float HDR render pass.
+     * @return Active render pass encoder targeting the HDR color and depth attachments.
+     */
     WGPURenderPassEncoder BeginFrame();
+
+    /**
+     * @brief Transitions from the HDR pass to the single-sampled swapchain post-processing pass.
+     * @param hdrPass Active HDR pass encoder that will be ended.
+     * @return New render pass encoder targeting the presentation swapchain surface.
+     */
     WGPURenderPassEncoder BeginPostProcessPass(WGPURenderPassEncoder hdrPass);
+
+    /**
+     * @brief Ends the active render pass, finishes command buffer recording, and submits to queue.
+     * @param pass Active render pass encoder to finalize.
+     */
     void EndFrame(WGPURenderPassEncoder pass);
 
 private:
