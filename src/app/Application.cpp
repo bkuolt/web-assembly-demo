@@ -73,6 +73,7 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetMipmappingEnabled(config.enableMipmapping);
     pipelineManager_.SetShadowsEnabled(config.enableShadows);
     pipelineManager_.SetReflectionsEnabled(config.enableReflections);
+    pipelineManager_.SetAmbientOcclusionEnabled(config.enableAmbientOcclusion);
     pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(), gpuContext_.GetSampleCount()); !res) {

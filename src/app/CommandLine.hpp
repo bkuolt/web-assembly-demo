@@ -36,6 +36,7 @@ struct CliOptions {
     bool enableMipmapping{true};
     bool enableShadows{true};
     bool enableReflections{true};
+    bool enableAmbientOcclusion{true};
     bool enableOcclusionCulling{true};
 
     /**

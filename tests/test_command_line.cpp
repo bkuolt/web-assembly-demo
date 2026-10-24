@@ -77,9 +77,10 @@ TEST(CommandLineTest, FeatureToggles) {
         const_cast<char*>("--no-bump"),
         const_cast<char*>("--no-mipmaps"),
         const_cast<char*>("--no-shadows"),
-        const_cast<char*>("--no-reflections")
+        const_cast<char*>("--no-reflections"),
+        const_cast<char*>("--no-ao")
     };
-    auto opt = CliOptions::Parse(9, argv);
+    auto opt = CliOptions::Parse(10, argv);
 
     EXPECT_FALSE(opt.enableSkybox);
     EXPECT_FALSE(opt.enableBoundingBoxes);
@@ -89,8 +90,9 @@ TEST(CommandLineTest, FeatureToggles) {
     EXPECT_FALSE(opt.enableMipmapping);
     EXPECT_FALSE(opt.enableShadows);
     EXPECT_FALSE(opt.enableReflections);
+    EXPECT_FALSE(opt.enableAmbientOcclusion);
 
-    const std::array<const char*, 9> argsReEnable{
+    const std::array<const char*, 11> argsReEnable{
         "bgl_viewer",
         "--no-bump",
         "--bump",
@@ -99,13 +101,16 @@ TEST(CommandLineTest, FeatureToggles) {
         "--no-shadows",
         "--shadows",
         "--no-reflections",
-        "--reflections"
+        "--reflections",
+        "--no-ao",
+        "--ao"
     };
     auto optRe{CliOptions::Parse(std::span<const char* const>{argsReEnable})};
     EXPECT_TRUE(optRe.enableBumpMapping);
     EXPECT_TRUE(optRe.enableMipmapping);
     EXPECT_TRUE(optRe.enableShadows);
     EXPECT_TRUE(optRe.enableReflections);
+    EXPECT_TRUE(optRe.enableAmbientOcclusion);
 }
 
 TEST(CommandLineTest, TestCrashSignalSelection) {

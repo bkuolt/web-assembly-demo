@@ -398,7 +398,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         scene->materials.push_back(sceneMat);
     }
 
-    // 4. Decode Accessors & Meshes
+    // Accessors & Meshes Structural Inspection
     BGL_LOG_INFO("[glTF Loader] --- Accessors ({} total) ---", asset.accessors.size());
     for (size_t aIdx = 0; aIdx < asset.accessors.size(); ++aIdx) {
         const auto& acc = asset.accessors[aIdx];
@@ -438,7 +438,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 3b. Decode KHR_lights_punctual Lights
+    // 4. Decode KHR_lights_punctual Lights
     if (!asset.lights.empty()) {
         BGL_LOG_INFO("[glTF Loader] --- KHR_lights_punctual ({} lights) ---", asset.lights.size());
         scene->lights.reserve(asset.lights.size());
@@ -469,7 +469,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 4. Parse all glTF Meshes and their primitives once in parallel (deduplicated across instances)
+    // 5. Parse glTF Meshes and primitives in parallel (deduplicated across instances)
     std::vector<std::vector<MeshPrimitive>> parsedMeshes(asset.meshes.size());
     std::atomic<size_t> nextMeshIdx{0};
     {
@@ -603,7 +603,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 5. Process all nodes in parallel
+    // 6. Instantiate Scene Graph Nodes in parallel
     std::vector<std::shared_ptr<SceneNode>> loadedNodes(asset.nodes.size());
     BGL_LOG_INFO("[glTF Loader] --- Scene Nodes Hierarchy ({} nodes total, parallel parsing) ---", asset.nodes.size());
 
@@ -645,12 +645,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                         const auto& srcPrims{parsedMeshes[mIdx]};
                         node->primitives.reserve(srcPrims.size());
                         for (const auto& srcPrim : srcPrims) {
-                            MeshPrimitive primCopy;
-                            primCopy.materialIndex = srcPrim.materialIndex;
-                            primCopy.boundingBox = srcPrim.boundingBox;
-                            primCopy.vertices = srcPrim.vertices;
-                            primCopy.indices = srcPrim.indices;
-                            node->primitives.push_back(std::move(primCopy));
+                            node->primitives.push_back(srcPrim);
                         }
                     }
 
@@ -660,7 +655,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 6. Build parent-child relationships (with cycle prevention)
+    // 7. Assemble parent-child scene hierarchy with cycle prevention
     std::vector<bool> isChild(asset.nodes.size(), false);
     for (size_t i{0}; i < asset.nodes.size(); ++i) {
         for (size_t childIdx : asset.nodes[i].children) {
@@ -671,7 +666,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 7. Register root nodes from the default glTF scene (or fallback to parentless nodes)
+    // 8. Register root nodes from active glTF scene (or fallback to parentless nodes)
     if (!asset.scenes.empty()) {
         const size_t activeSceneIdx{
             (asset.defaultScene.has_value() && *asset.defaultScene < asset.scenes.size())
@@ -694,7 +689,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
     scene->Update();
 
-    // 8. Print ASCII Hierarchy Tree Diagram
+    // 9. Display ASCII Hierarchy Tree Diagram & Telemetry
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
     BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
     auto printTree = [&](this auto&& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {

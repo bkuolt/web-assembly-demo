@@ -132,6 +132,8 @@ struct MeshPrimitive {
     WGPUBindGroup gpuShadowBindGroup{nullptr};
 
     explicit MeshPrimitive(std::pmr::memory_resource* mr = std::pmr::get_default_resource());
+    MeshPrimitive(const MeshPrimitive& other);
+    MeshPrimitive& operator=(const MeshPrimitive& other);
     MeshPrimitive(MeshPrimitive&& other) noexcept;
     MeshPrimitive& operator=(MeshPrimitive&& other) noexcept;
     ~MeshPrimitive();

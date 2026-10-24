@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated recipe package version to `0.8.1` and regenerated the Conan 2.x lockfile to lock all 17 direct and transitive dependencies and build tools.
 - **In-Code API Documentation Modernization:**
   - Enriched Doxygen class headers, method descriptions, parameter tags (`@param`, `@return`), and architectural documentation across `Types.hpp`, `Pipeline.hpp`, `Context.hpp`, `Skybox.hpp`, and `FastGltfLoader.hpp`.
+- **MeshPrimitive Copy Safety & Lifetime Management (`bgl::scene::MeshPrimitive`):**
+  - Added dedicated copy constructor and assignment operator that deep-copy CPU geometry buffers while ensuring GPU resource handles remain safely initialized to `nullptr`, eliminating double-free hazards during node instantiation.
+- **Unified Ambient Occlusion Controls:**
+  - Wired `--no-ao` / `--ao` flags into CLI parsing (`CommandLine.cpp`), exposed `bgl_toggle_ao()` in Emscripten WASM exports (`main.cpp`), and added unit test coverage in `test_command_line.cpp`.
 
 ---
 

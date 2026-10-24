@@ -15,6 +15,37 @@ namespace bgl::scene {
 MeshPrimitive::MeshPrimitive(std::pmr::memory_resource* mr)
     : vertices{mr}, indices{mr} {}
 
+MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
+    : vertices{other.vertices},
+      indices{other.indices},
+      boundingBox{other.boundingBox},
+      materialIndex{other.materialIndex},
+      gpuVertexBuffer{nullptr},
+      gpuIndexBuffer{nullptr},
+      gpuWireframeIndexBuffer{nullptr},
+      wireframeIndexCount{0},
+      gpuUniformBuffer{nullptr},
+      gpuBindGroup{nullptr},
+      gpuShadowBindGroup{nullptr} {}
+
+MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
+    if (this != &other) {
+        ReleaseGpu();
+        vertices = other.vertices;
+        indices = other.indices;
+        boundingBox = other.boundingBox;
+        materialIndex = other.materialIndex;
+        gpuVertexBuffer = nullptr;
+        gpuIndexBuffer = nullptr;
+        gpuWireframeIndexBuffer = nullptr;
+        wireframeIndexCount = 0;
+        gpuUniformBuffer = nullptr;
+        gpuBindGroup = nullptr;
+        gpuShadowBindGroup = nullptr;
+    }
+    return *this;
+}
+
 MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
     : vertices{std::move(other.vertices)},
       indices{std::move(other.indices)},

@@ -60,6 +60,11 @@ void bgl_toggle_reflections() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_ao() {
+    if (g_pApp) g_pApp->ToggleAmbientOcclusion();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_occlusion() {
     if (g_pApp) g_pApp->ToggleOcclusionCulling();
 }
@@ -140,6 +145,7 @@ int main(int argc, char** argv) {
     config.enableMipmapping = cli.enableMipmapping;
     config.enableShadows = cli.enableShadows;
     config.enableReflections = cli.enableReflections;
+    config.enableAmbientOcclusion = cli.enableAmbientOcclusion;
     config.enableOcclusionCulling = cli.enableOcclusionCulling;
 
     bgl::app::Application app;
