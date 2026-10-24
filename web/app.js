@@ -693,6 +693,8 @@
       toggleReflections();
     } else if (e.key === 'u' || e.key === 'U') {
       toggleAO();
+    } else if (e.key === 'Escape') {
+      dismissCompatWarning();
     }
   });
 
@@ -781,9 +783,153 @@
   }
 
   /**
+   * Dismiss the compatibility warning modal.
+   */
+  function dismissCompatWarning() {
+    const modal = document.getElementById('compat-warning-modal');
+    if (modal) modal.style.display = 'none';
+  }
+  window.dismissCompatWarning = dismissCompatWarning;
+
+  /**
+   * Display modal and HUD notification for missing WebAssembly or WebGPU capabilities.
+   */
+  function showCompatibilityWarning(issues, warnings) {
+    const modal = document.getElementById('compat-warning-modal');
+    const content = document.getElementById('compat-modal-content');
+    if (content) {
+      content.innerHTML = '';
+
+      // Critical issues (Wasm / WebGPU missing)
+      for (const item of issues) {
+        const box = document.createElement('div');
+        box.className = 'compat-issue-box';
+
+        const title = document.createElement('div');
+        title.className = 'compat-issue-title';
+        title.innerHTML = `<span>✕</span> <strong>${item.feature} Not Available</strong>`;
+
+        const desc = document.createElement('div');
+        desc.className = 'compat-issue-desc';
+        desc.textContent = item.detail;
+
+        box.appendChild(title);
+        box.appendChild(desc);
+        content.appendChild(box);
+      }
+
+      // Warnings (e.g. Insecure context)
+      for (const item of warnings) {
+        const box = document.createElement('div');
+        box.className = 'compat-issue-box warning';
+
+        const title = document.createElement('div');
+        title.className = 'compat-issue-title';
+        title.innerHTML = `<span>⚠️</span> <strong>${item.feature}</strong>`;
+
+        const desc = document.createElement('div');
+        desc.className = 'compat-issue-desc';
+        desc.textContent = item.detail;
+
+        box.appendChild(title);
+        box.appendChild(desc);
+        content.appendChild(box);
+      }
+
+      // Troubleshooting recommendations
+      const rec = document.createElement('div');
+      rec.className = 'compat-recommendations';
+      rec.innerHTML = `
+        <h5>Troubleshooting &amp; Browser Requirements</h5>
+        <ul>
+          <li><strong>Empfohlene Browser:</strong> Google Chrome (113+), Microsoft Edge (113+), Firefox (120+ mit <code>dom.webgpu.enabled</code> in <code>about:config</code>), Safari (18+).</li>
+          <li><strong>Secure Context:</strong> WebGPU setzt HTTPS oder <code>http://localhost</code> voraus. Unverschlüsselte HTTP-Netzwerkadressen blockieren WebGPU.</li>
+          <li><strong>Hardwarebeschleunigung:</strong> Bitte sicherstellen, dass die Grafikbeschleunigung im Browser aktiviert ist (<code>Einstellungen &rarr; System &rarr; Grafikbeschleunigung verwenden</code>).</li>
+          <li><strong>GPU-Treiber:</strong> Aktuelle Vulkan-, Metal- oder Direct3D 12-Treiber für deine Grafikkarte installieren.</li>
+        </ul>
+      `;
+      content.appendChild(rec);
+    }
+
+    if (modal) {
+      modal.style.display = 'flex';
+    }
+
+    if (sText) {
+      const missingList = issues.map(i => i.feature).join(', ') || 'Browser Compatibility Warning';
+      sText.innerHTML = `<span style="color: #fb7185; font-weight: 600;">⚠️ Warnung: ${missingList} nicht verfügbar</span>`;
+    }
+    console.warn("[bgl-Engine] Browser Compatibility Warning:", { issues, warnings });
+  }
+
+  /**
+   * Verify browser support for WebAssembly and WebGPU.
+   */
+  async function checkBrowserCompatibility() {
+    const issues = [];
+    const warnings = [];
+
+    // 1. WebAssembly Support Check
+    const hasWasm = (typeof WebAssembly === 'object' &&
+                     typeof WebAssembly.instantiate === 'function' &&
+                     typeof WebAssembly.Memory === 'function');
+    if (!hasWasm) {
+      issues.push({
+        feature: 'WebAssembly',
+        detail: 'Dieser Browser unterstützt kein WebAssembly oder die Ausführung wurde deaktiviert/blockiert. Das Ausführen nativer C++-Module ist damit nicht möglich.'
+      });
+    }
+
+    // 2. Secure Context Check (WebGPU Voraussetzung)
+    if (window.isSecureContext === false) {
+      warnings.push({
+        feature: 'Unsicherer Kontext (HTTP)',
+        detail: 'Die Webanwendung wird über unverschlüsseltes HTTP aufgerufen. WebGPU-APIs sind vom Browser aus Sicherheitsgründen nur in Secure Contexts (HTTPS oder http://localhost) freigegeben.'
+      });
+    }
+
+    // 3. WebGPU Support Check
+    const hasGpuApi = Boolean(navigator && ('gpu' in navigator) && navigator.gpu);
+    if (!hasGpuApi) {
+      issues.push({
+        feature: 'WebGPU',
+        detail: 'Die WebGPU-Schnittstelle (navigator.gpu) ist in diesem Browser nicht verfügbar oder deaktiviert. Bitte einen aktuellen WebGPU-fähigen Browser wie Chrome 113+, Edge 113+ oder Firefox Nightly nutzen.'
+      });
+    } else {
+      // 4. WebGPU Adapter Acquisition Check
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          issues.push({
+            feature: 'WebGPU Grafik-Adapter',
+            detail: 'WebGPU wird vom Browser erkannt, es konnte jedoch kein kompatibler GPU-Adapter gefunden oder initialisiert werden. Bitte Hardware-Beschleunigung im Browser und Grafiktreiber prüfen.'
+          });
+        }
+      } catch (e) {
+        issues.push({
+          feature: 'WebGPU Adapter-Fehler',
+          detail: `Beim Anfordern des WebGPU-Adapters trat ein Fehler auf: ${e && e.message ? e.message : e}`
+        });
+      }
+    }
+
+    if (issues.length > 0 || warnings.length > 0) {
+      showCompatibilityWarning(issues, warnings);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Instantiate WebAssembly Runtime.
    */
   async function initWasm() {
+    const isCompat = await checkBrowserCompatibility();
+    if (typeof WebAssembly === 'undefined' || !WebAssembly.instantiate) {
+      updateLoadProgress(100, "WebAssembly nicht unterstützt.");
+      return;
+    }
+
     updateLoadProgress(30, "Fetching WebAssembly runtime module...");
     try {
       const memory = new WebAssembly.Memory({ initial: 256, maximum: 1024 });
