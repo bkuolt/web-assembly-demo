@@ -65,28 +65,24 @@ struct AABB {
         if (minBound.x > maxBound.x) return AABB{};
         const glm::vec3 c{Center()};
         const glm::vec3 e{Extents()};
-        const std::array<glm::vec3, 8> corners{{
-            c + glm::vec3{-e.x, -e.y, -e.z},
-            c + glm::vec3{ e.x, -e.y, -e.z},
-            c + glm::vec3{-e.x,  e.y, -e.z},
-            c + glm::vec3{ e.x,  e.y, -e.z},
-            c + glm::vec3{-e.x, -e.y,  e.z},
-            c + glm::vec3{ e.x, -e.y,  e.z},
-            c + glm::vec3{-e.x,  e.y,  e.z},
-            c + glm::vec3{ e.x,  e.y,  e.z}
-        }};
-        AABB out{};
-        for (const auto& corner : corners) {
-            out.Expand(glm::vec3{transform * glm::vec4{corner, 1.0f}});
-        }
-        return out;
+        const glm::vec3 newCenter{transform * glm::vec4{c, 1.0f}};
+        const glm::vec3 newExtents{
+            std::abs(transform[0][0]) * e.x + std::abs(transform[1][0]) * e.y + std::abs(transform[2][0]) * e.z,
+            std::abs(transform[0][1]) * e.x + std::abs(transform[1][1]) * e.y + std::abs(transform[2][1]) * e.z,
+            std::abs(transform[0][2]) * e.x + std::abs(transform[1][2]) * e.y + std::abs(transform[2][2]) * e.z
+        };
+        return AABB{
+            .minBound = newCenter - newExtents,
+            .maxBound = newCenter + newExtents
+        };
     }
 
     [[nodiscard]] bool Intersects(const Ray& ray, float& tMinOut, float& tMaxOut) const noexcept {
         float tmin{0.0f};
         float tmax{1e30f};
         for (int i{0}; i < 3; ++i) {
-            const float invD{1.0f / (std::abs(ray.direction[i]) > 1e-8f ? ray.direction[i] : 1e-8f)};
+            const float d = (std::abs(ray.direction[i]) > 1e-8f) ? ray.direction[i] : std::copysign(1e-8f, ray.direction[i]);
+            const float invD{1.0f / d};
             float t0{(minBound[i] - ray.origin[i]) * invD};
             float t1{(maxBound[i] - ray.origin[i]) * invD};
             if (invD < 0.0f) std::swap(t0, t1);
