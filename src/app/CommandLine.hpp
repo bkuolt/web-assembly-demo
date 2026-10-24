@@ -22,6 +22,7 @@ struct CliOptions {
     bool listFormats{false};
     bool testCrash{false};
     int testCrashSignal{0}; // 0=SIGSEGV, 1=SIGABRT, 2=SIGFPE
+    bool headless{false};   // Headless CI smoke-test mode (renders 10 frames and terminates)
 
     uint32_t width{1280};
     uint32_t height{720};

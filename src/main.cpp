@@ -156,6 +156,7 @@ int main(int argc, char** argv) {
 
     BGL_LOG_INFO("bgl_viewer interactive loop running. Close the window or press ESC to exit.");
     auto prevTime = std::chrono::high_resolution_clock::now();
+    uint32_t frameCount = 0;
 
     while (app.IsRunning()) {
         auto currentTime = std::chrono::high_resolution_clock::now();
@@ -164,6 +165,11 @@ int main(int argc, char** argv) {
 
         app.Update(deltaTime);
         app.Render();
+
+        if (cli.headless && ++frameCount >= 10) {
+            BGL_LOG_INFO("Headless CI smoke test completed successfully (10 frames rendered).");
+            break;
+        }
     }
 
     app.Shutdown();

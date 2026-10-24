@@ -97,6 +97,8 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.enableOcclusionCulling = false;
         } else if (arg == "--occlusion") {
             opt.enableOcclusionCulling = true;
+        } else if (arg == "--headless") {
+            opt.headless = true;
         } else if (!arg.starts_with("-")) {
             // Positional argument interpreted as asset path if not set
             if (opt.assetPath.empty()) {
@@ -148,6 +150,7 @@ RENDERING TOGGLES:
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
+  --headless                    Run in headless CI smoke-test mode (renders 10 frames and exits)
 
 INTERACTIVE CONTROLS:
   LMB + Drag                    Orbit camera around target

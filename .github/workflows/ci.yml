@@ -89,7 +89,7 @@ jobs:
 
     - name: Run Smoke Test on bgl_viewer
       run: |
-        xvfb-run timeout 5s ./build/Release/bgl_viewer --headless || true
+        xvfb-run timeout 15s ./build/Release/bgl_viewer --headless
 
     - name: Package Native Binaries
       run: |

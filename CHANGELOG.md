@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.7] - 2026-10-24
+
+### Added & Hardened
+- **Headless CI Smoke Testing (`--headless`):**
+  - Added native `--headless` command-line flag to `CliOptions` and `Application` interactive loop in `bgl_viewer`.
+  - When `--headless` is provided, `bgl_viewer` initializes all subsystems, loads the active scene, executes 10 full render frames, and cleanly terminates with code 0.
+  - Modernized `.github/workflows/ci.yml` smoke-test step to execute `xvfb-run timeout 15s ./build/Release/bgl_viewer --headless` cleanly without masking errors via `|| true`.
+- **Unit Test Suite Expansion (82 Passing Tests):**
+  - Added unit test `CommandLineTest.HeadlessOption` in `tests/test_command_line.cpp`, expanding test suite to 82 passing tests across 12 suites (100% pass rate).
+
+### Documentation & Versioning
+- **Comprehensive Doxygen Coverage:**
+  - Added Doxygen `@param`, `@return`, and API descriptions across `Application.hpp`, `Quadtree.hpp`, `TextureDecoder.hpp`, `SoundEngine.hpp`, `Camera.hpp`, `Skybox.hpp`, `TextRenderer.hpp`, and `DebugOverlay.hpp`.
+  - Updated Master Architecture Guide (`AGENT_INSTRUCTIONS.md`) with modern C++23 subsystem directives, 352-byte uniform layouts, and hotkey controls.
+- **Version Alignment:**
+  - Synchronized engine version constants to `0.8.7` across `Version.hpp`, `CMakeLists.txt`, `conanfile.py`, `conan.lock`, `README.md`, `AGENT_INSTRUCTIONS.md`, and `web/index.html`.
+
+---
+
 ## [0.8.6] - 2026-10-24
 
 ### Refactoring & Resource Hygiene

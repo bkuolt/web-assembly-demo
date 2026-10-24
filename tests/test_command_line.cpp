@@ -142,6 +142,12 @@ TEST(CommandLineTest, TestCrashSignalSelection) {
     EXPECT_EQ(optFpe.testCrashSignal, 2);
 }
 
+TEST(CommandLineTest, HeadlessOption) {
+    const std::array<const char*, 2> args{"bgl_viewer", "--headless"};
+    auto opt = CliOptions::Parse(std::span<const char* const>{args});
+    EXPECT_TRUE(opt.headless);
+}
+
 TEST(CommandLineTest, AdditionalFlagsAndHelpOutput) {
     const std::array<const char*, 4> args{
         "bgl_viewer",
