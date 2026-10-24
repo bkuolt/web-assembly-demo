@@ -653,4 +653,81 @@ TEST(RenderingFeaturesTest, NetworkFetcherErrorHandlingAndPercentDecoding) {
     EXPECT_EQ(core::NetworkFetcher::DecodeUrlPercent("test%ZZ"), "test%ZZ");
 }
 
+TEST(RenderingFeaturesTest, ClusteredForwardGridBoundsValidation) {
+    std::array<gpu::GpuPunctualLight, 2> lights{};
+    // Light 0: Directional light (w = 0.0f)
+    lights[0].posOrDir = glm::vec4{0.0f, 1.0f, 0.0f, 0.0f};
+    lights[0].colorInt = glm::vec4{1.0f, 1.0f, 1.0f, 0.0f};
+
+    // Light 1: Point light at (0, 0, -5) with range 10.0f (w = 1.0f)
+    lights[1].posOrDir = glm::vec4{0.0f, 0.0f, -5.0f, 1.0f};
+    lights[1].colorInt = glm::vec4{5.0f, 5.0f, 5.0f, 10.0f};
+
+    const glm::mat4 view{glm::lookAt(glm::vec3{0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f})};
+    const glm::mat4 proj{glm::perspectiveRH_ZO(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f)};
+
+    std::array<glm::uvec4, 256> clusterMasks{};
+    gpu::PipelineManager::BuildClusteredLightGrid(
+        std::span<const gpu::GpuPunctualLight>{lights.data(), 2},
+        2,
+        view,
+        proj,
+        0.1f,
+        100.0f,
+        clusterMasks
+    );
+
+    // Directional light (bit 0) must be present in every cluster
+    for (const auto& uvec : clusterMasks) {
+        EXPECT_NE(uvec.x & 1u, 0u);
+        EXPECT_NE(uvec.y & 1u, 0u);
+        EXPECT_NE(uvec.z & 1u, 0u);
+        EXPECT_NE(uvec.w & 1u, 0u);
+    }
+
+    // Zero lights test resets all masks
+    gpu::PipelineManager::BuildClusteredLightGrid(
+        std::span<const gpu::GpuPunctualLight>{lights.data(), 2},
+        0,
+        view,
+        proj,
+        0.1f,
+        100.0f,
+        clusterMasks
+    );
+    for (const auto& uvec : clusterMasks) {
+        EXPECT_EQ(uvec.x, 0u);
+        EXPECT_EQ(uvec.y, 0u);
+        EXPECT_EQ(uvec.z, 0u);
+        EXPECT_EQ(uvec.w, 0u);
+    }
+}
+
+TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
+    constexpr uint32_t faceSize{16};
+    std::array<std::vector<float>, 6> uniformFaces{};
+    for (auto& face : uniformFaces) {
+        face.resize(faceSize * faceSize * 4, 1.0f); // Uniform white RGBA (1, 1, 1, 1)
+    }
+
+    const auto sh = gpu::PipelineManager::ComputeSphericalHarmonicsL2(uniformFaces, faceSize);
+    // Evaluating diffuse irradiance across multiple surface normals should yield ~1.0
+    const std::array<glm::vec3, 6> testNormals{{
+        {1.0f, 0.0f, 0.0f},
+        {-1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        {0.0f, -1.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, -1.0f}
+    }};
+
+    for (const auto& norm : testNormals) {
+        const glm::vec3 irr = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(sh, norm);
+        EXPECT_NEAR(irr.r, 1.0f, 0.08f);
+        EXPECT_NEAR(irr.g, 1.0f, 0.08f);
+        EXPECT_NEAR(irr.b, 1.0f, 0.08f);
+    }
+}
+
+
 

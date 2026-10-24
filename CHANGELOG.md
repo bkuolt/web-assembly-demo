@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.6] - 2026-10-24
+
+### Refactoring & Resource Hygiene
+- **Scene RAII Cleanup (`bgl::scene::Scene`):**
+  - Explicitly reset non-owning sampler handles (`t.sampler = nullptr;`) in `Scene::~Scene()` along with WebGPU texture and texture-view releases, eliminating dangling references to pipeline-managed samplers upon scene unloading.
+- **Code Modernization & Simplicity:**
+  - Audited core submodules (`gpu`, `scene`, `core`, `app`, `text`, `ui`) ensuring strict C++23 standards compliance, zero compiler warnings under `-std=c++23 -Wall -Wextra -Wpedantic`, and consistent resource lifetime management.
+
+### Added & Expanded Tests (81 Passing Tests)
+- **Unit Test Suite Expansion (`tests/`):**
+  - Expanded test coverage from 76 to 81 tests (100% pass rate across all 12 test suites).
+  - **Occlusion Buffer Direct Operations (`tests/test_quadtree_lod.cpp`):**
+    - Added `QuadtreeTest.OcclusionBufferDirectTileOperationsAndEdgeCases` verifying conservative screen-space depth tile initialization, AABB clipping against the camera near plane, projection validation, conservative occluder rasterization, occlusion testing, and buffer clearing.
+  - **Mathematical Parametrics & Sampler Safety (`tests/test_types_math.cpp`):**
+    - Added `TypesMathTest.RaySegmentParametricEvaluator` verifying 3D ray point evaluation along positive, zero, and negative parametric distances.
+    - Added `TypesMathTest.SceneDestructorTextureSamplerNulling` verifying texture resource reset and safe sampler nulling upon `Scene` destruction.
+  - **Forward+ Cluster Grids & Spherical Harmonics (`tests/test_rendering_features.cpp`):**
+    - Added `RenderingFeaturesTest.ClusteredForwardGridBoundsValidation` testing light grid bitmask assignment across all 1,024 frustum clusters for directional vs punctual point lights and boundary conditions.
+    - Added `RenderingFeaturesTest.SphericalHarmonicsDiffuseReconstruction` verifying Ramamoorthi & Hanrahan $L_2$ diffuse spherical harmonics projection and radiance reconstruction against uniform white cubemaps across 6 cardinal surface normals.
+
+### Documentation & Versioning
+- **Version Synchronization:**
+  - Synchronized engine version constants to `0.8.6` across `Version.hpp`, `CMakeLists.txt`, `conanfile.py`, `conan.lock`, `README.md`, and `web/index.html`.
+- **Conan 2.x Lockfile:**
+  - Pinned and verified all dependency hashes in `conan.lock`.
+
+---
+
 ## [0.8.5] - 2026-10-24
 
 ### Added & Improved

@@ -258,6 +258,54 @@ TEST(QuadtreeTest, HierarchicalOcclusionCullingAndFrontToBackOrdering) {
     }
 }
 
+TEST(QuadtreeTest, OcclusionBufferDirectTileOperationsAndEdgeCases) {
+    bgl::scene::OcclusionBuffer occBuffer{};
+
+    // 1. Fresh buffer: no screen tiles occluded for standard depth values in [0, 1]
+    EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2{-0.5f, -0.5f}, glm::vec2{0.5f, 0.5f}, 0.5f));
+    EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2{-1.0f, -1.0f}, glm::vec2{1.0f, 1.0f}, 1.0f));
+
+    // 2. ProjectAABB on uninitialized / inverted bounding box returns false
+    bgl::core::AABB invertedBox{};
+    glm::vec2 ndcMin{0.0f}, ndcMax{0.0f};
+    float minZ{0.0f}, maxZ{0.0f};
+    const glm::mat4 identity{1.0f};
+    EXPECT_FALSE(bgl::scene::OcclusionBuffer::ProjectAABB(invertedBox, identity, ndcMin, ndcMax, minZ, maxZ));
+
+    // 3. ProjectAABB on a box behind camera (z > 0 in standard view-proj where camera looks down -Z)
+    bgl::core::AABB behindBox{};
+    behindBox.minBound = glm::vec3{-1.0f, -1.0f, 5.0f};
+    behindBox.maxBound = glm::vec3{ 1.0f,  1.0f, 10.0f};
+    const glm::mat4 view = glm::lookAt(glm::vec3{0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    EXPECT_FALSE(bgl::scene::OcclusionBuffer::ProjectAABB(behindBox, proj * view, ndcMin, ndcMax, minZ, maxZ));
+
+    // 4. ProjectAABB on a box in front of camera succeeds and produces valid NDC coordinates
+    bgl::core::AABB frontBox{};
+    frontBox.minBound = glm::vec3{-2.0f, -2.0f, -10.0f};
+    frontBox.maxBound = glm::vec3{ 2.0f,  2.0f, -5.0f};
+    EXPECT_TRUE(bgl::scene::OcclusionBuffer::ProjectAABB(frontBox, proj * view, ndcMin, ndcMax, minZ, maxZ));
+    EXPECT_LE(ndcMin.x, ndcMax.x);
+    EXPECT_LE(ndcMin.y, ndcMax.y);
+    EXPECT_GE(minZ, 0.0f);
+    EXPECT_LE(maxZ, 1.0f);
+
+    // 5. Conservative rasterization and occlusion testing
+    // Rasterize an occluder covering the center of the screen at depth 0.2
+    occBuffer.RasterizeOccluder(glm::vec2{-0.8f, -0.8f}, glm::vec2{0.8f, 0.8f}, 0.2f);
+
+    // A small target behind the occluder (depth 0.6 > 0.2 + bias) must be occluded
+    EXPECT_TRUE(occBuffer.IsOccluded(glm::vec2{-0.2f, -0.2f}, glm::vec2{0.2f, 0.2f}, 0.6f));
+
+    // A target in front of the occluder (depth 0.1 < 0.2) must NOT be occluded
+    EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2{-0.2f, -0.2f}, glm::vec2{0.2f, 0.2f}, 0.1f));
+
+    // 6. Resetting the buffer clears all occluders
+    occBuffer.Clear();
+    EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2{-0.2f, -0.2f}, glm::vec2{0.2f, 0.2f}, 0.6f));
+}
+
+
 
 
 

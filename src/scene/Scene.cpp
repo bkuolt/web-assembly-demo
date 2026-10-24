@@ -232,6 +232,7 @@ Scene::~Scene() {
             wgpuTextureRelease(t.texture);
             t.texture = nullptr;
         }
+        t.sampler = nullptr;
     }
     gpuTextures.clear();
 }

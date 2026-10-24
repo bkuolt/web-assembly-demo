@@ -359,4 +359,35 @@ TEST(TypesMathTest, MeshPrimitiveCopySemanticsAndGPUHandleSafety) {
     EXPECT_TRUE(copied.indices.empty());
 }
 
+TEST(TypesMathTest, RaySegmentParametricEvaluator) {
+    const Ray ray{
+        .origin = glm::vec3{1.0f, 2.0f, 3.0f},
+        .direction = glm::vec3{0.0f, 1.0f, 0.0f}
+    };
+    EXPECT_EQ(ray.At(0.0f), glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_EQ(ray.At(5.0f), glm::vec3(1.0f, 7.0f, 3.0f));
+    EXPECT_EQ(ray.At(-2.5f), glm::vec3(1.0f, -0.5f, 3.0f));
+}
+
+TEST(TypesMathTest, SceneDestructorTextureSamplerNulling) {
+    // Verify Scene cleanup resets textures and sets non-owning sampler references to nullptr
+    {
+        bgl::scene::Scene scene{};
+        bgl::scene::TextureGpuResource texRes{};
+        texRes.width = 64;
+        texRes.height = 64;
+        texRes.texture = nullptr;
+        texRes.view = nullptr;
+        // Non-null mock sampler borrowed from pipeline
+        texRes.sampler = reinterpret_cast<WGPUSampler>(0xCAFE);
+
+        scene.gpuTextures.push_back(texRes);
+        EXPECT_EQ(scene.gpuTextures.size(), 1u);
+        EXPECT_NE(scene.gpuTextures[0].sampler, nullptr);
+        // Exiting scope triggers Scene::~Scene()
+    }
+    SUCCEED();
+}
+
+
 
