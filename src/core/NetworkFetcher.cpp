@@ -4,6 +4,7 @@
  */
 #include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
+#include "core/Version.hpp"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
@@ -24,6 +25,8 @@
 namespace bgl::core {
 
 namespace {
+
+constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safety limit against unbounded allocations
 
 [[nodiscard]] bool StartsWithCaseInsensitive(std::string_view str, std::string_view prefix) noexcept {
     if (str.size() < prefix.size()) return false;
@@ -132,6 +135,9 @@ void EnsureCurlGlobalInitialized() {
 size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     const size_t totalBytes{size * nmemb};
     auto* buffer{static_cast<std::vector<uint8_t>*>(userp)};
+    if (buffer->size() + totalBytes > kMaxAssetFileSize) {
+        return 0; // Exceeded limit; abort download safely with CURLE_WRITE_ERROR
+    }
     const auto* bytePtr{static_cast<const uint8_t*>(contents)};
     buffer->insert(buffer->end(), bytePtr, bytePtr + totalBytes);
     return totalBytes;
@@ -152,6 +158,9 @@ size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
     const std::streamsize size{file.tellg()};
     if (size < 0) {
         return std::unexpected("Failed to determine size of local file: " + filePath.string());
+    }
+    if (static_cast<uint64_t>(size) > kMaxAssetFileSize) {
+        return std::unexpected("Local file exceeds maximum allowed asset size (1 GiB): " + filePath.string());
     }
     file.seekg(0, std::ios::beg);
 
@@ -422,7 +431,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl.get(), CURLOPT_MAXREDIRS, 10L);
         curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, "bgl-engine/0.7.2 (libcurl)");
+        const std::string userAgent = std::string("bgl-engine/") + std::string(kEngineVersion) + " (libcurl)";
+        curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, userAgent.c_str());
         curl_easy_setopt(curl.get(), CURLOPT_ACCEPT_ENCODING, "");
         curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 15L);
         curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 120L);

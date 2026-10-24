@@ -538,13 +538,23 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                             });
                         }
 
-                        // Indices accessor
+                        // Indices accessor (with bounds clamping for GPU memory safety)
                         if (prim.indicesAccessor.has_value()) {
                             const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
                             meshPrim.indices.resize(idxAccessor.count);
+                            const size_t vertexCount{meshPrim.vertices.size()};
+                            bool hasInvalidIndices{false};
                             fastgltf::iterateAccessorWithIndex<uint32_t>(asset, idxAccessor, [&](uint32_t val, size_t idx) {
-                                meshPrim.indices[idx] = val;
+                                if (vertexCount > 0 && val >= vertexCount) {
+                                    hasInvalidIndices = true;
+                                    meshPrim.indices[idx] = 0;
+                                } else {
+                                    meshPrim.indices[idx] = val;
+                                }
                             });
+                            if (hasInvalidIndices) {
+                                BGL_LOG_WARN("[glTF Loader] Mesh primitive contains out-of-bounds index references; clamped to 0 for GPU buffer safety");
+                            }
                         }
 
                         // Flat normals fallback if NORMAL attribute is absent

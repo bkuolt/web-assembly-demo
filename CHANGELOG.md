@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.3] - 2026-10-24
+
+### Security & Hardening
+- **CrashHandler Bounds Safety (`bgl::core::CrashHandler`):**
+  - Resolved potential out-of-bounds memory read in `PrintStackTrace(std::string_view)` by introducing an async-signal-safe `SafeWriteStderr(const char*, size_t)` primitive and `SafeWriteStderr(std::string_view)` overload, avoiding assumptions of null termination on sliced string views.
+- **Asset Allocation Bounds & DoS Prevention (`bgl::core::NetworkFetcher`):**
+  - Enforced a 1 GiB maximum asset size threshold (`kMaxAssetFileSize`) in `ReadLocalFileBytes` to prevent unbounded memory allocation and denial-of-service attacks from malicious local files or pseudo-devices.
+  - Implemented streaming buffer capacity enforcement in `CurlWriteCallback` to abort remote HTTP/HTTPS downloads exceeding 1 GiB.
+  - Updated libcurl User-Agent client identifier to reference `kEngineVersion` dynamically.
+- **glTF Index Accessor Clamping (`bgl::scene::FastGltfLoader`):**
+  - Added boundary validation and defensive index clamping on glTF index accessors, mitigating GPU out-of-bounds vertex fetching and driver panic risks on corrupted or adversarial 3D assets.
+
+### Improvements & Documentation
+- **Client Internationalization (`web/app.js`):**
+  - Standardized all WebAssembly and WebGPU compatibility modal alerts, technical diagnostics, and troubleshooting instructions into serious, professional English.
+- **Conan 2.x Lockfile Synchronization (`conan.lock`, `conanfile.py`):**
+  - Updated recipe package version to `0.8.3` and regenerated `conan.lock` across all 17 graph dependencies and 5 build requirements.
+- **Version Alignment:**
+  - Synchronized version constants to `0.8.3` across `Version.hpp`, `CMakeLists.txt`, `conanfile.py`, `conan.lock`, `README.md`, and `web/index.html`.
+
+---
+
 ## [0.8.2] - 2026-10-24
 
 ### Added

@@ -51,17 +51,31 @@ size_t SafeStrLen(const char* str) noexcept {
 }
 
 /**
- * @brief Async-signal-safe stderr writer.
+ * @brief Async-signal-safe stderr writer for bounded character spans.
  */
-void SafeWriteStderr(const char* str) noexcept {
-    if (!str) return;
-    size_t len = SafeStrLen(str);
+void SafeWriteStderr(const char* str, size_t len) noexcept {
+    if (!str || len == 0) return;
     while (len > 0) {
         ssize_t written = ::write(STDERR_FILENO, str, len);
         if (written <= 0) break;
         str += written;
         len -= static_cast<size_t>(written);
     }
+}
+
+/**
+ * @brief Async-signal-safe stderr writer for null-terminated strings.
+ */
+void SafeWriteStderr(const char* str) noexcept {
+    if (!str) return;
+    SafeWriteStderr(str, SafeStrLen(str));
+}
+
+/**
+ * @brief Async-signal-safe stderr writer for string views.
+ */
+void SafeWriteStderr(std::string_view sv) noexcept {
+    SafeWriteStderr(sv.data(), sv.size());
 }
 
 /**
@@ -276,7 +290,7 @@ void PrintStackTrace(std::string_view reason) noexcept {
 #if defined(__linux__) || defined(__unix__)
     if (!reason.empty()) {
         SafeWriteStderr("\n[STACKTRACE] ");
-        SafeWriteStderr(reason.data());
+        SafeWriteStderr(reason);
         SafeWriteStderr("\n");
     } else {
         SafeWriteStderr("\n[STACKTRACE] Current execution callstack:\n");

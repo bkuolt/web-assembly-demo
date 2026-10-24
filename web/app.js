@@ -842,10 +842,10 @@
       rec.innerHTML = `
         <h5>Troubleshooting &amp; Browser Requirements</h5>
         <ul>
-          <li><strong>Empfohlene Browser:</strong> Google Chrome (113+), Microsoft Edge (113+), Firefox (120+ mit <code>dom.webgpu.enabled</code> in <code>about:config</code>), Safari (18+).</li>
-          <li><strong>Secure Context:</strong> WebGPU setzt HTTPS oder <code>http://localhost</code> voraus. Unverschlüsselte HTTP-Netzwerkadressen blockieren WebGPU.</li>
-          <li><strong>Hardwarebeschleunigung:</strong> Bitte sicherstellen, dass die Grafikbeschleunigung im Browser aktiviert ist (<code>Einstellungen &rarr; System &rarr; Grafikbeschleunigung verwenden</code>).</li>
-          <li><strong>GPU-Treiber:</strong> Aktuelle Vulkan-, Metal- oder Direct3D 12-Treiber für deine Grafikkarte installieren.</li>
+          <li><strong>Supported Browsers:</strong> Google Chrome (113+), Microsoft Edge (113+), Firefox (120+ with <code>dom.webgpu.enabled</code> in <code>about:config</code>), Safari (18+).</li>
+          <li><strong>Secure Context:</strong> WebGPU requires HTTPS or <code>http://localhost</code>. Non-secure HTTP origins block WebGPU APIs by browser security policy.</li>
+          <li><strong>Hardware Acceleration:</strong> Ensure hardware graphics acceleration is enabled in browser preferences (<code>Settings &rarr; System &rarr; Use graphics acceleration when available</code>).</li>
+          <li><strong>GPU Drivers:</strong> Ensure modern Vulkan, Metal, or Direct3D 12 drivers are installed for your graphics hardware.</li>
         </ul>
       `;
       content.appendChild(rec);
@@ -857,7 +857,7 @@
 
     if (sText) {
       const missingList = issues.map(i => i.feature).join(', ') || 'Browser Compatibility Warning';
-      sText.innerHTML = `<span style="color: #fb7185; font-weight: 600;">⚠️ Warnung: ${missingList} nicht verfügbar</span>`;
+      sText.innerHTML = `<span style="color: #fb7185; font-weight: 600;">⚠️ Warning: ${missingList} unavailable</span>`;
     }
     console.warn("[bgl-Engine] Browser Compatibility Warning:", { issues, warnings });
   }
@@ -876,15 +876,15 @@
     if (!hasWasm) {
       issues.push({
         feature: 'WebAssembly',
-        detail: 'Dieser Browser unterstützt kein WebAssembly oder die Ausführung wurde deaktiviert/blockiert. Das Ausführen nativer C++-Module ist damit nicht möglich.'
+        detail: 'This browser environment does not support WebAssembly or execution has been disabled. The native C++ engine cannot run without WebAssembly support.'
       });
     }
 
-    // 2. Secure Context Check (WebGPU Voraussetzung)
+    // 2. Secure Context Check (WebGPU prerequisite)
     if (window.isSecureContext === false) {
       warnings.push({
-        feature: 'Unsicherer Kontext (HTTP)',
-        detail: 'Die Webanwendung wird über unverschlüsseltes HTTP aufgerufen. WebGPU-APIs sind vom Browser aus Sicherheitsgründen nur in Secure Contexts (HTTPS oder http://localhost) freigegeben.'
+        feature: 'Insecure Context (HTTP)',
+        detail: 'The application is served over insecure HTTP. WebGPU requires a Secure Context (HTTPS or http://localhost) according to the W3C specification.'
       });
     }
 
@@ -893,7 +893,7 @@
     if (!hasGpuApi) {
       issues.push({
         feature: 'WebGPU',
-        detail: 'Die WebGPU-Schnittstelle (navigator.gpu) ist in diesem Browser nicht verfügbar oder deaktiviert. Bitte einen aktuellen WebGPU-fähigen Browser wie Chrome 113+, Edge 113+ oder Firefox Nightly nutzen.'
+        detail: 'The WebGPU API (navigator.gpu) is not available or disabled in this browser. Please use an updated WebGPU-compatible browser such as Chrome 113+, Edge 113+, or Firefox Nightly.'
       });
     } else {
       // 4. WebGPU Adapter Acquisition Check
@@ -901,14 +901,14 @@
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) {
           issues.push({
-            feature: 'WebGPU Grafik-Adapter',
-            detail: 'WebGPU wird vom Browser erkannt, es konnte jedoch kein kompatibler GPU-Adapter gefunden oder initialisiert werden. Bitte Hardware-Beschleunigung im Browser und Grafiktreiber prüfen.'
+            feature: 'WebGPU Graphics Adapter',
+            detail: 'WebGPU API is present, but no compatible hardware GPU adapter could be acquired. Verify browser hardware acceleration settings and GPU driver installation.'
           });
         }
       } catch (e) {
         issues.push({
-          feature: 'WebGPU Adapter-Fehler',
-          detail: `Beim Anfordern des WebGPU-Adapters trat ein Fehler auf: ${e && e.message ? e.message : e}`
+          feature: 'WebGPU Adapter Error',
+          detail: `An error occurred while requesting the WebGPU adapter: ${e && e.message ? e.message : e}`
         });
       }
     }
