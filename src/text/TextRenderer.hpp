@@ -40,6 +40,12 @@ public:
 
     /**
      * @brief Initializes WebGPU shaders, bind group layouts, and render pipeline.
+     * @param device WebGPU device handle.
+     * @param queue WebGPU queue handle.
+     * @param surfaceFormat Presentation surface texture format.
+     * @param sampleCount Multisample count for the presentation pass.
+     * @param fontAtlas Reference to active font atlas.
+     * @return Result indicating success or error string.
      */
     core::Result<void> Initialize(WGPUDevice device,
                                   WGPUQueue queue,
@@ -49,11 +55,23 @@ public:
 
     /**
      * @brief Enqueues a solid or translucent rectangle.
+     * @param x Top-left X coordinate in pixels.
+     * @param y Top-left Y coordinate in pixels.
+     * @param width Width in pixels.
+     * @param height Height in pixels.
+     * @param color RGBA color vector.
      */
     void DrawRect(float x, float y, float width, float height, const glm::vec4& color);
 
     /**
      * @brief Enqueues a framed rectangle with outline border.
+     * @param x Top-left X coordinate in pixels.
+     * @param y Top-left Y coordinate in pixels.
+     * @param width Width in pixels.
+     * @param height Height in pixels.
+     * @param fillColor Interior RGBA color vector.
+     * @param borderColor Outline border RGBA color vector.
+     * @param borderWidth Border line width in pixels.
      */
     void DrawRectWithBorder(float x, float y, float width, float height,
                             const glm::vec4& fillColor, const glm::vec4& borderColor,
@@ -61,17 +79,26 @@ public:
 
     /**
      * @brief Enqueues a span of pre-shaped text quads into the current vertex/index batch.
+     * @param quads Span of shaped text quads with positions, UVs, and colors.
      */
     void DrawQuads(std::span<const TextQuad> quads);
 
     /**
      * @brief Enqueues shaped text using HarfBuzz and FreeType font atlas.
+     * @param text UTF-8 text string to shape and enqueue.
+     * @param x Top-left baseline X coordinate in pixels.
+     * @param y Top-left baseline Y coordinate in pixels.
+     * @param color Text RGBA color vector.
+     * @param scale Uniform scale factor (default 1.0).
      */
     void DrawText(std::string_view text, float x, float y,
                   const glm::vec4& color = glm::vec4{1.0f}, float scale = 1.0f);
 
     /**
      * @brief Flushes batched quads and renders them in the current render pass encoder.
+     * @param pass Active render pass encoder targeting the presentation surface.
+     * @param viewportWidth Target surface width in pixels.
+     * @param viewportHeight Target surface height in pixels.
      */
     void Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight);
 

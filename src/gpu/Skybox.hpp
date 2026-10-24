@@ -34,9 +34,35 @@ public:
     Skybox() = default;
     ~Skybox();
 
+    /**
+     * @brief Initializes the WebGPU skybox render pipeline and fallback cubemap.
+     * @param device WebGPU device handle.
+     * @param queue WebGPU default queue handle.
+     * @param hdrFormat HDR render target texture format (default RGBA16Float).
+     * @param sampleCount Multisample count (default 4 for 4x MSAA).
+     * @return Result indicating success or error string.
+     */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat hdrFormat = WGPUTextureFormat_RGBA16Float, uint32_t sampleCount = 4);
+
+    /**
+     * @brief Releases WebGPU pipelines, bind groups, and fallback cubemap textures.
+     */
     void Shutdown() noexcept;
+
+    /**
+     * @brief Assigns an active HDR environment cubemap texture view and sampler for background rendering.
+     * @param cubemapView Sampled cubemap texture view.
+     * @param sampler Filtering sampler handle.
+     */
     void SetEnvironmentCubemap(WGPUTextureView cubemapView, WGPUSampler sampler);
+
+    /**
+     * @brief Executes the skybox render pass, writing procedural sky or cubemap pixels at the far plane.
+     * @param pass Active WebGPU render pass encoder.
+     * @param viewProj Camera view-projection matrix.
+     * @param cameraPos Camera world-space eye position.
+     * @param sunDir Direction vector pointing toward the sun.
+     */
     void Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir);
 
     void SetEnabled(bool enabled) noexcept {

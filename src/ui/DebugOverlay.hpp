@@ -54,12 +54,32 @@ public:
     DebugOverlay();
     ~DebugOverlay();
 
+    /**
+     * @brief Initializes font atlas (system LiberationMono or embedded fallback) and TextRenderer.
+     * @param device WebGPU device handle.
+     * @param queue WebGPU queue handle.
+     * @param surfaceFormat Swapchain presentation format.
+     * @param sampleCount Multisample count for the presentation surface.
+     * @return Result indicating success or error string.
+     */
     core::Result<void> Initialize(WGPUDevice device,
                                   WGPUQueue queue,
                                   WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount);
 
+    /**
+     * @brief Ingests current engine telemetry metrics and updates exponential moving averages for FPS.
+     * @param deltaTime Elapsed frame time in seconds.
+     * @param stats Live telemetry metrics snapshot.
+     */
     void Update(float deltaTime, const OverlayStats& stats);
+
+    /**
+     * @brief Renders the glassmorphism telemetry panel and shaped text over the presentation pass.
+     * @param pass Active render pass encoder targeting the presentation swapchain.
+     * @param viewportWidth Framebuffer width in pixels.
+     * @param viewportHeight Framebuffer height in pixels.
+     */
     void Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight);
 
     void Toggle() noexcept { visible_ = !visible_; }

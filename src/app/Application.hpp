@@ -50,29 +50,83 @@ public:
     Application();
     ~Application();
 
+    /**
+     * @brief Initializes all engine subsystems (WebGPU context, audio, pipelines, default scene).
+     * @param config Application startup parameters, window geometry, and initial feature states.
+     * @return Result indicating success or an error description string.
+     */
     core::Result<void> Initialize(const ApplicationConfig& config = {});
+
+    /**
+     * @brief Convenience overload initializing the application with given dimensions.
+     * @param width Initial viewport width in pixels.
+     * @param height Initial viewport height in pixels.
+     * @return Result indicating success or an error description string.
+     */
     core::Result<void> Initialize(uint32_t width, uint32_t height);
+
+    /**
+     * @brief Performs per-frame physics, camera movement, gamepad polling, and HUD updates.
+     * @param deltaTime Elapsed wall-clock time since previous frame in seconds.
+     */
     void Update(float deltaTime);
+
+    /**
+     * @brief Records and submits all rendering passes (shadow map, HDR clustered PBR, tonemap, HUD).
+     */
     void Render();
+
+    /**
+     * @brief Gracefully releases WebGPU device resources, pipelines, and native window handles.
+     */
     void Shutdown();
 
+    /** @brief Toggles rendering of 3D scene and mesh primitive bounding boxes. */
     void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }
+
+    /** @brief Toggles rendering of spatial Quadtree ground partition cells. */
     void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
+
+    /** @brief Toggles procedural atmospheric skybox rendering. */
     void ToggleSkybox() noexcept { skybox_.Toggle(); }
+
+    /** @brief Toggles visibility of the in-engine FreeType2/HarfBuzz telemetry HUD overlay. */
     void ToggleDebugOverlay() noexcept { debugOverlay_.Toggle(); }
+
+    /** @brief Toggles tangent-space normal and bump mapping. */
     void ToggleBumpMapping() noexcept { pipelineManager_.ToggleBumpMapping(); }
+
+    /** @brief Toggles 16x anisotropic mipmapping vs base level 0. */
     void ToggleMipmapping() { pipelineManager_.ToggleMipmapping(activeScene_.get()); }
+
+    /** @brief Toggles 2048x2048 PCF directional shadow mapping. */
     void ToggleShadows() noexcept { pipelineManager_.ToggleShadows(); }
+
+    /** @brief Toggles specular cubemap IBL environment reflections. */
     void ToggleReflections() noexcept { pipelineManager_.ToggleReflections(); }
+
+    /** @brief Toggles glTF ambient occlusion map evaluation. */
     void ToggleAmbientOcclusion() noexcept { pipelineManager_.ToggleAmbientOcclusion(); }
+
+    /** @brief Toggles spatial Quadtree hierarchical occlusion culling. */
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
+
+    /** @brief Cycles HDR tonemapping operator (Khronos PBR Neutral -> AgX -> ACES). */
     void CycleTonemapper() noexcept { pipelineManager_.CycleToneMapOperator(); }
+
+    /** @brief Cycles built-in HDR environment presets (Courtyard, Sunset, Atelier, Night, Custom). */
     void CycleEnvironmentPreset() noexcept {
         pipelineManager_.CycleEnvironmentPreset(activeScene_.get());
         skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
     }
+
+    /** @brief Cycles skybox display mode (Sharp -> Blurred -> Hidden). */
     void CycleSkyboxMode() noexcept { skybox_.CycleMode(); }
+
+    /** @brief Adjusts the current HDR exposure level by a given delta value. */
     void AdjustExposure(float delta) noexcept { pipelineManager_.SetExposure(pipelineManager_.GetExposure() + delta); }
+
+    /** @brief Rotates the active IBL environment and skybox by radians. */
     void RotateEnvironment(float deltaRad) noexcept {
         const float newRot{pipelineManager_.GetEnvironmentRotation() + deltaRad};
         pipelineManager_.SetEnvironmentRotation(newRot);
@@ -90,9 +144,28 @@ public:
     [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept { return pipelineManager_.IsAmbientOcclusionEnabled(); }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
 
+    /**
+     * @brief Ingests raw file bytes dropped directly onto the viewer window.
+     * @param filename Target file name or path.
+     * @param data Byte span containing file contents.
+     */
     void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
+
+    /**
+     * @brief Parses and activates a 3D scene from an in-memory glTF / GLB buffer.
+     * @param data Byte view over binary glTF / GLB asset data.
+     * @param baseUri Base directory or URL for resolving external buffers/textures.
+     * @return Result indicating success or error string.
+     */
     core::Result<void> LoadScene(std::span<const uint8_t> data, std::string_view baseUri);
+
+    /**
+     * @brief Loads and activates a 3D model from a local file path, `file://` URI, or `http://`/`https://` URL.
+     * @param uri Local path or remote URL to the glTF/GLB model.
+     * @return Result indicating success or error string.
+     */
     core::Result<void> LoadSceneFromUri(std::string_view uri);
+
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
     void RequestClose() noexcept { running_ = false; }
 

@@ -121,21 +121,77 @@ private:
  */
 class Quadtree {
 public:
+    /**
+     * @brief Constructs root spatial Quadtree bounded by the enclosing world bounds.
+     * @param worldBounds Enclosing world-space bounding box.
+     */
     explicit Quadtree(const core::AABB& worldBounds);
 
+    /**
+     * @brief Inserts a scene node hierarchy and all its mesh primitives into the spatial index.
+     * @param node Root or branch scene node to index.
+     */
     void Insert(std::shared_ptr<SceneNode> node);
+
+    /**
+     * @brief Inserts a span of root scene nodes into the spatial index.
+     * @param nodes Span of scene node pointers.
+     */
     void InsertNodes(std::span<const std::shared_ptr<SceneNode>> nodes);
+
+    /**
+     * @brief Clears all spatial items and resets the root partition.
+     */
     void Clear();
+
+    /**
+     * @brief Reinitializes the spatial tree with new world boundaries.
+     * @param worldBounds New enclosing world-space bounding box.
+     */
     void Reset(const core::AABB& worldBounds);
 
+    /**
+     * @brief Traverses the spatial tree, performing frustum culling and front-to-back Hi-Z occlusion culling.
+     * @param frustum 6-plane view frustum extracted from the camera view-projection matrix.
+     * @param cameraPos World-space camera eye position for front-to-back distance sorting.
+     * @param viewProj Camera view-projection matrix used to project AABB bounds into NDC screen tiles.
+     * @param enableOcclusionCulling Whether conservative Hi-Z tile occlusion testing is active.
+     * @return Vector of visible QuadtreeItems sorted front-to-back.
+     */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
                                                          const glm::vec3& cameraPos,
                                                          const glm::mat4& viewProj,
                                                          bool enableOcclusionCulling = true) const;
+
+    /**
+     * @brief Queries visible items using view frustum culling only.
+     * @param frustum 6-plane view frustum.
+     * @param cameraPos Camera eye position for LOD and distance calculation.
+     * @return Vector of visible QuadtreeItems.
+     */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
+
+    /**
+     * @brief Queries all items in the spatial tree with distance-based LOD calculation.
+     * @param cameraPos Camera eye position for LOD and distance calculation.
+     * @return Vector of all QuadtreeItems.
+     */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
+
+    /**
+     * @brief Collects all spatial cell bounding boxes for 3D debug wireframe visualization.
+     * @param[out] boundsOut Output vector receiving cell AABB bounds.
+     */
     void GetNodeBounds(std::vector<core::AABB>& boundsOut) const;
+
+    /**
+     * @brief Returns the total number of allocated quadtree partition nodes.
+     */
     [[nodiscard]] size_t GetNodeCount() const noexcept;
+
+    /**
+     * @brief Returns the number of primitives discarded by occlusion culling in the previous query.
+     */
     [[nodiscard]] size_t GetLastOccludedCount() const noexcept { return lastOccludedCount_; }
 
 private:

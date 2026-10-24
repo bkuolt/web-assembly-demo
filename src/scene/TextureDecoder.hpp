@@ -67,15 +67,70 @@ struct DecodedHdrImage {
  */
 class TextureDecoder {
 public:
+    /**
+     * @brief Decodes an in-memory PNG image byte buffer into uncompressed 32-bit RGBA pixels.
+     * @param data Byte span containing the PNG file data.
+     * @return DecodedImage structure on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodePNG(std::span<const uint8_t> data);
+
+    /**
+     * @brief Decodes an in-memory JPEG image byte buffer into uncompressed 32-bit RGBA pixels.
+     * @param data Byte span containing the JPEG file data.
+     * @return DecodedImage structure on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodeJPEG(std::span<const uint8_t> data);
+
+    /**
+     * @brief Decodes an in-memory WebP image byte buffer into uncompressed 32-bit RGBA pixels.
+     * @param data Byte span containing the WebP file data.
+     * @return DecodedImage structure on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodeWebP(std::span<const uint8_t> data);
+
+    /**
+     * @brief Transcodes KTX2 Basis Universal texture data to a specified target GPU compression format.
+     * @param data Byte span containing the KTX2 file data.
+     * @param target Desired transcoding target (RGBA32, BC7, ASTC, or ETC2).
+     * @return DecodedImage structure with transcoded mip chain on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target);
+
+    /**
+     * @brief Transcodes KTX2 Basis Universal texture data to the active default GPU compression format.
+     * @param data Byte span containing the KTX2 file data.
+     * @return DecodedImage structure on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data);
+
+    /**
+     * @brief Automatically detects format by magic bytes/MIME/extension and decodes LDR or KTX2 texture data.
+     * @param data Byte span containing the image file data.
+     * @param mimeOrPath Filename, path, or MIME type hint for format resolution.
+     * @return DecodedImage structure on success, or an error string.
+     */
     static core::Result<DecodedImage> DecodeAuto(std::span<const uint8_t> data, std::string_view mimeOrPath);
 
+    /**
+     * @brief Decodes Radiance HDR (.hdr / RGBE) linear floating-point environment map data.
+     * @param data Byte span containing raw .hdr file bytes.
+     * @return DecodedHdrImage structure with linear 32-bit float RGBA data on success, or error string.
+     */
     static core::Result<DecodedHdrImage> DecodeHDR(std::span<const uint8_t> data);
+
+    /**
+     * @brief Decodes an uncompressed or scanline OpenEXR (.exr) linear floating-point image.
+     * @param data Byte span containing raw .exr file bytes.
+     * @return DecodedHdrImage structure on success, or an error string.
+     */
     static core::Result<DecodedHdrImage> DecodeEXR(std::span<const uint8_t> data);
+
+    /**
+     * @brief Automatically detects format and decodes an HDR image (.hdr or .exr).
+     * @param data Byte span containing raw HDR/EXR file bytes.
+     * @param mimeOrPath Filename, path, or MIME type hint.
+     * @return DecodedHdrImage on success, or an error string.
+     */
     static core::Result<DecodedHdrImage> DecodeHdrAuto(std::span<const uint8_t> data, std::string_view mimeOrPath = {});
 
     static void SetDefaultKtxTarget(KtxTranscodeTarget target) noexcept;

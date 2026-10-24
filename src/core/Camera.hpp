@@ -16,11 +16,37 @@ namespace bgl::core {
  */
 class Camera {
 public:
+    /**
+     * @brief Constructs an orbit camera focused on target at a specified distance.
+     * @param target Point of interest in 3D world space.
+     * @param distance Initial radial orbit radius.
+     */
     Camera(glm::vec3 target = glm::vec3(0.0f), float distance = 5.0f);
 
+    /**
+     * @brief Orbits the camera around target by delta yaw and pitch angles.
+     * @param deltaYaw Horizontal rotation in radians.
+     * @param deltaPitch Vertical rotation in radians (clamped to prevent gimbal lock).
+     */
     void Orbit(float deltaYaw, float deltaPitch) noexcept;
+
+    /**
+     * @brief Pans the camera laterally and vertically in view space.
+     * @param deltaX Lateral displacement factor.
+     * @param deltaY Vertical displacement factor.
+     */
     void Pan(float deltaX, float deltaY) noexcept;
+
+    /**
+     * @brief Adjusts the orbit distance smoothly.
+     * @param deltaZoom Distance change (positive zooms in, negative zooms out).
+     */
     void Zoom(float deltaZoom) noexcept;
+
+    /**
+     * @brief Recalculates view and WebGPU 0..1 depth perspective projection matrices.
+     * @param aspectRatio Viewport width divided by height.
+     */
     void Update(float aspectRatio) noexcept;
 
     [[nodiscard]] glm::mat4 GetViewMatrix() const noexcept { return viewMatrix_; }
