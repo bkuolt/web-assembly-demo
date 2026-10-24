@@ -389,5 +389,96 @@ TEST(TypesMathTest, SceneDestructorTextureSamplerNulling) {
     SUCCEED();
 }
 
+TEST(TypesMathTest, AABBOverlapAndContainmentCases) {
+    AABB base;
+    base.Expand(glm::vec3(-2.0f, -2.0f, -2.0f));
+    base.Expand(glm::vec3( 2.0f,  2.0f,  2.0f));
+
+    // 1. Fully contained box
+    AABB inner;
+    inner.Expand(glm::vec3(-1.0f, -1.0f, -1.0f));
+    inner.Expand(glm::vec3( 1.0f,  1.0f,  1.0f));
+    EXPECT_TRUE(base.Intersects(inner));
+    EXPECT_TRUE(inner.Intersects(base));
+
+    // 2. Disjoint box far away
+    AABB disjoint;
+    disjoint.Expand(glm::vec3(10.0f, 10.0f, 10.0f));
+    disjoint.Expand(glm::vec3(12.0f, 12.0f, 12.0f));
+    EXPECT_FALSE(base.Intersects(disjoint));
+    EXPECT_FALSE(disjoint.Intersects(base));
+
+    // 3. Partially overlapping box
+    AABB overlapping;
+    overlapping.Expand(glm::vec3(1.0f, 1.0f, 1.0f));
+    overlapping.Expand(glm::vec3(5.0f, 5.0f, 5.0f));
+    EXPECT_TRUE(base.Intersects(overlapping));
+    EXPECT_TRUE(overlapping.Intersects(base));
+
+    // 4. Touching on face (X = 2.0)
+    AABB touchingFace;
+    touchingFace.Expand(glm::vec3(2.0f, -1.0f, -1.0f));
+    touchingFace.Expand(glm::vec3(4.0f,  1.0f,  1.0f));
+    EXPECT_TRUE(base.Intersects(touchingFace));
+}
+
+TEST(TypesMathTest, AABBRayGrazingEdgesAndCorners) {
+    AABB box;
+    box.Expand(glm::vec3(-1.0f, -1.0f, -1.0f));
+    box.Expand(glm::vec3( 1.0f,  1.0f,  1.0f));
+
+    float tMin = 0.0f;
+    float tMax = 0.0f;
+
+    // Ray passing slightly inside the top face boundary (Y = 0.999f, X = 0.0f)
+    Ray grazingRay{ glm::vec3(0.0f, 0.999f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    EXPECT_TRUE(box.Intersects(grazingRay, tMin, tMax));
+    EXPECT_NEAR(tMin, 4.0f, 1e-3f);
+    EXPECT_NEAR(tMax, 6.0f, 1e-3f);
+
+    // Ray passing strictly outside by epsilon
+    Ray missedRay{ glm::vec3(0.0f, 1.01f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    EXPECT_FALSE(box.Intersects(missedRay, tMin, tMax));
+}
+
+TEST(TypesMathTest, FrustumAnalyticalPlanesSymmetry) {
+    // Symmetrical perspective frustum centered at origin looking down -Z
+    glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    glm::mat4 view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    Frustum frustum = Frustum::FromViewProjection(proj * view);
+
+    // Left and Right planes must have opposite X normals and identical Y, Z
+    const auto& left = frustum.planes[0];
+    const auto& right = frustum.planes[1];
+    EXPECT_NEAR(left.normal.x, -right.normal.x, 1e-4f);
+    EXPECT_NEAR(left.normal.y, right.normal.y, 1e-4f);
+    EXPECT_NEAR(left.normal.z, right.normal.z, 1e-4f);
+
+    // Bottom and Top planes must have opposite Y normals
+    const auto& bottom = frustum.planes[2];
+    const auto& top = frustum.planes[3];
+    EXPECT_NEAR(bottom.normal.y, -top.normal.y, 1e-4f);
+    EXPECT_NEAR(bottom.normal.x, top.normal.x, 1e-4f);
+    EXPECT_NEAR(bottom.normal.z, top.normal.z, 1e-4f);
+}
+
+TEST(TypesMathTest, TransformMatrixPropertiesAndInversion) {
+    glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(4.0f, -7.0f, 12.0f));
+    glm::mat4 R = glm::rotate(glm::mat4(1.0f), glm::radians(35.0f), glm::normalize(glm::vec3(1.0f, 2.0f, 3.0f)));
+    glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(2.5f, 0.8f, 1.2f));
+
+    glm::mat4 M = T * R * S;
+    glm::mat4 invM = glm::inverse(M);
+    glm::mat4 ident = M * invM;
+
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            float expected = (col == row) ? 1.0f : 0.0f;
+            EXPECT_NEAR(ident[col][row], expected, 1e-4f);
+        }
+    }
+}
+
+
 
 

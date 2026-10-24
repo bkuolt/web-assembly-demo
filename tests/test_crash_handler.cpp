@@ -39,3 +39,20 @@ TEST(CrashHandlerTest, PrintStackTraceSubsliceAndEmpty) {
     SUCCEED();
 }
 
+TEST(CrashHandlerTest, LongStringStackTraceHeader) {
+    // 1024-character stress header to verify buffer bounds safety
+    std::string longReason(1024, 'X');
+    core::PrintStackTrace(longReason);
+    SUCCEED();
+}
+
+TEST(CrashHandlerTest, MultipleConsecutiveInstallCalls) {
+    // Calling Install multiple times consecutively without Uninstalling should be safe
+    core::InstallCrashHandler();
+    core::InstallCrashHandler();
+    core::InstallCrashHandler();
+    core::UninstallCrashHandler();
+    SUCCEED();
+}
+
+

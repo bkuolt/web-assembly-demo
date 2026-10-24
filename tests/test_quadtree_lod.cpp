@@ -305,6 +305,61 @@ TEST(QuadtreeTest, OcclusionBufferDirectTileOperationsAndEdgeCases) {
     EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2{-0.2f, -0.2f}, glm::vec2{0.2f, 0.2f}, 0.6f));
 }
 
+TEST(QuadtreeTest, DeepSubdivisionAndMaxDepthSafety) {
+    bgl::core::AABB worldBounds;
+    worldBounds.minBound = glm::vec3(-100.0f, -10.0f, -100.0f);
+    worldBounds.maxBound = glm::vec3( 100.0f,  10.0f,  100.0f);
+
+    bgl::scene::Quadtree quadtree(worldBounds);
+
+    // Insert 60 objects tightly clustered within [1.0, 1.05]
+    for (int i = 0; i < 60; ++i) {
+        auto node = std::make_shared<bgl::scene::SceneNode>();
+        node->worldAABB.minBound = glm::vec3(1.0f + i * 0.0005f, 0.0f, 1.0f + i * 0.0005f);
+        node->worldAABB.maxBound = glm::vec3(1.0005f + i * 0.0005f, 1.0f, 1.0005f + i * 0.0005f);
+        quadtree.Insert(node);
+    }
+
+    // Must subdivide down to max depth without infinite recursion
+    EXPECT_GT(quadtree.GetNodeCount(), 5);
+
+    // All objects must be retrieved when querying visible
+    auto visible = quadtree.QueryVisible(glm::vec3(1.0f, 0.0f, 1.0f));
+    EXPECT_EQ(visible.size(), 60u);
+}
+
+TEST(QuadtreeTest, OutOfBoundsObjectPlacement) {
+    bgl::core::AABB bounds;
+    bounds.minBound = glm::vec3(-10.0f);
+    bounds.maxBound = glm::vec3( 10.0f);
+
+    bgl::scene::Quadtree quadtree(bounds);
+
+    // Object far outside the tree bounds
+    auto outNode = std::make_shared<bgl::scene::SceneNode>();
+    outNode->worldAABB.minBound = glm::vec3(50.0f, 0.0f, 50.0f);
+    outNode->worldAABB.maxBound = glm::vec3(52.0f, 2.0f, 52.0f);
+    quadtree.Insert(outNode);
+
+    // Must still be queryable
+    auto visible = quadtree.QueryVisible(glm::vec3(50.0f, 0.0f, 50.0f));
+    EXPECT_EQ(visible.size(), 1u);
+}
+
+TEST(QuadtreeTest, OcclusionBufferScreenEdgeClipping) {
+    bgl::scene::OcclusionBuffer occBuffer;
+
+    // Rasterize an occluder exceeding NDC boundaries (e.g. [-3.0, 3.0])
+    occBuffer.RasterizeOccluder(glm::vec2(-3.0f, -3.0f), glm::vec2(3.0f, 3.0f), 0.3f);
+
+    // Any point inside screen at depth > 0.3 must be occluded
+    EXPECT_TRUE(occBuffer.IsOccluded(glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, 0.5f), 0.8f));
+
+    // Point in front must not be occluded
+    EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, 0.5f), 0.1f));
+}
+
+
 
 
 

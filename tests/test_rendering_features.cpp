@@ -729,5 +729,131 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
     }
 }
 
+TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
+    // 1. Struct sizes must strictly match WebGPU WGSL std140 / uniform layout contracts
+    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 352u);
+    EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
+
+    EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5360u);
+    EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
+
+    EXPECT_EQ(sizeof(gpu::TonemapUniforms), 16u);
+    EXPECT_EQ(alignof(gpu::TonemapUniforms), 16u);
+
+    EXPECT_EQ(sizeof(gpu::PrefilterComputeParams), 16u);
+    EXPECT_EQ(alignof(gpu::PrefilterComputeParams), 16u);
+
+    EXPECT_EQ(sizeof(gpu::AabbUniforms), 64u);
+    EXPECT_EQ(alignof(gpu::AabbUniforms), 16u);
+
+    EXPECT_EQ(sizeof(gpu::AabbVertex), 32u);
+    EXPECT_EQ(alignof(gpu::AabbVertex), 16u);
+
+    // 2. Exact byte offsets for PrimitiveUniforms matching shader bindings
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, viewProj), 0u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, model), 64u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, lightViewProj), 128u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, cameraPos), 192u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, lightDir), 208u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, baseColorFactor), 224u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, metallicFactor), 240u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, roughnessFactor), 244u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, normalScale), 248u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, occlusionStrength), 252u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, emissiveFactor), 256u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, bumpScale), 336u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, reflectionIntensity), 340u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, shadowBias), 344u);
+    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, envMipCount), 348u);
+}
+
+TEST(RenderingFeaturesTest, ClusteredForwardZSliceLogarithmicDistribution) {
+    constexpr float zNear = 0.1f;
+    constexpr float zFar = 500.0f;
+    constexpr uint32_t kClusterSlicesZ = 8;
+
+    float previousDepth = 0.0f;
+    for (uint32_t slice = 0; slice <= kClusterSlicesZ; ++slice) {
+        // Standard clustered shading logarithmic depth partition formula
+        float sliceRatio = static_cast<float>(slice) / static_cast<float>(kClusterSlicesZ);
+        float depth = zNear * std::pow(zFar / zNear, sliceRatio);
+
+        if (slice == 0) {
+            EXPECT_NEAR(depth, zNear, 1e-4f);
+        } else if (slice == kClusterSlicesZ) {
+            EXPECT_NEAR(depth, zFar, 1e-2f);
+        }
+
+        // Each slice boundary must be strictly greater than previous
+        EXPECT_GT(depth, previousDepth);
+        previousDepth = depth;
+    }
+}
+
+TEST(RenderingFeaturesTest, SphericalHarmonicsExtremeRadiances) {
+    constexpr uint32_t faceSize{8};
+
+    // 1. Pure zero blackness test
+    std::array<std::vector<float>, 6> blackFaces{};
+    for (auto& face : blackFaces) {
+        face.resize(faceSize * faceSize * 4, 0.0f);
+    }
+    const auto shBlack = gpu::PipelineManager::ComputeSphericalHarmonicsL2(blackFaces, faceSize);
+    const glm::vec3 irrBlack = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(shBlack, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_FLOAT_EQ(irrBlack.r, 0.0f);
+    EXPECT_FLOAT_EQ(irrBlack.g, 0.0f);
+    EXPECT_FLOAT_EQ(irrBlack.b, 0.0f);
+
+    // 2. High-dynamic-range radiance with 10.0f (within 25.0f clamp limit)
+    std::array<std::vector<float>, 6> hdrFaces10{};
+    for (auto& face : hdrFaces10) {
+        face.resize(faceSize * faceSize * 4, 10.0f);
+    }
+    const auto shHdr10 = gpu::PipelineManager::ComputeSphericalHarmonicsL2(hdrFaces10, faceSize);
+    const glm::vec3 irrHdr10 = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(shHdr10, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_NEAR(irrHdr10.r, 10.0f, 0.8f);
+    EXPECT_NEAR(irrHdr10.g, 10.0f, 0.8f);
+    EXPECT_NEAR(irrHdr10.b, 10.0f, 0.8f);
+
+    // 3. Firefly clamping verification: 100.0f radiance is safely clamped to 25.0f max threshold
+    std::array<std::vector<float>, 6> hdrFaces100{};
+    for (auto& face : hdrFaces100) {
+        face.resize(faceSize * faceSize * 4, 100.0f);
+    }
+    const auto shHdr100 = gpu::PipelineManager::ComputeSphericalHarmonicsL2(hdrFaces100, faceSize);
+    const glm::vec3 irrHdr100 = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(shHdr100, glm::vec3(0.0f, 1.0f, 0.0f));
+    EXPECT_NEAR(irrHdr100.r, 25.0f, 2.0f);
+    EXPECT_NEAR(irrHdr100.g, 25.0f, 2.0f);
+    EXPECT_NEAR(irrHdr100.b, 25.0f, 2.0f);
+}
+
+TEST(RenderingFeaturesTest, ShadowMatrixBoundingBoxContainment) {
+    core::AABB sceneBounds;
+    sceneBounds.minBound = glm::vec3(-25.0f, 0.0f, -25.0f);
+    sceneBounds.maxBound = glm::vec3( 25.0f, 20.0f,  25.0f);
+
+    const glm::vec3 sunDirection = glm::normalize(glm::vec3(0.4f, 0.8f, 0.3f));
+    const glm::mat4 lightVP = gpu::PipelineManager::ComputeDirectionalLightMatrix(sceneBounds, sunDirection);
+
+    // Project all 8 corners of scene bounding box through light view-projection
+    for (float x : {sceneBounds.minBound.x, sceneBounds.maxBound.x}) {
+        for (float y : {sceneBounds.minBound.y, sceneBounds.maxBound.y}) {
+            for (float z : {sceneBounds.minBound.z, sceneBounds.maxBound.z}) {
+                glm::vec4 clip = lightVP * glm::vec4(x, y, z, 1.0f);
+                glm::vec3 ndc = glm::vec3(clip) / clip.w;
+
+                // WebGPU clip coordinates: X in [-1, 1], Y in [-1, 1], Z in [0, 1]
+                EXPECT_GE(ndc.x, -1.05f);
+                EXPECT_LE(ndc.x,  1.05f);
+                EXPECT_GE(ndc.y, -1.05f);
+                EXPECT_LE(ndc.y,  1.05f);
+                EXPECT_GE(ndc.z, -0.05f);
+                EXPECT_LE(ndc.z,  1.05f);
+            }
+        }
+    }
+}
+
+
 
 

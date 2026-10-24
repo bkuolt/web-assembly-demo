@@ -115,4 +115,117 @@ TEST(RayPickerTest, ScenePickingNearestNode) {
     EXPECT_NEAR(hit->hitPoint.z, 2.0f, 1e-3f);
 }
 
+TEST(RayPickerTest, RayOriginBehindTrianglePointingAway) {
+    bgl::core::Ray ray;
+    ray.origin = glm::vec3(0.0f, 0.0f, 5.0f);
+    // Pointing in +Z direction (away from triangle at Z = 0)
+    ray.direction = glm::vec3(0.0f, 0.0f, 1.0f);
+
+    glm::vec3 v0(-2.0f, -2.0f, 0.0f);
+    glm::vec3 v1( 2.0f, -2.0f, 0.0f);
+    glm::vec3 v2( 0.0f,  2.0f, 0.0f);
+
+    float distance = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    // Must return false because intersection distance is negative (-5.0)
+    bool hit = bgl::scene::RayPicker::IntersectTriangle(ray, v0, v1, v2, distance, hitPoint, normal);
+    EXPECT_FALSE(hit);
+}
+
+TEST(RayPickerTest, RayHitsTriangleVerticesAndEdges) {
+    glm::vec3 v0(0.0f, 0.0f, 0.0f);
+    glm::vec3 v1(4.0f, 0.0f, 0.0f);
+    glm::vec3 v2(0.0f, 4.0f, 0.0f);
+
+    float distance = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    // 1. Ray aimed at vertex v0 (0, 0)
+    bgl::core::Ray rayV0{ glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    EXPECT_TRUE(bgl::scene::RayPicker::IntersectTriangle(rayV0, v0, v1, v2, distance, hitPoint, normal));
+    EXPECT_NEAR(distance, 5.0f, 1e-3f);
+
+    // 2. Ray aimed at hypotenuse edge midpoint (2, 2)
+    bgl::core::Ray rayEdge{ glm::vec3(2.0f, 2.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    EXPECT_TRUE(bgl::scene::RayPicker::IntersectTriangle(rayEdge, v0, v1, v2, distance, hitPoint, normal));
+    EXPECT_NEAR(distance, 5.0f, 1e-3f);
+
+    // 3. Ray slightly outside hypotenuse (2.05, 2.05) must miss
+    bgl::core::Ray rayOutside{ glm::vec3(2.05f, 2.05f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    EXPECT_FALSE(bgl::scene::RayPicker::IntersectTriangle(rayOutside, v0, v1, v2, distance, hitPoint, normal));
+}
+
+TEST(RayPickerTest, TriangleHitNormalIsPerpendicularToTrianglePlane) {
+    bgl::core::Ray ray{ glm::vec3(1.0f, 1.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    // Triangle tilted 45 degrees around X axis
+    glm::vec3 v0(0.0f, 0.0f, 0.0f);
+    glm::vec3 v1(3.0f, 0.0f, 0.0f);
+    glm::vec3 v2(0.0f, 2.0f, 2.0f);
+
+    float distance = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    ASSERT_TRUE(bgl::scene::RayPicker::IntersectTriangle(ray, v0, v1, v2, distance, hitPoint, normal));
+    EXPECT_NEAR(glm::length(normal), 1.0f, 1e-4f);
+
+    // Normal must be orthogonal to triangle edge vectors
+    glm::vec3 e1 = v1 - v0;
+    glm::vec3 e2 = v2 - v0;
+    EXPECT_NEAR(glm::dot(normal, e1), 0.0f, 1e-4f);
+    EXPECT_NEAR(glm::dot(normal, e2), 0.0f, 1e-4f);
+}
+
+TEST(RayPickerTest, HierarchicalChildNodeTransformPicking) {
+    bgl::scene::Scene scene;
+
+    auto parentNode = std::make_shared<bgl::scene::SceneNode>();
+    parentNode->name = "ParentTransformed";
+    parentNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+
+    auto childNode = std::make_shared<bgl::scene::SceneNode>();
+    childNode->name = "ChildTarget";
+    childNode->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 5.0f, 0.0f));
+
+    bgl::scene::MeshPrimitive prim;
+    bgl::core::Vertex v0, v1, v2;
+    v0.position = glm::vec3(-1.0f, -1.0f, 0.0f);
+    v1.position = glm::vec3( 1.0f, -1.0f, 0.0f);
+    v2.position = glm::vec3( 0.0f,  1.0f, 0.0f);
+    prim.vertices = { v0, v1, v2 };
+    prim.indices = { 0, 1, 2 };
+    prim.boundingBox.Expand(v0.position);
+    prim.boundingBox.Expand(v1.position);
+    prim.boundingBox.Expand(v2.position);
+    childNode->primitives.push_back(std::move(prim));
+
+    parentNode->children.push_back(childNode);
+    scene.rootNodes.push_back(parentNode);
+    scene.Update();
+
+    // World position of child triangle center should be (10, 5, 0)
+    bgl::core::Ray ray;
+    ray.origin = glm::vec3(10.0f, 5.0f, 5.0f);
+    ray.direction = glm::vec3(0.0f, 0.0f, -1.0f);
+
+    auto hit = bgl::scene::RayPicker::Pick(ray, scene);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->hitNode->name, "ChildTarget");
+    EXPECT_NEAR(hit->distance, 5.0f, 1e-3f);
+    EXPECT_NEAR(hit->hitPoint.x, 10.0f, 1e-3f);
+    EXPECT_NEAR(hit->hitPoint.y, 5.0f, 1e-3f);
+    EXPECT_NEAR(hit->hitPoint.z, 0.0f, 1e-3f);
+}
+
+TEST(RayPickerTest, EmptyScenePickReturnsNoHit) {
+    bgl::scene::Scene emptyScene;
+    bgl::core::Ray ray{ glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    auto hit = bgl::scene::RayPicker::Pick(ray, emptyScene);
+    EXPECT_FALSE(hit.has_value());
+}
+
+
 

@@ -82,3 +82,55 @@ TEST(TextRenderingTest, MultiLineTextShaping) {
     // Height should span at least 3 lines
     EXPECT_GE(layout.bounds.y, atlas.GetLineHeight() * 2.5f);
 }
+
+TEST(TextRenderingTest, EmptyStringReturnsZeroQuads) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(data, 16, 1024).has_value());
+
+    auto layout = text::TextShaper::Shape(atlas, "", 0.0f, 0.0f);
+    EXPECT_TRUE(layout.quads.empty());
+    EXPECT_FLOAT_EQ(layout.bounds.x, 0.0f);
+    EXPECT_FLOAT_EQ(layout.bounds.y, 0.0f);
+}
+
+TEST(TextRenderingTest, WhitespaceOnlyHandling) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(data, 16, 1024).has_value());
+
+    // Spaces advance cursor position without generating visible textured quads
+    auto layout = text::TextShaper::Shape(atlas, "     ", 0.0f, 0.0f);
+    EXPECT_TRUE(layout.quads.empty());
+    EXPECT_GT(layout.bounds.x, 0.0f); // Cursor advanced
+}
+
+TEST(TextRenderingTest, UnicodeUtf8SpecialSymbols) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(data, 18, 1024).has_value());
+
+    // UTF-8 string with accented characters and symbols
+    std::string unicodeText = "Temp: 24.5°C | Alpha: α | Beta: β";
+    auto layout = text::TextShaper::Shape(atlas, unicodeText, 0.0f, 0.0f);
+    EXPECT_FALSE(layout.quads.empty());
+    EXPECT_GT(layout.bounds.x, 100.0f);
+}
+
+TEST(TextRenderingTest, CustomColorTintPreserved) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(data, 16, 1024).has_value());
+
+    const glm::vec4 customColor(0.2f, 0.8f, 1.0f, 0.75f);
+    auto layout = text::TextShaper::Shape(atlas, "TintedTest", 0.0f, 0.0f, customColor);
+    ASSERT_FALSE(layout.quads.empty());
+
+    for (const auto& quad : layout.quads) {
+        EXPECT_FLOAT_EQ(quad.color.r, 0.2f);
+        EXPECT_FLOAT_EQ(quad.color.g, 0.8f);
+        EXPECT_FLOAT_EQ(quad.color.b, 1.0f);
+        EXPECT_FLOAT_EQ(quad.color.a, 0.75f);
+    }
+}
+

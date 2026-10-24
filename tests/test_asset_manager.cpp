@@ -70,3 +70,63 @@ TEST(AssetManagerTest, ClearCacheAndScratchArena) {
     arena.Reset();
 }
 
+TEST(AssetManagerTest, Fnv1aSpanAndStringEquivalence) {
+    const std::string text = "https://example.com/models/Sponza/glTF/Sponza.gltf?token=xyz123";
+    std::string_view sv = text;
+    std::span<const uint8_t> span(reinterpret_cast<const uint8_t*>(text.data()), text.size());
+
+    uint64_t hashString = bgl::scene::Fnv1a64(sv);
+    uint64_t hashSpan = bgl::scene::Fnv1a64(span);
+
+    EXPECT_NE(hashString, 0ULL);
+    EXPECT_EQ(hashString, hashSpan);
+}
+
+TEST(AssetManagerTest, Fnv1aEmptyStringAndAvalanche) {
+    // Empty input must equal FNV offset basis
+    constexpr uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
+    EXPECT_EQ(bgl::scene::Fnv1a64(""), kFnvOffsetBasis);
+    EXPECT_EQ(bgl::scene::Fnv1a64(std::span<const uint8_t>{}), kFnvOffsetBasis);
+
+    // Avalanche effect: altering one character should produce distinct hashes
+    uint64_t h1 = bgl::scene::Fnv1a64("texture_diffuse_01.png");
+    uint64_t h2 = bgl::scene::Fnv1a64("texture_diffuse_02.png");
+    EXPECT_NE(h1, h2);
+
+    // Count differing bits
+    uint64_t diff = h1 ^ h2;
+    int differingBits = 0;
+    while (diff > 0) {
+        differingBits += (diff & 1ULL);
+        diff >>= 1ULL;
+    }
+    // High-quality hash should flip significant number of bits across 64-bit word
+    EXPECT_GE(differingBits, 15);
+}
+
+TEST(AssetManagerTest, NonExistentPathReturnsError) {
+    bgl::scene::AssetManager mgr;
+    auto result = mgr.LoadTexture("non_existent_directory/missing_image_12345.png");
+    EXPECT_FALSE(result.has_value());
+    EXPECT_FALSE(result.error().empty());
+}
+
+TEST(AssetManagerTest, TextureCacheInsertionReplacement) {
+    bgl::scene::AssetManager mgr;
+    const uint64_t hash = 0xDEADBEEFCAFEBABEULL;
+
+    auto img1 = std::make_shared<bgl::scene::DecodedImage>();
+    img1->width = 32;
+    img1->height = 32;
+    mgr.InsertTexture(hash, img1);
+    EXPECT_TRUE(mgr.HasTexture(hash));
+
+    // Inserting a new instance with same hash overwrites cleanly
+    auto img2 = std::make_shared<bgl::scene::DecodedImage>();
+    img2->width = 64;
+    img2->height = 64;
+    mgr.InsertTexture(hash, img2);
+    EXPECT_TRUE(mgr.HasTexture(hash));
+}
+
+

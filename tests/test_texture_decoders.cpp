@@ -4,6 +4,7 @@
  */
 #include <gtest/gtest.h>
 #include "scene/TextureDecoder.hpp"
+#include "gpu/Pipeline.hpp"
 
 using namespace bgl::scene;
 
@@ -129,3 +130,60 @@ TEST(TextureDecoderTest, KtxTranscodeTargetNamesAndDefaultTarget) {
     TextureDecoder::SetDefaultKtxTarget(KtxTranscodeTarget::Rgba32);
     EXPECT_EQ(TextureDecoder::GetDefaultKtxTarget(), KtxTranscodeTarget::Rgba32);
 }
+
+TEST(TextureDecoderTest, MipLevelCalculationsForOddAndNonPowerOfTwo) {
+    // PipelineManager::CalculateMipLevels tests across POT, NPOT, and 1D aspect textures
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(1, 1), 1u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(2, 2), 2u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(3, 1), 2u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(1, 512), 10u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(33, 17), 6u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(1920, 1080), 11u);
+    EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(4096, 2048), 13u);
+}
+
+TEST(TextureDecoderTest, RadianceHdrMultiPixelDecodedValues) {
+    // 3 pixels in uncompressed Radiance HDR format:
+    // Pixel 0: RGBE (0, 0, 0, 0) -> Black (0, 0, 0, 1)
+    // Pixel 1: RGBE (255, 0, 0, 129) -> Red: (255/256)*2^(129-128) = (255/256)*2 = ~1.992
+    // Pixel 2: RGBE (0, 255, 0, 128) -> Green: (255/256)*2^0 = ~0.996
+    std::string hdrHeader =
+        "#?RADIANCE\n"
+        "FORMAT=32-bit_rle_rgbe\n\n"
+        "-Y 1 +X 3\n";
+    std::vector<uint8_t> hdrData(hdrHeader.begin(), hdrHeader.end());
+    hdrData.insert(hdrData.end(), {
+          0,   0,   0,   0,
+        255,   0,   0, 129,
+          0, 255,   0, 128
+    });
+
+    auto res = TextureDecoder::DecodeHDR(hdrData);
+    ASSERT_TRUE(res.has_value()) << (res.has_value() ? "" : res.error());
+    EXPECT_EQ(res->width, 3u);
+    EXPECT_EQ(res->height, 1u);
+    ASSERT_EQ(res->rgbaFloat.size(), 12u); // 3 * 4
+
+    // Pixel 0 (Black)
+    EXPECT_FLOAT_EQ(res->rgbaFloat[0], 0.0f);
+    EXPECT_FLOAT_EQ(res->rgbaFloat[1], 0.0f);
+    EXPECT_FLOAT_EQ(res->rgbaFloat[2], 0.0f);
+    EXPECT_FLOAT_EQ(res->rgbaFloat[3], 1.0f);
+
+    // Pixel 1 (Bright Red > 1.9, green and blue near zero)
+    EXPECT_NEAR(res->rgbaFloat[4], 1.992f, 0.05f);
+    EXPECT_NEAR(res->rgbaFloat[5], 0.0f, 0.005f);
+    EXPECT_NEAR(res->rgbaFloat[6], 0.0f, 0.005f);
+
+    // Pixel 2 (Unit Green ~1.0, red and blue near zero)
+    EXPECT_NEAR(res->rgbaFloat[8], 0.0f, 0.005f);
+    EXPECT_NEAR(res->rgbaFloat[9], 0.996f, 0.05f);
+    EXPECT_NEAR(res->rgbaFloat[10], 0.0f, 0.005f);
+}
+
+TEST(TextureDecoderTest, InvalidExtensionAndUnsupportedPayload) {
+    std::vector<uint8_t> dummyData = { 0x01, 0x02, 0x03, 0x04 };
+    auto resUnknown = TextureDecoder::DecodeAuto(dummyData, "texture.unsupported_extension");
+    EXPECT_FALSE(resUnknown.has_value());
+}
+

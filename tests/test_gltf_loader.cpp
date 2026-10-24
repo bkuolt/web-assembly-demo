@@ -184,4 +184,81 @@ TEST(GltfLoaderTest, LoadStressTestMegacityAsset) {
               << "  * Quadtree Nodes: " << quadtree.GetNodeCount() << "\n";
 }
 
+TEST(GltfLoaderTest, NonExistentFileGracefulFailure) {
+    AssetManager assetMgr;
+    FastGltfLoader loader(assetMgr);
+
+    auto result = loader.LoadFromFile("missing_file_random_path_12345.glb");
+    EXPECT_FALSE(result.has_value());
+    EXPECT_FALSE(result.error().empty());
+}
+
+TEST(GltfLoaderTest, DeepHierarchyTransformComposition) {
+    auto scene = std::make_shared<Scene>();
+
+    // 4 levels of nested nodes: Root (X+10) -> Child1 (Y+5) -> Child2 (Z+2) -> Leaf (Scale 2x)
+    auto root = std::make_shared<SceneNode>();
+    root->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+
+    auto child1 = std::make_shared<SceneNode>();
+    child1->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 5.0f, 0.0f));
+
+    auto child2 = std::make_shared<SceneNode>();
+    child2->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 2.0f));
+
+    auto leaf = std::make_shared<SceneNode>();
+    leaf->localTransform = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f, 2.0f, 2.0f));
+
+    MeshPrimitive prim;
+    prim.boundingBox.minBound = glm::vec3(-1.0f);
+    prim.boundingBox.maxBound = glm::vec3(1.0f);
+    leaf->primitives.push_back(std::move(prim));
+
+    child2->children.push_back(leaf);
+    child1->children.push_back(child2);
+    root->children.push_back(child1);
+    scene->rootNodes.push_back(root);
+
+    scene->Update();
+
+    // Leaf world transform must have accumulated all translations: (10, 5, 2)
+    glm::vec4 origin(0.0f, 0.0f, 0.0f, 1.0f);
+    glm::vec4 worldPos = leaf->worldTransform * origin;
+    EXPECT_FLOAT_EQ(worldPos.x, 10.0f);
+    EXPECT_FLOAT_EQ(worldPos.y, 5.0f);
+    EXPECT_FLOAT_EQ(worldPos.z, 2.0f);
+
+    // Leaf bounding box must be translated to (10, 5, 2) and scaled by 2 (extents 2 * 1 = 2)
+    EXPECT_FLOAT_EQ(leaf->worldAABB.minBound.x, 8.0f);
+    EXPECT_FLOAT_EQ(leaf->worldAABB.maxBound.x, 12.0f);
+}
+
+TEST(GltfLoaderTest, SceneAABBEnclosesAllPrimitives) {
+    auto scene = std::make_shared<Scene>();
+
+    auto nodeA = std::make_shared<SceneNode>();
+    MeshPrimitive primA;
+    primA.boundingBox.minBound = glm::vec3(-50.0f, -10.0f, -20.0f);
+    primA.boundingBox.maxBound = glm::vec3(-40.0f,   0.0f, -10.0f);
+    nodeA->primitives.push_back(std::move(primA));
+
+    auto nodeB = std::make_shared<SceneNode>();
+    MeshPrimitive primB;
+    primB.boundingBox.minBound = glm::vec3(30.0f, 5.0f, 40.0f);
+    primB.boundingBox.maxBound = glm::vec3(60.0f, 15.0f, 80.0f);
+    nodeB->primitives.push_back(std::move(primB));
+
+    scene->rootNodes.push_back(nodeA);
+    scene->rootNodes.push_back(nodeB);
+    scene->Update();
+
+    EXPECT_FLOAT_EQ(scene->sceneAABB.minBound.x, -50.0f);
+    EXPECT_FLOAT_EQ(scene->sceneAABB.minBound.y, -10.0f);
+    EXPECT_FLOAT_EQ(scene->sceneAABB.minBound.z, -20.0f);
+    EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.x, 60.0f);
+    EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.y, 15.0f);
+    EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.z, 80.0f);
+}
+
+
 

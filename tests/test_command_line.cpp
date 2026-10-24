@@ -166,3 +166,75 @@ TEST(CommandLineTest, AdditionalFlagsAndHelpOutput) {
     SUCCEED();
 }
 
+TEST(CommandLineTest, MissingFlagValueSafety) {
+    // Flag -a, -w, -H, -l at the very end of argv with no accompanying value
+    const std::array<const char*, 2> argsMissingVal{"bgl_viewer", "-a"};
+    auto opt = CliOptions::Parse(std::span<const char* const>{argsMissingVal});
+    // Must parse safely without crashing or out-of-bounds memory access
+    EXPECT_EQ(opt.width, 1280u);
+    EXPECT_EQ(opt.height, 720u);
+
+    const std::array<const char*, 2> argsMissingWidth{"bgl_viewer", "-w"};
+    auto optW = CliOptions::Parse(std::span<const char* const>{argsMissingWidth});
+    EXPECT_EQ(optW.width, 1280u);
+}
+
+TEST(CommandLineTest, InvalidNumericValuesFallbacks) {
+    const std::array<const char*, 5> invalidArgs{
+        "bgl_viewer",
+        "-w", "not_a_number",
+        "-H", "invalid_height"
+    };
+    auto opt = CliOptions::Parse(std::span<const char* const>{invalidArgs});
+    // Invalid integer parses must retain default values
+    EXPECT_EQ(opt.width, 1280u);
+    EXPECT_EQ(opt.height, 720u);
+}
+
+TEST(CommandLineTest, FullFeatureFlagToggleRoundtrips) {
+    const std::array<const char*, 9> disableArgs{
+        "bgl_viewer",
+        "--no-occlusion",
+        "--no-ao",
+        "--no-reflections",
+        "--no-shadows",
+        "--no-mipmaps",
+        "--no-bump",
+        "--no-hud",
+        "--no-bounds"
+    };
+    auto optDisabled = CliOptions::Parse(std::span<const char* const>{disableArgs});
+    EXPECT_FALSE(optDisabled.enableOcclusionCulling);
+    EXPECT_FALSE(optDisabled.enableAmbientOcclusion);
+    EXPECT_FALSE(optDisabled.enableReflections);
+    EXPECT_FALSE(optDisabled.enableShadows);
+    EXPECT_FALSE(optDisabled.enableMipmapping);
+    EXPECT_FALSE(optDisabled.enableBumpMapping);
+    EXPECT_FALSE(optDisabled.enableDebugOverlay);
+    EXPECT_FALSE(optDisabled.enableBoundingBoxes);
+
+    // Re-enable in reverse order
+    const std::array<const char*, 9> enableArgs{
+        "bgl_viewer",
+        "--occlusion",
+        "--ao",
+        "--reflections",
+        "--shadows",
+        "--mipmaps",
+        "--bump",
+        "--hud",
+        "--bounds"
+    };
+    auto optEnabled = CliOptions::Parse(std::span<const char* const>{enableArgs});
+    EXPECT_TRUE(optEnabled.enableOcclusionCulling);
+    EXPECT_TRUE(optEnabled.enableAmbientOcclusion);
+    EXPECT_TRUE(optEnabled.enableReflections);
+    EXPECT_TRUE(optEnabled.enableShadows);
+    EXPECT_TRUE(optEnabled.enableMipmapping);
+    EXPECT_TRUE(optEnabled.enableBumpMapping);
+    EXPECT_TRUE(optEnabled.enableDebugOverlay);
+    EXPECT_TRUE(optEnabled.enableBoundingBoxes);
+}
+
+
+

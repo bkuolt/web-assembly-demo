@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.9] - 2026-10-24
+
+### Major Test Suite Expansion & Hardening (129 Passing Tests)
+- **Massive Test Coverage Growth (+47 New Tests, +57% Expansion):**
+  - Expanded test suite from 82 to **129 passing tests across 12 test suites** with zero warnings or failures.
+- **`MemoryPoolTest` (11 Tests):**
+  - Added destructor invocation tracking (`DestructorInvocationTracking`) ensuring proper cleanup of pooled instances.
+  - Added move semantics transfer tests (`MoveSemanticsTransfer`) verifying block ownership handover.
+  - Added safety checks for `pool.Deallocate(nullptr)` and `pool.Clear()` complete block reclamation.
+  - Added 2000-allocation stress test with interleaved odd/even deallocations and free-list slot reuse.
+  - Added 64-byte aligned type allocation verification (`alignas(64)` pointer alignment).
+  - Added multi-frame PMR vector reset stress test under `ScratchArena`.
+- **`CameraTest` (10 Tests):**
+  - Added extreme pitch angle clamping verification (-89° to +89°) preventing gimbal lock or division-by-zero.
+  - Added aspect ratio resilience tests for ultrawide (32:9) and portrait (9:16) viewports.
+  - Added 4-corner unprojected ray direction divergence and unit length validation.
+  - Added camera look-at target frustum plane containment invariants.
+- **`TypesMathTest` (18 Tests):**
+  - Added `AABB::Intersects(const AABB&)` implementation and comprehensive overlap/containment tests (disjoint, partial, full, face-touching).
+  - Added near-boundary edge grazing ray intersection tests.
+  - Added analytical plane symmetry tests for perspective frustums.
+  - Added affine transformation matrix inversion and roundtrip identity tests.
+- **`RayPickerTest` (9 Tests):**
+  - Added ray pointing away negative distance rejection test.
+  - Added ray hits on triangle vertices and hypotenuse boundary edges.
+  - Added triangle hit normal orthogonality tests against triangle edge vectors.
+  - Added hierarchical child node transform picking through multi-level parent nodes.
+  - Added empty scene picking safety.
+- **`QuadtreeTest` (10 Tests):**
+  - Added deep subdivision and maximum depth safety benchmark with 60 clustered objects.
+  - Added out-of-bounds object insertion handling.
+  - Added occlusion buffer NDC screen edge clipping and scissor boundary tests.
+- **`CommandLineTest` (10 Tests):**
+  - Added missing flag value bounds safety tests (preventing out-of-bounds argv index access).
+  - Added invalid non-numeric string fallback tests for `-w` and `-H`.
+  - Added full feature toggle roundtrip verification for all engine submodules.
+- **`TextureDecoderTest` (8 Tests):**
+  - Added odd and NPOT dimension mip-level calculations ($1920\times 1080$, $33\times 17$, $3\times 1$).
+  - Added uncompressed Radiance HDR multi-pixel RGBE decoding verification.
+  - Added invalid extension auto-routing rejection.
+- **`TextRenderingTest` (9 Tests):**
+  - Added empty string shaping safety test.
+  - Added whitespace and tab advance cursor tracking.
+  - Added Unicode UTF-8 accented and special symbol shaping (`°C`, `α`, `β`).
+  - Added custom quad tint color preservation verification.
+- **`GltfLoaderTest` (7 Tests):**
+  - Added graceful failure on non-existent file paths.
+  - Added deep 4-level transform hierarchy composition.
+  - Added scene-wide AABB union expansion tests.
+- **`CrashHandlerTest` (6 Tests):**
+  - Added 1024-character stress header safety tests.
+  - Added consecutive install/uninstall cycle idempotence tests.
+- **`RenderingFeaturesTest` (23 Tests):**
+  - Added exact byte offset and size verification for 352-byte `PrimitiveUniforms` and 5360-byte `SceneLightingUniforms`.
+  - Added logarithmic depth partition verification for 16x8x8 clustered shading grid.
+  - Added spherical harmonics extreme radiance evaluation and firefly clamping verification (25.0f max threshold).
+  - Added 8-corner bounding box containment validation under directional shadow light projection.
+
+---
+
 ## [0.8.8] - 2026-10-24
 
 ### Optimized Web App & Client Runtime

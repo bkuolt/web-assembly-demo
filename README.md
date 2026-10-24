@@ -1,10 +1,10 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.8.8)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.8.9)
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-82_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.8.8-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Unit_Tests-129_Passing-22c55e?style=for-the-badge)](tests/)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.8.9-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -437,22 +437,22 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes a comprehensive test suite with **82 tests across 12 test suites** implemented using GoogleTest:
+The engine includes an extensive, production-grade test suite with **129 tests across 12 test suites** implemented using GoogleTest (100% passing):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
-| `TypesMathTest` | 14 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, 6-face cubemap mip generation, Arvo box transform, copy semantics handle safety, ray segment parametric evaluator, and scene destructor sampler nulling. |
-| `RenderingFeaturesTest` | 19 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback, scaled model matrix TBN invariance), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety), Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states), NetworkFetcher URI resolution and error handling, RAII GPU handle lifecycle, ray picker primitive hits, clustered forward bounds validation, and spherical harmonics reconstruction. |
-| `QuadtreeTest` | 7 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark, hierarchical occlusion culling, front-to-back ordering, and occlusion buffer direct tile operations. |
-| `CommandLineTest` | 7 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), test crash signal selection, and `--headless` automated smoke testing. |
-| `CameraTest` | 5 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection matrix composition, screen-point-to-ray unprojection. |
-| `TextureDecoderTest` | 5 | Supported formats query, empty/invalid buffer handling, magic-byte sniffing (PNG, JPEG, WebP, KTX2), Radiance HDR/OpenEXR signatures, and KTX transcode target names. |
-| `TextRenderingTest` | 5 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout. |
-| `MemoryPoolTest` | 4 | Fixed-size block allocation, multi-block chaining, free-list slot reuse, PMR ScratchArena resets. |
-| `AssetManagerTest` | 4 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation, and cache clearing. |
-| `RayPickerTest` | 4 | Möller-Trumbore ray-triangle direct hits, misses, edge hits, degenerate triangles, scene hierarchy picking. |
-| `GltfLoaderTest` | 4 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation, and optional 1 GB megacity stress-test ingestion. |
-| `CrashHandlerTest` | 4 | POSIX signal handler installation/removal, multiple lifecycle cycles, and `std::stacktrace` callstack printing. |
+| `RenderingFeaturesTest` | 23 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback, scaled model matrix TBN invariance), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety, 8-corner bounding box clip space mapping), Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states), NetworkFetcher URI resolution and error handling, RAII GPU handle lifecycle, ray picker primitive hits, clustered forward bounds validation, logarithmic Z-slice cluster distribution, 352-byte struct and std140 layout alignment, and spherical harmonics reconstruction with firefly clamping. |
+| `TypesMathTest` | 18 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, 6-face cubemap mip generation, Arvo box transform, copy semantics handle safety, ray segment parametric evaluator, scene destructor sampler nulling, AABB-AABB intersection and containment, ray-box grazing edge intersections, analytical frustum plane symmetry, and affine transformation matrix inversion. |
+| `MemoryPoolTest` | 11 | Fixed-size block allocation, multi-block chaining, free-list slot reuse, destructor invocation tracking, move constructor and move assignment semantics, nullptr deallocation safety, `Clear()` block release, large-scale stress test with interleaved deallocations (2000 items), 64-byte aligned type allocation, and repeated O(1) resets under PMR monotonic vectors. |
+| `CameraTest` | 10 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection matrix composition, screen-point-to-ray unprojection, extreme pitch angle clamping (-89° to +89° gimbal lock prevention), ultrawide (32:9) and portrait (9:16) aspect ratios, frustum corner ray unprojection divergence, camera target frustum containment, and near/far clipping plane invariants. |
+| `QuadtreeTest` | 10 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark, hierarchical occlusion culling, front-to-back ordering, occlusion buffer direct tile operations, deep subdivision and maximum depth safety, out-of-bounds object insertion, and occlusion buffer screen-edge NDC clipping. |
+| `CommandLineTest` | 10 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), test crash signal selection, `--headless` automated smoke testing, missing flag value bounds safety, invalid numeric string fallback handling, and full feature toggle roundtrips. |
+| `RayPickerTest` | 9 | Möller-Trumbore ray-triangle direct hits, misses, edge hits, degenerate triangles, scene hierarchy picking, ray pointing away (negative distance rejection), ray hits on vertices and hypotenuse edges, triangle hit normal orthogonality to triangle edges, hierarchical child node transform picking, and empty scene picking safety. |
+| `TextRenderingTest` | 9 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout, empty string safety, whitespace-only cursor advancement, Unicode UTF-8 special symbols shaping, and custom quad tint color preservation. |
+| `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation, cache clearing, FNV-1a span vs string view equivalence, empty string FNV basis verification and bit-avalanche effect, non-existent file error handling, and texture cache instance replacement. |
+| `TextureDecoderTest` | 8 | Supported formats query, empty/invalid buffer handling, magic-byte sniffing (PNG, JPEG, WebP, KTX2), Radiance HDR/OpenEXR signatures, KTX transcode target names, NPOT and odd aspect ratio mip level calculations, uncompressed Radiance HDR RGBE multi-pixel decoding, and invalid extension handling. |
+| `GltfLoaderTest` | 7 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation, optional 1 GB megacity stress-test ingestion, non-existent file graceful failure, deep hierarchy transform composition (4 levels), and scene-wide AABB union expansion. |
+| `CrashHandlerTest` | 6 | POSIX signal handler installation/removal, multiple lifecycle cycles, `std::stacktrace` callstack printing, non-null-terminated string slice safety, 1024-character stress header safety, and consecutive installation call idempotence. |
 
 ---
 

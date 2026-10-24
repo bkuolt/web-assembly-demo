@@ -96,4 +96,187 @@ TEST(MemoryPoolTest, FreeListSlotReuse) {
     EXPECT_EQ(pool.AllocatedCount(), 0);
 }
 
+// Tracking object for destructor verification
+struct LifetimeTracker {
+    static inline int activeInstances = 0;
+    int id;
+
+    LifetimeTracker(int val) : id(val) {
+        ++activeInstances;
+    }
+
+    ~LifetimeTracker() {
+        --activeInstances;
+    }
+};
+
+TEST(MemoryPoolTest, DestructorInvocationTracking) {
+    LifetimeTracker::activeInstances = 0;
+    {
+        bgl::core::MemoryPool<LifetimeTracker, 8> pool;
+        EXPECT_EQ(LifetimeTracker::activeInstances, 0);
+
+        LifetimeTracker* obj1 = pool.Allocate(101);
+        LifetimeTracker* obj2 = pool.Allocate(102);
+        EXPECT_EQ(LifetimeTracker::activeInstances, 2);
+        EXPECT_EQ(pool.AllocatedCount(), 2);
+
+        // Deallocating obj1 must invoke ~LifetimeTracker()
+        pool.Deallocate(obj1);
+        EXPECT_EQ(LifetimeTracker::activeInstances, 1);
+        EXPECT_EQ(pool.AllocatedCount(), 1);
+
+        pool.Deallocate(obj2);
+        EXPECT_EQ(LifetimeTracker::activeInstances, 0);
+        EXPECT_EQ(pool.AllocatedCount(), 0);
+    }
+    EXPECT_EQ(LifetimeTracker::activeInstances, 0);
+}
+
+TEST(MemoryPoolTest, MoveSemanticsTransfer) {
+    bgl::core::MemoryPool<TestStruct, 4> sourcePool;
+    TestStruct* s1 = sourcePool.Allocate(10, 1.0f);
+    TestStruct* s2 = sourcePool.Allocate(20, 2.0f);
+    EXPECT_EQ(sourcePool.AllocatedCount(), 2);
+    EXPECT_EQ(sourcePool.BlockCount(), 1);
+
+    // Move constructor
+    bgl::core::MemoryPool<TestStruct, 4> destPool(std::move(sourcePool));
+    EXPECT_EQ(destPool.AllocatedCount(), 2);
+    EXPECT_EQ(destPool.BlockCount(), 1);
+    EXPECT_EQ(sourcePool.AllocatedCount(), 0);
+    EXPECT_EQ(sourcePool.BlockCount(), 0);
+
+    // Objects must still be valid in destPool
+    EXPECT_EQ(s1->a, 10);
+    EXPECT_EQ(s2->a, 20);
+
+    // Allocating in destPool continues seamlessly
+    TestStruct* s3 = destPool.Allocate(30, 3.0f);
+    EXPECT_EQ(destPool.AllocatedCount(), 3);
+
+    // Move assignment
+    bgl::core::MemoryPool<TestStruct, 4> assignedPool;
+    assignedPool = std::move(destPool);
+    EXPECT_EQ(assignedPool.AllocatedCount(), 3);
+    EXPECT_EQ(destPool.AllocatedCount(), 0);
+
+    assignedPool.Deallocate(s1);
+    assignedPool.Deallocate(s2);
+    assignedPool.Deallocate(s3);
+    EXPECT_EQ(assignedPool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, NullptrDeallocationSafety) {
+    bgl::core::MemoryPool<TestStruct, 8> pool;
+    // Calling Deallocate(nullptr) must not crash or modify allocated count
+    pool.Deallocate(nullptr);
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+
+    TestStruct* item = pool.Allocate(5, 5.0f);
+    EXPECT_EQ(pool.AllocatedCount(), 1);
+
+    pool.Deallocate(nullptr);
+    EXPECT_EQ(pool.AllocatedCount(), 1);
+
+    pool.Deallocate(item);
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, ClearReleasesAllBlocks) {
+    bgl::core::MemoryPool<TestStruct, 4> pool;
+    for (int i = 0; i < 12; ++i) {
+        pool.Allocate(i, static_cast<float>(i));
+    }
+    EXPECT_EQ(pool.AllocatedCount(), 12);
+    EXPECT_EQ(pool.BlockCount(), 3);
+
+    pool.Clear();
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+    EXPECT_EQ(pool.BlockCount(), 0);
+
+    // Allocations after Clear must function identically from fresh block
+    TestStruct* fresh = pool.Allocate(99, 99.0f);
+    ASSERT_NE(fresh, nullptr);
+    EXPECT_EQ(fresh->a, 99);
+    EXPECT_EQ(pool.AllocatedCount(), 1);
+    EXPECT_EQ(pool.BlockCount(), 1);
+
+    pool.Deallocate(fresh);
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, LargeScaleStressAndInterleavedDeallocation) {
+    constexpr size_t kTotalAllocations = 2000;
+    bgl::core::MemoryPool<TestStruct, 64> pool;
+    std::vector<TestStruct*> ptrs;
+    ptrs.reserve(kTotalAllocations);
+
+    for (size_t i = 0; i < kTotalAllocations; ++i) {
+        ptrs.push_back(pool.Allocate(static_cast<int>(i), static_cast<float>(i * 0.1f)));
+    }
+    EXPECT_EQ(pool.AllocatedCount(), kTotalAllocations);
+
+    // Deallocate all odd indices
+    for (size_t i = 1; i < kTotalAllocations; i += 2) {
+        pool.Deallocate(ptrs[i]);
+        ptrs[i] = nullptr;
+    }
+    EXPECT_EQ(pool.AllocatedCount(), kTotalAllocations / 2);
+
+    // Reallocate 500 items into the free-list
+    std::vector<TestStruct*> newPtrs;
+    for (size_t i = 0; i < 500; ++i) {
+        newPtrs.push_back(pool.Allocate(999, 9.99f));
+    }
+    EXPECT_EQ(pool.AllocatedCount(), (kTotalAllocations / 2) + 500);
+
+    // Cleanup remaining original even elements and new elements
+    for (size_t i = 0; i < kTotalAllocations; i += 2) {
+        if (ptrs[i]) pool.Deallocate(ptrs[i]);
+    }
+    for (auto* p : newPtrs) {
+        pool.Deallocate(p);
+    }
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, AlignedTypeAllocation) {
+    struct alignas(64) HeavilyAligned {
+        float values[16]; // 64 bytes
+    };
+
+    bgl::core::MemoryPool<HeavilyAligned, 4> alignedPool;
+    for (int i = 0; i < 8; ++i) {
+        HeavilyAligned* obj = alignedPool.Allocate();
+        ASSERT_NE(obj, nullptr);
+        // Verify 64-byte alignment guarantee
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(obj) % 64, 0u);
+        alignedPool.Deallocate(obj);
+    }
+    EXPECT_EQ(alignedPool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, ScratchArenaRepeatedResetUnderPMRVectors) {
+    bgl::core::ScratchArena arena(1024 * 128); // 128 KB
+    auto* mr = arena.GetResource();
+    ASSERT_NE(mr, nullptr);
+
+    for (int frame = 0; frame < 10; ++frame) {
+        {
+            std::pmr::vector<int> numbers(mr);
+            numbers.reserve(2000);
+            for (int i = 0; i < 2000; ++i) {
+                numbers.push_back(i * frame);
+            }
+            EXPECT_EQ(numbers.size(), 2000u);
+            EXPECT_EQ(numbers[10], 10 * frame);
+        }
+        // Resets monotonic buffer pointer in O(1)
+        arena.Reset();
+    }
+    EXPECT_EQ(arena.Capacity(), 1024 * 128);
+}
+
+
 

@@ -111,6 +111,17 @@ struct AABB {
         tMaxOut = tmax;
         return true;
     }
+
+    /**
+     * @brief Tests intersection (overlap) with another Axis-Aligned Bounding Box.
+     * @param other Bounding box to test against.
+     * @return true if boxes overlap or touch; false otherwise.
+     */
+    [[nodiscard]] constexpr bool Intersects(const AABB& other) const noexcept {
+        return (minBound.x <= other.maxBound.x && maxBound.x >= other.minBound.x) &&
+               (minBound.y <= other.maxBound.y && maxBound.y >= other.minBound.y) &&
+               (minBound.z <= other.maxBound.z && maxBound.z >= other.minBound.z);
+    }
 };
 
 /**
