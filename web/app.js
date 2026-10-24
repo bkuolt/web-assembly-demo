@@ -152,6 +152,21 @@
   }
   window.toggleReflections = toggleReflections;
 
+  let isAOActive = true;
+  const btnAO = document.getElementById('btn-ao');
+
+  /**
+   * Toggle Ambient Occlusion (AO).
+   */
+  function toggleAO() {
+    isAOActive = !isAOActive;
+    if (btnAO) btnAO.style.background = isAOActive ? '#0284c7' : '#334155';
+    if (wasmExports && wasmExports.bgl_toggle_ao) {
+      wasmExports.bgl_toggle_ao();
+    }
+  }
+  window.toggleAO = toggleAO;
+
   /**
    * Toggle Scene Graph Tree Inspector Panel.
    */
@@ -676,6 +691,8 @@
       toggleShadows();
     } else if (e.key === 'r' || e.key === 'R') {
       toggleReflections();
+    } else if (e.key === 'u' || e.key === 'U') {
+      toggleAO();
     }
   });
 

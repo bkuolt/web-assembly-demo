@@ -5,6 +5,7 @@
 #include "ui/DebugOverlay.hpp"
 #include "text/EmbeddedFont.hpp"
 #include "core/Log.hpp"
+#include "core/Version.hpp"
 #include <filesystem>
 #include <format>
 #include <algorithm>
@@ -84,7 +85,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     const float lineSpacing = 24.0f;
 
     // Line 1: Header / Engine Info
-    textRenderer_.DrawText("WebAssembly an WebGPU Demo v0.7.2 [4x MSAA - 16x Aniso]",
+    textRenderer_.DrawText(std::format("{} v{} [4x MSAA - 16x Aniso]", bgl::kEngineName, bgl::kEngineVersion),
                            textX, textY, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
     textY += lineSpacing;
 

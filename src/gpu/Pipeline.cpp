@@ -1973,6 +1973,41 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
             }
 
+            if (!prim.gpuWireframeIndexBuffer) {
+                std::vector<uint32_t> lineIndices;
+                if (!prim.indices.empty()) {
+                    lineIndices.reserve(prim.indices.size() * 2);
+                    for (size_t i{0}; i + 2 < prim.indices.size(); i += 3) {
+                        const uint32_t a{prim.indices[i]};
+                        const uint32_t b{prim.indices[i + 1]};
+                        const uint32_t c{prim.indices[i + 2]};
+                        lineIndices.push_back(a); lineIndices.push_back(b);
+                        lineIndices.push_back(b); lineIndices.push_back(c);
+                        lineIndices.push_back(c); lineIndices.push_back(a);
+                    }
+                } else {
+                    lineIndices.reserve(prim.vertices.size() * 2);
+                    for (size_t i{0}; i + 2 < prim.vertices.size(); i += 3) {
+                        const uint32_t a{static_cast<uint32_t>(i)};
+                        const uint32_t b{static_cast<uint32_t>(i + 1)};
+                        const uint32_t c{static_cast<uint32_t>(i + 2)};
+                        lineIndices.push_back(a); lineIndices.push_back(b);
+                        lineIndices.push_back(b); lineIndices.push_back(c);
+                        lineIndices.push_back(c); lineIndices.push_back(a);
+                    }
+                }
+                if (!lineIndices.empty()) {
+                    prim.wireframeIndexCount = static_cast<uint32_t>(lineIndices.size());
+                    const size_t wfIbSize{lineIndices.size() * sizeof(uint32_t)};
+                    WGPUBufferDescriptor wfIbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+                    wfIbDesc.size = (wfIbSize + 3) & ~3;
+                    wfIbDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+                    wfIbDesc.label = ToWgpuStringView("WireframeIndexBuffer");
+                    prim.gpuWireframeIndexBuffer = wgpuDeviceCreateBuffer(device_, &wfIbDesc);
+                    wgpuQueueWriteBuffer(queue_, prim.gpuWireframeIndexBuffer, 0, lineIndices.data(), wfIbSize);
+                }
+            }
+
             if (!prim.gpuUniformBuffer) {
                 WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ubDesc.size = sizeof(PrimitiveUniforms);
@@ -2321,7 +2356,10 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
 
-    if (prim.gpuIndexBuffer && !prim.indices.empty()) {
+    if (wireframe && prim.gpuWireframeIndexBuffer && prim.wireframeIndexCount > 0) {
+        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuWireframeIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.wireframeIndexCount * sizeof(uint32_t));
+        wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
+    } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
         wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
         wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
     } else {

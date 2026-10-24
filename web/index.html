@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WebAssembly an WebGPU Demo</title>
+  <title>WebAssembly and WebGPU Demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,7 +18,7 @@
 
   <!-- Top-Left In-Engine Telemetry HUD -->
   <div id="ui-hud">
-    <h1>WebAssembly an WebGPU Demo <span class="badge">v0.7.1</span></h1>
+    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.8.0</span></h1>
     <p>Professional WebGPU 3D Runtime with 4× MSAA, 16× Anisotropic Mipmapping, Normal &amp; Bump Mapping, PCF Soft Shadows, Cubemap IBL Reflections, and Spatial Quadtree Culling.</p>
     <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Initializing WebAssembly runtime...</div>
     <div class="progress-bar-container">
@@ -29,6 +29,7 @@
       <button class="btn" id="btn-mipmaps" onclick="toggleMipmaps()" style="background: #0284c7;">Mipmapping [L]</button>
       <button class="btn" id="btn-shadows" onclick="toggleShadows()" style="background: #0284c7;">Shadow Map [M]</button>
       <button class="btn" id="btn-reflections" onclick="toggleReflections()" style="background: #0284c7;">Reflections [R]</button>
+      <button class="btn" id="btn-ao" onclick="toggleAO()" style="background: #0284c7;">Ambient Occlusion [U]</button>
       <button class="btn" id="btn-bbox" onclick="toggleBBox()" style="background: #0284c7;">Bounding Boxes [B]</button>
       <button class="btn" id="btn-quadtree" onclick="toggleQuadtree()" style="background: #059669;">Quadtree Bounds [Q]</button>
       <button class="btn" id="btn-skybox" onclick="toggleSkybox()" style="background: #475569;">Skybox [K]</button>

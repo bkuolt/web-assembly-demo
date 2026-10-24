@@ -125,6 +125,8 @@ struct MeshPrimitive {
 
     WGPUBuffer gpuVertexBuffer{nullptr};
     WGPUBuffer gpuIndexBuffer{nullptr};
+    WGPUBuffer gpuWireframeIndexBuffer{nullptr};
+    uint32_t wireframeIndexCount{0};
     WGPUBuffer gpuUniformBuffer{nullptr};
     WGPUBindGroup gpuBindGroup{nullptr};
     WGPUBindGroup gpuShadowBindGroup{nullptr};

@@ -4,6 +4,7 @@
  */
 #include "app/CommandLine.hpp"
 #include "core/NetworkFetcher.hpp"
+#include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <iostream>
 #include <format>
@@ -48,11 +49,17 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.assetPath = args[++i];
         } else if ((arg == "-w" || arg == "--width") && i + 1 < args.size()) {
             try {
-                opt.width = static_cast<uint32_t>(std::stoul(args[++i]));
+                const long val = std::stol(args[++i]);
+                if (val >= 64 && val <= 16384) {
+                    opt.width = static_cast<uint32_t>(val);
+                }
             } catch (...) {}
         } else if ((arg == "-H" || arg == "--height") && i + 1 < args.size()) {
             try {
-                opt.height = static_cast<uint32_t>(std::stoul(args[++i]));
+                const long val = std::stol(args[++i]);
+                if (val >= 64 && val <= 16384) {
+                    opt.height = static_cast<uint32_t>(val);
+                }
             } catch (...) {}
         } else if ((arg == "-l" || arg == "--log-level") && i + 1 < args.size()) {
             opt.logLevel = args[++i];
@@ -102,12 +109,12 @@ void CliOptions::PrintHelp(std::string_view programName) {
     if (exec.empty()) exec = "bgl_viewer";
 
     std::cout <<
-R"(================================================================================
-WebAssembly an WebGPU Demo (bgl_viewer v0.7.1)
+std::format(R"(================================================================================
+{} (bgl_viewer v{})
 ================================================================================
 
 USAGE:
-  )" << exec << R"( [OPTIONS] [ASSET_PATH_OR_URL]
+  {} [OPTIONS] [ASSET_PATH_OR_URL]
 
 ARGUMENTS:
   [ASSET_PATH_OR_URL]           Local path or HTTP/HTTPS URL to .glb/.gltf model
@@ -144,20 +151,27 @@ INTERACTIVE CONTROLS:
   B                             Toggle 3D Wireframe Bounding Boxes & AABBs
   Q                             Toggle 3D Quadtree Ground Partition Boundaries
   C                             Toggle Quadtree Hierarchical Occlusion Culling
-  K                             Toggle Procedural Atmospheric Skybox
+  K                             Cycle Skybox Mode (Sharp / Blurred / Hidden)
   V                             Toggle Bump & Tangent-Space Normal Mapping
   L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)
   M                             Toggle Directional Shadow Mapping (2048x2048 PCF)
   R                             Toggle Environment Cubemap Reflections & Specular IBL
+  U                             Toggle Ambient Occlusion & Micro-Cavity Shading
+  T                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
+  E                             Cycle Environment Preset
+  + / -                         Increase / Decrease Exposure
+  [ / ]                         Rotate Environment (-5° / +5°)
   O / F3                        Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay
+  Double-Click / MMB            Pick geometry node with RayPicker
   ESC                           Exit viewer
   Drag & Drop                   Drop any .glb/.gltf file or HTTP/HTTPS URL onto the window
 ================================================================================
-)";
+)", kEngineName, kEngineVersion, exec);
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << "WebAssembly an WebGPU Demo (bgl_viewer version 0.7.1) [C++23 WebGPU glTF 2.1 Engine]\n";
+    std::cout << std::format("{} (bgl_viewer version {}) [C++23 WebGPU glTF 2.1 Engine]\n",
+                             kEngineName, kEngineVersion);
 }
 
 void CliOptions::PrintFormats() {

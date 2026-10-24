@@ -54,4 +54,4 @@ tasks:
   clean:
     desc: Clean build directories and generated presets
     cmds:
-      - rm -rf build build-native dist-native CMakePresets.json
+      - rm -rf build build-native dist-native CMakeUserPresets.json ConanPresets.json

@@ -413,7 +413,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     for (size_t mIdx = 0; mIdx < asset.meshes.size(); ++mIdx) {
         const auto& mesh = asset.meshes[mIdx];
         std::string meshName = mesh.name.empty() ? ("Mesh_" + std::to_string(mIdx)) : std::string(mesh.name);
-        BGL_LOG_INFO("  * Mesh #{}: '{}' ({} primitives)", mIdx, meshName, mesh.primitives.size());
+        BGL_LOG_DEBUG("  * Mesh #{}: '{}' ({} primitives)", mIdx, meshName, mesh.primitives.size());
 
         for (size_t pIdx = 0; pIdx < mesh.primitives.size(); ++pIdx) {
             const auto& prim = mesh.primitives[pIdx];
@@ -429,12 +429,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
             size_t idxCount = prim.indicesAccessor.has_value() ? asset.accessors[*prim.indicesAccessor].count : 0;
             size_t triCount = idxCount > 0 ? (idxCount / 3) : (vertCount / 3);
 
-            BGL_LOG_INFO("    - Prim #{}: Material #{} ('{}') | {} vertices, {} indices ({} triangles)",
+            BGL_LOG_DEBUG("    - Prim #{}: Material #{} ('{}') | {} vertices, {} indices ({} triangles)",
                          pIdx, matIdx, matName, vertCount, idxCount, triCount);
 
             for (const auto& [attrName, accIdx] : prim.attributes) {
                 const auto& acc = asset.accessors[accIdx];
-                BGL_LOG_INFO("      + Attr {}: Acc #{}, {} {}, count={}",
+                BGL_LOG_DEBUG("      + Attr {}: Acc #{}, {} {}, count={}",
                              attrName, accIdx, AccessorTypeToString(acc.type), ComponentTypeToString(acc.componentType), acc.count);
             }
         }

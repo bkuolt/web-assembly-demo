@@ -22,11 +22,15 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       materialIndex{other.materialIndex},
       gpuVertexBuffer{other.gpuVertexBuffer},
       gpuIndexBuffer{other.gpuIndexBuffer},
+      gpuWireframeIndexBuffer{other.gpuWireframeIndexBuffer},
+      wireframeIndexCount{other.wireframeIndexCount},
       gpuUniformBuffer{other.gpuUniformBuffer},
       gpuBindGroup{other.gpuBindGroup},
       gpuShadowBindGroup{other.gpuShadowBindGroup} {
     other.gpuVertexBuffer = nullptr;
     other.gpuIndexBuffer = nullptr;
+    other.gpuWireframeIndexBuffer = nullptr;
+    other.wireframeIndexCount = 0;
     other.gpuUniformBuffer = nullptr;
     other.gpuBindGroup = nullptr;
     other.gpuShadowBindGroup = nullptr;
@@ -41,11 +45,15 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         materialIndex = other.materialIndex;
         gpuVertexBuffer = other.gpuVertexBuffer;
         gpuIndexBuffer = other.gpuIndexBuffer;
+        gpuWireframeIndexBuffer = other.gpuWireframeIndexBuffer;
+        wireframeIndexCount = other.wireframeIndexCount;
         gpuUniformBuffer = other.gpuUniformBuffer;
         gpuBindGroup = other.gpuBindGroup;
         gpuShadowBindGroup = other.gpuShadowBindGroup;
         other.gpuVertexBuffer = nullptr;
         other.gpuIndexBuffer = nullptr;
+        other.gpuWireframeIndexBuffer = nullptr;
+        other.wireframeIndexCount = 0;
         other.gpuUniformBuffer = nullptr;
         other.gpuBindGroup = nullptr;
         other.gpuShadowBindGroup = nullptr;
@@ -74,6 +82,11 @@ void MeshPrimitive::ReleaseGpu() noexcept {
         wgpuBufferRelease(gpuIndexBuffer);
         gpuIndexBuffer = nullptr;
     }
+    if (gpuWireframeIndexBuffer) {
+        wgpuBufferRelease(gpuWireframeIndexBuffer);
+        gpuWireframeIndexBuffer = nullptr;
+    }
+    wireframeIndexCount = 0;
     if (gpuVertexBuffer) {
         wgpuBufferRelease(gpuVertexBuffer);
         gpuVertexBuffer = nullptr;

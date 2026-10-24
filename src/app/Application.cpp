@@ -5,6 +5,7 @@
 #include "app/Application.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
+#include "core/Version.hpp"
 #include <array>
 #include <filesystem>
 #include <algorithm>
@@ -32,7 +33,7 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     const uint32_t width{config.width};
     const uint32_t height{config.height};
-    BGL_LOG_INFO("Initializing WebAssembly an WebGPU Demo v0.7.2 ({}x{})...", width, height);
+    BGL_LOG_INFO("Initializing {} v{} ({}x{})...", kEngineName, kEngineVersion, width, height);
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;
@@ -43,7 +44,7 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     }
 
     SDL_Window* window{SDL_CreateWindow(
-        "WebAssembly an WebGPU Demo",
+        std::string{kEngineName}.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         static_cast<int>(width), static_cast<int>(height),
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
@@ -296,11 +297,8 @@ void Application::Render() {
     WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
     if (!hdrPass) return;
 
-    // 1. Procedural Atmospheric Skybox (far-plane depth clamped behind geometry into RGBA16Float)
-    skybox_.Render(hdrPass, vp, camPos, sunDir);
-
     if (activeScene_) {
-        // 2. Hardware 4x MSAA PBR Scene Rendering (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
+        // 1. Hardware 4x MSAA PBR Scene Rendering (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
         pipelineManager_.RenderScene(
             hdrPass,
             *activeScene_,
@@ -315,7 +313,12 @@ void Application::Render() {
             camera_.GetNearPlane(),
             camera_.GetFarPlane()
         );
+    }
 
+    // 2. Procedural Atmospheric Skybox (far-plane depth Z=1.0 test against geometry, zero overdraw)
+    skybox_.Render(hdrPass, vp, camPos, sunDir);
+
+    if (activeScene_) {
         // 3. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
         if (showBoundingBoxes_) {
             pipelineManager_.BatchSceneAABBs(*activeScene_, true, true);
@@ -349,7 +352,7 @@ void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string
     pipelineManager_.PrepareScene(*activeScene_);
 
     const glm::vec3 center{activeScene_->sceneAABB.Center()};
-    const float radius{glm::length(activeScene_->sceneAABB.Extents()) * 0.5f};
+    const float radius{glm::length(activeScene_->sceneAABB.Extents())};
 
     if (sourceUri.find("Sponza") != std::string_view::npos || sourceUri.find("sponza") != std::string_view::npos) {
         const glm::vec3 courtyardCenter{center.x, 2.0f, center.z};

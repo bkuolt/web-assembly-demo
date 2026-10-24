@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to **WebAssembly an WebGPU Demo (bgl-Engine)** are documented in this file.
+All notable changes to **WebAssembly and WebGPU Demo (bgl-Engine)** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.8.0] - 2026-10-22
+## [0.8.0] - 2026-10-24
 
 ### Added
 - **HDR Render Target (RGBA16Float) & Tonemapping Post-Processing:**
@@ -31,6 +31,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Transcoded KTX2 Basis Universal textures directly into hardware formats (`BC7_RGBA`, `ASTC_4x4_RGBA`, `ETC2_RGBA8`) with full 4x4 block-aligned mip chains uploaded straight to WebGPU.
 - **Ambient Occlusion & Micro-Cavity Control:**
   - Added glTF ambient occlusion support with real-time toggle hotkey `[U]` and HUD telemetry display.
+- **Accurate Triangle Wireframe Edge Generation:**
+  - Added `gpuWireframeIndexBuffer` with 6 line indices per triangle $(a \to b, b \to c, c \to a)$ so wireframe rendering draws complete, closed geometric wireframe triangles without edge dropouts.
+- **Centralized Engine Versioning (`bgl::core::Version.hpp`):**
+  - Unified branding and version strings across desktop viewer, CLI, telemetry HUD, CMake, and WebAssembly web interface.
+
+### Fixed
+- **WebGPU Attachment Format & Depth Stencil State Alignment:**
+  - Ensured all 3D scene and skybox render pipelines target `RGBA16Float` within the HDR pass.
+  - Explicitly configured `TextRenderer` with `depthStencil = nullptr` matching the swapchain post-process pass attachment descriptor.
+- **Overdraw Optimization via Deferred Skybox Rendering:**
+  - Rendered the Atmospheric Skybox ($Z = 1.0$) after opaque geometry, allowing the GPU depth test to reject occluded skybox fragments and eliminating atmospheric shader overdraw on all geometry pixels.
+- **MemoryPool Move Semantics Safety (`bgl::core::MemoryPool`):**
+  - Implemented move constructor and assignment with `std::exchange` to safely nullify `freeHead_` and reset `allocatedCount_` on source instances.
+- **Camera Framing Radius Calculation:**
+  - Corrected bounding sphere radius calculation from `AABB::Extents()` by removing redundant 0.5x scaling.
+- **CLI Resolution Input Validation:**
+  - Added range clamping $[64, 16384]$ on `--width` and `--height` arguments.
+- **Asset Ingestion Logging Overhead:**
+  - Reduced per-primitive and per-attribute logging from `INFO` to `DEBUG` in `FastGltfLoader`, dramatically accelerating large scene ingestion.
 
 ---
 

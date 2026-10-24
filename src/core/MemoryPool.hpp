@@ -10,6 +10,7 @@
 #include <memory_resource>
 #include <new>
 #include <concepts>
+#include <utility>
 #include "core/Types.hpp"
 
 namespace bgl::core {
@@ -30,8 +31,20 @@ public:
 
     MemoryPool(const MemoryPool&) = delete;
     MemoryPool& operator=(const MemoryPool&) = delete;
-    MemoryPool(MemoryPool&& other) noexcept = default;
-    MemoryPool& operator=(MemoryPool&& other) noexcept = default;
+    MemoryPool(MemoryPool&& other) noexcept
+        : blocks_(std::move(other.blocks_)),
+          freeHead_(std::exchange(other.freeHead_, nullptr)),
+          allocatedCount_(std::exchange(other.allocatedCount_, 0)) {}
+
+    MemoryPool& operator=(MemoryPool&& other) noexcept {
+        if (this != &other) {
+            Clear();
+            blocks_ = std::move(other.blocks_);
+            freeHead_ = std::exchange(other.freeHead_, nullptr);
+            allocatedCount_ = std::exchange(other.allocatedCount_, 0);
+        }
+        return *this;
+    }
 
     /**
      * @brief Allocate and construct an object of type T using forwarding arguments.
