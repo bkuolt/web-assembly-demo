@@ -108,6 +108,21 @@ public:
     /** @brief Toggles glTF ambient occlusion map evaluation. */
     void ToggleAmbientOcclusion() noexcept { pipelineManager_.ToggleAmbientOcclusion(); }
 
+    /** @brief Toggles immersive Parallax Occlusion Mapping (POM) with self-shadowing. */
+    void ToggleParallaxOcclusion() noexcept { pipelineManager_.ToggleParallaxOcclusion(); }
+
+    /** @brief Toggles directional sun lens flare post-processing effect. */
+    void ToggleLensFlare() noexcept { pipelineManager_.ToggleLensFlare(); }
+
+    /** @brief Sets ambient occlusion intensity multiplier. */
+    void SetAoIntensity(float val) noexcept { pipelineManager_.SetAoIntensity(val); }
+
+    /** @brief Sets Parallax Occlusion Mapping displacement height scale. */
+    void SetParallaxScale(float val) noexcept { pipelineManager_.SetParallaxScale(val); }
+
+    /** @brief Sets directional sun lens flare intensity multiplier. */
+    void SetLensFlareIntensity(float val) noexcept { pipelineManager_.SetLensFlareIntensity(val); }
+
     /** @brief Toggles spatial Quadtree hierarchical occlusion culling. */
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
 

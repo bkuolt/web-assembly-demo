@@ -38,6 +38,24 @@ public:
     void Pan(float deltaX, float deltaY) noexcept;
 
     /**
+     * @brief Translates the camera and its orbit target forward along the horizontal view direction.
+     * @param delta Forward displacement (positive moves forward, negative moves backward).
+     */
+    void MoveForward(float delta) noexcept;
+
+    /**
+     * @brief Translates the camera and its orbit target laterally along the right vector.
+     * @param delta Lateral displacement (positive moves right, negative moves left).
+     */
+    void MoveRight(float delta) noexcept;
+
+    /**
+     * @brief Translates the camera and its orbit target vertically along the world up vector.
+     * @param delta Vertical displacement (positive moves up, negative moves down).
+     */
+    void MoveUp(float delta) noexcept;
+
+    /**
      * @brief Adjusts the orbit distance smoothly.
      * @param deltaZoom Distance change (positive zooms in, negative zooms out).
      */

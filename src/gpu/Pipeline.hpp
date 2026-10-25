@@ -56,6 +56,7 @@ namespace MaterialFlags {
     constexpr uint32_t EnableShadows           = 1u << 12;
     constexpr uint32_t EnableReflections       = 1u << 13;
     constexpr uint32_t EnableAmbientOcclusion  = 1u << 14;
+    constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
 }
 
 struct alignas(16) PrimitiveUniforms {
@@ -122,9 +123,11 @@ struct alignas(16) TonemapUniforms {
     float exposure{1.0f};
     uint32_t operatorId{0};
     uint32_t isSrgbSurface{1};
-    uint32_t _pad{0};
+    uint32_t lensFlareEnabled{1};
+    glm::vec4 sunScreenPos{0.5f, 0.5f, 0.0f, 1.0f}; // xy = sun UV, z = visibility, w = aspect ratio
+    glm::vec4 flareParams{0.75f, 0.38f, 1.0f, 0.0f}; // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
 };
-static_assert(sizeof(TonemapUniforms) == 16, "TonemapUniforms must be 16 bytes");
+static_assert(sizeof(TonemapUniforms) == 48, "TonemapUniforms must be 48 bytes");
 
 struct alignas(16) PrefilterComputeParams {
     float roughness{0.0f};
@@ -215,8 +218,23 @@ public:
      * @brief Executes the fullscreen tonemapping and color space conversion pass onto the swapchain.
      * @param swapchainPass Render pass encoder targeting the final presentation surface.
      * @param hdrResolveView Resolved RGBA16Float HDR input texture view.
+     * @param viewProj Optional view-projection matrix for lens flare position calculation.
+     * @param cameraPos Optional world camera position.
+     * @param lightDir Optional directional sun vector.
+     * @param envRotation Optional environment rotation angle.
+     * @param viewportW Viewport width in pixels.
+     * @param viewportH Viewport height in pixels.
      */
-    void RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView);
+    void RenderTonemapPass(
+        WGPURenderPassEncoder swapchainPass,
+        WGPUTextureView hdrResolveView,
+        const glm::mat4& viewProj = glm::mat4{1.0f},
+        const glm::vec3& cameraPos = glm::vec3{0.0f},
+        const glm::vec3& lightDir = glm::vec3{0.577f},
+        float envRotation = 0.0f,
+        uint32_t viewportW = 1280,
+        uint32_t viewportH = 720
+    );
 
     /**
      * @brief Renders a single 3D wireframe Axis-Aligned Bounding Box.
@@ -329,6 +347,23 @@ public:
     void ToggleAmbientOcclusion() noexcept { ambientOcclusionEnabled_ = !ambientOcclusionEnabled_; }
     [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept { return ambientOcclusionEnabled_; }
 
+    void SetAoIntensity(float intensity) noexcept { aoIntensity_ = std::clamp(intensity, 0.0f, 2.0f); }
+    [[nodiscard]] float GetAoIntensity() const noexcept { return aoIntensity_; }
+
+    void SetParallaxEnabled(bool enabled) noexcept { parallaxEnabled_ = enabled; }
+    void ToggleParallaxOcclusion() noexcept { parallaxEnabled_ = !parallaxEnabled_; }
+    [[nodiscard]] bool IsParallaxEnabled() const noexcept { return parallaxEnabled_; }
+
+    void SetParallaxScale(float scale) noexcept { parallaxScale_ = std::clamp(scale, 0.0f, 0.2f); }
+    [[nodiscard]] float GetParallaxScale() const noexcept { return parallaxScale_; }
+
+    void SetLensFlareEnabled(bool enabled) noexcept { lensFlareEnabled_ = enabled; }
+    void ToggleLensFlare() noexcept { lensFlareEnabled_ = !lensFlareEnabled_; }
+    [[nodiscard]] bool IsLensFlareEnabled() const noexcept { return lensFlareEnabled_; }
+
+    void SetLensFlareIntensity(float intensity) noexcept { lensFlareIntensity_ = std::clamp(intensity, 0.0f, 5.0f); }
+    [[nodiscard]] float GetLensFlareIntensity() const noexcept { return lensFlareIntensity_; }
+
     void SetOcclusionCullingEnabled(bool enabled) noexcept { occlusionCullingEnabled_ = enabled; }
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
@@ -376,6 +411,11 @@ private:
     bool shadowsEnabled_{true};
     bool reflectionsEnabled_{true};
     bool ambientOcclusionEnabled_{true};
+    float aoIntensity_{1.0f};
+    bool parallaxEnabled_{true};
+    float parallaxScale_{0.035f};
+    bool lensFlareEnabled_{true};
+    float lensFlareIntensity_{0.75f};
     bool occlusionCullingEnabled_{true};
     bool shadowMapDirty_{true};
 

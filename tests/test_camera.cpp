@@ -179,3 +179,53 @@ TEST(CameraTest, NearAndFarClippingPlaneProperties) {
     EXPECT_GE(camera.GetFarPlane(), 100.0f);
 }
 
+TEST(CameraTest, WASDAndArrowKeyNavigation) {
+    Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), 5.0f);
+    camera.Update(16.0f / 9.0f);
+
+    const glm::vec3 initialTarget = camera.GetTarget();
+    const glm::vec3 initialPos = camera.GetPosition();
+
+    // 1. MoveForward (W / Up Arrow)
+    camera.MoveForward(2.0f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NE(camera.GetTarget(), initialTarget);
+    EXPECT_NE(camera.GetPosition(), initialPos);
+    // Pure forward/backward moves both target and position along view direction without changing distance
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), camera.GetTarget()), 5.0f, 1e-3f);
+
+    // 2. MoveBackward (S / Down Arrow) cancels forward
+    camera.MoveForward(-2.0f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NEAR(glm::distance(camera.GetTarget(), initialTarget), 0.0f, 1e-3f);
+
+    // 3. MoveRight (D / Right Arrow)
+    camera.MoveRight(1.5f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NE(camera.GetTarget(), initialTarget);
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), camera.GetTarget()), 5.0f, 1e-3f);
+
+    // 4. MoveLeft (A / Left Arrow) cancels right
+    camera.MoveRight(-1.5f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NEAR(glm::distance(camera.GetTarget(), initialTarget), 0.0f, 1e-3f);
+
+    // 5. MoveUp / MoveDown
+    camera.MoveUp(3.0f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NEAR(camera.GetTarget().y, 3.0f, 1e-3f);
+}
+
+TEST(CameraTest, KeyboardZoomInOut) {
+    Camera camera(glm::vec3(0.0f), 8.0f);
+    camera.Update(1.0f);
+
+    // '+' zooms in (distance decreases)
+    camera.Zoom(2.5f);
+    EXPECT_FLOAT_EQ(camera.GetDistance(), 5.5f);
+
+    // '-' zooms out (distance increases)
+    camera.Zoom(-4.0f);
+    EXPECT_FLOAT_EQ(camera.GetDistance(), 9.5f);
+}
+

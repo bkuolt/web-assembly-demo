@@ -65,6 +65,45 @@ void bgl_toggle_ao() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_pom() {
+    if (g_pApp) g_pApp->ToggleParallaxOcclusion();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_lens_flare() {
+    if (g_pApp) g_pApp->ToggleLensFlare();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_ao_intensity(float val) {
+    if (g_pApp) g_pApp->SetAoIntensity(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_parallax_scale(float val) {
+    if (g_pApp) g_pApp->SetParallaxScale(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_lens_flare_intensity(float val) {
+    if (g_pApp) g_pApp->SetLensFlareIntensity(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_move(float forward, float right, float up) {
+    if (g_pApp) {
+        if (std::abs(forward) > 1e-4f) g_pApp->GetCamera().MoveForward(forward);
+        if (std::abs(right) > 1e-4f) g_pApp->GetCamera().MoveRight(right);
+        if (std::abs(up) > 1e-4f) g_pApp->GetCamera().MoveUp(up);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_zoom(float deltaZoom) {
+    if (g_pApp) g_pApp->GetCamera().Zoom(deltaZoom);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_occlusion() {
     if (g_pApp) g_pApp->ToggleOcclusionCulling();
 }

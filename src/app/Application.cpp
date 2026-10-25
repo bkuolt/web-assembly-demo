@@ -179,12 +179,28 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_k) {
                     CycleSkyboxMode();
                     BGL_LOG_INFO("Switched Skybox Mode: {}", skybox_.GetModeName(skybox_.GetMode()));
+                } else if (event.key.keysym.sym == SDLK_p) {
+                    ToggleParallaxOcclusion();
+                    BGL_LOG_INFO("Toggled Parallax Occlusion Mapping (POM): {}", pipelineManager_.IsParallaxEnabled());
+                } else if (event.key.keysym.sym == SDLK_j) {
+                    ToggleLensFlare();
+                    BGL_LOG_INFO("Toggled Directional Sun Lens Flare: {}", pipelineManager_.IsLensFlareEnabled());
                 } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS || event.key.keysym.sym == SDLK_EQUALS) {
-                    AdjustExposure(0.15f);
-                    BGL_LOG_INFO("Exposure increased: {:.2f}", pipelineManager_.GetExposure());
+                    if (event.key.keysym.mod & KMOD_SHIFT) {
+                        AdjustExposure(0.15f);
+                        BGL_LOG_INFO("Exposure increased: {:.2f}", pipelineManager_.GetExposure());
+                    } else {
+                        const float zoomStep = camera_.GetDistance() * 0.15f;
+                        camera_.Zoom(zoomStep);
+                    }
                 } else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS) {
-                    AdjustExposure(-0.15f);
-                    BGL_LOG_INFO("Exposure decreased: {:.2f}", pipelineManager_.GetExposure());
+                    if (event.key.keysym.mod & KMOD_SHIFT) {
+                        AdjustExposure(-0.15f);
+                        BGL_LOG_INFO("Exposure decreased: {:.2f}", pipelineManager_.GetExposure());
+                    } else {
+                        const float zoomStep = camera_.GetDistance() * 0.15f;
+                        camera_.Zoom(-zoomStep);
+                    }
                 } else if (event.key.keysym.sym == SDLK_LEFTBRACKET) {
                     RotateEnvironment(-0.0872665f); // -5 degrees
                 } else if (event.key.keysym.sym == SDLK_RIGHTBRACKET) {
@@ -231,6 +247,23 @@ void Application::Update(float deltaTime) {
                     SDL_free(droppedStr);
                 }
             }
+        }
+    }
+
+    const Uint8* keyState = SDL_GetKeyboardState(nullptr);
+    if (keyState) {
+        const float moveSpeed = std::max(camera_.GetDistance() * 1.5f, 1.0f) * deltaTime;
+        if (keyState[SDL_SCANCODE_W] || keyState[SDL_SCANCODE_UP]) {
+            camera_.MoveForward(moveSpeed);
+        }
+        if (keyState[SDL_SCANCODE_S] || keyState[SDL_SCANCODE_DOWN]) {
+            camera_.MoveForward(-moveSpeed);
+        }
+        if (keyState[SDL_SCANCODE_A] || keyState[SDL_SCANCODE_LEFT]) {
+            camera_.MoveRight(-moveSpeed);
+        }
+        if (keyState[SDL_SCANCODE_D] || keyState[SDL_SCANCODE_RIGHT]) {
+            camera_.MoveRight(moveSpeed);
         }
     }
 #endif
@@ -336,8 +369,17 @@ void Application::Render() {
     WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(hdrPass);
     if (!swapchainPass) return;
 
-    // 5. Fullscreen HDR Tonemapping (Khronos PBR Neutral / AgX / ACES) + Exposure Scaling
-    pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView());
+    // 5. Fullscreen HDR Tonemapping (Khronos PBR Neutral / AgX / ACES) + Real-time Sun Lens Flares + Exposure
+    pipelineManager_.RenderTonemapPass(
+        swapchainPass,
+        gpuContext_.GetHdrResolveView(),
+        camera_.GetViewProjectionMatrix(),
+        camera_.GetPosition(),
+        sunDir,
+        skybox_.GetRotation(),
+        gpuContext_.GetWidth(),
+        gpuContext_.GetHeight()
+    );
 
     // 6. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD) onto swapchain
     debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());

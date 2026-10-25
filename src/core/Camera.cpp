@@ -25,6 +25,33 @@ void Camera::Pan(float deltaX, float deltaY) noexcept {
     target_ += right * deltaX + up * deltaY;
 }
 
+void Camera::MoveForward(float delta) noexcept {
+    glm::vec3 forward{target_ - position_};
+    forward.y = 0.0f; // Constrain to ground plane for smooth WASD navigation
+    if (glm::length(forward) > 1e-4f) {
+        forward = glm::normalize(forward);
+    } else {
+        forward = glm::vec3{0.0f, 0.0f, -1.0f};
+    }
+    target_ += forward * delta;
+}
+
+void Camera::MoveRight(float delta) noexcept {
+    glm::vec3 forward{target_ - position_};
+    forward.y = 0.0f;
+    if (glm::length(forward) > 1e-4f) {
+        forward = glm::normalize(forward);
+    } else {
+        forward = glm::vec3{0.0f, 0.0f, -1.0f};
+    }
+    const glm::vec3 right{glm::normalize(glm::cross(forward, glm::vec3{0.0f, 1.0f, 0.0f}))};
+    target_ += right * delta;
+}
+
+void Camera::MoveUp(float delta) noexcept {
+    target_.y += delta;
+}
+
 void Camera::Zoom(float deltaZoom) noexcept {
     distance_ = std::clamp(distance_ - deltaZoom, 0.001f, 10000.0f);
 }

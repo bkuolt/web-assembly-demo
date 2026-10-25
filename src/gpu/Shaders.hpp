@@ -189,14 +189,18 @@ fn cs_ggx_prefilter(@builtin(global_invocation_id) id : vec3<u32>) {
 
 /**
  * @brief Fullscreen HDR Tonemapping Post-Processing WGSL Shader.
- *        Supports Khronos PBR Neutral (0), AgX (1), and ACES Filmic (2) with Exposure control and sRGB conversion.
+ *        Supports Khronos PBR Neutral (0), AgX (1), and ACES Filmic (2) with Exposure control,
+ *        real-time Directional Sun Lens Flares (anamorphic streaks, corona, chromatic ghosts),
+ *        and sRGB conversion.
  */
 inline constexpr std::string_view kTonemapShaderWGSL = R"(
 struct TonemapUniforms {
     exposure : f32,
     operatorId : u32,
     isSrgbSurface : u32,
-    _pad : u32,
+    lensFlareEnabled : u32,
+    sunScreenPos : vec4<f32>, // xy = sun UV [0..1], z = visibility [0..1], w = aspect ratio (width / height)
+    flareParams : vec4<f32>,  // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
 };
 
 @group(0) @binding(0) var<uniform> ubo : TonemapUniforms;
@@ -295,10 +299,84 @@ fn linearToSrgb(linearCol : vec3<f32>) -> vec3<f32> {
     return select(hi, lo, c <= vec3<f32>(0.0031308));
 }
 
+/**
+ * @brief Evaluates cinematic directional sun lens flares with corona, anamorphic streaks, and chromatic ghosts.
+ */
+fn evaluateLensFlare(uv : vec2<f32>, sunUV : vec2<f32>, visibility : f32, aspect : f32, intensity : f32) -> vec3<f32> {
+    if (visibility <= 0.001 || intensity <= 0.001) {
+        return vec3<f32>(0.0);
+    }
+    let aspectVec = vec2<f32>(max(aspect, 0.1), 1.0);
+    let delta = (uv - sunUV) * aspectVec;
+    let distToSun = length(delta);
+
+    // 1. Primary Sun Core Glow & Radial Corona
+    let corona = 0.75 / (distToSun * 12.0 + 1.0);
+    let broadGlow = 0.35 / (distToSun * 3.2 + 1.0);
+    let sunColor = vec3<f32>(1.0, 0.88, 0.65);
+    var flareColor = (corona * corona + broadGlow) * sunColor;
+
+    // 2. Anamorphic Horizontal Streak (Cinematic flare)
+    let streakY = abs(delta.y);
+    let streakX = abs(delta.x);
+    let anamorphicStreak = exp(-streakY * 42.0) * exp(-streakX * 1.8) * 0.5;
+    let streakColor = vec3<f32>(0.55, 0.78, 1.0);
+    flareColor = flareColor + anamorphicStreak * streakColor;
+
+    // 3. Multi-Element Lens Ghosts along the optical axis passing through the screen center (0.5, 0.5)
+    let centerUV = vec2<f32>(0.5, 0.5);
+    let sunToCenter = (centerUV - sunUV);
+
+    // Ghost 1: Small bright violet disc (distance 0.45 along axis)
+    let g1Pos = (sunUV + sunToCenter * 0.45) * aspectVec;
+    let d1 = length(uv * aspectVec - g1Pos);
+    let ghost1 = exp(-d1 * 22.0) * vec3<f32>(0.35, 0.65, 0.95);
+
+    // Ghost 2: Warm soft halo disc (distance 0.85 along axis)
+    let g2Pos = (sunUV + sunToCenter * 0.85) * aspectVec;
+    let d2 = length(uv * aspectVec - g2Pos);
+    let ghost2 = exp(-d2 * 10.0) * vec3<f32>(0.85, 0.55, 0.25);
+
+    // Ghost 3: Chromatic green/cyan aperture element (distance 1.35)
+    let g3Pos = (sunUV + sunToCenter * 1.35) * aspectVec;
+    let d3 = length(uv * aspectVec - g3Pos);
+    let ghost3 = exp(-d3 * 16.0) * vec3<f32>(0.25, 0.85, 0.55);
+
+    // Ghost 4: Diffuse outer chromatic reflection (distance 1.75)
+    let g4Pos = (sunUV + sunToCenter * 1.75) * aspectVec;
+    let d4 = length(uv * aspectVec - g4Pos);
+    let ghost4 = exp(-d4 * 6.0) * vec3<f32>(0.45, 0.7, 1.0) * 0.5;
+
+    // 4. Optical Ring / Halo centered around screen center
+    let centerDist = length((uv - centerUV) * aspectVec);
+    let haloDist = abs(centerDist - 0.38);
+    let halo = exp(-haloDist * 28.0) * 0.15 * vec3<f32>(0.8, 0.45, 0.9);
+
+    let ghosts = (ghost1 + ghost2 + ghost3 + ghost4 + halo) * 0.55;
+
+    // Smooth border attenuation as the sun leaves the screen viewport
+    let borderFade = smoothstep(-0.1, 0.1, sunUV.x) * smoothstep(1.1, 0.9, sunUV.x)
+                   * smoothstep(-0.1, 0.1, sunUV.y) * smoothstep(1.1, 0.9, sunUV.y);
+
+    return (flareColor + ghosts) * (visibility * intensity * borderFade);
+}
+
 @fragment
 fn fs_tonemap(in : VertexOutput) -> @location(0) vec4<f32> {
     let hdrSample = textureSample(hdrTexture, hdrSampler, in.uv);
-    let exposed = hdrSample.rgb * ubo.exposure;
+    var exposed = hdrSample.rgb * ubo.exposure;
+
+    // Evaluate additive sun lens flare in linear HDR space prior to tonemapping
+    if (ubo.lensFlareEnabled != 0u && ubo.sunScreenPos.z > 0.001) {
+        let flare = evaluateLensFlare(
+            in.uv,
+            ubo.sunScreenPos.xy,
+            ubo.sunScreenPos.z,
+            ubo.sunScreenPos.w,
+            ubo.flareParams.x
+        );
+        exposed = exposed + flare;
+    }
 
     var mapped = exposed;
     if (ubo.operatorId == 0u) {
@@ -653,6 +731,122 @@ fn evaluateDirectLobe(
     return contrib;
 }
 
+/**
+ * @brief Samples normalized surface displacement height from occlusion map, normal alpha, or base color luma.
+ * @param uv Normalized 2D texture coordinates.
+ * @param duv1 Screen-space horizontal derivative of UV coordinates.
+ * @param duv2 Screen-space vertical derivative of UV coordinates.
+ * @return Normalized height value in [0.0, 1.0] where 1.0 represents the outer surface plane.
+ */
+fn getSurfaceHeight(uv : vec2<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> f32 {
+    var height = 0.5;
+    if ((ubo.flags & 16u) != 0u) {
+        // Occlusion texture red channel represents cavity depth (0 = deep crevice, 1 = surface plane)
+        height = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2).r;
+    } else {
+        // Base color luminance fallback for materials without dedicated height/occlusion maps
+        let col = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2).rgb;
+        height = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+    }
+    return clamp(height, 0.0, 1.0);
+}
+
+/**
+ * @brief Steep Parallax Occlusion Mapping (POM) with adaptive view-dependent sampling and linear secant interpolation.
+ * @param initialUV Original interpolated UV coordinates.
+ * @param viewDirTangent Camera view direction normalized in tangent space.
+ * @param duv1 Screen-space horizontal derivative of UV coordinates.
+ * @param duv2 Screen-space vertical derivative of UV coordinates.
+ * @param scale Parallax displacement depth scale factor.
+ * @return Displaced texture coordinates giving true 3D surface depth.
+ */
+fn parallaxOcclusionMapping(
+    initialUV : vec2<f32>,
+    viewDirTangent : vec3<f32>,
+    duv1 : vec2<f32>,
+    duv2 : vec2<f32>,
+    scale : f32
+) -> vec2<f32> {
+    // Dynamic step count between 8 and 32 based on viewing angle (steep grazing angles need more samples)
+    let minLayers : f32 = 8.0;
+    let maxLayers : f32 = 32.0;
+    let numLayers = mix(maxLayers, minLayers, clamp(abs(viewDirTangent.z), 0.0, 1.0));
+    let layerDepth = 1.0 / numLayers;
+    var currentLayerDepth : f32 = 0.0;
+
+    // Tangent space ray delta per step (depth downwards: 1.0 is surface, 0.0 is base)
+    let P = (viewDirTangent.xy / max(abs(viewDirTangent.z), 0.15)) * scale;
+    let deltaUV = P / numLayers;
+
+    var currentUV = initialUV;
+    var currentHeight = getSurfaceHeight(currentUV, duv1, duv2);
+
+    var prevUV = currentUV;
+    var prevHeight = currentHeight;
+    var prevLayerDepth = currentLayerDepth;
+
+    for (var i : i32 = 0; i < 32; i = i + 1) {
+        if (f32(i) >= numLayers || currentLayerDepth >= (1.0 - currentHeight)) {
+            break;
+        }
+        prevUV = currentUV;
+        prevHeight = currentHeight;
+        prevLayerDepth = currentLayerDepth;
+
+        currentUV = currentUV - deltaUV;
+        currentHeight = getSurfaceHeight(currentUV, duv1, duv2);
+        currentLayerDepth = currentLayerDepth + layerDepth;
+    }
+
+    // Parallax Occlusion interpolation between previous layer and current layer
+    let afterDepth = currentLayerDepth - (1.0 - currentHeight);
+    let beforeDepth = (1.0 - prevHeight) - prevLayerDepth;
+    let denom = afterDepth + beforeDepth;
+    let weight = select(0.5, afterDepth / max(denom, 1e-5), abs(denom) > 1e-6);
+
+    return mix(currentUV, prevUV, clamp(weight, 0.0, 1.0));
+}
+
+/**
+ * @brief Parallax self-shadowing raymarch from surface point along tangent-space light direction.
+ * @param startUV Displaced surface texture coordinate.
+ * @param lightDirTangent Normalized light direction in tangent space.
+ * @param duv1 Screen-space horizontal derivative of UV coordinates.
+ * @param duv2 Screen-space vertical derivative of UV coordinates.
+ * @param scale Parallax displacement depth scale factor.
+ * @return Shadow attenuation factor in [0.25, 1.0].
+ */
+fn computeParallaxShadow(
+    startUV : vec2<f32>,
+    lightDirTangent : vec3<f32>,
+    duv1 : vec2<f32>,
+    duv2 : vec2<f32>,
+    scale : f32
+) -> f32 {
+    if (lightDirTangent.z <= 0.0) {
+        return 0.25;
+    }
+    let initialHeight = getSurfaceHeight(startUV, duv1, duv2);
+    let numShadowSteps = 8.0;
+    let stepDepth = (1.0 - initialHeight) / numShadowSteps;
+    let deltaUV = (lightDirTangent.xy / max(lightDirTangent.z, 0.15)) * (scale / numShadowSteps);
+
+    var currentUV = startUV;
+    var currentDepth = 1.0 - initialHeight;
+    var shadowFactor = 1.0;
+
+    for (var i : i32 = 0; i < 8; i = i + 1) {
+        currentUV = currentUV + deltaUV;
+        currentDepth = currentDepth - stepDepth;
+        let h = getSurfaceHeight(currentUV, duv1, duv2);
+        let sampleDepth = 1.0 - h;
+        if (sampleDepth < currentDepth) {
+            shadowFactor = min(shadowFactor, clamp((currentDepth - sampleDepth) * 3.5, 0.0, 1.0));
+        }
+    }
+    return clamp(shadowFactor, 0.25, 1.0);
+}
+
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let dp1 = dpdx(in.worldPos);
@@ -660,31 +854,64 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let duv1 = dpdx(in.uv);
     let duv2 = dpdy(in.uv);
 
-    let baseTexSample = textureSample(baseColorTexture, defaultSampler, in.uv);
-    let mrTexSample = textureSample(metallicRoughnessTexture, defaultSampler, in.uv);
-    let normTexSample = textureSample(normalTexture, defaultSampler, in.uv);
-    let emTexSample = textureSample(emissiveTexture, defaultSampler, in.uv);
-    let occTexSample = textureSample(occlusionTexture, defaultSampler, in.uv);
-    let ccTexSample = textureSample(clearcoatTexture, defaultSampler, in.uv);
-    let transTexSample = textureSample(transmissionTexture, defaultSampler, in.uv);
-    let sheenTexSample = textureSample(sheenTexture, defaultSampler, in.uv);
+    var geomN = normalize(in.normal);
+    let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
+    if ((ubo.flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
+        geomN = -geomN;
+    }
+
+    let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
+
+    // Tangent-space view vector (TBN transpose * V)
+    let V_tangent = vec3<f32>(
+        dot(tbn[0], viewDir),
+        dot(tbn[1], viewDir),
+        dot(tbn[2], viewDir)
+    );
+
+    let envRot = sceneLighting.envParams.x;
+    let sunL = rotateY(normalize(ubo.lightDir.xyz), -envRot);
+
+    // Parallax Occlusion Mapping (POM) if flag bit 15 is active and bump mapping is enabled
+    var uv = in.uv;
+    var pomShadow = 1.0;
+    if ((ubo.flags & 32768u) != 0u && (ubo.flags & 1024u) != 0u) {
+        let pomScale = max(ubo.bumpScale * 0.035, 0.005);
+        uv = parallaxOcclusionMapping(in.uv, V_tangent, duv1, duv2, pomScale);
+
+        let L_tangent = vec3<f32>(
+            dot(tbn[0], sunL),
+            dot(tbn[1], sunL),
+            dot(tbn[2], sunL)
+        );
+        pomShadow = computeParallaxShadow(uv, L_tangent, duv1, duv2, pomScale);
+    }
+
+    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2);
+    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, uv, duv1, duv2);
+    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, uv, duv1, duv2);
+    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uv, duv1, duv2);
+    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2);
+    let ccTexSample = textureSampleGrad(clearcoatTexture, defaultSampler, uv, duv1, duv2);
+    let transTexSample = textureSampleGrad(transmissionTexture, defaultSampler, uv, duv1, duv2);
+    let sheenTexSample = textureSampleGrad(sheenTexture, defaultSampler, uv, duv1, duv2);
 
     let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
     let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
     let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
 
-    let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-    let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-    let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
-    let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, in.uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+    let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+    let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+    let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+    let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
 
     var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
     var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
     if ((ubo.flags & 16u) != 0u) {
-        let occR = textureSampleGrad(occlusionTexture, defaultSampler, in.uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-        let occL = textureSampleGrad(occlusionTexture, defaultSampler, in.uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-        let occU = textureSampleGrad(occlusionTexture, defaultSampler, in.uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
-        let occD = textureSampleGrad(occlusionTexture, defaultSampler, in.uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+        let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+        let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+        let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+        let occD = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
         dHdU = dHdU + (occR - occL) * 0.75;
         dHdV = dHdV + (occU - occD) * 0.75;
     }
@@ -702,17 +929,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         return baseColor;
     }
 
-    var geomN = normalize(in.normal);
-    let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
-    if ((ubo.flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
-        geomN = -geomN;
-    }
-
     var N = geomN;
     var bumpCavity = 1.0;
+    var tangentXY = vec2<f32>(0.0, 0.0);
     if ((ubo.flags & 1024u) != 0u) {
-        let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
-        var tangentXY = vec2<f32>(0.0, 0.0);
         var tangentZ = 1.0;
         if ((ubo.flags & 4u) != 0u) {
             let normTex = normTexSample.xyz * 2.0 - 1.0;
@@ -728,7 +948,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             N = normalize(mix(geomN, N, 0.65));
         }
         let slopeSq = dot(tangentXY, tangentXY);
-        bumpCavity = clamp(1.0 - 0.15 * slopeSq, 0.65, 1.0);
+        bumpCavity = clamp(1.0 - 0.25 * slopeSq, 0.5, 1.0);
     }
 
     var roughness = ubo.roughnessFactor;
@@ -766,13 +986,17 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
+    // Ground-truth Ambient Occlusion (glTF occlusion map + micro-cavity + horizon contact + multi-bounce)
     var ao = 1.0;
     if ((ubo.flags & 16384u) != 0u) { // Bit 14 = EnableAmbientOcclusion
         if ((ubo.flags & 16u) != 0u) {
             let occSample = occTexSample.r;
             ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
         }
-        ao = clamp(ao * bumpCavity, 0.0, 1.0);
+        let horizonOcclusion = clamp(dot(N, geomN) * 1.25, 0.35, 1.0);
+        let combinedAO = clamp(ao * bumpCavity * horizonOcclusion, 0.0, 1.0);
+        // Jimenez multi-bounce approximation to preserve saturated diffuse tone in crevices
+        ao = mix(combinedAO, combinedAO * (diffuseColor * (1.0 - combinedAO) + 1.0).r, 0.35);
     }
 
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
@@ -797,7 +1021,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         directLighting = evaluateDirectLobe(
             sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
             transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, bumpCavity
-        ) * shadowFactor;
+        ) * (shadowFactor * pomShadow);
     }
 
     // 2. KHR_lights_punctual Evaluated via Clustered Forward+ Frustum Culling

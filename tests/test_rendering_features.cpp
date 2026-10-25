@@ -338,6 +338,33 @@ TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
     EXPECT_FALSE(pm.IsReflectionsEnabled());
     pm.SetReflectionsEnabled(true);
     EXPECT_TRUE(pm.IsReflectionsEnabled());
+
+    // Ambient Occlusion live controls
+    EXPECT_TRUE(pm.IsAmbientOcclusionEnabled());
+    pm.ToggleAmbientOcclusion();
+    EXPECT_FALSE(pm.IsAmbientOcclusionEnabled());
+    pm.SetAmbientOcclusionEnabled(true);
+    EXPECT_TRUE(pm.IsAmbientOcclusionEnabled());
+    pm.SetAoIntensity(1.5f);
+    EXPECT_FLOAT_EQ(pm.GetAoIntensity(), 1.5f);
+
+    // Parallax Occlusion Mapping live controls
+    EXPECT_TRUE(pm.IsParallaxEnabled());
+    pm.ToggleParallaxOcclusion();
+    EXPECT_FALSE(pm.IsParallaxEnabled());
+    pm.SetParallaxEnabled(true);
+    EXPECT_TRUE(pm.IsParallaxEnabled());
+    pm.SetParallaxScale(0.05f);
+    EXPECT_FLOAT_EQ(pm.GetParallaxScale(), 0.05f);
+
+    // Directional Sun Lens Flare live controls
+    EXPECT_TRUE(pm.IsLensFlareEnabled());
+    pm.ToggleLensFlare();
+    EXPECT_FALSE(pm.IsLensFlareEnabled());
+    pm.SetLensFlareEnabled(true);
+    EXPECT_TRUE(pm.IsLensFlareEnabled());
+    pm.SetLensFlareIntensity(1.2f);
+    EXPECT_FLOAT_EQ(pm.GetLensFlareIntensity(), 1.2f);
 }
 
 // ============================================================================
@@ -737,8 +764,10 @@ TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5360u);
     EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
 
-    EXPECT_EQ(sizeof(gpu::TonemapUniforms), 16u);
+    EXPECT_EQ(sizeof(gpu::TonemapUniforms), 48u);
     EXPECT_EQ(alignof(gpu::TonemapUniforms), 16u);
+    EXPECT_EQ(offsetof(gpu::TonemapUniforms, sunScreenPos), 16u);
+    EXPECT_EQ(offsetof(gpu::TonemapUniforms, flareParams), 32u);
 
     EXPECT_EQ(sizeof(gpu::PrefilterComputeParams), 16u);
     EXPECT_EQ(alignof(gpu::PrefilterComputeParams), 16u);

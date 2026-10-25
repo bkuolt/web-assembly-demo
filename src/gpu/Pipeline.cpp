@@ -1063,7 +1063,16 @@ void PipelineManager::InitializeTonemapPipeline() {
     tonemapSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 }
 
-void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView) {
+void PipelineManager::RenderTonemapPass(
+    WGPURenderPassEncoder swapchainPass,
+    WGPUTextureView hdrResolveView,
+    const glm::mat4& viewProj,
+    const glm::vec3& cameraPos,
+    const glm::vec3& lightDir,
+    float envRotation,
+    uint32_t viewportW,
+    uint32_t viewportH
+) {
     if (!swapchainPass || !hdrResolveView || !tonemapPipeline_ || !tonemapBindGroupLayout_) return;
 
     if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
@@ -1091,11 +1100,33 @@ void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGP
         tonemapBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
     }
 
+    // Project sun vector to screen NDC for real-time lens flares
+    const glm::vec3 rotatedSun = glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) * glm::vec4{glm::normalize(lightDir), 0.0f};
+    const glm::vec4 sunWorldPos = glm::vec4{cameraPos + rotatedSun * 1000.0f, 1.0f};
+    const glm::vec4 sunClip = viewProj * sunWorldPos;
+
+    float sunVisibility = 0.0f;
+    glm::vec2 sunUV{0.5f, 0.5f};
+    const float aspect = (viewportH > 0) ? (static_cast<float>(viewportW) / static_cast<float>(viewportH)) : (16.0f / 9.0f);
+
+    if (sunClip.w > 0.001f) {
+        const glm::vec3 sunNdc = glm::vec3{sunClip} / sunClip.w;
+        if (sunNdc.z > 0.0f && sunNdc.z < 1.0f) {
+            sunUV = glm::vec2{sunNdc.x * 0.5f + 0.5f, 0.5f - sunNdc.y * 0.5f};
+            if (sunUV.x >= -0.2f && sunUV.x <= 1.2f && sunUV.y >= -0.2f && sunUV.y <= 1.2f) {
+                const float distCenter = glm::length(sunUV - glm::vec2{0.5f});
+                sunVisibility = std::clamp(1.2f - distCenter, 0.0f, 1.0f);
+            }
+        }
+    }
+
     TonemapUniforms uniforms{
         .exposure = exposure_,
         .operatorId = std::to_underlying(toneMapOperator_),
         .isSrgbSurface = IsSrgbSwapchainFormat(surfaceFormat_) ? 1u : 0u,
-        ._pad = 0u
+        .lensFlareEnabled = lensFlareEnabled_ ? 1u : 0u,
+        .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
+        .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f}
     };
     wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_, 0, &uniforms, sizeof(uniforms));
 
@@ -2306,6 +2337,7 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     if (shadowsEnabled_)          flags |= MaterialFlags::EnableShadows;
     if (reflectionsEnabled_)      flags |= MaterialFlags::EnableReflections;
     if (ambientOcclusionEnabled_) flags |= MaterialFlags::EnableAmbientOcclusion;
+    if (parallaxEnabled_)         flags |= MaterialFlags::EnableParallaxOcclusion;
 
     bool isDoubleSided{false};
     if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
@@ -2314,8 +2346,8 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.metallicFactor = mat.metallicFactor;
         uniforms.roughnessFactor = mat.roughnessFactor;
         uniforms.normalScale = mat.normalScale;
-        uniforms.bumpScale = mat.bumpScale;
-        uniforms.occlusionStrength = mat.occlusionStrength;
+        uniforms.bumpScale = mat.bumpScale * (parallaxEnabled_ ? (parallaxScale_ / 0.035f) : 1.0f);
+        uniforms.occlusionStrength = mat.occlusionStrength * aoIntensity_;
         uniforms.emissiveFactor = glm::vec4{mat.emissiveFactor, mat.emissiveStrength};
         uniforms.alphaCutoff = mat.alphaCutoff;
         uniforms.alphaMode = std::to_underlying(mat.alphaMode);
