@@ -1204,7 +1204,10 @@
   // ============================================================================
   function toggleBBox() {
     BglState.isBboxActive = !BglState.isBboxActive;
-    if (BglUI.btnBbox) BglUI.btnBbox.style.background = BglState.isBboxActive ? '#0284c7' : '#334155';
+    if (BglUI.btnBbox) {
+      BglUI.btnBbox.classList.toggle('active', BglState.isBboxActive);
+      BglUI.btnBbox.style.background = BglState.isBboxActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Bounding Boxes: ${BglState.isBboxActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bbox) {
       BglState.wasmExports.bgl_toggle_bbox();
@@ -1214,7 +1217,10 @@
 
   function toggleQuadtree() {
     BglState.isQuadtreeActive = !BglState.isQuadtreeActive;
-    if (BglUI.btnQuadtree) BglUI.btnQuadtree.style.background = BglState.isQuadtreeActive ? '#059669' : '#334155';
+    if (BglUI.btnQuadtree) {
+      BglUI.btnQuadtree.classList.toggle('active', BglState.isQuadtreeActive);
+      BglUI.btnQuadtree.style.background = BglState.isQuadtreeActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Quadtree Bounds: ${BglState.isQuadtreeActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_quadtree) {
       BglState.wasmExports.bgl_toggle_quadtree();
@@ -1224,7 +1230,10 @@
 
   function toggleSkybox() {
     BglState.isSkyboxActive = !BglState.isSkyboxActive;
-    if (BglUI.btnSkybox) BglUI.btnSkybox.style.background = BglState.isSkyboxActive ? '#475569' : '#1e293b';
+    if (BglUI.btnSkybox) {
+      BglUI.btnSkybox.classList.toggle('active', BglState.isSkyboxActive);
+      BglUI.btnSkybox.style.background = BglState.isSkyboxActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Skybox: ${BglState.isSkyboxActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_skybox) {
       BglState.wasmExports.bgl_toggle_skybox();
@@ -1234,7 +1243,10 @@
 
   function toggleHUD() {
     BglState.isHudActive = !BglState.isHudActive;
-    if (BglUI.btnHud) BglUI.btnHud.style.background = BglState.isHudActive ? '#0284c7' : '#334155';
+    if (BglUI.btnHud) {
+      BglUI.btnHud.classList.toggle('active', BglState.isHudActive);
+      BglUI.btnHud.style.background = BglState.isHudActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Debug HUD: ${BglState.isHudActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_debug_overlay) {
       BglState.wasmExports.bgl_toggle_debug_overlay();
@@ -1244,7 +1256,10 @@
 
   function toggleBump() {
     BglState.isBumpActive = !BglState.isBumpActive;
-    if (BglUI.btnBump) BglUI.btnBump.style.background = BglState.isBumpActive ? '#0284c7' : '#334155';
+    if (BglUI.btnBump) {
+      BglUI.btnBump.classList.toggle('active', BglState.isBumpActive);
+      BglUI.btnBump.style.background = BglState.isBumpActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Bump & Normal Mapping: ${BglState.isBumpActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bump) {
       BglState.wasmExports.bgl_toggle_bump();
@@ -1254,7 +1269,10 @@
 
   function toggleMipmaps() {
     BglState.isMipmapsActive = !BglState.isMipmapsActive;
-    if (BglUI.btnMipmaps) BglUI.btnMipmaps.style.background = BglState.isMipmapsActive ? '#0284c7' : '#334155';
+    if (BglUI.btnMipmaps) {
+      BglUI.btnMipmaps.classList.toggle('active', BglState.isMipmapsActive);
+      BglUI.btnMipmaps.style.background = BglState.isMipmapsActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle 16x Anisotropic Mipmapping: ${BglState.isMipmapsActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_mipmaps) {
       BglState.wasmExports.bgl_toggle_mipmaps();
@@ -1264,7 +1282,10 @@
 
   function toggleShadows() {
     BglState.isShadowsActive = !BglState.isShadowsActive;
-    if (BglUI.btnShadows) BglUI.btnShadows.style.background = BglState.isShadowsActive ? '#0284c7' : '#334155';
+    if (BglUI.btnShadows) {
+      BglUI.btnShadows.classList.toggle('active', BglState.isShadowsActive);
+      BglUI.btnShadows.style.background = BglState.isShadowsActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle PCF Shadow Map: ${BglState.isShadowsActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_shadows) {
       BglState.wasmExports.bgl_toggle_shadows();
@@ -1274,7 +1295,10 @@
 
   function toggleReflections() {
     BglState.isReflectionsActive = !BglState.isReflectionsActive;
-    if (BglUI.btnReflections) BglUI.btnReflections.style.background = BglState.isReflectionsActive ? '#0284c7' : '#334155';
+    if (BglUI.btnReflections) {
+      BglUI.btnReflections.classList.toggle('active', BglState.isReflectionsActive);
+      BglUI.btnReflections.style.background = BglState.isReflectionsActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Cubemap IBL Reflections: ${BglState.isReflectionsActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_reflections) {
       BglState.wasmExports.bgl_toggle_reflections();
@@ -1284,7 +1308,10 @@
 
   function toggleAO() {
     BglState.isAOActive = !BglState.isAOActive;
-    if (BglUI.btnAO) BglUI.btnAO.style.background = BglState.isAOActive ? '#0284c7' : '#334155';
+    if (BglUI.btnAO) {
+      BglUI.btnAO.classList.toggle('active', BglState.isAOActive);
+      BglUI.btnAO.style.background = BglState.isAOActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Ambient Occlusion: ${BglState.isAOActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_ao) {
       BglState.wasmExports.bgl_toggle_ao();
@@ -1294,7 +1321,10 @@
 
   function togglePOM() {
     BglState.isPomActive = !BglState.isPomActive;
-    if (BglUI.btnPom) BglUI.btnPom.style.background = BglState.isPomActive ? '#0284c7' : '#334155';
+    if (BglUI.btnPom) {
+      BglUI.btnPom.classList.toggle('active', BglState.isPomActive);
+      BglUI.btnPom.style.background = BglState.isPomActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Parallax Occlusion Mapping (POM): ${BglState.isPomActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_pom) {
       BglState.wasmExports.bgl_toggle_pom();
@@ -1304,7 +1334,10 @@
 
   function toggleLensFlare() {
     BglState.isFlareActive = !BglState.isFlareActive;
-    if (BglUI.btnFlare) BglUI.btnFlare.style.background = BglState.isFlareActive ? '#0284c7' : '#334155';
+    if (BglUI.btnFlare) {
+      BglUI.btnFlare.classList.toggle('active', BglState.isFlareActive);
+      BglUI.btnFlare.style.background = BglState.isFlareActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Sun Lens Flares: ${BglState.isFlareActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_lens_flare) {
       BglState.wasmExports.bgl_toggle_lens_flare();
@@ -1314,7 +1347,10 @@
 
   function toggleSSAO() {
     BglState.isSsaoActive = !BglState.isSsaoActive;
-    if (BglUI.btnSSAO) BglUI.btnSSAO.style.background = BglState.isSsaoActive ? '#0284c7' : '#334155';
+    if (BglUI.btnSSAO) {
+      BglUI.btnSSAO.classList.toggle('active', BglState.isSsaoActive);
+      BglUI.btnSSAO.style.background = BglState.isSsaoActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Screen-Space Ambient Occlusion (SSAO/GTAO): ${BglState.isSsaoActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_ssao) {
       BglState.wasmExports.bgl_toggle_ssao();
@@ -1324,7 +1360,10 @@
 
   function toggleBloom() {
     BglState.isBloomActive = !BglState.isBloomActive;
-    if (BglUI.btnBloom) BglUI.btnBloom.style.background = BglState.isBloomActive ? '#0284c7' : '#334155';
+    if (BglUI.btnBloom) {
+      BglUI.btnBloom.classList.toggle('active', BglState.isBloomActive);
+      BglUI.btnBloom.style.background = BglState.isBloomActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
     BglLogger.log('Engine', `Toggle Emissive HDR Bloom: ${BglState.isBloomActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bloom) {
       BglState.wasmExports.bgl_toggle_bloom();
@@ -1496,6 +1535,39 @@
     }
   }
   window.selectTreeNodeByIndex = selectTreeNodeByIndex;
+
+  function toggleHudMinimize() {
+    const hud = document.getElementById('ui-hud');
+    const btn = document.getElementById('btn-minimize-hud');
+    if (!hud) return;
+    const isMin = hud.classList.toggle('minimized');
+    if (btn) {
+      btn.textContent = isMin ? '+' : '―';
+      btn.title = isMin ? 'Expand HUD (O)' : 'Minimize HUD (O)';
+    }
+    BglLogger.log('UI', `HUD panel: ${isMin ? 'MINIMIZED' : 'EXPANDED'}`);
+  }
+  window.toggleHudMinimize = toggleHudMinimize;
+
+  function toggleFeaturesSection() {
+    const container = document.getElementById('features-chips-container');
+    const chevron = document.getElementById('features-chevron');
+    if (!container) return;
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'grid' : 'none';
+    if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
+  }
+  window.toggleFeaturesSection = toggleFeaturesSection;
+
+  function toggleTelemetrySection() {
+    const card = document.getElementById('aabb-telemetry-card');
+    const chevron = document.getElementById('telemetry-chevron');
+    if (!card) return;
+    const isHidden = card.style.display === 'none';
+    card.style.display = isHidden ? 'block' : 'none';
+    if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
+  }
+  window.toggleTelemetrySection = toggleTelemetrySection;
 
   function toggleTuningSection() {
     const container = document.getElementById('tuning-sliders-container');
@@ -1906,6 +1978,39 @@
   async function bootstrap() {
     BglLogger.banner();
     registerEventListeners();
+
+    // Start real-time UI performance telemetry ticker
+    let lastTime = performance.now();
+    let frameCount = 0;
+    const fpsPill = document.getElementById('hud-fps-pill');
+    function tickFps() {
+      frameCount++;
+      const now = performance.now();
+      const elapsed = now - lastTime;
+      if (elapsed >= 500) {
+        const fps = (frameCount * 1000) / elapsed;
+        frameCount = 0;
+        lastTime = now;
+        if (fpsPill) {
+          fpsPill.textContent = `${fps.toFixed(1)} FPS`;
+          if (fps >= 55) {
+            fpsPill.style.background = 'rgba(16, 185, 129, 0.15)';
+            fpsPill.style.color = '#34d399';
+            fpsPill.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+          } else if (fps >= 30) {
+            fpsPill.style.background = 'rgba(234, 179, 8, 0.15)';
+            fpsPill.style.color = '#facc15';
+            fpsPill.style.borderColor = 'rgba(234, 179, 8, 0.35)';
+          } else {
+            fpsPill.style.background = 'rgba(244, 63, 94, 0.15)';
+            fpsPill.style.color = '#fb7185';
+            fpsPill.style.borderColor = 'rgba(244, 63, 94, 0.35)';
+          }
+        }
+      }
+      requestAnimationFrame(tickFps);
+    }
+    requestAnimationFrame(tickFps);
 
     // Launch Wasm initialization and model loading concurrently for fastest startup
     const wasmPromise = BglWasmBridge.init();

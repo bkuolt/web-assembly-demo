@@ -152,7 +152,8 @@ void Application::Update(float deltaTime) {
                     BGL_LOG_INFO("Toggled 3D Quadtree Spatial Bounds visibility: {}", showQuadtreeBounds_);
                 } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
                     ToggleDebugOverlay();
-                    BGL_LOG_INFO("Toggled In-Engine Debug Overlay visibility: {}", debugOverlay_.IsVisible());
+                    const char* modeStr = (debugOverlay_.GetMode() == ui::OverlayMode::Full) ? "Full" : (debugOverlay_.GetMode() == ui::OverlayMode::Minimal) ? "Minimal" : "Hidden";
+                    BGL_LOG_INFO("Toggled In-Engine Debug Overlay mode: {}", modeStr);
                 } else if (event.key.keysym.sym == SDLK_v) {
                     ToggleBumpMapping();
                     BGL_LOG_INFO("Toggled Bump & Normal Mapping: {}", pipelineManager_.IsBumpMappingEnabled());

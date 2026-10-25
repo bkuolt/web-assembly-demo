@@ -43,138 +43,182 @@
   </div>
 
   <!-- Top-Left In-Engine Telemetry HUD -->
-  <div id="ui-hud">
-    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.9.8</span></h1>
-    <p>Professional WebGPU 3D Runtime with Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares, 4× MSAA, 16× Anisotropic Mipmapping, PCF Shadows, and Cubemap IBL.</p>
-    <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Initializing WebAssembly runtime...</div>
+  <div id="ui-hud" class="hud-panel">
+    <!-- Header with Branding, Version Badge and Minimize Toggle -->
+    <div class="hud-header">
+      <div class="hud-brand">
+        <span class="hud-logo-icon">◈</span>
+        <h2>bgl Engine <span class="badge">v0.9.8</span></h2>
+      </div>
+      <div class="hud-header-actions">
+        <button id="btn-minimize-hud" class="hud-icon-btn" onclick="toggleHudMinimize()" title="Minimize / Expand HUD (O)">―</button>
+      </div>
+    </div>
+
+    <!-- Subtitle & Live Performance Telemetry Strip -->
+    <div class="hud-meta-row">
+      <span class="hud-subtitle">WebGPU &amp; Wasm 3D Runtime</span>
+      <span id="hud-fps-pill" class="hud-fps-pill">60.0 FPS</span>
+    </div>
+
+    <div id="status-text" class="status-text">Initializing WebAssembly runtime...</div>
     <div class="progress-bar-container">
       <div id="progress-bar" class="progress-bar"></div>
     </div>
-    <div class="model-quick-bar">
-      <span class="quick-label">Scene:</span>
-      <button class="pill-btn" id="btn-load-toycar" onclick="loadPresetModel('ToyCar.glb')" title="Fast lightweight glTF model (~5.1 MB)">ToyCar (5 MB)</button>
-      <button class="pill-btn" id="btn-load-sponza" onclick="loadPresetModel('Sponza.glb')" title="Architectural benchmark glTF (~52.6 MB)">Sponza (52 MB)</button>
-    </div>
-    <div class="model-quick-bar" style="margin-top: 4px;">
-      <span class="quick-label">Camera:</span>
-      <select id="camera-select" class="camera-select" onchange="onCameraSelect(this.value)">
-        <option value="-1">Default Interactive Camera</option>
-      </select>
-    </div>
-    <div class="bookmark-bar">
-      <span class="quick-label">Bookmarks:</span>
-      <button class="bookmark-btn" onclick="saveBookmark(0)" title="Save Slot 1 (Ctrl+1)">+1</button>
-      <button class="bookmark-btn" onclick="restoreBookmark(0)" title="Recall Slot 1 (1)">1</button>
-      <button class="bookmark-btn" onclick="saveBookmark(1)" title="Save Slot 2 (Ctrl+2)">+2</button>
-      <button class="bookmark-btn" onclick="restoreBookmark(1)" title="Recall Slot 2 (2)">2</button>
-      <button class="bookmark-btn" onclick="saveBookmark(2)" title="Save Slot 3 (Ctrl+3)">+3</button>
-      <button class="bookmark-btn" onclick="restoreBookmark(2)" title="Recall Slot 3 (3)">3</button>
-    </div>
+
     <div id="gamepad-badge" class="gamepad-indicator" style="display: none;">
       <span class="gamepad-dot"></span>
       <span id="gamepad-label">🎮 Controller Active</span>
     </div>
-    <div class="hud-grid" style="margin-top: 8px;">
-      <button class="btn" id="btn-focus" onclick="focusSelection()" style="background: #0284c7;">Focus [F]</button>
-      <button class="btn" id="btn-frame-all" onclick="frameAll()" style="background: #0284c7;">Frame All</button>
-      <button class="btn" id="btn-cam-mode" onclick="toggleCameraMode()" style="background: #0284c7;">Mode: Orbit [C]</button>
-      <button class="btn" id="btn-turntable" onclick="toggleTurntable()" style="background: #475569;">Turntable [T]</button>
-      <button class="btn" id="btn-bump" onclick="toggleBump()" style="background: #0284c7;">Bump [V]</button>
-      <button class="btn" id="btn-pom" onclick="togglePOM()" style="background: #0284c7;">Parallax POM [P]</button>
-      <button class="btn" id="btn-ao" onclick="toggleAO()" style="background: #0284c7;">Material AO [U]</button>
-      <button class="btn" id="btn-ssao" onclick="toggleSSAO()" style="background: #0284c7;">SSAO [G]</button>
-      <button class="btn" id="btn-bloom" onclick="toggleBloom()" style="background: #0284c7;">Bloom [B]</button>
-      <button class="btn" id="btn-flare" onclick="toggleLensFlare()" style="background: #0284c7;">Lens Flares [J]</button>
-      <button class="btn" id="btn-mipmaps" onclick="toggleMipmaps()" style="background: #0284c7;">Mipmaps [L]</button>
-      <button class="btn" id="btn-shadows" onclick="toggleShadows()" style="background: #0284c7;">Shadows [M]</button>
-      <button class="btn" id="btn-reflections" onclick="toggleReflections()" style="background: #0284c7;">Reflections [R]</button>
-      <button class="btn" id="btn-skybox" onclick="toggleSkybox()" style="background: #475569;">Skybox [K]</button>
-      <button class="btn" id="btn-quadtree" onclick="toggleQuadtree()" style="background: #059669;">Quadtree [Q]</button>
-      <button class="btn" id="btn-hud" onclick="toggleHUD()" style="background: #0284c7;">HUD [O]</button>
-      <button class="btn" id="btn-tree" onclick="toggleTreePanel()" style="background: #334155; grid-column: span 2;">Scene Hierarchy [N]</button>
-    </div>
 
-    <!-- Live Render Tuning Drawer -->
-    <div class="hud-accordion">
-      <div class="hud-section-header" onclick="toggleTuningSection()">
-        <span>Live Parameter Tuning</span>
-        <span id="tuning-chevron">▾</span>
-      </div>
-      <div id="tuning-sliders-container" class="slider-group">
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>Time of Day (Sun Position)</span>
-            <span class="slider-value" id="val-time-of-day">14:00</span>
+    <!-- Collapsible HUD Body -->
+    <div id="hud-content-body">
+      <!-- Section 1: Scene & Camera Quick Bar -->
+      <div class="hud-group">
+        <div class="hud-row-split">
+          <span class="quick-label">Scene:</span>
+          <div class="model-quick-bar">
+            <button class="pill-btn active" id="btn-load-sponza" onclick="loadPresetModel('Sponza.glb')" title="Architectural benchmark glTF (~52.6 MB)">Sponza (52M)</button>
+            <button class="pill-btn" id="btn-load-toycar" onclick="loadPresetModel('ToyCar.glb')" title="Fast lightweight glTF model (~5.1 MB)">ToyCar (5M)</button>
           </div>
-          <input type="range" class="slider-input" id="slider-time-of-day" min="0" max="24" step="0.25" value="14" oninput="onTimeOfDaySlider(this.value)">
         </div>
 
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>Turntable Speed</span>
-            <span class="slider-value" id="val-turntable-speed">0.35 rad/s</span>
-          </div>
-          <input type="range" class="slider-input" id="slider-turntable-speed" min="0.05" max="2.0" step="0.05" value="0.35" oninput="onTurntableSpeedSlider(this.value)">
+        <div class="hud-row-split" style="margin-top: 6px;">
+          <span class="quick-label">Camera:</span>
+          <select id="camera-select" class="camera-select" onchange="onCameraSelect(this.value)">
+            <option value="-1">Default Interactive Camera</option>
+          </select>
         </div>
 
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>AO Intensity</span>
-            <span class="slider-value" id="val-ao-intensity">1.00×</span>
+        <div class="hud-row-split" style="margin-top: 6px;">
+          <span class="quick-label">Slots:</span>
+          <div class="bookmark-bar">
+            <button class="bookmark-btn" onclick="saveBookmark(0)" title="Save Slot 1 (Ctrl+1)">+1</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(0)" title="Recall Slot 1 (1)">1</button>
+            <button class="bookmark-btn" onclick="saveBookmark(1)" title="Save Slot 2 (Ctrl+2)">+2</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(1)" title="Recall Slot 2 (2)">2</button>
+            <button class="bookmark-btn" onclick="saveBookmark(2)" title="Save Slot 3 (Ctrl+3)">+3</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(2)" title="Recall Slot 3 (3)">3</button>
           </div>
-          <input type="range" class="slider-input" id="slider-ao" min="0" max="2" step="0.05" value="1.0" oninput="onAoSlider(this.value)">
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>Screen-Space AO (SSAO)</span>
-            <span class="slider-value" id="val-ssao-intensity">0.75×</span>
-          </div>
-          <input type="range" class="slider-input" id="slider-ssao" min="0" max="2" step="0.05" value="0.75" oninput="onSsaoSlider(this.value)">
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>HDR Bloom Intensity</span>
-            <span class="slider-value" id="val-bloom-intensity">0.65×</span>
-          </div>
-          <input type="range" class="slider-input" id="slider-bloom" min="0" max="2.5" step="0.05" value="0.65" oninput="onBloomSlider(this.value)">
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>Parallax Depth Scale</span>
-            <span class="slider-value" id="val-pom-scale">0.035</span>
-          </div>
-          <input type="range" class="slider-input" id="slider-pom" min="0.005" max="0.08" step="0.002" value="0.035" oninput="onPomSlider(this.value)">
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-header">
-            <span>Sun Lens Flare Intensity</span>
-            <span class="slider-value" id="val-flare-intensity">0.75×</span>
-          </div>
-          <input type="range" class="slider-input" id="slider-flare" min="0" max="2.5" step="0.05" value="0.75" oninput="onFlareSlider(this.value)">
         </div>
       </div>
-    </div>
 
-    <!-- Navigation & Controls Hint Card -->
-    <div class="keyboard-hint-row">
-      <strong>Controls:</strong> Click object to Pick &amp; Highlight. <span class="key-pill">F</span> Focus selection, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">1</span>–<span class="key-pill">9</span> Bookmarks (<span class="key-pill">Ctrl</span> to save), <span class="key-pill">W</span><span class="key-pill">A</span><span class="key-pill">S</span><span class="key-pill">D</span> to move. Touch pinch-zoom &amp; Gamepad active.
-    </div>
-
-    <!-- Live Scene AABB & Spatial Bounds Telemetry Card -->
-    <div id="aabb-telemetry-card">
-      <div class="card-header">
-        <span>Spatial Telemetry &amp; AABBs</span>
-        <span id="telemetry-badge" class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: rgba(34, 197, 94, 0.4);">Quadtree Active</span>
+      <!-- Section 2: Camera Navigation Toolbar -->
+      <div class="hud-nav-bar">
+        <button class="btn btn-nav" id="btn-focus" onclick="focusSelection()" title="Focus selected object">Focus [F]</button>
+        <button class="btn btn-nav" id="btn-frame-all" onclick="frameAll()" title="Frame entire scene">Frame All</button>
+        <button class="btn btn-nav" id="btn-cam-mode" onclick="toggleCameraMode()" title="Switch Fly / Orbit">Orbit [C]</button>
+        <button class="btn btn-nav" id="btn-turntable" onclick="toggleTurntable()" title="Auto-rotate turntable">Turntable [T]</button>
       </div>
-      <div class="footer-kv"><span>Dimensions (W×H×D):</span><span id="aabb-dims">--</span></div>
-      <div class="footer-kv"><span>Min Bound:</span><span id="aabb-min">--</span></div>
-      <div class="footer-kv"><span>Max Bound:</span><span id="aabb-max">--</span></div>
-      <div class="footer-kv"><span>Scene Center:</span><span id="aabb-center">--</span></div>
-      <div class="footer-kv"><span>Geometry Metrics:</span><span id="aabb-prims">--</span></div>
+
+      <!-- Section 3: Shading & Render Features -->
+      <div class="hud-features-wrapper">
+        <div class="hud-section-header" onclick="toggleFeaturesSection()">
+          <span>Render Features &amp; FX</span>
+          <span id="features-chevron">▾</span>
+        </div>
+        <div id="features-chips-container" class="hud-chip-grid">
+          <button class="chip-btn active" id="btn-bump" onclick="toggleBump()" title="Normal & Bump mapping">Bump [V]</button>
+          <button class="chip-btn active" id="btn-pom" onclick="togglePOM()" title="Parallax Occlusion Mapping">POM [P]</button>
+          <button class="chip-btn active" id="btn-ao" onclick="toggleAO()" title="glTF Material Ambient Occlusion">Mat AO [U]</button>
+          <button class="chip-btn active" id="btn-ssao" onclick="toggleSSAO()" title="Screen-Space Ambient Occlusion (SSAO)">SSAO [G]</button>
+          <button class="chip-btn active" id="btn-bloom" onclick="toggleBloom()" title="Emissive HDR Bloom">Bloom [B]</button>
+          <button class="chip-btn active" id="btn-flare" onclick="toggleLensFlare()" title="Sun Lens Flares">Flares [J]</button>
+          <button class="chip-btn active" id="btn-shadows" onclick="toggleShadows()" title="Directional PCF Shadows">Shadow [M]</button>
+          <button class="chip-btn active" id="btn-reflections" onclick="toggleReflections()" title="Split-Sum GGX Cubemap IBL">Reflect [R]</button>
+          <button class="chip-btn active" id="btn-mipmaps" onclick="toggleMipmaps()" title="16x Anisotropic Mipmapping">Mipmap [L]</button>
+          <button class="chip-btn" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
+          <button class="chip-btn active" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
+          <button class="chip-btn" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
+          <button class="chip-btn active" id="btn-hud" onclick="toggleHUD()" title="In-Engine Native HUD">HUD [O]</button>
+          <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
+        </div>
+      </div>
+
+      <!-- Section 4: Live Render Tuning Drawer -->
+      <div class="hud-accordion">
+        <div class="hud-section-header" onclick="toggleTuningSection()">
+          <span>Live Parameter Tuning</span>
+          <span id="tuning-chevron">▾</span>
+        </div>
+        <div id="tuning-sliders-container" class="slider-group">
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Time of Day (Sun Position)</span>
+              <span class="slider-value" id="val-time-of-day">14:00</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-time-of-day" min="0" max="24" step="0.25" value="14" oninput="onTimeOfDaySlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Turntable Speed</span>
+              <span class="slider-value" id="val-turntable-speed">0.35 rad/s</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-turntable-speed" min="0.05" max="2.0" step="0.05" value="0.35" oninput="onTurntableSpeedSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>AO Intensity</span>
+              <span class="slider-value" id="val-ao-intensity">1.00×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-ao" min="0" max="2" step="0.05" value="1.0" oninput="onAoSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Screen-Space AO (SSAO)</span>
+              <span class="slider-value" id="val-ssao-intensity">0.75×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-ssao" min="0" max="2" step="0.05" value="0.75" oninput="onSsaoSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>HDR Bloom Intensity</span>
+              <span class="slider-value" id="val-bloom-intensity">0.65×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-bloom" min="0" max="2.5" step="0.05" value="0.65" oninput="onBloomSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Parallax Depth Scale</span>
+              <span class="slider-value" id="val-pom-scale">0.035</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-pom" min="0.005" max="0.08" step="0.002" value="0.035" oninput="onPomSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Sun Lens Flare Intensity</span>
+              <span class="slider-value" id="val-flare-intensity">0.75×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-flare" min="0" max="2.5" step="0.05" value="0.75" oninput="onFlareSlider(this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 5: Spatial Telemetry & AABBs Drawer -->
+      <div class="hud-accordion">
+        <div class="hud-section-header" onclick="toggleTelemetrySection()">
+          <span>Spatial Telemetry &amp; AABBs</span>
+          <span id="telemetry-chevron">▸</span>
+        </div>
+        <div id="aabb-telemetry-card" style="display: none;">
+          <div class="footer-kv"><span>Dimensions (W×H×D):</span><span id="aabb-dims">--</span></div>
+          <div class="footer-kv"><span>Min Bound:</span><span id="aabb-min">--</span></div>
+          <div class="footer-kv"><span>Max Bound:</span><span id="aabb-max">--</span></div>
+          <div class="footer-kv"><span>Scene Center:</span><span id="aabb-center">--</span></div>
+          <div class="footer-kv"><span>Geometry Metrics:</span><span id="aabb-prims">--</span></div>
+        </div>
+      </div>
+
+      <!-- Navigation & Controls Hint Card -->
+      <div class="keyboard-hint-row">
+        <strong>Keys:</strong> <span class="key-pill">WASD</span> Move, <span class="key-pill">F</span> Focus, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">1-3</span> Bookmarks, <span class="key-pill">N</span> Hierarchy.
+      </div>
     </div>
   </div>
 

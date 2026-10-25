@@ -53,6 +53,16 @@ struct OverlayStats {
 };
 
 /**
+ * @enum OverlayMode
+ * @brief Presentation mode for the in-engine debug HUD.
+ */
+enum class OverlayMode : uint8_t {
+    Full = 0,    ///< Comprehensive multi-section telemetry & controls card
+    Minimal = 1, ///< Single-line compact floating status pill
+    Hidden = 2   ///< Fully hidden HUD
+};
+
+/**
  * @class DebugOverlay
  * @brief Renders an interactive, glassmorphism HUD panel over the 3D scene.
  */
@@ -89,12 +99,19 @@ public:
      */
     void Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight);
 
-    void Toggle() noexcept { visible_ = !visible_; }
-    void SetVisible(bool visible) noexcept { visible_ = visible; }
-    [[nodiscard]] bool IsVisible() const noexcept { return visible_; }
+    /**
+     * @brief Cycles overlay mode: Full -> Minimal -> Hidden -> Full.
+     */
+    void Toggle() noexcept;
+
+    void SetMode(OverlayMode mode) noexcept { mode_ = mode; }
+    [[nodiscard]] OverlayMode GetMode() const noexcept { return mode_; }
+
+    void SetVisible(bool visible) noexcept { mode_ = visible ? OverlayMode::Full : OverlayMode::Hidden; }
+    [[nodiscard]] bool IsVisible() const noexcept { return mode_ != OverlayMode::Hidden; }
 
 private:
-    bool visible_{true};
+    OverlayMode mode_{OverlayMode::Full};
     text::FontAtlas fontAtlas_{};
     text::TextRenderer textRenderer_{};
 
