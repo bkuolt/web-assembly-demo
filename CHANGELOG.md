@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.6] - 2026-10-25
+
+### CI/CD Robustness & GitHub Pages Staging Stabilization
+- **GitHub Pages Staging Resilience:**
+  - Hardened `.github/workflows/ci.yml` staging step with conditional directory inspection for `web/dist`, ensuring clean builds when distribution artifacts are built dynamically.
+- **Specification and Tag Alignment:**
+  - Synchronized engine version constants in `Version.hpp.in`, `CMakeLists.txt`, `README.md`, and `web/index.html` to `v0.9.6`.
+  - All 157 unit tests verified and passing.
+
+---
+
 ## [0.9.5] - 2026-10-25
 
 ### Documentation Synchronization, Master Architecture Specifications & Release Hardening

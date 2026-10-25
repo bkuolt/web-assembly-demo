@@ -180,19 +180,19 @@ jobs:
 
     - name: Stage GitHub Pages Site
       run: |
-        mkdir -p _site/dist _site/assets _site/web/dist _site/web/assets
+        mkdir -p _site/dist _site/assets _site/web/dist _site/web/assets web/dist
         # 1. Root level assets for direct domain access (https://<user>.github.io/<repo>/)
         cp -f web/index.html _site/index.html
         cp -f web/style.css _site/style.css
         cp -f web/app.js _site/app.js
-        cp -f web/dist/* _site/dist/
-        cp -f web/assets/* _site/assets/
+        if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/dist/; fi
+        cp -rf web/assets/* _site/assets/
         # 2. Subdirectory assets for subpath access (https://<user>.github.io/<repo>/web/index.html)
         cp -f web/index.html _site/web/index.html
         cp -f web/style.css _site/web/style.css
         cp -f web/app.js _site/web/app.js
-        cp -f web/dist/* _site/web/dist/
-        cp -f web/assets/* _site/web/assets/
+        if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/web/dist/; fi
+        cp -rf web/assets/* _site/web/assets/
         # 3. Add .nojekyll to prevent Jekyll from skipping underscore files or assets
         touch _site/.nojekyll
 

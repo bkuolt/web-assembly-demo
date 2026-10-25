@@ -1,7 +1,7 @@
 # Master Specification & Architecture Guide (bgl-Engine)
 **Project:** Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance Renderer (`bgl`-Engine)  
 **Target Environments:** Linux (amd64) Desktop (`bgl_viewer`) & WebAssembly (`wasm32-unknown-emscripten`)  
-**Version:** `0.9.5`
+**Version:** `0.9.6`
 
 ---
 
