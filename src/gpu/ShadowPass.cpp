@@ -368,6 +368,12 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
                 }
             }
 
+            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+                const auto& mat = scene.materials[prim.materialIndex];
+                uniforms.uvScale = mat.uvScale;
+                uniforms.uvOffset = mat.uvOffset;
+            }
+
             wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
             if (!prim.gpuShadowBindGroup) {

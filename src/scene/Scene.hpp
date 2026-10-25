@@ -89,6 +89,9 @@ struct Material {
     float bumpScale{1.0f};
     int occlusionTextureIndex{-1};
     float occlusionStrength{1.0f};
+    glm::vec2 uvOffset{0.0f, 0.0f};
+    glm::vec2 uvScale{1.0f, 1.0f};
+    float uvRotation{0.0f};
 
     // 3. Emissive & Extensions
     glm::vec3 emissiveFactor{0.0f};

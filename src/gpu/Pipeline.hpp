@@ -101,18 +101,16 @@ struct alignas(16) PrimitiveUniforms {
     float shadowBias{0.0015f};
     float envMipCount{7.0f};
 
-    // 352..383: Volume & Attenuation (KHR_materials_volume)
+    // 352..383: Volume & Attenuation (KHR_materials_volume) & UV Scale
     float thicknessFactor{0.0f};
     float attenuationDistance{1e9f};
-    float transmissionRoughness{0.0f};
-    float paddingVol1{0.0f};
+    glm::vec2 uvScale{1.0f, 1.0f};
     glm::vec4 attenuationColor{1.0f, 1.0f, 1.0f, 1.0f};
 
-    // 384..399: Animation & Skinning counts
+    // 384..399: Animation & Skinning counts & UV Offset
     uint32_t jointCount{0};
     uint32_t morphTargetCount{0};
-    float padAnim1{0.0f};
-    float padAnim2{0.0f};
+    glm::vec2 uvOffset{0.0f, 0.0f};
 
     // 400..415: Morph Weights (first 4 channels)
     glm::vec4 morphWeights{0.0f};

@@ -330,6 +330,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
 
         if (mat.pbrData.baseColorTexture.has_value()) {
             sceneMat.baseColorTextureIndex = static_cast<int>(mat.pbrData.baseColorTexture->textureIndex);
+            if (mat.pbrData.baseColorTexture->transform) {
+                const auto& tf = *mat.pbrData.baseColorTexture->transform;
+                sceneMat.uvOffset = glm::vec2(tf.uvOffset[0], tf.uvOffset[1]);
+                sceneMat.uvScale = glm::vec2(tf.uvScale[0], tf.uvScale[1]);
+                sceneMat.uvRotation = static_cast<float>(tf.rotation);
+            }
         }
 
         // Metallic-Roughness Texture
@@ -342,6 +348,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
         if (mat.normalTexture.has_value()) {
             sceneMat.normalTextureIndex = static_cast<int>(mat.normalTexture->textureIndex);
             sceneMat.normalScale = mat.normalTexture->scale;
+            if (mat.normalTexture->transform) {
+                const auto& tf = *mat.normalTexture->transform;
+                sceneMat.uvOffset = glm::vec2(tf.uvOffset[0], tf.uvOffset[1]);
+                sceneMat.uvScale = glm::vec2(tf.uvScale[0], tf.uvScale[1]);
+                sceneMat.uvRotation = static_cast<float>(tf.rotation);
+            }
         }
 
         // Occlusion Texture

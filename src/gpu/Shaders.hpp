@@ -503,13 +503,11 @@ struct Uniforms {
     envMipCount : f32,
     thicknessFactor : f32,
     attenuationDistance : f32,
-    transmissionRoughness : f32,
-    paddingVol1 : f32,
+    uvScale : vec2<f32>,
     attenuationColor : vec4<f32>,
     jointCount : u32,
     morphTargetCount : u32,
-    padAnim1 : f32,
-    padAnim2 : f32,
+    uvOffset : vec2<f32>,
     morphWeights : vec4<f32>,
     jointMatrices : array<mat4x4<f32>, 128>,
 };
@@ -551,7 +549,7 @@ fn vs_shadow(in : VertexInput) -> VertexOutput {
 
     let worldPos = ubo.model * vec4<f32>(localPos, 1.0);
     out.clipPos = ubo.lightViewProj * worldPos;
-    out.uv = in.uv;
+    out.uv = in.uv * ubo.uvScale + ubo.uvOffset;
     return out;
 }
 
@@ -612,13 +610,11 @@ struct Uniforms {
     envMipCount : f32,
     thicknessFactor : f32,
     attenuationDistance : f32,
-    transmissionRoughness : f32,
-    paddingVol1 : f32,
+    uvScale : vec2<f32>,
     attenuationColor : vec4<f32>,
     jointCount : u32,
     morphTargetCount : u32,
-    padAnim1 : f32,
-    padAnim2 : f32,
+    uvOffset : vec2<f32>,
     morphWeights : vec4<f32>,
     jointMatrices : array<mat4x4<f32>, 128>,
 };
@@ -764,7 +760,7 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     let detSign = select(1.0, -1.0, det < 0.0);
     out.tangent = vec4<f32>(normTan, in.tangent.w * detSign);
-    out.uv = in.uv;
+    out.uv = in.uv * ubo.uvScale + ubo.uvOffset;
     return out;
 }
 
@@ -857,8 +853,7 @@ fn evaluateDirectLobe(
     ccFactor : f32,
     ccRoughness : f32,
     sheenColor : vec3<f32>,
-    sheenRoughness : f32,
-    bumpCavity : f32
+    sheenRoughness : f32
 ) -> vec3<f32> {
     let NdotL = max(dot(N, L), 0.0);
     if (NdotL <= 0.0) {
@@ -877,7 +872,7 @@ fn evaluateDirectLobe(
     let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
     let diffuseBRDF = kD * (diffuseColor / 3.14159265359) * (1.0 - transFactor);
 
-    var contrib = (diffuseBRDF + specularBRDF) * radiance * NdotL * bumpCavity;
+    var contrib = (diffuseBRDF + specularBRDF) * radiance * NdotL;
 
     if (ccFactor > 0.001) {
         let Dcc = distributionGGX(NdotH, ccRoughness);
@@ -1043,7 +1038,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
     var pomShadow = 1.0;
     if ((ubo.flags & 32768u) != 0u && (ubo.flags & 1024u) != 0u) {
-        let pomScale = max(ubo.bumpScale * 0.035, 0.005);
+        let isNormalMapped = (ubo.flags & 4u) != 0u;
+        let baseScale = select(0.035, 0.005, isNormalMapped);
+        let pomScale = max(ubo.bumpScale * baseScale, 0.001);
         uv = parallaxOcclusionMapping(in.uv, V_tangent, duv1, duv2, pomScale);
 
         let L_tangent = vec3<f32>(
@@ -1063,26 +1060,6 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let transTexSample = textureSampleGrad(transmissionTexture, defaultSampler, uv, duv1, duv2);
     let sheenTexSample = textureSampleGrad(sheenTexture, defaultSampler, uv, duv1, duv2);
 
-    let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
-    let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
-    let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
-
-    let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-    let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-    let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
-    let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
-
-    var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
-    var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
-    if ((ubo.flags & 16u) != 0u) {
-        let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-        let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-        let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
-        let occD = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
-        dHdU = dHdU + (occR - occL) * 0.75;
-        dHdV = dHdV + (occU - occD) * 0.75;
-    }
-
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags & 1u) != 0u) {
         baseColor = baseColor * baseTexSample;
@@ -1097,25 +1074,32 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var N = geomN;
-    var bumpCavity = 1.0;
-    var tangentXY = vec2<f32>(0.0, 0.0);
-    if ((ubo.flags & 1024u) != 0u) {
-        var tangentZ = 1.0;
-        if ((ubo.flags & 4u) != 0u) {
-            let normTex = normTexSample.xyz * 2.0 - 1.0;
-            tangentXY = normTex.xy * (ubo.normalScale * ubo.bumpScale);
-            tangentZ = max(normTex.z, 0.15);
-        } else if ((ubo.flags & 16u) != 0u) {
-            tangentXY = vec2<f32>(-dHdU, -dHdV) * 2.0 * ubo.bumpScale;
-            tangentZ = 1.0;
-        }
-        let scaledNorm = normalize(vec3<f32>(tangentXY, tangentZ));
+    if ((ubo.flags & 4u) != 0u) {
+        let normTex = normTexSample.xyz * 2.0 - 1.0;
+        let scaledNorm = normalize(vec3<f32>(normTex.xy * ubo.normalScale, normTex.z));
         N = normalize(tbn * scaledNorm);
-        if (dot(N, geomN) < 0.05) {
-            N = normalize(mix(geomN, N, 0.65));
+    } else if ((ubo.flags & 1024u) != 0u && ((ubo.flags & 1u) != 0u || (ubo.flags & 16u) != 0u)) {
+        let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
+        let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
+        let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
+
+        let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+        let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
+        let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+        let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+
+        var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
+        var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
+        if ((ubo.flags & 16u) != 0u) {
+            let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+            let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+            let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+            let occD = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+            dHdU = dHdU + (occR - occL) * 0.75;
+            dHdV = dHdV + (occU - occD) * 0.75;
         }
-        let slopeSq = dot(tangentXY, tangentXY);
-        bumpCavity = clamp(1.0 - 0.25 * slopeSq, 0.5, 1.0);
+        let bumpNorm = normalize(vec3<f32>(vec2<f32>(-dHdU, -dHdV) * (2.0 * ubo.bumpScale), 1.0));
+        N = normalize(tbn * bumpNorm);
     }
 
     var roughness = ubo.roughnessFactor;
@@ -1153,17 +1137,15 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
-    // Ground-truth Ambient Occlusion (glTF occlusion map + micro-cavity + horizon contact + multi-bounce)
+    // Ground-truth Ambient Occlusion (glTF occlusion map + multi-bounce)
     var ao = 1.0;
     if ((ubo.flags & 16384u) != 0u) { // Bit 14 = EnableAmbientOcclusion
         if ((ubo.flags & 16u) != 0u) {
             let occSample = occTexSample.r;
             ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
         }
-        let horizonOcclusion = clamp(dot(N, geomN) * 1.25, 0.35, 1.0);
-        let combinedAO = clamp(ao * bumpCavity * horizonOcclusion, 0.0, 1.0);
         // Jimenez multi-bounce approximation to preserve saturated diffuse tone in crevices
-        ao = mix(combinedAO, combinedAO * (diffuseColor * (1.0 - combinedAO) + 1.0).r, 0.35);
+        ao = mix(ao, ao * (diffuseColor.r * (1.0 - ao) + 1.0), 0.2);
     }
 
     var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
@@ -1185,7 +1167,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let sunRadiance = vec3<f32>(1.0, 0.98, 0.95) * 3.14159265359;
         directLighting = evaluateDirectLobe(
             sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
-            transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, bumpCavity
+            transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
         ) * (shadowFactor * pomShadow);
     }
 
@@ -1242,7 +1224,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
                 }
                 directLighting = directLighting + evaluateDirectLobe(
                     L_p, V, N, lightRadiance, F0, diffuseColor, roughness, metallic,
-                    transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, bumpCavity
+                    transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
                 ) * pShadow;
             }
         }
@@ -1267,7 +1249,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let specMip = clamp(roughness * maxMip, 0.0, maxMip);
         let prefilteredEnv = textureSampleLevel(envCubemap, defaultSampler, R, specMip).rgb;
         let specBrdf = F_ibl * brdfSample.x + vec3<f32>(brdfSample.y);
-        ambientSpecular = prefilteredEnv * specBrdf * ubo.reflectionIntensity * mix(0.35, 1.0, ao);
+        ambientSpecular = prefilteredEnv * specBrdf * ubo.reflectionIntensity * ao;
 
         if (ccFactor > 0.001) {
             let R_cc = rotateY(reflect(-V, geomN), envRot);
@@ -1391,13 +1373,11 @@ struct Uniforms {
     envMipCount : f32,
     thicknessFactor : f32,
     attenuationDistance : f32,
-    transmissionRoughness : f32,
-    paddingVol1 : f32,
+    uvScale : vec2<f32>,
     attenuationColor : vec4<f32>,
     jointCount : u32,
     morphTargetCount : u32,
-    padAnim1 : f32,
-    padAnim2 : f32,
+    uvOffset : vec2<f32>,
     morphWeights : vec4<f32>,
     jointMatrices : array<mat4x4<f32>, 128>,
 };

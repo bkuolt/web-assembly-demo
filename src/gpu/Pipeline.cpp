@@ -2371,6 +2371,12 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
             uniforms.flags |= MaterialFlags::HasMorphTargets;
         }
 
+        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+            const auto& mat = scene.materials[prim.materialIndex];
+            uniforms.uvScale = mat.uvScale;
+            uniforms.uvOffset = mat.uvOffset;
+        }
+
         wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
         wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
@@ -2596,7 +2602,9 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.metallicFactor = mat.metallicFactor;
         uniforms.roughnessFactor = mat.roughnessFactor;
         uniforms.normalScale = mat.normalScale;
-        uniforms.bumpScale = mat.bumpScale * (parallaxEnabled_ ? (parallaxScale_ / 0.035f) : 1.0f);
+        uniforms.bumpScale = mat.bumpScale;
+        uniforms.uvScale = mat.uvScale;
+        uniforms.uvOffset = mat.uvOffset;
         uniforms.occlusionStrength = mat.occlusionStrength * aoIntensity_;
         uniforms.emissiveFactor = glm::vec4{mat.emissiveFactor, mat.emissiveStrength};
         uniforms.alphaCutoff = mat.alphaCutoff;
