@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "0.9.0"
+    version = "0.9.9"
     package_type = "application"
     settings = "os", "arch", "compiler", "build_type"
 
@@ -52,6 +52,9 @@ class BglEngineRecipe(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        tc.variables["CMAKE_CXX_STANDARD"] = "23"
+        tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
+        tc.variables["CMAKE_CXX_EXTENSIONS"] = "OFF"
         tc.variables["BGL_ENABLE_PNG"] = self.options.with_png
         tc.variables["BGL_ENABLE_JPEG"] = self.options.with_jpeg
         tc.variables["BGL_ENABLE_WEBP"] = self.options.with_webp

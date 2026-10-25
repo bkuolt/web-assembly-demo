@@ -33,8 +33,8 @@ echo "[Step 4/5] Running GTest unit test suites..."
 ctest --test-dir "${BUILD_DIR}" --output-on-failure
 
 # Step 5: Smoke Test
-echo "[Step 5/5] Running native WebGPU smoke test (timeout 2s)..."
-timeout 2s ./"${BUILD_DIR}/bgl_viewer" || [ $? -eq 124 ]
+echo "[Step 5/5] Running native WebGPU smoke test (headless CI mode)..."
+./"${BUILD_DIR}/bgl_viewer" --headless
 
 echo "================================================================================"
 echo "[Local CI Runner] SUCCESS: All CI pipeline stages passed cleanly!"
