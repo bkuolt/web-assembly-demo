@@ -9,7 +9,8 @@ bgl_unit_tests
 .vscode/*
 !.vscode/tasks.json
 dist/
-web/dist/
+web/dist/*
+!web/dist/bgl_engine.wasm
 *.zip
 conan*env*.sh
 deactivate_conan*.sh
