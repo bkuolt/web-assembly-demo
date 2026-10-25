@@ -42,6 +42,46 @@
     </div>
   </div>
 
+  <!-- Dedicated Model Loading Screen & Download Progress Overlay -->
+  <div id="model-loading-screen" class="loading-overlay" style="display: none;">
+    <div class="loading-card" role="dialog" aria-modal="true" aria-labelledby="loading-model-name">
+      <div class="loading-spinner-wrapper">
+        <div class="loading-spinner"></div>
+        <span class="loading-logo-icon">◈</span>
+      </div>
+      <h3 id="loading-model-name">Downloading 3D Model</h3>
+      <div id="loading-source-label" class="loading-source-label">Khronos glTF 2.0 Sample Repository</div>
+      
+      <div class="loading-bar-wrap">
+        <div id="loading-bar-fill" class="loading-bar-fill" style="width: 0%;"></div>
+      </div>
+
+      <div class="loading-meta-row">
+        <span id="loading-status-text">Connecting to repository...</span>
+        <span id="loading-pct-badge" class="loading-pct-badge">0%</span>
+      </div>
+
+      <div class="loading-stats">
+        <div class="loading-stat-col">
+          <span class="stat-label">Transferred</span>
+          <span id="loading-stat-size" class="stat-value">0.0 / 0.0 MB</span>
+        </div>
+        <div class="loading-stat-col">
+          <span class="stat-label">Transfer Speed</span>
+          <span id="loading-stat-speed" class="stat-value">0.0 MB/s</span>
+        </div>
+        <div class="loading-stat-col">
+          <span class="stat-label">Storage Status</span>
+          <span id="loading-stat-cache" class="stat-value">Streaming</span>
+        </div>
+      </div>
+
+      <div class="loading-actions">
+        <button id="btn-cancel-loading" class="btn-cancel-loading" onclick="cancelModelDownload()">Cancel Download</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Top-Left In-Engine Telemetry HUD -->
   <div id="ui-hud" class="hud-panel">
     <!-- Header with Branding, Version Badge and Minimize Toggle -->
@@ -73,14 +113,47 @@
 
     <!-- Collapsible HUD Body -->
     <div id="hud-content-body">
-      <!-- Section 1: Scene & Camera Quick Bar -->
+      <!-- Section 1: Model Selection & Camera Controls -->
       <div class="hud-group">
         <div class="hud-row-split">
-          <span class="quick-label">Scene:</span>
-          <div class="model-quick-bar">
-            <button class="pill-btn active" id="btn-load-sponza" onclick="loadPresetModel('Sponza.glb')" title="Architectural benchmark glTF (~52.6 MB)">Sponza (52M)</button>
-            <button class="pill-btn" id="btn-load-toycar" onclick="loadPresetModel('ToyCar.glb')" title="Fast lightweight glTF model (~5.1 MB)">ToyCar (5M)</button>
+          <span class="quick-label">Model:</span>
+          <div class="model-select-wrap">
+            <select id="model-select" class="model-select" onchange="onModelSelectChanged(this.value)">
+              <optgroup label="Local Presets">
+                <option value="assets/ToyCar.glb" selected>ToyCar (5.1 MB)</option>
+                <option value="assets/Sponza.glb">Sponza (52.6 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (PBR)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb">DamagedHelmet (3.6 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AntiqueCamera/glTF-Binary/AntiqueCamera.glb">AntiqueCamera (16.7 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoomBox/glTF-Binary/BoomBox.glb">BoomBox (10.1 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/WaterBottle/glTF-Binary/WaterBottle.glb">WaterBottle (8.6 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb">MaterialsVariantsShoe (7.5 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Avocado/glTF-Binary/Avocado.glb">Avocado (7.7 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BarramundiFish/glTF-Binary/BarramundiFish.glb">BarramundiFish (11.9 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Lantern/glTF-Binary/Lantern.glb">Lantern (1.2 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Corset/glTF-Binary/Corset.glb">Corset (0.3 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (Animation)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb">Fox (0.16 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMan/glTF-Binary/CesiumMan.glb">CesiumMan (0.42 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BrainStem/glTF-Binary/BrainStem.glb">BrainStem (3.05 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (Feature Tests)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ClearCoatTest/glTF-Binary/ClearCoatTest.glb">ClearCoatTest (0.25 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MorphPrimitivesTest/glTF-Binary/MorphPrimitivesTest.glb">MorphPrimitivesTest (0.05 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb">Duck (0.11 MB)</option>
+              </optgroup>
+            </select>
+            <button class="model-action-btn" onclick="promptCustomModelUrl()" title="Load glTF / GLB from custom URL">🔗</button>
+            <button class="model-action-btn" onclick="triggerFileInput()" title="Open local glTF / GLB file">📂</button>
+            <input type="file" id="manual-file-input" accept=".gltf,.glb" style="display: none;" onchange="onManualFileSelected(event)">
           </div>
+        </div>
+
+        <div class="cache-status-strip">
+          <span id="cache-indicator-pill" class="cache-indicator-pill">⚡ Browser Storage Ready</span>
+          <button id="btn-clear-cache" class="cache-clear-btn" onclick="clearModelCache()" title="Purge locally cached glTF models">Clear Cache</button>
         </div>
 
         <div class="hud-row-split" style="margin-top: 6px;">
@@ -111,27 +184,47 @@
         <button class="btn btn-nav" id="btn-turntable" onclick="toggleTurntable()" title="Auto-rotate turntable">Turntable [T]</button>
       </div>
 
-      <!-- Section 3: Shading & Render Features -->
+      <!-- Section 3: Shading & Render Features (Categorized & Compact) -->
       <div class="hud-features-wrapper">
         <div class="hud-section-header" onclick="toggleFeaturesSection()">
           <span>Render Features &amp; FX</span>
           <span id="features-chevron">▾</span>
         </div>
-        <div id="features-chips-container" class="hud-chip-grid">
-          <button class="chip-btn active" id="btn-bump" onclick="toggleBump()" title="Normal & Bump mapping">Bump [V]</button>
-          <button class="chip-btn active" id="btn-pom" onclick="togglePOM()" title="Parallax Occlusion Mapping">POM [P]</button>
-          <button class="chip-btn active" id="btn-ao" onclick="toggleAO()" title="glTF Material Ambient Occlusion">Mat AO [U]</button>
-          <button class="chip-btn active" id="btn-ssao" onclick="toggleSSAO()" title="Screen-Space Ambient Occlusion (SSAO)">SSAO [G]</button>
-          <button class="chip-btn active" id="btn-bloom" onclick="toggleBloom()" title="Emissive HDR Bloom">Bloom [Z]</button>
-          <button class="chip-btn active" id="btn-flare" onclick="toggleLensFlare()" title="Sun Lens Flares">Flares [J]</button>
-          <button class="chip-btn active" id="btn-shadows" onclick="toggleShadows()" title="Directional PCF Shadows">Shadow [M]</button>
-          <button class="chip-btn active" id="btn-reflections" onclick="toggleReflections()" title="Split-Sum GGX Cubemap IBL">Reflect [R]</button>
-          <button class="chip-btn active" id="btn-mipmaps" onclick="toggleMipmaps()" title="16x Anisotropic Mipmapping">Mipmap [L]</button>
-          <button class="chip-btn" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
-          <button class="chip-btn active" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
-          <button class="chip-btn" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
-          <button class="chip-btn active" id="btn-hud" onclick="toggleHUD()" title="In-Engine Native HUD">HUD [O]</button>
-          <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
+        <div id="features-chips-container" class="hud-features-categories">
+          <!-- Category A: Environment & Lighting -->
+          <div class="chip-category">
+            <div class="category-title">Lighting &amp; Environment</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-shadows" onclick="toggleShadows()" title="Directional PCF Shadows">Shadow [M]</button>
+              <button class="chip-btn" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
+              <button class="chip-btn active" id="btn-reflections" onclick="toggleReflections()" title="Split-Sum GGX Cubemap IBL">Reflect [R]</button>
+              <button class="chip-btn active" id="btn-flare" onclick="toggleLensFlare()" title="Sun Lens Flares">Flares [J]</button>
+            </div>
+          </div>
+
+          <!-- Category B: Materials & Shading -->
+          <div class="chip-category">
+            <div class="category-title">Materials &amp; Shading</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-bump" onclick="toggleBump()" title="Normal & Bump mapping">Bump [V]</button>
+              <button class="chip-btn active" id="btn-pom" onclick="togglePOM()" title="Parallax Occlusion Mapping">POM [P]</button>
+              <button class="chip-btn active" id="btn-ao" onclick="toggleAO()" title="glTF Material Ambient Occlusion">Mat AO [U]</button>
+              <button class="chip-btn active" id="btn-ssao" onclick="toggleSSAO()" title="Screen-Space Ambient Occlusion (SSAO)">SSAO [G]</button>
+              <button class="chip-btn active" id="btn-bloom" onclick="toggleBloom()" title="Emissive HDR Bloom">Bloom [Z]</button>
+              <button class="chip-btn active" id="btn-mipmaps" onclick="toggleMipmaps()" title="16x Anisotropic Mipmapping">Mipmap [L]</button>
+            </div>
+          </div>
+
+          <!-- Category C: Scene & Diagnostics -->
+          <div class="chip-category">
+            <div class="category-title">Scene &amp; Diagnostics</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
+              <button class="chip-btn" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
+              <button class="chip-btn active" id="btn-hud" onclick="toggleHUD()" title="In-Engine Native HUD">HUD [O]</button>
+              <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
+            </div>
+          </div>
         </div>
       </div>
 

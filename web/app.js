@@ -296,6 +296,251 @@
       if (this.btnSponza) {
         this.btnSponza.classList.toggle('active', modelName.includes('Sponza'));
       }
+      const select = document.getElementById('model-select');
+      if (select) {
+        let matched = false;
+        for (const opt of select.options) {
+          if (opt.value && (opt.value.includes(modelName) || opt.textContent.includes(modelName))) {
+            select.value = opt.value;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched && modelName) {
+          let customOpt = Array.from(select.options).find(o => o.value === modelName);
+          if (!customOpt) {
+            customOpt = document.createElement('option');
+            customOpt.value = modelName;
+            customOpt.textContent = `Custom: ${modelName}`;
+            select.appendChild(customOpt);
+          }
+          select.value = modelName;
+        }
+      }
+    }
+  };
+
+  // ============================================================================
+  // Browser Storage Offline Model Cache (CacheStorage API with Memory Fallback)
+  // ============================================================================
+  const BglModelCache = {
+    CACHE_NAME: 'bgl-gltf-models-v1',
+    memoryFallback: new Map(),
+
+    async getCache() {
+      if ('caches' in window) {
+        try {
+          return await window.caches.open(this.CACHE_NAME);
+        } catch (e) {
+          BglLogger.warn('Cache', 'window.caches access error:', e);
+        }
+      }
+      return null;
+    },
+
+    async has(url) {
+      try {
+        const cache = await this.getCache();
+        if (cache) {
+          const match = await cache.match(url);
+          return !!match;
+        }
+      } catch (e) {
+        // fallback
+      }
+      return this.memoryFallback.has(url);
+    },
+
+    async get(url) {
+      try {
+        const cache = await this.getCache();
+        if (cache) {
+          const match = await cache.match(url);
+          if (match) {
+            BglLogger.log('Cache', `CacheStorage HIT for model: ${url}`);
+            return await match.arrayBuffer();
+          }
+        }
+      } catch (e) {
+        BglLogger.warn('Cache', `Failed reading from CacheStorage for ${url}:`, e);
+      }
+      if (this.memoryFallback.has(url)) {
+        BglLogger.log('Cache', `Memory Cache HIT for model: ${url}`);
+        return this.memoryFallback.get(url).slice(0);
+      }
+      return null;
+    },
+
+    async put(url, arrayBuffer) {
+      try {
+        const cache = await this.getCache();
+        if (cache) {
+          const response = new Response(arrayBuffer.slice(0), {
+            headers: {
+              'Content-Type': 'model/gltf-binary',
+              'Content-Length': String(arrayBuffer.byteLength),
+              'X-Bgl-Cached-At': new Date().toISOString()
+            }
+          });
+          await cache.put(url, response);
+          BglLogger.log('Cache', `Successfully cached model (${(arrayBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB): ${url}`);
+          await this.updateCacheStatusUI();
+          return;
+        }
+      } catch (e) {
+        BglLogger.warn('Cache', `CacheStorage put failed for ${url}:`, e);
+      }
+      this.memoryFallback.set(url, arrayBuffer.slice(0));
+      await this.updateCacheStatusUI();
+    },
+
+    async clear() {
+      try {
+        if ('caches' in window) {
+          await window.caches.delete(this.CACHE_NAME);
+        }
+        this.memoryFallback.clear();
+        BglLogger.log('Cache', 'Model cache cleared successfully.');
+        await this.updateCacheStatusUI();
+        BglNotifier.success('Cache Cleared', 'All locally cached 3D models were purged from browser storage.');
+      } catch (e) {
+        BglLogger.error('Cache', 'Error clearing model cache:', e);
+        BglNotifier.error('Cache Clear Error', 'Failed to purge model cache: ' + e.message);
+      }
+    },
+
+    async getCachedCount() {
+      try {
+        const cache = await this.getCache();
+        if (cache) {
+          const keys = await cache.keys();
+          return keys.length;
+        }
+      } catch (e) {
+        // fallback
+      }
+      return this.memoryFallback.size;
+    },
+
+    async updateCacheStatusUI() {
+      const count = await this.getCachedCount();
+      const indicator = document.getElementById('cache-indicator-pill');
+      if (indicator) {
+        if (count > 0) {
+          indicator.textContent = `⚡ ${count} Model${count > 1 ? 's' : ''} Cached`;
+          indicator.classList.add('has-cache');
+        } else {
+          indicator.textContent = `⚡ Browser Storage Ready`;
+          indicator.classList.remove('has-cache');
+        }
+      }
+      await this.updateDropdownBadges();
+    },
+
+    async updateDropdownBadges() {
+      const select = document.getElementById('model-select');
+      if (!select) return;
+      for (const opt of select.options) {
+        if (!opt.value) continue;
+        const isCached = await this.has(opt.value);
+        const baseLabel = opt.getAttribute('data-label') || opt.textContent.replace(' ⚡', '');
+        opt.setAttribute('data-label', baseLabel);
+        opt.textContent = isCached ? `${baseLabel} ⚡` : baseLabel;
+      }
+    }
+  };
+
+  // ============================================================================
+  // Dedicated Model Loading & Streaming Progress Screen
+  // ============================================================================
+  const BglLoadingScreen = {
+    screen: null,
+    title: null,
+    source: null,
+    bar: null,
+    status: null,
+    pct: null,
+    statSize: null,
+    statSpeed: null,
+    statCache: null,
+    abortController: null,
+
+    initDom() {
+      this.screen = document.getElementById('model-loading-screen');
+      this.title = document.getElementById('loading-model-name');
+      this.source = document.getElementById('loading-source-label');
+      this.bar = document.getElementById('loading-bar-fill');
+      this.status = document.getElementById('loading-status-text');
+      this.pct = document.getElementById('loading-pct-badge');
+      this.statSize = document.getElementById('loading-stat-size');
+      this.statSpeed = document.getElementById('loading-stat-speed');
+      this.statCache = document.getElementById('loading-stat-cache');
+    },
+
+    show(modelName, sourceUrl) {
+      if (!this.screen) this.initDom();
+      if (!this.screen) return;
+
+      const cleanName = modelName || (sourceUrl ? sourceUrl.split(/[?#]/)[0].split('/').pop() : 'Model.glb');
+      const cleanSource = (sourceUrl && sourceUrl.includes('githubusercontent.com'))
+        ? 'Khronos glTF-Sample-Assets (GitHub)'
+        : (sourceUrl && sourceUrl.startsWith('assets/') ? 'Local Engine Asset' : 'Remote 3D Asset');
+
+      if (this.title) this.title.textContent = `Loading ${cleanName}`;
+      if (this.source) this.source.textContent = cleanSource;
+      if (this.bar) this.bar.style.width = '0%';
+      if (this.pct) this.pct.textContent = '0%';
+      if (this.status) this.status.textContent = 'Connecting to asset server...';
+      if (this.statSize) this.statSize.textContent = '0.0 / 0.0 MB';
+      if (this.statSpeed) this.statSpeed.textContent = '0.0 MB/s';
+      if (this.statCache) this.statCache.textContent = 'Streaming';
+
+      this.screen.style.display = 'flex';
+      this.abortController = new AbortController();
+    },
+
+    update(pct, text, transferredBytes = 0, totalBytes = 0, speedMbS = '0.0', isCached = false) {
+      if (!this.screen) this.initDom();
+      const roundedPct = Math.min(100, Math.max(0, Math.round(pct)));
+      if (this.bar) this.bar.style.width = `${roundedPct}%`;
+      if (this.pct) this.pct.textContent = `${roundedPct}%`;
+      if (this.status && text) this.status.textContent = text;
+
+      if (this.statSize) {
+        if (totalBytes > 0) {
+          const curMb = (transferredBytes / (1024 * 1024)).toFixed(1);
+          const totMb = (totalBytes / (1024 * 1024)).toFixed(1);
+          this.statSize.textContent = `${curMb} / ${totMb} MB`;
+        } else if (transferredBytes > 0) {
+          this.statSize.textContent = `${(transferredBytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+      }
+
+      if (this.statSpeed && speedMbS !== undefined) {
+        this.statSpeed.textContent = `${speedMbS} MB/s`;
+      }
+
+      if (this.statCache) {
+        this.statCache.textContent = isCached ? 'Cached (Offline)' : 'Streaming';
+      }
+    },
+
+    hide() {
+      if (!this.screen) this.initDom();
+      if (this.screen) {
+        this.screen.style.display = 'none';
+      }
+      this.abortController = null;
+    },
+
+    cancel() {
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+      this.hide();
+      BglUI.setProgress(0, 'Download cancelled by user.');
+      BglNotifier.warning('Download Cancelled', 'Model download was cancelled by user.');
     }
   };
 
@@ -306,17 +551,21 @@
     /**
      * Download binary resource with real-time streaming progress.
      * @param {string} url
-     * @param {function(number, string): void} onProgress (percent, statusString)
+     * @param {function(object): void} onProgress ({ percent, msg, transferredBytes, totalBytes, speedMbS })
+     * @param {AbortSignal} [signal]
      * @returns {Promise<ArrayBuffer>}
      */
-    async fetchWithProgress(url, onProgress) {
+    async fetchWithProgress(url, onProgress, signal) {
       const startTime = performance.now();
       BglLogger.log('Network', `Initiating fetch for resource: ${url}`);
 
       let response;
       try {
-        response = await fetch(url);
+        response = await fetch(url, { signal });
       } catch (networkErr) {
+        if (signal && signal.aborted) {
+          throw new Error('Download aborted by user.');
+        }
         throw new Error(`Network connection error fetching '${url}': ${networkErr.message}`);
       }
 
@@ -334,7 +583,15 @@
       if (!response.body || !window.ReadableStream) {
         BglLogger.log('Network', 'Streaming not supported on this response body, falling back to arrayBuffer()');
         const buf = await response.arrayBuffer();
-        if (onProgress) onProgress(100, `Downloaded ${(buf.byteLength / (1024 * 1024)).toFixed(1)} MB`);
+        if (onProgress) {
+          onProgress({
+            percent: 100,
+            msg: `Downloaded ${(buf.byteLength / (1024 * 1024)).toFixed(1)} MB`,
+            transferredBytes: buf.byteLength,
+            totalBytes: buf.byteLength,
+            speedMbS: '0.0'
+          });
+        }
         return buf;
       }
 
@@ -351,8 +608,8 @@
         receivedBytes += value.length;
 
         const now = performance.now();
-        // Report progress every 60ms to maintain 60fps UI
-        if (now - lastReportTime > 60 || receivedBytes === totalBytes) {
+        // Report progress every 50ms to maintain 60fps UI
+        if (now - lastReportTime > 50 || receivedBytes === totalBytes) {
           lastReportTime = now;
           const elapsedSec = (now - startTime) / 1000;
           const speedMbS = elapsedSec > 0 ? ((receivedBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
@@ -360,11 +617,27 @@
 
           if (totalBytes > 0) {
             const percent = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
-            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} / ${totalMbStr} MB (${percent}%) [${speedMbS} MB/s]`;
-            if (onProgress) onProgress(percent, msg);
+            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} / ${totalMbStr} MB (${percent}%)`;
+            if (onProgress) {
+              onProgress({
+                percent,
+                msg,
+                transferredBytes: receivedBytes,
+                totalBytes,
+                speedMbS
+              });
+            }
           } else {
-            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} MB received [${speedMbS} MB/s]`;
-            if (onProgress) onProgress(50, msg);
+            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} MB received`;
+            if (onProgress) {
+              onProgress({
+                percent: 50,
+                msg,
+                transferredBytes: receivedBytes,
+                totalBytes: 0,
+                speedMbS
+              });
+            }
           }
         }
       }
@@ -1012,14 +1285,56 @@
   async function loadModelFromUrl(url) {
     BglLogger.log('Network', `Requesting model download from URL: ${url}`);
     const cleanName = url.split(/[?#]/)[0].split('/').pop() || 'Model.glb';
+    
+    // Check if model exists in browser cache
+    const cachedBuffer = await BglModelCache.get(url);
+    if (cachedBuffer) {
+      BglLogger.log('Cache', `Instant load for cached asset: ${cleanName}`);
+      BglLoadingScreen.show(cleanName, url);
+      BglLoadingScreen.update(100, `Loading from Browser Storage...`, cachedBuffer.byteLength, cachedBuffer.byteLength, 'Instant', true);
+      BglUI.setProgress(100, `Instant Cache: ${cleanName}`);
+      
+      try {
+        await ingestModel(cleanName, cachedBuffer);
+        BglNotifier.success('Loaded from Cache', `'${cleanName}' was instantly restored from offline browser cache.`);
+      } catch (err) {
+        BglLogger.error('Engine', `Error ingesting cached asset: ${err.message}`);
+        BglNotifier.error('Cache Ingestion Error', `Could not load '${cleanName}' from cache: ${err.message}`);
+      } finally {
+        BglLoadingScreen.hide();
+      }
+      return;
+    }
+
+    // Remote or local network fetch
+    BglLoadingScreen.show(cleanName, url);
     try {
       BglUI.setProgress(10, `Connecting to ${url}...`);
-      const arrayBuffer = await BglNetwork.fetchWithProgress(url, (pct, msg) => {
-        BglUI.setProgress(pct, msg);
-      });
+      const signal = BglLoadingScreen.abortController ? BglLoadingScreen.abortController.signal : null;
+      
+      const arrayBuffer = await BglNetwork.fetchWithProgress(url, (info) => {
+        BglUI.setProgress(info.percent, info.msg);
+        BglLoadingScreen.update(
+          info.percent,
+          info.msg,
+          info.transferredBytes,
+          info.totalBytes,
+          info.speedMbS,
+          false
+        );
+      }, signal);
+
+      // Cache the downloaded buffer for future loads
+      await BglModelCache.put(url, arrayBuffer);
+
+      BglLoadingScreen.update(100, `Ingesting into WebGPU Engine...`, arrayBuffer.byteLength, arrayBuffer.byteLength, '0.0', false);
       await ingestModel(cleanName, arrayBuffer);
       BglUI.setProgress(100, `Ready: ${cleanName}`);
     } catch (err) {
+      if (err.message && err.message.includes('aborted')) {
+        BglLogger.warn('Network', 'Download cancelled by user.');
+        return;
+      }
       BglLogger.error('Network', `Failed to load model from '${url}':`, err);
       BglNotifier.error(
         'Model Download Failed',
@@ -1027,6 +1342,8 @@
         err.message
       );
       BglUI.setProgress(100, `Failed to load: ${cleanName}`);
+    } finally {
+      BglLoadingScreen.hide();
     }
   }
   window.loadModelFromUrl = loadModelFromUrl;
@@ -1037,6 +1354,59 @@
     await loadModelFromUrl(url);
   }
   window.loadPresetModel = loadPresetModel;
+
+  function onModelSelectChanged(url) {
+    if (url) {
+      loadModelFromUrl(url);
+    }
+  }
+  window.onModelSelectChanged = onModelSelectChanged;
+
+  function promptCustomModelUrl() {
+    const url = prompt('Enter 3D Model URL (glTF 2.0 Binary .glb or JSON .gltf):', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb');
+    if (url && url.trim()) {
+      loadModelFromUrl(url.trim());
+    }
+  }
+  window.promptCustomModelUrl = promptCustomModelUrl;
+
+  function triggerFileInput() {
+    const input = document.getElementById('manual-file-input');
+    if (input) input.click();
+  }
+  window.triggerFileInput = triggerFileInput;
+
+  function onManualFileSelected(event) {
+    if (event.target.files && event.target.files.length > 0) {
+      const file = event.target.files[0];
+      BglLogger.log('UI', `Manual file selected: ${file.name} (${file.size.toLocaleString()} bytes)`);
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          await ingestModel(file.name, evt.target.result);
+          await BglModelCache.put(`local://${file.name}`, evt.target.result);
+        } catch (err) {
+          BglNotifier.error('File Ingestion Error', `Could not ingest '${file.name}': ${err.message}`);
+        }
+      };
+      reader.onerror = () => {
+        BglNotifier.error('File Read Failed', `Failed to read file '${file.name}'.`);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+  window.onManualFileSelected = onManualFileSelected;
+
+  function clearModelCache() {
+    BglModelCache.clear();
+  }
+  window.clearModelCache = clearModelCache;
+
+  function cancelModelDownload() {
+    BglLoadingScreen.cancel();
+  }
+  window.cancelModelDownload = cancelModelDownload;
 
   /**
    * Fast startup model loading with auto-detection.
@@ -2018,11 +2388,15 @@
     }
     requestAnimationFrame(tickFps);
 
+    // Initialize Cache Storage UI status
+    BglModelCache.updateCacheStatusUI().catch(e => BglLogger.warn('Cache', 'Initial cache check failed:', e));
+
     // Launch Wasm initialization and model loading concurrently for fastest startup
     const wasmPromise = BglWasmBridge.init();
     const modelPromise = loadDefaultModel();
 
     await Promise.all([wasmPromise, modelPromise]);
+    await BglModelCache.updateCacheStatusUI().catch(() => {});
     BglLogger.log('Engine', 'Bootstrap completed successfully.');
   }
 
