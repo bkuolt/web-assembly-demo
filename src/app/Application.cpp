@@ -169,12 +169,15 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_u) {
                     ToggleAmbientOcclusion();
                     BGL_LOG_INFO("Toggled Ambient Occlusion & Micro-Cavities: {}", pipelineManager_.IsAmbientOcclusionEnabled());
-                } else if (event.key.keysym.sym == SDLK_c) {
+                } else if (event.key.keysym.sym == SDLK_h) {
                     ToggleOcclusionCulling();
-                    BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling: {}", pipelineManager_.IsOcclusionCullingEnabled());
-                } else if (event.key.keysym.sym == SDLK_t) {
+                    BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling (Hi-Z): {}", pipelineManager_.IsOcclusionCullingEnabled());
+                } else if (event.key.keysym.sym == SDLK_x) {
                     CycleTonemapper();
                     BGL_LOG_INFO("Switched Tonemapper: {}", pipelineManager_.GetToneMapOperatorName(pipelineManager_.GetToneMapOperator()));
+                } else if (event.key.keysym.sym == SDLK_z) {
+                    pipelineManager_.ToggleBloom();
+                    BGL_LOG_INFO("Toggled Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
                 } else if (event.key.keysym.sym == SDLK_e) {
                     CycleEnvironmentPreset();
                     BGL_LOG_INFO("Switched Environment Preset: {}", pipelineManager_.GetEnvironmentPresetName(pipelineManager_.GetEnvironmentPreset()));

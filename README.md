@@ -1,10 +1,10 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.9.8)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.9.9)
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-158_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.8-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Unit_Tests-159_Passing-22c55e?style=for-the-badge)](tests/)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.9-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -34,14 +34,14 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | **Live Sun / Time-of-Day** | Diurnal cycle slider (0–24h) computing solar azimuth and elevation; Skybox, PCF shadows, lens flares, and specular highlights follow live | Slider in Tuning Drawer |
 | **Alpha-Tested Shadows** | Directional shadow pre-pass tests material textures and cutoff ($\alpha < \alpha_{\text{cutoff}}$) for `MASK` and `BLEND` foliage/cutouts, casting accurate silhouette shadows | Automatic (`alphaMode == MASK`) |
 | **Screen-Space AO (SSAO/GTAO)** | Real-time depth/contrast horizon gradient sampling complementing material occlusion maps and micro-cavities | `[G]` / Slider / HUD |
-| **HDR Emissive Bloom** | Linear HDR bright-pass extraction with golden-angle multi-ring scatter glow for radiant emissive materials | `[B]` / Slider / HUD |
+| **HDR Emissive Bloom** | Linear HDR bright-pass extraction with golden-angle multi-ring scatter glow for radiant emissive materials | `[Z]` / Slider / HUD |
 | **True Transmission & Refraction** | Full `KHR_materials_volume` support, view-space Snell's law screen refraction, and physical Beer-Lambert volume extinction | Automatic (`KHR_materials_volume`) |
 | **Native Compressed Textures** | Automatic KTX2 Basis Universal transcoding to native BC7, ASTC 4×4, or ETC2 based on WebGPU adapter capabilities | Automatic GPU feature detection |
 | **Parallax Occlusion Mapping (POM)** | Steep parallax raymarching (8–32 view-adaptive layers) with secant interpolation and light-facing self-shadowing for deep 3D surface immersion | `[P]` / Slider / HUD |
 | **Ambient Occlusion (AO)** | glTF occlusion texture + micro-cavity + horizon contact + Jimenez multi-bounce color conservation with live intensity tuning | `[U]` / Slider / `--no-ao` |
 | **Directional Sun Lens Flares** | Real-time post-processing lens flare with solar corona glow, anamorphic horizontal streaks, chromatic ghosts, optical halo rings, and screen-edge fade | `[J]` / Slider / HUD |
 | **Full Keyboard Navigation** | Smooth WASD & Arrow key 3D camera pan/fly, `+` / `-` keys for zoom in / out with step clamping | `[W]`/`[A]`/`[S]`/`[D]` / `[+]`/`[-]` |
-| **HDR Rendering & Tonemapping** | Multisampled 4× MSAA `RGBA16Float` HDR render targets, Khronos PBR Neutral, AgX (Blender 4 curve), and ACES Filmic tonemapping with dynamic exposure control | `[T]` / `[+]`/`[-]` / `--exposure` |
+| **HDR Rendering & Tonemapping** | Multisampled 4× MSAA `RGBA16Float` HDR render targets, Khronos PBR Neutral, AgX (Blender 4 curve), and ACES Filmic tonemapping with dynamic exposure control | `[X]` / `[+]`/`[-]` / `--exposure` |
 | **Image-Based Lighting (IBL)** | WebGPU Compute-generated Split-Sum BRDF LUT ($128\times 128$ RGBA16F), pre-filtered GGX specular cubemap mip chains, and $L_2$ Spherical Harmonics diffuse irradiance | `[E]` / `--env <preset>` |
 | **Rotatable HDR Environments** | 4 built-in environments (*Mediterranean Courtyard*, *Sunset Studio*, *Overcast Atelier*, *Night Neon*) plus custom `.hdr`/`.exr` ingestion, 360° rotation, Sharp/Blurred/Hidden skybox modes | `[E]` / `[K]` / `--env-rot` |
 | **Clustered Forward+ Lighting** | glTF `KHR_lights_punctual` (Directional, Point, Spot lights) evaluated across a $16\times 8\times 8 = 1024$ 3D frustum cluster grid with per-cluster bitmasks | Automatic / glTF Lights |
@@ -49,7 +49,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | **Bump & Normal Mapping** | MikkTSpace/Lengyel tangent generation, scale-invariant `getTBN`, tangent-space normal maps + UV-texel-space central-difference height gradients (`textureSampleGrad`) | `[V]` / `--no-bump` |
 | **Anisotropic Mipmapping** | Full CPU mip pyramid ($1\times 1$), 3D vector renormalization for normal maps, multithreaded `std::jthread` generation, live 16× Aniso vs. Mip-0 switching | `[L]` / `--no-mipmaps` |
 | **Directional Shadow Mapping** | $2048\times 2048$ `Depth32Float` pre-pass (cached for static scenes), scene-fitted `orthoRH_ZO` light matrix, hardware slope-scale depth bias, 9-tap $3\times 3$ PCF soft shadows | `[M]` / `--no-shadows` |
-| **Spatial Quadtree & Occlusion Culling** | 4-way XZ-plane partitioning, Front-to-Back traversal, $32\times 16$ Hi-Z `OcclusionBuffer` & sub-pixel culling, single-draw batched 3D wireframes | `[C]` / `[Q]` / `--no-occlusion` |
+| **Spatial Quadtree & Occlusion Culling** | 4-way XZ-plane partitioning, Front-to-Back traversal, $32\times 16$ Hi-Z `OcclusionBuffer` & sub-pixel culling, single-draw batched 3D wireframes | `[H]` / `[Q]` / `--no-occlusion` |
 | **URL & Remote Asset Streaming** | Direct `http://`, `https://`, `file://`, and `data:` model loading via **`libcurl`** (native) and Fetch API (Wasm), URL Drag-and-Drop, and external `.gltf` buffer/texture URI resolution | `--asset <url>` / Drag & Drop |
 | **3D Bounding Boxes (AABBs)** | Fast Arvo Center-Extents transformation ($c' = M \cdot c$, $e'_k = \sum_j |M_{jk}| e_j$) rendered in a single batched GPU draw call | `[B]` / `--no-bounds` |
 | **Atmospheric Skybox** | Rayleigh-inspired zenith-to-horizon scattering, solar disk & corona, ground hemisphere bounce, far-plane depth clamping | `[K]` / `--no-skybox` |

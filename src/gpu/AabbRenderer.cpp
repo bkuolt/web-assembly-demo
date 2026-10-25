@@ -12,6 +12,10 @@
 
 namespace bgl::gpu {
 
+AabbRenderer::~AabbRenderer() {
+    Shutdown();
+}
+
 void AabbRenderer::Shutdown() noexcept {
     if (aabbUniformBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(AabbUniforms));

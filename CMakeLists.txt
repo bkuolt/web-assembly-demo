@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.8 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.9 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -313,6 +313,10 @@ if(BGL_BUILD_TESTING)
         target_link_libraries(bgl_unit_tests PRIVATE bgl_app gtest::gtest gtest::gtest_main)
     endif()
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
+    set_tests_properties(AllUnitTests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp"
+    )
 endif()
 
 # Fuzzing targets (libFuzzer)

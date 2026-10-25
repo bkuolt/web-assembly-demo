@@ -1379,6 +1379,46 @@ TEST(RenderingFeaturesTest, ModularPassesRaiiAndDelegation) {
     }
 }
 
+TEST(RenderingFeaturesTest, DebugOverlayModeCyclingAndStatsState) {
+    ui::DebugOverlay overlay{};
+    EXPECT_TRUE(overlay.IsVisible());
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Full);
+
+    // Test cycling: Full -> Minimal -> Hidden -> Full
+    overlay.Toggle();
+    EXPECT_TRUE(overlay.IsVisible());
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Minimal);
+
+    overlay.Toggle();
+    EXPECT_FALSE(overlay.IsVisible());
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Hidden);
+
+    overlay.Toggle();
+    EXPECT_TRUE(overlay.IsVisible());
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Full);
+
+    // Direct mode setting
+    overlay.SetMode(ui::OverlayMode::Minimal);
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Minimal);
+    EXPECT_TRUE(overlay.IsVisible());
+
+    overlay.SetVisible(false);
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Hidden);
+    EXPECT_FALSE(overlay.IsVisible());
+
+    overlay.SetVisible(true);
+    EXPECT_EQ(overlay.GetMode(), ui::OverlayMode::Full);
+    EXPECT_TRUE(overlay.IsVisible());
+
+    // Update with default stats
+    ui::OverlayStats stats{};
+    stats.deltaTime = 0.0166f;
+    stats.sceneName = "TestScene";
+    stats.primitiveCount = 42;
+    stats.residentRamBytes = 64 * 1024 * 1024;
+    overlay.Update(0.0166f, stats);
+}
+
 
 
 

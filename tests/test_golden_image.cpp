@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <cmath>
+#include <filesystem>
 #include <glm/glm.hpp>
 #include "scene/Scene.hpp"
 #include "scene/FastGltfLoader.hpp"
@@ -14,11 +15,18 @@
 
 using namespace bgl;
 
+static std::string FindToyCarAsset() {
+    for (const auto& path : {"assets/ToyCar.glb", "../assets/ToyCar.glb", "../../assets/ToyCar.glb"}) {
+        if (std::filesystem::exists(path)) return path;
+    }
+    return "assets/ToyCar.glb";
+}
+
 TEST(GoldenImageTest, HeadlessGlbAssetGoldenGeometryValidation) {
     scene::AssetManager assetMgr;
     scene::FastGltfLoader loader(assetMgr);
 
-    auto sceneRes = loader.LoadFromFile("assets/ToyCar.glb");
+    auto sceneRes = loader.LoadFromFile(FindToyCarAsset());
     ASSERT_TRUE(sceneRes.has_value()) << "ToyCar.glb should load successfully";
     auto scene = *sceneRes;
     ASSERT_NE(scene, nullptr);
@@ -95,7 +103,7 @@ TEST(GoldenImageTest, SceneNodeGetPrimitivesReturnsSharedMeshPrimitives) {
     scene::AssetManager assetMgr;
     scene::FastGltfLoader loader(assetMgr);
 
-    auto sceneRes = loader.LoadFromFile("assets/ToyCar.glb");
+    auto sceneRes = loader.LoadFromFile(FindToyCarAsset());
     ASSERT_TRUE(sceneRes.has_value()) << "ToyCar.glb should load successfully";
     auto scene = *sceneRes;
     ASSERT_NE(scene, nullptr);

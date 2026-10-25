@@ -158,14 +158,18 @@ INTERACTIVE CONTROLS:
   Mouse Wheel                   Smooth zoom in / out
   B                             Toggle 3D Wireframe Bounding Boxes & AABBs
   Q                             Toggle 3D Quadtree Ground Partition Boundaries
-  C                             Toggle Quadtree Hierarchical Occlusion Culling
+  H                             Toggle Quadtree Hierarchical Occlusion Culling (Hi-Z)
   K                             Cycle Skybox Mode (Sharp / Blurred / Hidden)
   V                             Toggle Bump & Tangent-Space Normal Mapping
   L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)
   M                             Toggle Directional Shadow Mapping (2048x2048 PCF)
   R                             Toggle Environment Cubemap Reflections & Specular IBL
   U                             Toggle Ambient Occlusion & Micro-Cavity Shading
-  T                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
+  X                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
+  Z                             Toggle Emissive HDR Bloom
+  C                             Switch Camera Navigation Mode (Orbit / First-Person Fly)
+  T                             Toggle Turntable Autorotation
+  F                             Focus Camera on Selection or Scene Bounds
   E                             Cycle Environment Preset
   + / -                         Increase / Decrease Exposure
   [ / ]                         Rotate Environment (-5° / +5°)

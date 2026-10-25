@@ -11,15 +11,23 @@
 
 using namespace bgl::scene;
 
+static std::string FindToyCarAsset() {
+    for (const auto& path : {"assets/ToyCar.glb", "../assets/ToyCar.glb", "../../assets/ToyCar.glb"}) {
+        if (std::filesystem::exists(path)) return path;
+    }
+    return "assets/ToyCar.glb";
+}
+
 TEST(GltfLoaderTest, LoadToyCarAsset) {
-    if (!std::filesystem::exists("assets/ToyCar.glb")) {
-        GTEST_SKIP() << "assets/ToyCar.glb not found, skipping";
+    const std::string assetPath = FindToyCarAsset();
+    if (!std::filesystem::exists(assetPath)) {
+        GTEST_SKIP() << "ToyCar.glb not found, skipping";
     }
 
     AssetManager assetMgr;
     FastGltfLoader loader(assetMgr);
 
-    auto res = loader.LoadFromFile("assets/ToyCar.glb");
+    auto res = loader.LoadFromFile(assetPath);
     ASSERT_TRUE(res.has_value()) << "Failed to load ToyCar.glb: " << res.error();
 
     auto scene = *res;

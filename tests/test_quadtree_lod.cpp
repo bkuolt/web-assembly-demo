@@ -40,9 +40,16 @@ TEST(QuadtreeTest, InsertionAndLODQuery) {
 TEST(QuadtreeTest, SponzaFrustumCullingDiagnostic) {
     bgl::scene::AssetManager assetManager;
     bgl::scene::FastGltfLoader loader(assetManager);
-    auto res = loader.LoadFromFile("assets/Sponza.glb");
+    std::string sponzaPath = "assets/Sponza.glb";
+    for (const auto& path : {"assets/Sponza.glb", "../assets/Sponza.glb", "../../assets/Sponza.glb"}) {
+        if (std::filesystem::exists(path)) {
+            sponzaPath = path;
+            break;
+        }
+    }
+    auto res = loader.LoadFromFile(sponzaPath);
     if (!res) {
-        GTEST_SKIP() << "assets/Sponza.glb not available, skipping Sponza test";
+        GTEST_SKIP() << "Sponza.glb not available, skipping Sponza test";
     }
     auto scene = *res;
     std::cout << "[Sponza Diagnostics]\n";

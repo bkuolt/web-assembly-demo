@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.9] - 2026-10-25
+
+### Independent Code Review & Modernized UI, RAII Safety & Telemetry Polish
+- **Modernized & Compact Glassmorphism UI:**
+  - Modernized HUD overlay with 3-state cycling (`Full` -> `Minimal` -> `Hidden` -> `Full`) via `[O]` / `[F3]`.
+  - Added real-time FPS pills, RAM & VRAM telemetry indicators, and structured camera metrics.
+  - Eliminated telemetry void in native HUD by adding Row 6 with camera target, distance, and quadtree node metrics.
+  - Modernized web client interface with interactive chip toggles, drawer accordions, and real-time browser FPS ticker.
+- **Keyboard Shortcut Harmonization & Conflict Resolution:**
+  - Resolved shadowed key collisions in `Application.cpp`:
+    - Moved Hi-Z Occlusion Culling to `[H]`.
+    - Moved Tonemapping operator cycling to `[X]`.
+    - Added Emissive HDR Bloom toggle on `[Z]`.
+    - Restored Camera Fly / Orbit switching to `[C]`.
+    - Restored Turntable autorotation to `[T]`.
+  - Aligned Web client shortcuts: mapped `[B]` to 3D Bounding Boxes, `[Z]` to Bloom, and `[H]` to Hi-Z Occlusion Culling.
+- **Idiomatic C++23 RAII & Memory Safety:**
+  - Enforced RAII handle encapsulation for `AabbRenderer` with clean `MemoryTracker` buffer accounting in destructor.
+  - Sanitized PMR `ScratchArena` using `std::unique_ptr` dynamic allocation and strict reverse-member destruction order.
+  - Pinned zero-copy glTF parsing via `fastgltf::GltfDataBuffer::loadFromFile`.
+  - Added strict KTX1/KTX2 signature validation and truncated header guards before libktx ingestion.
+  - Verified 0 memory leaks across adapter info, surface capabilities, font initialization, and scene loading under AddressSanitizer (ASan).
+- **Test Infrastructure & CTest Stability:**
+  - Added test working directory and `LSAN_OPTIONS=suppressions=...` to CTest `AllUnitTests` properties in `CMakeLists.txt`.
+  - Added dynamic asset path resolution (`assets/`, `../assets/`, `../../assets/`) in `test_golden_image.cpp`, `test_gltf_loader.cpp`, and `test_quadtree_lod.cpp`.
+  - Added `RenderingFeaturesTest.DebugOverlayModeCyclingAndStatsState` unit test.
+  - 159/159 tests passing across all 13 test suites under ASan.
+
+---
+
 ## [0.9.8] - 2026-10-25
 
 ### Shared Mesh Primitive Access Synchronization & Shadow Pass Uint16 Index Format

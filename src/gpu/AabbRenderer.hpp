@@ -36,7 +36,7 @@ static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 class AabbRenderer {
 public:
     AabbRenderer() = default;
-    ~AabbRenderer() = default;
+    ~AabbRenderer();
 
     AabbRenderer(const AabbRenderer&) = delete;
     AabbRenderer& operator=(const AabbRenderer&) = delete;

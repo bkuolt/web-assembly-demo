@@ -174,7 +174,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawRect(panelX + 10.0f, panelY + 105.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
 
     // 7. Row 4: Geometry & Spatial Feature Status
-    std::string geoToggleText = std::format("Geo: [B]AABB:{}  [Q]Quad:{}  [C]Hi-Z:{}  [K]Sky:{}",
+    std::string geoToggleText = std::format("Geo: [B]AABB:{}  [Q]Quad:{}  [H]Hi-Z:{}  [K]Sky:{}",
                                             currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
                                             currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF",
                                             currentStats_.occlusionCullingEnabled ? "ON" : "OFF",
@@ -190,13 +190,22 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
                                             currentStats_.mipmappingEnabled ? "ON" : "OFF");
     textRenderer_.DrawText(pbrToggleText, textX, panelY + 136.0f, glm::vec4(0.72f, 0.65f, 0.98f, 1.0f));
 
-    // 9. Bottom Navigation Bar Strip
+    // 9. Row 6: Camera Target & Spatial Partitioning
+    std::string camDetailText = std::format("Target: [{:.1f}, {:.1f}, {:.1f}] | Dist: {:.1f} | Quad: {} nodes",
+                                            currentStats_.cameraTarget.x, currentStats_.cameraTarget.y, currentStats_.cameraTarget.z,
+                                            currentStats_.cameraDistance, currentStats_.quadtreeNodes);
+    textRenderer_.DrawText(camDetailText, textX, panelY + 158.0f, glm::vec4(0.75f, 0.82f, 0.90f, 1.0f));
+
+    // Separator line 3
+    textRenderer_.DrawRect(panelX + 10.0f, panelY + 180.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
+
+    // 10. Bottom Navigation Bar Strip
     const float footerH = 24.0f;
     const float footerY = panelY + panelH - footerH;
     textRenderer_.DrawRect(panelX, footerY, panelW, footerH, glm::vec4(0.02f, 0.04f, 0.07f, 0.75f));
     textRenderer_.DrawRect(panelX, footerY, panelW, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.05f));
 
-    textRenderer_.DrawText("[O] Cycle HUD  |  [F] Focus  |  [T] Turntable  |  [WASD] Fly",
+    textRenderer_.DrawText("[O] Cycle HUD  |  [F] Focus  |  [T] Turntable  |  [C] Fly/Orbit",
                            textX, footerY + 5.0f, glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
 
     // Flush GPU draw call
