@@ -392,6 +392,13 @@ void Application::Render() {
             camera_.GetNearPlane(),
             camera_.GetFarPlane()
         );
+        static bool loggedFirstFrame = false;
+        if (!loggedFirstFrame) {
+            loggedFirstFrame = true;
+            BGL_LOG_DEBUG("Frame 1 Render Diagnostic: {} visible primitives rendered ({} occluded by Hi-Z)",
+                          pipelineManager_.GetVisiblePrimitiveCount(),
+                          pipelineManager_.GetOccludedPrimitiveCount());
+        }
     }
 
     // 2. Procedural Atmospheric Skybox (far-plane depth Z=1.0 test against geometry, zero overdraw)
