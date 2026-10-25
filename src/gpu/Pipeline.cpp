@@ -126,6 +126,12 @@ void PipelineManager::Shutdown() noexcept {
     opaqueBackCulledPipeline_.Reset();
     opaquePipeline_.Reset();
     bindGroupLayout_.Reset();
+
+    opaqueColorCopyView_.Reset();
+    opaqueColorCopyTexture_.Reset();
+    opaqueCopyWidth_ = 0;
+    opaqueCopyHeight_ = 0;
+
     device_ = nullptr;
     queue_ = nullptr;
     initialized_ = false;

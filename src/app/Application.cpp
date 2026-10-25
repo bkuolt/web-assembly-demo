@@ -518,24 +518,23 @@ void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t>
 }
 
 void Application::Shutdown() {
-    if (running_ || nativeWindow_) {
-        activeScene_.reset();
-        quadtree_.reset();
-        gltfLoader_.reset();
-        skybox_.Shutdown();
-        pipelineManager_.Shutdown();
-        soundEngine_.Shutdown();
-        gpuContext_.Shutdown();
+    activeScene_.reset();
+    quadtree_.reset();
+    gltfLoader_.reset();
+    assetManager_.Clear();
+    skybox_.Shutdown();
+    pipelineManager_.Shutdown();
+    soundEngine_.Shutdown();
+    gpuContext_.Shutdown();
 #if defined(BGL_PLATFORM_NATIVE)
-        if (nativeWindow_) {
-            SDL_DestroyWindow(static_cast<SDL_Window*>(nativeWindow_));
-            nativeWindow_ = nullptr;
-            SDL_Quit();
-        }
-#endif
-        running_ = false;
-        BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
+    if (nativeWindow_) {
+        SDL_DestroyWindow(static_cast<SDL_Window*>(nativeWindow_));
+        nativeWindow_ = nullptr;
+        SDL_Quit();
     }
+#endif
+    running_ = false;
+    BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
 }
 
 void Application::CacheSceneMetrics() {

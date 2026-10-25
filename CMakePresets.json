@@ -26,7 +26,10 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
                 "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer -g",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
         },
@@ -38,6 +41,7 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
                 "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -g",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
@@ -50,6 +54,7 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
                 "CMAKE_CXX_FLAGS": "-fsanitize=thread -g",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }

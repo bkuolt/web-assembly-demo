@@ -338,8 +338,25 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_KTX)
+    static constexpr std::array<uint8_t, 12> kKtx2Ident{
+        0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A
+    };
+    static constexpr std::array<uint8_t, 12> kKtx1Ident{
+        0xAB, 'K', 'T', 'X', ' ', '1', '1', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A
+    };
     if (data.size() < 12) {
         return std::unexpected("Data too small to be a valid KTX texture");
+    }
+    if (std::memcmp(data.data(), kKtx2Ident.data(), 12) == 0) {
+        if (data.size() < 80) {
+            return std::unexpected("KTX2 data is truncated (header smaller than 80 bytes)");
+        }
+    } else if (std::memcmp(data.data(), kKtx1Ident.data(), 12) == 0) {
+        if (data.size() < 64) {
+            return std::unexpected("KTX1 data is truncated (header smaller than 64 bytes)");
+        }
+    } else {
+        return std::unexpected("Data is not a valid KTX1 or KTX2 texture signature");
     }
 
     ktxTexture* rawKtx{nullptr};

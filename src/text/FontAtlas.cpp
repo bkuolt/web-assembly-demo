@@ -98,6 +98,7 @@ core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> font
 
     FT_Error err = FT_New_Memory_Face(ftLibrary_, fontData.data(), static_cast<FT_Long>(fontData.size()), 0, &ftFace_);
     if (err) {
+        Cleanup();
         return std::unexpected(std::string("FreeType failed to load font face from memory: error ") + std::to_string(err));
     }
 
@@ -105,6 +106,7 @@ core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> font
 
     hbFont_ = hb_ft_font_create_referenced(ftFace_);
     if (!hbFont_) {
+        Cleanup();
         return std::unexpected("Failed to create HarfBuzz font via hb_ft_font_create_referenced");
     }
 

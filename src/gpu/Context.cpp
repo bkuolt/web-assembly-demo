@@ -193,10 +193,20 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
 
     WGPUAdapterInfo adapterInfo = WGPU_ADAPTER_INFO_INIT;
     wgpuAdapterGetInfo(adapter_, &adapterInfo);
+    auto stringViewFromWgpu = [](WGPUStringView sv, std::string_view fallback) -> std::string_view {
+        if (!sv.data) return fallback;
+        if (sv.length == WGPU_STRLEN) return std::string_view{sv.data};
+        return std::string_view{sv.data, sv.length};
+    };
+    const auto gpuDeviceName = stringViewFromWgpu(adapterInfo.device, "Unknown GPU");
+    const auto gpuDriverDesc = stringViewFromWgpu(adapterInfo.description, "Unknown Driver");
     BGL_LOG_INFO("WebGPU Adapter: {} (Driver: {}, Backend: {})",
-                 adapterInfo.device.data ? adapterInfo.device.data : "Unknown GPU",
-                 adapterInfo.description.data ? adapterInfo.description.data : "Unknown Driver",
+                 gpuDeviceName,
+                 gpuDriverDesc,
                  static_cast<int>(adapterInfo.backendType));
+#if defined(BGL_PLATFORM_NATIVE)
+    wgpuAdapterInfoFreeMembers(adapterInfo);
+#endif
 
     // 4. Query Hardware Texture Compression Features (BC7 / ASTC / ETC2) & Request Device
     std::vector<WGPUFeatureName> requestedFeatures{};
@@ -284,6 +294,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
                 }
             }
         }
+        wgpuSurfaceCapabilitiesFreeMembers(caps);
 
         WGPUSurfaceConfiguration configSurface = {};
         configSurface.device = device_;
@@ -325,6 +336,7 @@ void Context::Resize(uint32_t width, uint32_t height) {
                 }
             }
         }
+        wgpuSurfaceCapabilitiesFreeMembers(caps);
 
         WGPUSurfaceConfiguration configSurface = {};
         configSurface.device = device_;
@@ -364,6 +376,7 @@ bool Context::PrepareFrame() {
                     }
                 }
             }
+            wgpuSurfaceCapabilitiesFreeMembers(caps);
         }
 
         WGPUSurfaceConfiguration configSurface = {};
