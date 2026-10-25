@@ -15,6 +15,11 @@
 #include <string_view>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
+#include "gpu/AabbRenderer.hpp"
+#include "gpu/ShadowPass.hpp"
+#include "gpu/PostProcessPass.hpp"
+#include "gpu/GpuCuller.hpp"
+#include "gpu/GpuRayPicker.hpp"
 
 namespace bgl::scene {
 struct Scene;
@@ -25,12 +30,6 @@ struct DecodedHdrImage;
 }
 
 namespace bgl::gpu {
-
-enum class ToneMapOperator : uint32_t {
-    KhronosPbrNeutral = 0,
-    AgX               = 1,
-    ACES              = 2
-};
 
 enum class EnvironmentPreset : uint32_t {
     MediterraneanCourtyard = 0,
@@ -127,18 +126,6 @@ struct alignas(16) SceneLightingUniforms {
 };
 static_assert(sizeof(SceneLightingUniforms) == 5360, "SceneLightingUniforms must be 5360 bytes");
 
-struct alignas(16) TonemapUniforms {
-    float exposure{1.0f};
-    uint32_t operatorId{0};
-    uint32_t isSrgbSurface{1};
-    uint32_t lensFlareEnabled{1};
-    glm::vec4 sunScreenPos{0.5f, 0.5f, 0.0f, 1.0f}; // xy = sun UV, z = visibility, w = aspect ratio
-    glm::vec4 flareParams{0.75f, 0.38f, 1.0f, 0.0f}; // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
-    glm::vec4 bloomParams{0.65f, 1.05f, 0.85f, 1.0f}; // x = intensity, y = threshold, z = scatter, w = enabled
-    glm::vec4 ssaoParams{0.75f, 0.02f, 0.005f, 1.0f}; // x = intensity, y = radius, z = bias, w = enabled
-};
-static_assert(sizeof(TonemapUniforms) == 80, "TonemapUniforms must be 80 bytes");
-
 struct alignas(16) PrefilterComputeParams {
     float roughness{0.0f};
     uint32_t faceSize{64};
@@ -146,18 +133,6 @@ struct alignas(16) PrefilterComputeParams {
     uint32_t sampleCount{64};
 };
 static_assert(sizeof(PrefilterComputeParams) == 16, "PrefilterComputeParams must be 16 bytes");
-
-struct alignas(16) AabbUniforms {
-    glm::mat4 viewProj{1.0f};
-};
-static_assert(sizeof(AabbUniforms) == 64, "AabbUniforms must be 64 bytes");
-
-struct alignas(16) AabbVertex {
-    glm::vec3 pos{0.0f};
-    float _pad{0.0f};
-    glm::vec4 color{1.0f};
-};
-static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 
 /**
  * @class PipelineManager
@@ -405,6 +380,18 @@ public:
     [[nodiscard]] uint32_t GetActivePunctualLightCount() const noexcept { return activePunctualLightCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
+    // Modular Render Passes & GPU Compute Helpers
+    [[nodiscard]] AabbRenderer& GetAabbRenderer() noexcept { return aabbRenderer_; }
+    [[nodiscard]] const AabbRenderer& GetAabbRenderer() const noexcept { return aabbRenderer_; }
+    [[nodiscard]] ShadowPass& GetShadowPass() noexcept { return shadowPass_; }
+    [[nodiscard]] const ShadowPass& GetShadowPass() const noexcept { return shadowPass_; }
+    [[nodiscard]] PostProcessPass& GetPostProcessPass() noexcept { return postProcessPass_; }
+    [[nodiscard]] const PostProcessPass& GetPostProcessPass() const noexcept { return postProcessPass_; }
+    [[nodiscard]] GpuCuller& GetGpuCuller() noexcept { return gpuCuller_; }
+    [[nodiscard]] const GpuCuller& GetGpuCuller() const noexcept { return gpuCuller_; }
+    [[nodiscard]] GpuRayPicker& GetGpuRayPicker() noexcept { return gpuRayPicker_; }
+    [[nodiscard]] const GpuRayPicker& GetGpuRayPicker() const noexcept { return gpuRayPicker_; }
+
     // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also used by unit tests)
     [[nodiscard]] static uint32_t CalculateMipLevels(uint32_t width, uint32_t height) noexcept;
     [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
@@ -542,6 +529,13 @@ private:
     // Samplers (Trilinear 16x Aniso vs Nearest Mip-0)
     SamplerHandle defaultSampler_{};
     SamplerHandle noMipSampler_{};
+
+    // Modular Extracted Passes & Compute Engines
+    AabbRenderer aabbRenderer_{};
+    ShadowPass shadowPass_{};
+    PostProcessPass postProcessPass_{};
+    GpuCuller gpuCuller_{};
+    GpuRayPicker gpuRayPicker_{};
 };
 
 } // namespace bgl::gpu

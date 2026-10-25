@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.1 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.3 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -109,6 +109,7 @@ add_library(bgl_core SHARED
     src/core/Gamepad.cpp
     src/core/Camera.cpp
     src/core/CrashHandler.cpp
+    src/core/MemoryTracker.cpp
 )
 target_include_directories(bgl_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -152,6 +153,11 @@ endif()
 add_library(bgl_gpu SHARED
     src/gpu/Context.cpp
     src/gpu/Skybox.cpp
+    src/gpu/AabbRenderer.cpp
+    src/gpu/ShadowPass.cpp
+    src/gpu/PostProcessPass.cpp
+    src/gpu/GpuCuller.cpp
+    src/gpu/GpuRayPicker.cpp
     src/gpu/Pipeline.cpp
 )
 target_include_directories(bgl_gpu PUBLIC

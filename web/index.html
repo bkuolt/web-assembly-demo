@@ -70,6 +70,10 @@
       <button class="bookmark-btn" onclick="saveBookmark(2)" title="Save Slot 3 (Ctrl+3)">+3</button>
       <button class="bookmark-btn" onclick="restoreBookmark(2)" title="Recall Slot 3 (3)">3</button>
     </div>
+    <div id="gamepad-badge" class="gamepad-indicator" style="display: none;">
+      <span class="gamepad-dot"></span>
+      <span id="gamepad-label">🎮 Controller Active</span>
+    </div>
     <div class="hud-grid" style="margin-top: 8px;">
       <button class="btn" id="btn-focus" onclick="focusSelection()" style="background: #0284c7;">Focus [F]</button>
       <button class="btn" id="btn-frame-all" onclick="frameAll()" style="background: #0284c7;">Frame All</button>

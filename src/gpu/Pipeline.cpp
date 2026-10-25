@@ -79,6 +79,12 @@ PipelineManager::~PipelineManager() {
 }
 
 void PipelineManager::Shutdown() noexcept {
+    postProcessPass_.Shutdown();
+    shadowPass_.Shutdown();
+    aabbRenderer_.Shutdown();
+    gpuCuller_.Shutdown();
+    gpuRayPicker_.Shutdown();
+
     tonemapBindGroup_.Reset();
     cachedHdrResolveView_ = nullptr;
     tonemapSampler_.Reset();
@@ -1073,6 +1079,10 @@ void PipelineManager::RenderTonemapPass(
     uint32_t viewportW,
     uint32_t viewportH
 ) {
+    if (postProcessPass_.IsInitialized()) {
+        postProcessPass_.Render(swapchainPass, hdrResolveView, viewProj, cameraPos, lightDir, envRotation, viewportW, viewportH);
+        return;
+    }
     if (!swapchainPass || !hdrResolveView || !tonemapPipeline_ || !tonemapBindGroupLayout_) return;
 
     if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
@@ -1636,6 +1646,24 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     defaultBlackTextureView_ = blackView;
 
     initialized_ = (opaquePipeline_ != nullptr && tonemapPipeline_ != nullptr);
+
+    // Initialize modular passes and compute engines
+    if (auto res = aabbRenderer_.Initialize(device_, queue_, surfaceFormat_, sampleCount_); !res) {
+        BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());
+    }
+    if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
+        BGL_LOG_WARN("Failed to initialize PostProcessPass: {}", res.error());
+    }
+    if (auto res = shadowPass_.Initialize(device_, queue_, defaultSampler_.Get(), defaultWhiteTextureView_.Get()); !res) {
+        BGL_LOG_WARN("Failed to initialize ShadowPass: {}", res.error());
+    }
+    if (auto res = gpuCuller_.Initialize(device_, queue_); !res) {
+        BGL_LOG_WARN("Failed to initialize GpuCuller: {}", res.error());
+    }
+    if (auto res = gpuRayPicker_.Initialize(device_, queue_); !res) {
+        BGL_LOG_WARN("Failed to initialize GpuRayPicker: {}", res.error());
+    }
+
     BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized (RGBA16F HDR + Tonemapping + Compute IBL + Forward+ Lights + Native Compressed Textures)!");
     return {};
 }
@@ -2275,6 +2303,16 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
 }
 
 void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex) {
+    if (!shadowsEnabled_) return;
+    if (shadowPass_.IsInitialized()) {
+        const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
+        const float c{std::cos(-envRotation_)};
+        const float s{std::sin(-envRotation_)};
+        currentLightDir_ = glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+        shadowPass_.Render(encoder, scene, currentLightDir_, spatialIndex);
+        currentLightViewProj_ = shadowPass_.GetLightViewProjMatrix();
+        return;
+    }
     (void)spatialIndex;
     const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
     // Rotate primary sun direction by -envRotation_ so shadows match rotated HDR environment
@@ -2598,12 +2636,22 @@ void PipelineManager::BatchQuadtreeBounds(const scene::Quadtree& quadtree) {
 }
 
 void PipelineManager::RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB, bool showPrimitiveAABBs) {
+    if (aabbRenderer_.IsInitialized()) {
+        aabbRenderer_.BatchSceneAABBs(scene, showSceneAABB, showPrimitiveAABBs);
+        aabbRenderer_.FlushAABBLines(pass, viewProj);
+        return;
+    }
     if (!pass || !aabbPipeline_) return;
     BatchSceneAABBs(scene, showSceneAABB, showPrimitiveAABBs);
     FlushAABBLines(pass, viewProj);
 }
 
 void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const scene::Quadtree& quadtree, const glm::mat4& viewProj) {
+    if (aabbRenderer_.IsInitialized()) {
+        aabbRenderer_.BatchQuadtreeBounds(quadtree);
+        aabbRenderer_.FlushAABBLines(pass, viewProj);
+        return;
+    }
     if (!pass || !aabbPipeline_) return;
     BatchQuadtreeBounds(quadtree);
     FlushAABBLines(pass, viewProj);

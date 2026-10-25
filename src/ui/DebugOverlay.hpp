@@ -43,6 +43,13 @@ struct OverlayStats {
     bool reflectionsEnabled{true};
     bool ambientOcclusionEnabled{true};
     bool occlusionCullingEnabled{true};
+
+    // System Memory & Hardware Telemetry
+    size_t residentRamBytes{0};
+    size_t vramBytes{0};
+    bool gamepadConnected{false};
+    bool isDualSense{false};
+    std::string gamepadName{"None"};
 };
 
 /**

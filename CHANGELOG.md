@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.3] - 2026-10-25
+
+### GPU Compute Offloading, RAM/VRAM Telemetry, PS5 DualSense Controller & Architectural Modularization
+- **WebGPU Compute Shader Offloading (Frustum Culling & Ray Picking):**
+  - Implemented `gpu::GpuCuller` executing parallel view-frustum culling on GPU compute workgroups (`cs_cull` WGSL) evaluating all scene primitive bounding boxes against 6 analytical plane equations simultaneously.
+  - Implemented `gpu::GpuRayPicker` running parallel ray-bounding slab intersections on GPU compute workgroups (`cs_pick` WGSL) with atomic minimum distance tracking (`atomicMin(&result.hitDistanceBits, distBits)`), offloading complex scene ray tests from CPU.
+- **Process RAM & WebGPU VRAM Telemetry in Debug Overlay:**
+  - Implemented `core::MemoryTracker` tracking real-time resident set size (RAM in MB) via OS kernel interfaces (`/proc/self/statm` on Linux, `getrusage` fallback).
+  - Added atomic tracking of WebGPU VRAM buffer and texture memory allocations and deallocations.
+  - Enhanced in-engine `DebugOverlay` with live memory metrics (`Memory: RAM {:.1f} MB | VRAM {:.1f} MB`).
+- **PS5 DualSense Controller Support & Console Camera Feel:**
+  - Integrated full Sony PS5 DualSense controller identification via Vendor ID `0x054c` and Product IDs `0x0ce6` / `0x0df2` across native SDL2 and Web Gamepad API.
+  - Implemented PS5 exponential response curve `ApplyPs5ResponseCurve(stick, 2.1f, 0.70f)`: fine precision near center deflection and rapid turning at full stick extension, with pitch dampening ($0.70$) for horizon stabilization.
+  - Added inertial look damping (`smoothedLook` interpolation) and native DualSense haptic rumble.
+- **WebUI Controller Visibility & Toast Indicators:**
+  - Added animated `#gamepad-badge` in the web header featuring a pulsing emerald indicator dot and active controller label.
+  - Added real-time controller connection and disconnection toast notifications with gamepad identification.
+- **Major Codebase Modularization (`Pipeline.cpp` Decomposition):**
+  - Broken down monolithic rendering file into dedicated, independently testable rendering modules:
+    - `gpu::AabbRenderer`: batched 3D wireframe bounding box rendering, line batching, and dynamic VBO streaming in a single draw call.
+    - `gpu::ShadowPass`: directional 2048x2048 PCF shadow depth pre-pass and alpha-tested shadow pipelines.
+    - `gpu::PostProcessPass`: fullscreen HDR tonemapping (Khronos PBR Neutral, AgX, ACES), SSAO, bloom, and sun lens flare passes.
+    - `gpu::GpuCuller`: compute-shader parallel frustum culling.
+    - `gpu::GpuRayPicker`: compute-shader parallel ray-AABB intersection picking.
+  - Preserved 100% backward compatibility for all existing public APIs on `PipelineManager`.
+- **Test Suite Expansion (154 Passing Tests):**
+  - Added dedicated unit tests for `MemoryTracker` RAM/VRAM accounting, PS5 DualSense response curves, GPU culler analytical planes, GPU ray picking slab ordering, and modular pass RAII lifecycle.
+  - All **154 unit tests across 12 test suites** passing with 100% success rate.
+
+---
+
 ## [0.9.2] - 2026-10-25
 
 ### Click-Picking & Outline, Focus [F], Fly/WASD Camera, glTF Cameras, Touch, Gamepad & Diurnal Sun

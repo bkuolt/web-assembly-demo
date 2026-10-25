@@ -24,6 +24,13 @@
 #include "scene/TextureDecoder.hpp"
 #include "gpu/Handle.hpp"
 #include "gpu/Pipeline.hpp"
+#include "core/MemoryTracker.hpp"
+#include "core/Gamepad.hpp"
+#include "gpu/AabbRenderer.hpp"
+#include "gpu/ShadowPass.hpp"
+#include "gpu/PostProcessPass.hpp"
+#include "gpu/GpuCuller.hpp"
+#include "gpu/GpuRayPicker.hpp"
 #include "app/Application.hpp"
 
 using namespace bgl;
@@ -1211,6 +1218,166 @@ TEST(RenderingFeaturesTest, SceneNodeHierarchyAndCameraData) {
     EXPECT_EQ(scene.cameras[0].nodeIndex, 1);
     EXPECT_EQ(scene.allNodes[1]->cameraIndex, 0);
 }
+
+// ============================================================================
+// 10. Memory Tracker, PS5 Gamepad, GPU Compute & Modular Pass Tests
+// ============================================================================
+
+TEST(RenderingFeaturesTest, MemoryTrackerRssAndVramAccounting) {
+    auto& tracker = core::MemoryTracker::Instance();
+
+    // 1. Resident Set Size (RAM) query
+    const auto initialTelemetry = tracker.Query();
+#if defined(__linux__)
+    EXPECT_GE(initialTelemetry.RamMb(), 0.0f);
+#endif
+
+    // 2. VRAM byte accounting
+    constexpr size_t kBufBytes = 4 * 1024 * 1024; // 4 MB
+    constexpr size_t kTexBytes = 8 * 1024 * 1024; // 8 MB
+
+    tracker.TrackBufferAlloc(kBufBytes);
+    tracker.TrackTextureAlloc(kTexBytes);
+
+    EXPECT_EQ(tracker.GetGpuBufferBytes(), kBufBytes);
+    EXPECT_EQ(tracker.GetGpuTextureBytes(), kTexBytes);
+    const auto activeTelemetry = tracker.Query();
+    EXPECT_NEAR(activeTelemetry.VramMb(), initialTelemetry.VramMb() + 12.0f, 0.05f);
+
+    tracker.TrackBufferFree(kBufBytes);
+    tracker.TrackTextureFree(kTexBytes);
+
+    EXPECT_EQ(tracker.GetGpuBufferBytes(), 0u);
+    EXPECT_EQ(tracker.GetGpuTextureBytes(), 0u);
+    const auto freedTelemetry = tracker.Query();
+    EXPECT_NEAR(freedTelemetry.VramMb(), initialTelemetry.VramMb(), 0.05f);
+}
+
+TEST(RenderingFeaturesTest, Ps5DualSenseDetectionAndExponentialResponseCurve) {
+    // 1. Radial Deadzone (kDeadzone = 0.12)
+    const glm::vec2 insideDeadzone = core::Gamepad::ApplyDeadzone(glm::vec2{0.05f, -0.08f}); // length ~ 0.094 < 0.12
+    EXPECT_FLOAT_EQ(insideDeadzone.x, 0.0f);
+    EXPECT_FLOAT_EQ(insideDeadzone.y, 0.0f);
+
+    core::Gamepad gamepad{};
+    core::GamepadState rawState{};
+    rawState.connected = true;
+    rawState.isDualSense = true;
+    rawState.rightStick = glm::vec2{0.05f, -0.08f};
+    gamepad.SetRawState(rawState, 0.016f);
+    EXPECT_FLOAT_EQ(gamepad.GetState().curvedLook.x, 0.0f);
+    EXPECT_FLOAT_EQ(gamepad.GetState().curvedLook.y, 0.0f);
+
+    // 2. Full Deflection Preserved
+    const glm::vec2 fullDeflectionX = core::Gamepad::ApplyPs5ResponseCurve(glm::vec2{1.0f, 0.0f}, 2.1f, 0.70f);
+    EXPECT_NEAR(fullDeflectionX.x, 1.0f, 0.001f);
+    EXPECT_FLOAT_EQ(fullDeflectionX.y, 0.0f);
+
+    // Pitch axis dampened by 0.70
+    const glm::vec2 fullDeflectionY = core::Gamepad::ApplyPs5ResponseCurve(glm::vec2{0.0f, 1.0f}, 2.1f, 0.70f);
+    EXPECT_FLOAT_EQ(fullDeflectionY.x, 0.0f);
+    EXPECT_NEAR(fullDeflectionY.y, 0.70f, 0.001f);
+
+    // 3. Exponential Sensitivity Curve: mag^2.1 grants finer aiming control near center
+    constexpr float rawX = 0.5f;
+    const glm::vec2 halfStick = core::Gamepad::ApplyPs5ResponseCurve(glm::vec2{rawX, 0.0f}, 2.1f, 0.70f);
+    const float expectedExpNorm = std::pow(rawX, 2.1f); // ~0.233258
+    EXPECT_NEAR(halfStick.x, expectedExpNorm, 0.001f);
+    EXPECT_LT(halfStick.x, rawX); // Exponential curve grants finer control near center!
+
+    // 4. Symmetry under negative axes
+    const glm::vec2 negStick = core::Gamepad::ApplyPs5ResponseCurve(glm::vec2{-rawX, 0.0f}, 2.1f, 0.70f);
+    EXPECT_NEAR(negStick.x, -halfStick.x, 0.001f);
+}
+
+TEST(RenderingFeaturesTest, GpuCullerFrustumAnalyticalPlanesEvaluation) {
+    // Verify frustum analytical plane tests identical to cs_cull WGSL shader
+    // Symmetrical perspective frustum from origin looking down -Z
+    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    const glm::mat4 view = glm::lookAtRH(glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+    const core::Frustum frustum = core::Frustum::FromViewProjection(proj * view);
+
+    // 1. Box strictly in front of camera
+    const core::AABB boxInside{ glm::vec3{-1.0f, -1.0f, -10.0f}, glm::vec3{1.0f, 1.0f, -5.0f} };
+    EXPECT_TRUE(frustum.IntersectsAABB(boxInside));
+
+    // 2. Box strictly behind camera (+Z)
+    const core::AABB boxBehind{ glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 10.0f} };
+    EXPECT_FALSE(frustum.IntersectsAABB(boxBehind));
+
+    // 3. Plane equation dot(normal, pVertex) + d evaluation
+    for (int p = 0; p < 6; ++p) {
+        const auto& plane = frustum.planes[p];
+        const glm::vec3 pVertex{
+            (plane.normal.x >= 0.0f) ? boxInside.maxBound.x : boxInside.minBound.x,
+            (plane.normal.y >= 0.0f) ? boxInside.maxBound.y : boxInside.minBound.y,
+            (plane.normal.z >= 0.0f) ? boxInside.maxBound.z : boxInside.minBound.z
+        };
+        EXPECT_GE(glm::dot(plane.normal, pVertex) + plane.distance, 0.0f);
+    }
+}
+
+TEST(RenderingFeaturesTest, GpuRayPickerSlabIntersectionOrdering) {
+    // Tests ordering preservation when floats are bitcast to u32 for atomicMin
+    const core::Ray ray{ glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f} };
+
+    const core::AABB nearBox{ glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 7.0f} };
+    const core::AABB farBox{ glm::vec3{-1.0f, -1.0f, 15.0f}, glm::vec3{1.0f, 1.0f, 17.0f} };
+
+    float tNearMin = 0.0f, tNearMax = 0.0f;
+    float tFarMin = 0.0f, tFarMax = 0.0f;
+    EXPECT_TRUE(nearBox.Intersects(ray, tNearMin, tNearMax));
+    EXPECT_TRUE(farBox.Intersects(ray, tFarMin, tFarMax));
+
+    EXPECT_NEAR(tNearMin, 5.0f, 1e-4f);
+    EXPECT_NEAR(tFarMin, 15.0f, 1e-4f);
+    EXPECT_LT(tNearMin, tFarMin);
+
+    // IEEE-754 positive floats preserve strict ordering under bitcast to uint32_t
+    const uint32_t bitsNear = std::bit_cast<uint32_t>(tNearMin);
+    const uint32_t bitsFar = std::bit_cast<uint32_t>(tFarMin);
+    EXPECT_LT(bitsNear, bitsFar);
+
+    // Atomic minimum in WGSL cs_pick will thus correctly select bitsNear
+    const uint32_t minBits = std::min(bitsNear, bitsFar);
+    EXPECT_EQ(minBits, bitsNear);
+    EXPECT_FLOAT_EQ(std::bit_cast<float>(minBits), 5.0f);
+}
+
+TEST(RenderingFeaturesTest, ModularPassesRaiiAndDelegation) {
+    // Verify RAII lifecycle of extracted passes
+    {
+        gpu::AabbRenderer aabbRenderer{};
+        EXPECT_FALSE(aabbRenderer.IsInitialized());
+        gpu::AabbRenderer movedAabb{ std::move(aabbRenderer) };
+        EXPECT_FALSE(movedAabb.IsInitialized());
+    }
+    {
+        gpu::ShadowPass shadowPass{};
+        EXPECT_FALSE(shadowPass.IsInitialized());
+        gpu::ShadowPass movedShadow{ std::move(shadowPass) };
+        EXPECT_FALSE(movedShadow.IsInitialized());
+    }
+    {
+        gpu::PostProcessPass postPass{};
+        EXPECT_FALSE(postPass.IsInitialized());
+        gpu::PostProcessPass movedPost{ std::move(postPass) };
+        EXPECT_FALSE(movedPost.IsInitialized());
+    }
+    {
+        gpu::GpuCuller culler{};
+        EXPECT_FALSE(culler.IsInitialized());
+        gpu::GpuCuller movedCuller{ std::move(culler) };
+        EXPECT_FALSE(movedCuller.IsInitialized());
+    }
+    {
+        gpu::GpuRayPicker rayPicker{};
+        EXPECT_FALSE(rayPicker.IsInitialized());
+        gpu::GpuRayPicker movedPicker{ std::move(rayPicker) };
+        EXPECT_FALSE(movedPicker.IsInitialized());
+    }
+}
+
 
 
 

@@ -1755,28 +1755,72 @@
       }, { passive: false });
     }
 
-    // Web Gamepad API Polling Loop
+    // Web Gamepad API Polling Loop (PS5 DualSense & Gamepad detection)
+    let lastGamepadConnected = false;
+    const gamepadBadge = document.getElementById('gamepad-badge');
+    const gamepadLabel = document.getElementById('gamepad-label');
+
     function pollGamepad() {
       if (navigator.getGamepads) {
         const gamepads = navigator.getGamepads();
+        let activePad = null;
         for (const gp of gamepads) {
-          if (gp && gp.connected && BglState.wasmExports) {
-            const lx = Math.abs(gp.axes[0]) > 0.12 ? gp.axes[0] : 0;
-            const ly = Math.abs(gp.axes[1]) > 0.12 ? gp.axes[1] : 0;
-            const rx = Math.abs(gp.axes[2]) > 0.12 ? gp.axes[2] : 0;
-            const ry = Math.abs(gp.axes[3]) > 0.12 ? gp.axes[3] : 0;
-            const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
-            const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
-            const btnA = gp.buttons[0] && gp.buttons[0].pressed ? 1 : 0;
-            const btnB = gp.buttons[1] && gp.buttons[1].pressed ? 1 : 0;
-            const btnX = gp.buttons[2] && gp.buttons[2].pressed ? 1 : 0;
-            const btnY = gp.buttons[3] && gp.buttons[3].pressed ? 1 : 0;
-
-            if (BglState.wasmExports.bgl_gamepad_state) {
-              BglState.wasmExports.bgl_gamepad_state(lx, ly, rx, ry, lt, rt, btnA, btnB, btnX, btnY);
-            }
+          if (gp && gp.connected) {
+            activePad = gp;
             break;
           }
+        }
+
+        if (activePad && BglState.wasmExports) {
+          const isDualSense = /dualsense|054c|ps5|playstation/i.test(activePad.id);
+          const padTitle = isDualSense ? '🎮 PS5 DualSense Controller' : `🎮 ${activePad.id.split('(')[0].trim() || 'Gamepad'}`;
+
+          if (!lastGamepadConnected) {
+            lastGamepadConnected = true;
+            if (gamepadBadge) gamepadBadge.style.display = 'inline-flex';
+            if (gamepadLabel) gamepadLabel.textContent = isDualSense ? '🎮 PS5 DualSense Active' : `${padTitle} Active`;
+            BglNotifier.show({
+              type: 'success',
+              title: isDualSense ? 'PS5 Controller Detected' : 'Gamepad Connected',
+              message: `${padTitle} connected. PS5 cinematic response curve active.`
+            });
+            BglLogger.log('Engine', `Gamepad connected: ${activePad.id} (DualSense: ${isDualSense})`);
+          }
+
+          // Apply deadzone and PS5 exponential sensitivity curve
+          const deadzone = 0.12;
+          let lx = Math.abs(activePad.axes[0]) > deadzone ? activePad.axes[0] : 0;
+          let ly = Math.abs(activePad.axes[1]) > deadzone ? activePad.axes[1] : 0;
+          let rx = Math.abs(activePad.axes[2]) > deadzone ? activePad.axes[2] : 0;
+          let ry = Math.abs(activePad.axes[3]) > deadzone ? activePad.axes[3] : 0;
+
+          // PS5 response curve: power 2.1 curve for fine aim + fast turn
+          const rMag = Math.hypot(rx, ry);
+          if (rMag > 0.001) {
+            const curvedMag = Math.pow(Math.min(rMag, 1.0), 2.1);
+            rx = (rx / rMag) * curvedMag;
+            ry = (ry / rMag) * curvedMag * 0.70; // Stabilize pitch axis
+          }
+
+          const lt = activePad.buttons[6] ? activePad.buttons[6].value : 0;
+          const rt = activePad.buttons[7] ? activePad.buttons[7].value : 0;
+          const btnA = activePad.buttons[0] && activePad.buttons[0].pressed ? 1 : 0;
+          const btnB = activePad.buttons[1] && activePad.buttons[1].pressed ? 1 : 0;
+          const btnX = activePad.buttons[2] && activePad.buttons[2].pressed ? 1 : 0;
+          const btnY = activePad.buttons[3] && activePad.buttons[3].pressed ? 1 : 0;
+
+          if (BglState.wasmExports.bgl_gamepad_state) {
+            BglState.wasmExports.bgl_gamepad_state(lx, ly, rx, ry, lt, rt, btnA, btnB, btnX, btnY);
+          }
+        } else if (lastGamepadConnected) {
+          lastGamepadConnected = false;
+          if (gamepadBadge) gamepadBadge.style.display = 'none';
+          BglNotifier.show({
+            type: 'info',
+            title: 'Gamepad Disconnected',
+            message: 'Game controller has been disconnected.'
+          });
+          BglLogger.log('Engine', 'Gamepad disconnected');
         }
       }
       requestAnimationFrame(pollGamepad);

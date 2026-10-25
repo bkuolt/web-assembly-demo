@@ -4,6 +4,7 @@
  */
 #include "app/Application.hpp"
 #include "core/NetworkFetcher.hpp"
+#include "core/MemoryTracker.hpp"
 #include "core/Log.hpp"
 #include "core/Version.hpp"
 #include <array>
@@ -275,20 +276,24 @@ void Application::Update(float deltaTime) {
     }
 #endif
 
-    gamepad_.Update();
+    gamepad_.Update(deltaTime);
     const auto& gp = gamepad_.GetState();
 
     if (gp.connected) {
         if (camera_.GetMode() == core::CameraMode::Fly) {
-            camera_.MoveForward(-gp.leftStick.y * deltaTime * 5.0f);
-            camera_.MoveRight(gp.leftStick.x * deltaTime * 5.0f);
+            camera_.MoveForward(-gp.smoothedMove.y * deltaTime * 6.0f);
+            camera_.MoveRight(gp.smoothedMove.x * deltaTime * 6.0f);
         } else {
-            camera_.Pan(gp.leftStick.x * deltaTime * camera_.GetDistance(), gp.leftStick.y * deltaTime * camera_.GetDistance());
+            camera_.Pan(gp.smoothedMove.x * deltaTime * camera_.GetDistance(), gp.smoothedMove.y * deltaTime * camera_.GetDistance());
         }
-        camera_.Orbit(gp.rightStick.x * deltaTime * 2.0f, gp.rightStick.y * deltaTime * 2.0f);
-        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance());
+        // PS5 smooth exponential response curve and stabilized pitch
+        camera_.Orbit(gp.smoothedLook.x * deltaTime * 2.8f, gp.smoothedLook.y * deltaTime * 2.8f);
+        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance() * 1.5f);
         if (gp.buttonY) {
             ToggleBoundingBoxes();
+        }
+        if (gp.buttonX) {
+            FocusSelection();
         }
     }
 
@@ -319,6 +324,26 @@ void Application::Update(float deltaTime) {
     stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
     stats.ambientOcclusionEnabled = pipelineManager_.IsAmbientOcclusionEnabled();
     stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
+
+    // Memory and Gamepad telemetry
+    auto memTelemetry = core::MemoryTracker::Instance().Query();
+    stats.residentRamBytes = memTelemetry.residentRamBytes;
+    size_t vramBytes = memTelemetry.TotalGpuBytes();
+    if (activeScene_) {
+        for (const auto& tex : activeScene_->gpuTextures) {
+            vramBytes += static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
+        }
+        vramBytes += totalVertices_ * sizeof(core::Vertex);
+        vramBytes += totalIndices_ * sizeof(uint32_t);
+    }
+    vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 8 * 4); // RGBA16F 4x MSAA
+    vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 4 * 4); // Depth24 4x MSAA
+    vramBytes += 2048 * 2048 * 4; // Shadow map Depth32F
+    stats.vramBytes = vramBytes;
+
+    stats.gamepadConnected = gp.connected;
+    stats.isDualSense = gp.isDualSense;
+    stats.gamepadName = gp.deviceName;
 
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;
