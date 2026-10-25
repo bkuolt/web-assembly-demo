@@ -19,6 +19,8 @@
 #include "scene/RayPicker.hpp"
 #include "ui/DebugOverlay.hpp"
 
+struct SDL_Window;
+
 namespace bgl::app {
 
 /**
@@ -287,7 +289,7 @@ private:
     gpu::Skybox skybox_{};
     ui::DebugOverlay debugOverlay_{};
     audio::SoundEngine soundEngine_{};
-    void* nativeWindow_{nullptr};
+    SDL_Window* nativeWindow_{nullptr};
     scene::AssetManager assetManager_{};
     std::unique_ptr<scene::FastGltfLoader> gltfLoader_{nullptr};
     std::shared_ptr<scene::Scene> activeScene_{nullptr};

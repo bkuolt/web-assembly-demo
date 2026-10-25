@@ -13,71 +13,54 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
 
     const size_t keyframeCount = timestamps.size();
 
-    // 1. Clamp before first keyframe
-    if (t <= timestamps.front()) {
+    auto copyKeyframe = [&](size_t keyframeIdx) noexcept {
         if (interpolation == AnimationInterpolation::CubicSpline) {
-            // Cubic spline stores [in-tangent, value, out-tangent]; the value is at offset 1 * stride
-            const size_t valueOffset = stride;
+            // Cubic spline stores [in-tangent, value, out-tangent]; value is at offset 1 * stride
+            const size_t valueOffset = (keyframeIdx * 3 + 1) * stride;
             if (valueOffset + stride <= keyframeValues.size()) {
                 std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
             }
         } else {
-            if (stride <= keyframeValues.size()) {
-                std::copy_n(keyframeValues.data(), stride, outValues.data());
+            const size_t valueOffset = keyframeIdx * stride;
+            if (valueOffset + stride <= keyframeValues.size()) {
+                std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
             }
         }
+    };
+
+    auto normalizeIfRotation = [&]() noexcept {
         if (path == AnimationPath::Rotation && stride >= 4) {
             glm::quat q(outValues[3], outValues[0], outValues[1], outValues[2]);
             q = glm::normalize(q);
-            outValues[0] = q.x; outValues[1] = q.y; outValues[2] = q.z; outValues[3] = q.w;
+            outValues[0] = q.x;
+            outValues[1] = q.y;
+            outValues[2] = q.z;
+            outValues[3] = q.w;
         }
+    };
+
+    // 1. Clamp before first keyframe
+    if (t <= timestamps.front()) {
+        copyKeyframe(0);
+        normalizeIfRotation();
         return;
     }
 
     // 2. Clamp after last keyframe
     if (t >= timestamps.back()) {
-        const size_t lastIdx = keyframeCount - 1;
-        if (interpolation == AnimationInterpolation::CubicSpline) {
-            const size_t valueOffset = (lastIdx * 3 + 1) * stride;
-            if (valueOffset + stride <= keyframeValues.size()) {
-                std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
-            }
-        } else {
-            const size_t valueOffset = lastIdx * stride;
-            if (valueOffset + stride <= keyframeValues.size()) {
-                std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
-            }
-        }
-        if (path == AnimationPath::Rotation && stride >= 4) {
-            glm::quat q(outValues[3], outValues[0], outValues[1], outValues[2]);
-            q = glm::normalize(q);
-            outValues[0] = q.x; outValues[1] = q.y; outValues[2] = q.z; outValues[3] = q.w;
-        }
+        copyKeyframe(keyframeCount - 1);
+        normalizeIfRotation();
         return;
     }
 
     // 3. Find surrounding keyframes k and k1 where timestamps[k] <= t <= timestamps[k1]
-    auto it = std::upper_bound(timestamps.begin(), timestamps.end(), t);
+    const auto it = std::ranges::upper_bound(timestamps, t);
     const size_t k = (it == timestamps.begin()) ? 0 : std::distance(timestamps.begin(), it) - 1;
     const size_t k1 = std::min(k + 1, keyframeCount - 1);
 
     if (k == k1 || interpolation == AnimationInterpolation::Step) {
-        if (interpolation == AnimationInterpolation::CubicSpline) {
-            const size_t valueOffset = (k * 3 + 1) * stride;
-            if (valueOffset + stride <= keyframeValues.size()) {
-                std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
-            }
-        } else {
-            const size_t valueOffset = k * stride;
-            if (valueOffset + stride <= keyframeValues.size()) {
-                std::copy_n(keyframeValues.data() + valueOffset, stride, outValues.data());
-            }
-        }
-        if (path == AnimationPath::Rotation && stride >= 4) {
-            glm::quat q(outValues[3], outValues[0], outValues[1], outValues[2]);
-            q = glm::normalize(q);
-            outValues[0] = q.x; outValues[1] = q.y; outValues[2] = q.z; outValues[3] = q.w;
-        }
+        copyKeyframe(k);
+        normalizeIfRotation();
         return;
     }
 
@@ -99,7 +82,7 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
             if (glm::dot(q0, q1) < 0.0f) {
                 q1 = -q1;
             }
-            glm::quat q = glm::normalize(glm::slerp(q0, q1, alpha));
+            const glm::quat q = glm::normalize(glm::slerp(q0, q1, alpha));
             outValues[0] = q.x;
             outValues[1] = q.y;
             outValues[2] = q.z;
@@ -141,15 +124,7 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
 
             outValues[i] = h00 * vk + h10 * dt * bk + h01 * vk1 + h11 * dt * ak1;
         }
-
-        if (path == AnimationPath::Rotation && stride >= 4) {
-            glm::quat q(outValues[3], outValues[0], outValues[1], outValues[2]);
-            q = glm::normalize(q);
-            outValues[0] = q.x;
-            outValues[1] = q.y;
-            outValues[2] = q.z;
-            outValues[3] = q.w;
-        }
+        normalizeIfRotation();
     }
 }
 

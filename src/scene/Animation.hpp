@@ -48,11 +48,11 @@ struct AnimationSampler {
     std::vector<float> keyframeValues{};
     AnimationInterpolation interpolation{AnimationInterpolation::Linear};
 
-    [[nodiscard]] float GetStartTime() const noexcept {
+    [[nodiscard]] constexpr float GetStartTime() const noexcept {
         return timestamps.empty() ? 0.0f : timestamps.front();
     }
 
-    [[nodiscard]] float GetEndTime() const noexcept {
+    [[nodiscard]] constexpr float GetEndTime() const noexcept {
         return timestamps.empty() ? 0.0f : timestamps.back();
     }
 
@@ -86,7 +86,7 @@ struct Animation {
     std::vector<AnimationSampler> samplers{};
     float duration{0.0f};
 
-    void CalculateDuration() noexcept {
+    constexpr void CalculateDuration() noexcept {
         duration = 0.0f;
         for (const auto& sampler : samplers) {
             duration = std::max(duration, sampler.GetEndTime());

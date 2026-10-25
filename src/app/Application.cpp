@@ -542,7 +542,7 @@ void Application::Shutdown() {
     gpuContext_.Shutdown();
 #if defined(BGL_PLATFORM_NATIVE)
     if (nativeWindow_) {
-        SDL_DestroyWindow(static_cast<SDL_Window*>(nativeWindow_));
+        SDL_DestroyWindow(nativeWindow_);
         nativeWindow_ = nullptr;
         SDL_Quit();
     }

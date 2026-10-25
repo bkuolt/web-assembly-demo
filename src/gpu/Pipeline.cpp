@@ -2187,7 +2187,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
     auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
         for (auto& prim : node.GetPrimitives()) {
-            preparePrimitive(const_cast<scene::MeshPrimitive&>(prim));
+            preparePrimitive(prim);
         }
         for (auto& child : node.children) {
             if (child) {
@@ -2514,7 +2514,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
 
         for (const auto& item : items) {
             auto prims = item.node->GetPrimitives();
-            auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
+            auto& prim = prims[item.primitiveIndex];
             RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline, item.node.get());
         }
     } else {
@@ -2560,7 +2560,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         });
         for (const auto& item : items) {
             auto prims = item.node->GetPrimitives();
-            auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
+            auto& prim = prims[item.primitiveIndex];
             RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline, item.node.get());
         }
     }
@@ -2576,7 +2576,7 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
     const auto prims = node.GetPrimitives();
     lastVisiblePrimitiveCount_ += prims.size();
     for (auto& prim : prims) {
-        RenderPrimitive(pass, scene, const_cast<scene::MeshPrimitive&>(prim), worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node);
+        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node);
     }
 
     for (const auto& child : node.children) {

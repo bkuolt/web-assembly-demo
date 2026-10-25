@@ -60,26 +60,17 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       baseVertices{std::move(other.baseVertices)},
       indices{std::move(other.indices)},
       morphTargets{std::move(other.morphTargets)},
-      morphDirty{other.morphDirty},
+      morphDirty{std::exchange(other.morphDirty, false)},
       boundingBox{other.boundingBox},
       materialIndex{other.materialIndex},
       indexFormat{other.indexFormat},
-      gpuVertexBuffer{other.gpuVertexBuffer},
-      gpuIndexBuffer{other.gpuIndexBuffer},
-      gpuWireframeIndexBuffer{other.gpuWireframeIndexBuffer},
-      wireframeIndexCount{other.wireframeIndexCount},
-      gpuUniformBuffer{other.gpuUniformBuffer},
-      gpuBindGroup{other.gpuBindGroup},
-      gpuShadowBindGroup{other.gpuShadowBindGroup} {
-    other.gpuVertexBuffer = nullptr;
-    other.gpuIndexBuffer = nullptr;
-    other.gpuWireframeIndexBuffer = nullptr;
-    other.wireframeIndexCount = 0;
-    other.gpuUniformBuffer = nullptr;
-    other.gpuBindGroup = nullptr;
-    other.gpuShadowBindGroup = nullptr;
-    other.morphDirty = false;
-}
+      gpuVertexBuffer{std::exchange(other.gpuVertexBuffer, nullptr)},
+      gpuIndexBuffer{std::exchange(other.gpuIndexBuffer, nullptr)},
+      gpuWireframeIndexBuffer{std::exchange(other.gpuWireframeIndexBuffer, nullptr)},
+      wireframeIndexCount{std::exchange(other.wireframeIndexCount, 0)},
+      gpuUniformBuffer{std::exchange(other.gpuUniformBuffer, nullptr)},
+      gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
+      gpuShadowBindGroup{std::exchange(other.gpuShadowBindGroup, nullptr)} {}
 
 MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
     if (this != &other) {
@@ -88,25 +79,17 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         baseVertices = std::move(other.baseVertices);
         indices = std::move(other.indices);
         morphTargets = std::move(other.morphTargets);
-        morphDirty = other.morphDirty;
+        morphDirty = std::exchange(other.morphDirty, false);
         boundingBox = other.boundingBox;
         materialIndex = other.materialIndex;
         indexFormat = other.indexFormat;
-        gpuVertexBuffer = other.gpuVertexBuffer;
-        gpuIndexBuffer = other.gpuIndexBuffer;
-        gpuWireframeIndexBuffer = other.gpuWireframeIndexBuffer;
-        wireframeIndexCount = other.wireframeIndexCount;
-        gpuUniformBuffer = other.gpuUniformBuffer;
-        gpuBindGroup = other.gpuBindGroup;
-        gpuShadowBindGroup = other.gpuShadowBindGroup;
-        other.gpuVertexBuffer = nullptr;
-        other.gpuIndexBuffer = nullptr;
-        other.gpuWireframeIndexBuffer = nullptr;
-        other.wireframeIndexCount = 0;
-        other.gpuUniformBuffer = nullptr;
-        other.gpuBindGroup = nullptr;
-        other.gpuShadowBindGroup = nullptr;
-        other.morphDirty = false;
+        gpuVertexBuffer = std::exchange(other.gpuVertexBuffer, nullptr);
+        gpuIndexBuffer = std::exchange(other.gpuIndexBuffer, nullptr);
+        gpuWireframeIndexBuffer = std::exchange(other.gpuWireframeIndexBuffer, nullptr);
+        wireframeIndexCount = std::exchange(other.wireframeIndexCount, 0);
+        gpuUniformBuffer = std::exchange(other.gpuUniformBuffer, nullptr);
+        gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
+        gpuShadowBindGroup = std::exchange(other.gpuShadowBindGroup, nullptr);
     }
     return *this;
 }
@@ -116,31 +99,13 @@ MeshPrimitive::~MeshPrimitive() {
 }
 
 void MeshPrimitive::ReleaseGpu() noexcept {
-    if (gpuShadowBindGroup) {
-        wgpuBindGroupRelease(gpuShadowBindGroup);
-        gpuShadowBindGroup = nullptr;
-    }
-    if (gpuBindGroup) {
-        wgpuBindGroupRelease(gpuBindGroup);
-        gpuBindGroup = nullptr;
-    }
-    if (gpuUniformBuffer) {
-        wgpuBufferRelease(gpuUniformBuffer);
-        gpuUniformBuffer = nullptr;
-    }
-    if (gpuIndexBuffer) {
-        wgpuBufferRelease(gpuIndexBuffer);
-        gpuIndexBuffer = nullptr;
-    }
-    if (gpuWireframeIndexBuffer) {
-        wgpuBufferRelease(gpuWireframeIndexBuffer);
-        gpuWireframeIndexBuffer = nullptr;
-    }
+    if (auto bg = std::exchange(gpuShadowBindGroup, nullptr)) wgpuBindGroupRelease(bg);
+    if (auto bg = std::exchange(gpuBindGroup, nullptr))       wgpuBindGroupRelease(bg);
+    if (auto b = std::exchange(gpuUniformBuffer, nullptr))    wgpuBufferRelease(b);
+    if (auto b = std::exchange(gpuIndexBuffer, nullptr))      wgpuBufferRelease(b);
+    if (auto b = std::exchange(gpuWireframeIndexBuffer, nullptr)) wgpuBufferRelease(b);
     wireframeIndexCount = 0;
-    if (gpuVertexBuffer) {
-        wgpuBufferRelease(gpuVertexBuffer);
-        gpuVertexBuffer = nullptr;
-    }
+    if (auto b = std::exchange(gpuVertexBuffer, nullptr))     wgpuBufferRelease(b);
 }
 
 void MeshPrimitive::ComputeTangents() {
@@ -277,7 +242,7 @@ void SceneNode::ApplyMorphWeights() {
     if (morphWeights.empty()) return;
     for (auto& prim : GetPrimitives()) {
         if (!prim.morphTargets.empty()) {
-            const_cast<MeshPrimitive&>(prim).ApplyMorphTargets(morphWeights);
+            prim.ApplyMorphTargets(morphWeights);
         }
     }
 }
@@ -300,13 +265,11 @@ void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
 
 Scene::~Scene() {
     for (auto& t : gpuTextures) {
-        if (t.view) {
-            wgpuTextureViewRelease(t.view);
-            t.view = nullptr;
+        if (auto view = std::exchange(t.view, nullptr)) {
+            wgpuTextureViewRelease(view);
         }
-        if (t.texture) {
-            wgpuTextureRelease(t.texture);
-            t.texture = nullptr;
+        if (auto tex = std::exchange(t.texture, nullptr)) {
+            wgpuTextureRelease(tex);
         }
         t.sampler = nullptr;
     }
@@ -349,7 +312,7 @@ void Scene::EvaluateAnimation(size_t animIndex, float time) {
         if (channel.samplerIndex >= anim.samplers.size()) continue;
         const auto& sampler = anim.samplers[channel.samplerIndex];
         if (channel.targetNodeIndex < 0 || static_cast<size_t>(channel.targetNodeIndex) >= allNodes.size()) continue;
-        auto targetNode = allNodes[channel.targetNodeIndex];
+        const auto& targetNode = allNodes[static_cast<size_t>(channel.targetNodeIndex)];
         if (!targetNode) continue;
 
         switch (channel.path) {
