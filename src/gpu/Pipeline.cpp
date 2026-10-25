@@ -198,17 +198,7 @@ std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8
         }
     };
 
-#if !defined(__EMSCRIPTEN__)
-    if (static_cast<size_t>(dstW) * dstH >= 65536 && dstH >= 64) {
-        core::ThreadPool::Instance().ParallelFor(0, dstH, [&](size_t y) {
-            processRows(static_cast<uint32_t>(y), static_cast<uint32_t>(y + 1));
-        });
-    } else {
-        processRows(0, dstH);
-    }
-#else
     processRows(0, dstH);
-#endif
     return dst;
 }
 
@@ -2061,13 +2051,16 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             prim.indexFormat = useUint16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
             if (useUint16) {
                 std::vector<uint16_t> indices16;
-                indices16.reserve(prim.indices.size());
+                indices16.reserve(prim.indices.size() + 1);
                 for (uint32_t idx : prim.indices) {
                     indices16.push_back(static_cast<uint16_t>(idx));
                 }
+                if (indices16.size() % 2 != 0) {
+                    indices16.push_back(0); // Pad to ensure multiple of 4 bytes for wgpuQueueWriteBuffer
+                }
                 const size_t ib16Size{indices16.size() * sizeof(uint16_t)};
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ibDesc.size = (ib16Size + 3) & ~3;
+                ibDesc.size = ib16Size;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
                 ibDesc.label = ToWgpuStringView("IndexBuffer_U16");
                 prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);

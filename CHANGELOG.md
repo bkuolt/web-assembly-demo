@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.7] - 2026-10-25
+
+### ThreadPool Re-entrancy, Work-Stealing Wait & WebGPU Index Buffer 4-Byte Alignment
+- **Work-Stealing & Re-Entrancy in `core::ThreadPool`:**
+  - Added thread-local worker detection (`t_isWorkerThread`) to execute nested parallel-for loops inline, eliminating thread starvation deadlocks when outer loops dispatch inner parallel operations.
+  - Added active work-stealing during `future.wait_for(...)`: waiting threads assist with pending tasks from the queue rather than idly blocking.
+- **WebGPU Index Buffer Alignment & ToyCar Validation:**
+  - Padded `indices16` buffer upload to ensure exact 4-byte write alignment for `wgpuQueueWriteBuffer`, resolving panic on models with odd index counts (e.g., `ToyCar.glb`).
+  - Successfully verified headless execution with 10 rendered frames on both `assets/ToyCar.glb` and `assets/Sponza.glb` in under 1.2s.
+- **Codebase Cleanup & Testing:**
+  - Full clean rebuild with 0 compiler warnings.
+  - 157/157 unit tests passing across all 13 test suites.
+
+---
+
 ## [0.9.6] - 2026-10-25
 
 ### CI/CD Robustness & GitHub Pages Staging Stabilization

@@ -66,6 +66,8 @@ public:
         return future;
     }
 
+    inline static thread_local bool t_isWorkerThread{false};
+
     /**
      * @brief Execute a loop in parallel partitioned across workers, blocking until complete.
      * @param start Inclusive starting index.
@@ -78,7 +80,8 @@ public:
         if (start >= end) return;
         const size_t totalWork = end - start;
         const size_t numWorkers = std::min(totalWork, workers_.size());
-        if (numWorkers <= 1) {
+        // Prevent thread starvation deadlock if already running on a worker thread
+        if (t_isWorkerThread || numWorkers <= 1) {
             for (size_t i = start; i < end; ++i) {
                 func(i);
             }
@@ -102,6 +105,21 @@ public:
         }
 
         for (auto& f : futures) {
+            while (f.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lock(queueMutex_);
+                    if (!tasks_.empty()) {
+                        task = std::move(tasks_.front());
+                        tasks_.pop();
+                    }
+                }
+                if (task) {
+                    task();
+                } else {
+                    std::this_thread::yield();
+                }
+            }
             f.get();
         }
     }
