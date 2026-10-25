@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.4] - 2026-10-25
+
+### Thread Pool, Mesh Sharing, Front-to-Back Sorting, Content Hashing, Golden Image Tests & Emscripten CI
+- **Centralized Work Stealing Thread Pool (`core::ThreadPool`):**
+  - Implemented thread-safe `core::ThreadPool` with `Enqueue` (returning `std::future`) and `ParallelFor(start, end, func)` chunked parallel dispatch.
+  - Replaced all scattered, ad-hoc `std::jthread` creations across image decoding, mesh parsing, node hierarchy instantiation, tangent generation, cubemap generation, and mipmap processing, eliminating thread oversubscription.
+- **Mesh Sharing & Zero-Copy Instance Primitives:**
+  - Introduced `scene::Mesh` as a shared resource (`std::vector<std::shared_ptr<Mesh>> meshes` on `Scene`), with `SceneNode` referencing `std::shared_ptr<Mesh> mesh`.
+  - Added zero-copy `node->GetPrimitives()` span accessor, drastically reducing memory footprint when instancing geometry across complex scenes like Sponza.
+- **Dynamic Uint16 Index Buffers & Draw Call Sorting:**
+  - Implemented dynamic index buffer allocation: uploads `WGPUIndexFormat_Uint16` whenever `vertexCount < 65536`, cutting index bandwidth in half for the majority of glTF primitives.
+  - Implemented multi-tier draw call sorting: opaque primitives are sorted front-to-back from camera to maximize GPU early-Z rejection; transparents back-to-front; draw calls grouped by pipeline and material to minimize state transitions.
+- **Thread-Safe AssetManager with Cryptographic FNV-1a Content Hashing:**
+  - Converted `AssetManager` to use true content hashing (`Fnv1a64` on binary memory payload) rather than fragile string path hashing.
+  - Protected cache tables with `std::shared_mutex` reader-writer locking for safe multithreaded loading.
+- **Centralized Versioning & Branding:**
+  - Automated `Version.hpp` generation via CMake `configure_file` from `Version.hpp.in`, keeping version and titles centralized and fixing legacy typos.
+- **Integrated Engine Scaffolding & Logging Optimization:**
+  - Wired `RayPicker` picking directly into `soundEngine_.PlaySound3D` for spatial audio cues at ray hit intersections.
+  - Connected `NetworkFetcher::FetchAsync` directly to `core::ThreadPool`.
+  - Demoted per-primitive, per-attribute, and per-texture logging in `FastGltfLoader.cpp` and `Pipeline.cpp` from `INFO` to `DEBUG`, eliminating seconds of I/O latency on large asset loads.
+- **Golden Image Headless Verification & Fuzzing Targets:**
+  - Added `tests/test_golden_image.cpp` for deterministic headless geometry verification, offscreen framebuffer checksum testing, and FNV-1a content hash regression guards.
+  - Added libFuzzer fuzzing targets `tests/fuzz/fuzz_texture_decoder.cpp` and `tests/fuzz/fuzz_gltf_loader.cpp`.
+- **Comprehensive CI/CD Pipeline & Repo Hygiene:**
+  - Added dedicated Emscripten build job in `.github/workflows/ci.yml` that builds WASM artifacts and deploys releases.
+  - Added `CMakePresets.json` with ASan, UBSan, and TSan configurations.
+  - Integrated `clang-format` and `clang-tidy` quality checks in CI.
+  - Configured Git LFS (`.gitattributes`) for `.glb`, `.ktx2`, and `.bin` assets; removed stub binaries from repository history.
+- **Unit Test Suite Expanded (157 Passing Tests):**
+  - 157 unit tests across 13 test suites passing with 100% success rate.
+
+---
+
 ## [0.9.3] - 2026-10-25
 
 ### GPU Compute Offloading, RAM/VRAM Telemetry, PS5 DualSense Controller & Architectural Modularization

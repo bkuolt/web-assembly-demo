@@ -59,7 +59,7 @@ TEST(QuadtreeTest, SponzaFrustumCullingDiagnostic) {
     bgl::scene::Quadtree quadtree(worldBounds);
     size_t totalPrimitives = 0;
     auto countPrims = [&](auto& self, const std::shared_ptr<bgl::scene::SceneNode>& n) -> void {
-        totalPrimitives += n->primitives.size();
+        totalPrimitives += n->GetPrimitives().size();
         for (const auto& c : n->children) self(self, c);
     };
     for (const auto& r : scene->rootNodes) {

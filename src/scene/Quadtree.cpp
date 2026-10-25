@@ -324,7 +324,8 @@ void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
     if (!node) return;
     auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n) -> void {
         if (!n) return;
-        if (n->primitives.empty()) {
+        auto prims = n->GetPrimitives();
+        if (prims.empty()) {
             if (n->children.empty() && n->worldAABB.minBound.x <= n->worldAABB.maxBound.x) {
                 QuadtreeItem item;
                 item.node = n;
@@ -335,8 +336,8 @@ void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
                 }
             }
         } else {
-            for (size_t pIdx = 0; pIdx < n->primitives.size(); ++pIdx) {
-                const auto& prim = n->primitives[pIdx];
+            for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
+                const auto& prim = prims[pIdx];
                 if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
                     QuadtreeItem item;
                     item.node = n;

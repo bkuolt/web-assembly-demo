@@ -4,6 +4,7 @@
  *        and multithreaded MikkTSpace/Lengyel tangent-space basis computation.
  */
 #include "scene/Scene.hpp"
+#include "core/ThreadPool.hpp"
 #include <algorithm>
 #include <cmath>
 #if !defined(__EMSCRIPTEN__)
@@ -20,6 +21,7 @@ MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
       indices{other.indices},
       boundingBox{other.boundingBox},
       materialIndex{other.materialIndex},
+      indexFormat{other.indexFormat},
       gpuVertexBuffer{nullptr},
       gpuIndexBuffer{nullptr},
       gpuWireframeIndexBuffer{nullptr},
@@ -35,6 +37,7 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
         indices = other.indices;
         boundingBox = other.boundingBox;
         materialIndex = other.materialIndex;
+        indexFormat = other.indexFormat;
         gpuVertexBuffer = nullptr;
         gpuIndexBuffer = nullptr;
         gpuWireframeIndexBuffer = nullptr;
@@ -51,6 +54,7 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       indices{std::move(other.indices)},
       boundingBox{other.boundingBox},
       materialIndex{other.materialIndex},
+      indexFormat{other.indexFormat},
       gpuVertexBuffer{other.gpuVertexBuffer},
       gpuIndexBuffer{other.gpuIndexBuffer},
       gpuWireframeIndexBuffer{other.gpuWireframeIndexBuffer},
@@ -74,6 +78,7 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         indices = std::move(other.indices);
         boundingBox = other.boundingBox;
         materialIndex = other.materialIndex;
+        indexFormat = other.indexFormat;
         gpuVertexBuffer = other.gpuVertexBuffer;
         gpuIndexBuffer = other.gpuIndexBuffer;
         gpuWireframeIndexBuffer = other.gpuWireframeIndexBuffer;
@@ -187,17 +192,20 @@ void MeshPrimitive::ComputeTangents() {
 
 #if !defined(__EMSCRIPTEN__)
     if (vertSpan.size() >= 8192) {
-        const size_t numThreads{std::clamp<size_t>(std::thread::hardware_concurrency(), 2, 8)};
-        const size_t chunkSize{(vertSpan.size() + numThreads - 1) / numThreads};
-        std::vector<std::jthread> workers{};
-        workers.reserve(numThreads);
-        for (size_t t{0}; t < numThreads; ++t) {
-            const size_t start{t * chunkSize};
-            const size_t end{std::min(vertSpan.size(), start + chunkSize)};
-            if (start < end) {
-                workers.emplace_back(orthogonalizeRange, start, end);
+        core::ThreadPool::Instance().ParallelFor(0, vertSpan.size(), [&](size_t i) {
+            const glm::vec3& n{vertSpan[i].normal};
+            const glm::vec3& t{tan1[i]};
+            glm::vec3 orthoT{t - n * glm::dot(n, t)};
+            const float lenSq{glm::dot(orthoT, orthoT)};
+            if (lenSq > 1e-10f) {
+                orthoT *= (1.0f / std::sqrt(lenSq));
+                const float w{(glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f};
+                vertSpan[i].tangent = glm::vec4{orthoT, w};
+            } else {
+                const glm::vec3 up{(std::abs(n.y) < 0.999f) ? glm::vec3{0.0f, 1.0f, 0.0f} : glm::vec3{1.0f, 0.0f, 0.0f}};
+                vertSpan[i].tangent = glm::vec4{glm::normalize(glm::cross(up, n)), 1.0f};
             }
-        }
+        });
     } else {
         orthogonalizeRange(0, vertSpan.size());
     }
@@ -209,7 +217,7 @@ void MeshPrimitive::ComputeTangents() {
 void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
     worldTransform = parentTransform * localTransform;
     worldAABB = core::AABB{};
-    for (const auto& prim : primitives) {
+    for (const auto& prim : GetPrimitives()) {
         if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
             worldAABB.Expand(prim.boundingBox.Transformed(worldTransform));
         }

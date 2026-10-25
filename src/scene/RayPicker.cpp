@@ -54,7 +54,7 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
             return;
         }
 
-        for (const auto& prim : node->primitives) {
+        for (const auto& prim : node->GetPrimitives()) {
             float t0{0.0f}, t1{0.0f};
             const core::AABB worldPrimAABB{prim.boundingBox.Transformed(worldMat)};
             if (worldPrimAABB.minBound.x <= worldPrimAABB.maxBound.x && !worldPrimAABB.Intersects(ray, t0, t1)) {

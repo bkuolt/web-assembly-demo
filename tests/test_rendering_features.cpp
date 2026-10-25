@@ -517,8 +517,9 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
 
     const auto& loadedScene{*sceneRes};
     ASSERT_EQ(loadedScene->rootNodes.size(), 1u);
-    ASSERT_EQ(loadedScene->rootNodes[0]->primitives.size(), 1u);
-    EXPECT_EQ(loadedScene->rootNodes[0]->primitives[0].vertices.size(), 3u);
+    ASSERT_EQ(loadedScene->rootNodes[0]->GetPrimitives().size(), 1u);
+    EXPECT_EQ(loadedScene->rootNodes[0]->GetPrimitives()[0].vertices.size(), 3u);
+    EXPECT_NE(loadedScene->rootNodes[0]->mesh, nullptr);
     ASSERT_EQ(loadedScene->cpuImages.size(), 1u);
     EXPECT_EQ(loadedScene->cpuImages[0].width, 1u);
     EXPECT_EQ(loadedScene->cpuImages[0].height, 1u);
@@ -589,7 +590,7 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
     const auto httpSceneRes{loader.LoadFromFile(httpModelUrl)};
     ASSERT_TRUE(httpSceneRes.has_value()) << httpSceneRes.error();
     EXPECT_EQ((*httpSceneRes)->rootNodes.size(), 1u);
-    EXPECT_EQ((*httpSceneRes)->rootNodes[0]->primitives[0].vertices.size(), 3u);
+    EXPECT_EQ((*httpSceneRes)->rootNodes[0]->GetPrimitives()[0].vertices.size(), 3u);
     ASSERT_EQ((*httpSceneRes)->cpuImages.size(), 1u);
     EXPECT_EQ((*httpSceneRes)->cpuImages[0].width, 1u);
     EXPECT_EQ((*httpSceneRes)->cpuImages[0].height, 1u);

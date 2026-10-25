@@ -9,6 +9,7 @@ bgl_unit_tests
 .vscode/*
 !.vscode/tasks.json
 dist/
+web/dist/
 *.zip
 conan*env*.sh
 deactivate_conan*.sh

@@ -145,6 +145,7 @@ struct MeshPrimitive {
     core::AABB boundingBox{};
     int materialIndex{-1};
 
+    WGPUIndexFormat indexFormat{WGPUIndexFormat_Uint32};
     WGPUBuffer gpuVertexBuffer{nullptr};
     WGPUBuffer gpuIndexBuffer{nullptr};
     WGPUBuffer gpuWireframeIndexBuffer{nullptr};
@@ -169,6 +170,16 @@ struct MeshPrimitive {
 };
 
 /**
+ * @struct Mesh
+ * @brief Shared mesh resource containing one or more mesh primitives.
+ * Enables zero-copy instancing where multiple SceneNodes share the same geometry.
+ */
+struct Mesh {
+    std::string name{};
+    std::vector<MeshPrimitive> primitives{};
+};
+
+/**
  * @class SceneNode
  * @brief Hierarchical node in the scene graph.
  */
@@ -181,8 +192,24 @@ public:
     glm::mat4 localTransform{1.0f};
     glm::mat4 worldTransform{1.0f};
     core::AABB worldAABB{};
+
+    /// Shared mesh resource if instantiated from glTF meshes
+    std::shared_ptr<Mesh> mesh{nullptr};
+
+    /// Fallback primitives for standalone / procedural geometry
     std::vector<MeshPrimitive> primitives{};
+
     std::vector<std::shared_ptr<SceneNode>> children{};
+
+    [[nodiscard]] std::span<const MeshPrimitive> GetPrimitives() const noexcept {
+        if (mesh) return mesh->primitives;
+        return primitives;
+    }
+
+    [[nodiscard]] std::span<MeshPrimitive> GetPrimitives() noexcept {
+        if (mesh) return mesh->primitives;
+        return primitives;
+    }
 
     void UpdateTransforms(const glm::mat4& parentTransform = glm::mat4{1.0f});
 };
@@ -194,6 +221,7 @@ public:
 struct Scene {
     std::vector<std::shared_ptr<SceneNode>> rootNodes{};
     std::vector<std::shared_ptr<SceneNode>> allNodes{};
+    std::vector<std::shared_ptr<Mesh>> meshes{};
     std::vector<Material> materials{};
     std::vector<PunctualLight> lights{};
     std::vector<SceneCamera> cameras{};

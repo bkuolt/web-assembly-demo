@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.3 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.4 LANGUAGES C CXX)
 
 # Modern C++23 Standard
 set(CMAKE_CXX_STANDARD 23)
@@ -24,6 +24,26 @@ option(BGL_ENABLE_SKYBOX       "Enable Skybox and reflections"          ON)
 option(BGL_ENABLE_CURL         "Enable HTTP/HTTPS URL fetching (libcurl)" ON)
 option(BGL_ENABLE_MODEL_TOYCAR "Include default ToyCar.glb model"       ON)
 option(BGL_BUILD_TESTING       "Build GTest unit test suite"            ON)
+
+if(BGL_ENABLE_AUDIO)
+    add_compile_definitions(BGL_ENABLE_AUDIO)
+endif()
+if(BGL_ENABLE_GAMEPAD)
+    add_compile_definitions(BGL_ENABLE_GAMEPAD)
+endif()
+if(BGL_ENABLE_SKYBOX)
+    add_compile_definitions(BGL_ENABLE_SKYBOX)
+endif()
+if(BGL_ENABLE_MODEL_TOYCAR)
+    add_compile_definitions(BGL_ENABLE_MODEL_TOYCAR)
+endif()
+
+# Centralized version configuration
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.hpp.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.hpp
+    @ONLY
+)
 
 # Compiler Optimization and Warning Flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -91,20 +111,22 @@ endif()
 
 if(EMSCRIPTEN)
     add_compile_definitions(BGL_PLATFORM_WASM)
+    set(BGL_LIB_TYPE STATIC)
 else()
     add_compile_definitions(BGL_PLATFORM_NATIVE)
+    set(BGL_LIB_TYPE SHARED)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
     if(BGL_ENABLE_CURL)
         pkg_check_modules(CURL REQUIRED libcurl)
     endif()
-    find_package(OpenGL REQUIRED)
 endif()
 
-# 1. libbgl_core.so
-add_library(bgl_core SHARED
+# 1. libbgl_core
+add_library(bgl_core ${BGL_LIB_TYPE}
     src/core/Log.cpp
     src/core/MemoryPool.cpp
+    src/core/ThreadPool.cpp
     src/core/NetworkFetcher.cpp
     src/core/Gamepad.cpp
     src/core/Camera.cpp
@@ -149,8 +171,8 @@ if(NOT EMSCRIPTEN)
     endif()
 endif()
 
-# 2. libbgl_gpu.so
-add_library(bgl_gpu SHARED
+# 2. libbgl_gpu
+add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/Context.cpp
     src/gpu/Skybox.cpp
     src/gpu/AabbRenderer.cpp
@@ -166,11 +188,11 @@ target_include_directories(bgl_gpu PUBLIC
 )
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
 if(NOT EMSCRIPTEN)
-    target_link_libraries(bgl_gpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so OpenGL::GL)
+    target_link_libraries(bgl_gpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so)
 endif()
 
-# 3. libbgl_audio.so
-add_library(bgl_audio SHARED
+# 3. libbgl_audio
+add_library(bgl_audio ${BGL_LIB_TYPE}
     src/audio/SoundEngine.cpp
 )
 target_include_directories(bgl_audio PUBLIC
@@ -178,8 +200,8 @@ target_include_directories(bgl_audio PUBLIC
 )
 target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
 
-# 4. libbgl_scene.so
-add_library(bgl_scene SHARED
+# 4. libbgl_scene
+add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/Scene.cpp
     src/scene/TextureDecoder.cpp
     src/scene/AssetManager.cpp
@@ -212,12 +234,9 @@ if(BGL_ENABLE_KTX)
     target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_KTX)
     target_link_libraries(bgl_scene PUBLIC KTX::ktx)
 endif()
-if(NOT EMSCRIPTEN)
-    target_link_libraries(bgl_scene PUBLIC OpenGL::GL)
-endif()
 
-# 5. libbgl_text.so (FreeType 2 & HarfBuzz)
-add_library(bgl_text SHARED
+# 5. libbgl_text (FreeType 2 & HarfBuzz)
+add_library(bgl_text ${BGL_LIB_TYPE}
     src/text/EmbeddedFont.cpp
     src/text/FontAtlas.cpp
     src/text/TextShaper.cpp
@@ -234,8 +253,8 @@ target_link_libraries(bgl_text PUBLIC
     harfbuzz::harfbuzz
 )
 
-# 6. libbgl_ui.so (Debug Overlay & HUD)
-add_library(bgl_ui SHARED
+# 6. libbgl_ui (Debug Overlay & HUD)
+add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
 )
 target_include_directories(bgl_ui PUBLIC
@@ -248,8 +267,8 @@ target_link_libraries(bgl_ui PUBLIC
     bgl_text
 )
 
-# 7. libbgl_app.so
-add_library(bgl_app SHARED
+# 7. libbgl_app
+add_library(bgl_app ${BGL_LIB_TYPE}
     src/app/Application.cpp
     src/app/CommandLine.cpp
 )
@@ -283,6 +302,7 @@ if(BGL_BUILD_TESTING)
         tests/test_crash_handler.cpp
         tests/test_command_line.cpp
         tests/test_rendering_features.cpp
+        tests/test_golden_image.cpp
     )
     target_include_directories(bgl_unit_tests PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -293,6 +313,20 @@ if(BGL_BUILD_TESTING)
         target_link_libraries(bgl_unit_tests PRIVATE bgl_app gtest::gtest gtest::gtest_main)
     endif()
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
+endif()
+
+# Fuzzing targets (libFuzzer)
+option(BGL_BUILD_FUZZING "Build libFuzzer fuzzing targets" OFF)
+if(BGL_BUILD_FUZZING)
+    add_executable(fuzz_texture_decoder tests/fuzz/fuzz_texture_decoder.cpp)
+    target_link_libraries(fuzz_texture_decoder PRIVATE bgl_scene)
+    target_compile_options(fuzz_texture_decoder PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz_texture_decoder PRIVATE -fsanitize=fuzzer,address)
+
+    add_executable(fuzz_gltf_loader tests/fuzz/fuzz_gltf_loader.cpp)
+    target_link_libraries(fuzz_gltf_loader PRIVATE bgl_scene)
+    target_compile_options(fuzz_gltf_loader PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz_gltf_loader PRIVATE -fsanitize=fuzzer,address)
 endif()
 
 # ==============================================================================

@@ -10,6 +10,7 @@
 #include "scene/Quadtree.hpp"
 #include "scene/TextureDecoder.hpp"
 #include "core/Log.hpp"
+#include "core/ThreadPool.hpp"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -199,17 +200,9 @@ std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8
 
 #if !defined(__EMSCRIPTEN__)
     if (static_cast<size_t>(dstW) * dstH >= 65536 && dstH >= 64) {
-        const uint32_t numThreads{std::clamp<uint32_t>(std::thread::hardware_concurrency(), 2u, 8u)};
-        const uint32_t rowsPerThread{(dstH + numThreads - 1) / numThreads};
-        std::vector<std::jthread> workers;
-        workers.reserve(numThreads);
-        for (uint32_t t{0}; t < numThreads; ++t) {
-            const uint32_t y0{t * rowsPerThread};
-            const uint32_t y1{std::min(dstH, y0 + rowsPerThread)};
-            if (y0 < y1) {
-                workers.emplace_back(processRows, y0, y1);
-            }
-        }
+        core::ThreadPool::Instance().ParallelFor(0, dstH, [&](size_t y) {
+            processRows(static_cast<uint32_t>(y), static_cast<uint32_t>(y + 1));
+        });
     } else {
         processRows(0, dstH);
     }
@@ -912,15 +905,9 @@ void PipelineManager::SetEnvironmentPreset(EnvironmentPreset preset, scene::Scen
 
     std::array<std::vector<float>, 6> hdrFaces{};
 #if !defined(__EMSCRIPTEN__)
-    {
-        std::vector<std::jthread> workers;
-        workers.reserve(6);
-        for (uint32_t face{0}; face < 6; ++face) {
-            workers.emplace_back([&, face]() {
-                hdrFaces[face] = GenerateProceduralHdrCubemapFace(face, kEnvCubemapSize, preset, currentLightDir_);
-            });
-        }
-    }
+    core::ThreadPool::Instance().ParallelFor(0, 6, [&](size_t face) {
+        hdrFaces[face] = GenerateProceduralHdrCubemapFace(static_cast<uint32_t>(face), kEnvCubemapSize, preset, currentLightDir_);
+    });
 #else
     for (uint32_t face{0}; face < 6; ++face) {
         hdrFaces[face] = GenerateProceduralHdrCubemapFace(face, kEnvCubemapSize, preset, currentLightDir_);
@@ -961,15 +948,9 @@ bool PipelineManager::LoadCustomHdrEnvironment(const scene::DecodedHdrImage& hdr
     const uint32_t faceSize{std::clamp<uint32_t>(std::bit_floor(std::max(hdrImage.height / 2u, 64u)), 64u, 256u)};
     std::array<std::vector<float>, 6> hdrFaces{};
 #if !defined(__EMSCRIPTEN__)
-    {
-        std::vector<std::jthread> workers;
-        workers.reserve(6);
-        for (uint32_t face{0}; face < 6; ++face) {
-            workers.emplace_back([&, face]() {
-                hdrFaces[face] = ConvertEquirectHdrToCubemapFace(hdrImage, face, faceSize);
-            });
-        }
-    }
+    core::ThreadPool::Instance().ParallelFor(0, 6, [&](size_t face) {
+        hdrFaces[face] = ConvertEquirectHdrToCubemapFace(hdrImage, static_cast<uint32_t>(face), faceSize);
+    });
 #else
     for (uint32_t face{0}; face < 6; ++face) {
         hdrFaces[face] = ConvertEquirectHdrToCubemapFace(hdrImage, face, faceSize);
@@ -1902,19 +1883,9 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
 #if !defined(__EMSCRIPTEN__)
     if (scene.cpuImages.size() > 1) {
-        const size_t numThreads{std::clamp<size_t>(std::thread::hardware_concurrency(), 2, 16)};
-        std::atomic<size_t> nextTexIdx{0};
-        std::vector<std::jthread> mipWorkers;
-        mipWorkers.reserve(std::min(numThreads, scene.cpuImages.size()));
-        for (size_t t{0}; t < std::min(numThreads, scene.cpuImages.size()); ++t) {
-            mipWorkers.emplace_back([&]() {
-                while (true) {
-                    const size_t idx{nextTexIdx.fetch_add(1, std::memory_order_relaxed)};
-                    if (idx >= scene.cpuImages.size()) break;
-                    buildMipPyramidForTexture(idx);
-                }
-            });
-        }
+        core::ThreadPool::Instance().ParallelFor(0, scene.cpuImages.size(), [&](size_t idx) {
+            buildMipPyramidForTexture(idx);
+        });
     } else if (scene.cpuImages.size() == 1) {
         buildMipPyramidForTexture(0);
     }
@@ -2004,7 +1975,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels)",
+            BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels)",
                          i, img.width, img.height, fmtName, validCompressedMips);
             continue;
         }
@@ -2063,114 +2034,142 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         scene.gpuTextures[i].sampler = defaultSampler_;
         scene.gpuTextures[i].width = img.width;
         scene.gpuTextures[i].height = img.height;
-        BGL_LOG_INFO("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote {} bytes to GPU",
+        BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote {} bytes to GPU",
                      i, img.width, img.height,
                      isSrgbTexture[i] ? "RGBA8UnormSrgb" : "RGBA8Unorm",
                      mipLevels, isNormalTexture[i] ? "Yes" : "No", img.rgba.size());
     }
 
     // 2. Prepare vertex buffers, index buffers, uniform buffers, and shadow/main bind groups for each primitive
-    auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (size_t pIdx{0}; pIdx < node.primitives.size(); ++pIdx) {
-            auto& prim = node.primitives[pIdx];
-            if (prim.vertices.empty()) continue;
+    auto preparePrimitive = [&](scene::MeshPrimitive& prim) -> void {
+        if (prim.vertices.empty()) return;
 
-            const size_t vbSize{prim.vertices.size() * sizeof(core::Vertex)};
-            const size_t ibSize{prim.indices.size() * sizeof(uint32_t)};
+        const size_t vbSize{prim.vertices.size() * sizeof(core::Vertex)};
+        const size_t ibSize{prim.indices.size() * sizeof(uint32_t)};
 
-            if (!prim.gpuVertexBuffer) {
-                WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                vbDesc.size = (vbSize + 3) & ~3;
-                vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-                vbDesc.label = ToWgpuStringView("VertexBuffer");
-                prim.gpuVertexBuffer = wgpuDeviceCreateBuffer(device_, &vbDesc);
-                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), vbSize);
-            }
+        if (!prim.gpuVertexBuffer) {
+            WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            vbDesc.size = (vbSize + 3) & ~3;
+            vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            vbDesc.label = ToWgpuStringView("VertexBuffer");
+            prim.gpuVertexBuffer = wgpuDeviceCreateBuffer(device_, &vbDesc);
+            wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), vbSize);
+        }
 
-            if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
+        if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
+            const bool useUint16 = (prim.vertices.size() < 65536);
+            prim.indexFormat = useUint16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
+            if (useUint16) {
+                std::vector<uint16_t> indices16;
+                indices16.reserve(prim.indices.size());
+                for (uint32_t idx : prim.indices) {
+                    indices16.push_back(static_cast<uint16_t>(idx));
+                }
+                const size_t ib16Size{indices16.size() * sizeof(uint16_t)};
+                WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+                ibDesc.size = (ib16Size + 3) & ~3;
+                ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+                ibDesc.label = ToWgpuStringView("IndexBuffer_U16");
+                prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
+                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, indices16.data(), ib16Size);
+            } else {
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ibDesc.size = (ibSize + 3) & ~3;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = ToWgpuStringView("IndexBuffer");
+                ibDesc.label = ToWgpuStringView("IndexBuffer_U32");
                 prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
             }
+        }
 
-            if (!prim.gpuWireframeIndexBuffer) {
-                std::vector<uint32_t> lineIndices;
-                if (!prim.indices.empty()) {
-                    lineIndices.reserve(prim.indices.size() * 2);
-                    for (size_t i{0}; i + 2 < prim.indices.size(); i += 3) {
-                        const uint32_t a{prim.indices[i]};
-                        const uint32_t b{prim.indices[i + 1]};
-                        const uint32_t c{prim.indices[i + 2]};
-                        lineIndices.push_back(a); lineIndices.push_back(b);
-                        lineIndices.push_back(b); lineIndices.push_back(c);
-                        lineIndices.push_back(c); lineIndices.push_back(a);
-                    }
-                } else {
-                    lineIndices.reserve(prim.vertices.size() * 2);
-                    for (size_t i{0}; i + 2 < prim.vertices.size(); i += 3) {
-                        const uint32_t a{static_cast<uint32_t>(i)};
-                        const uint32_t b{static_cast<uint32_t>(i + 1)};
-                        const uint32_t c{static_cast<uint32_t>(i + 2)};
-                        lineIndices.push_back(a); lineIndices.push_back(b);
-                        lineIndices.push_back(b); lineIndices.push_back(c);
-                        lineIndices.push_back(c); lineIndices.push_back(a);
-                    }
+        if (!prim.gpuWireframeIndexBuffer) {
+            std::vector<uint32_t> lineIndices;
+            if (!prim.indices.empty()) {
+                lineIndices.reserve(prim.indices.size() * 2);
+                for (size_t i{0}; i + 2 < prim.indices.size(); i += 3) {
+                    const uint32_t a{prim.indices[i]};
+                    const uint32_t b{prim.indices[i + 1]};
+                    const uint32_t c{prim.indices[i + 2]};
+                    lineIndices.push_back(a); lineIndices.push_back(b);
+                    lineIndices.push_back(b); lineIndices.push_back(c);
+                    lineIndices.push_back(c); lineIndices.push_back(a);
                 }
-                if (!lineIndices.empty()) {
-                    prim.wireframeIndexCount = static_cast<uint32_t>(lineIndices.size());
-                    const size_t wfIbSize{lineIndices.size() * sizeof(uint32_t)};
-                    WGPUBufferDescriptor wfIbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                    wfIbDesc.size = (wfIbSize + 3) & ~3;
-                    wfIbDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                    wfIbDesc.label = ToWgpuStringView("WireframeIndexBuffer");
-                    prim.gpuWireframeIndexBuffer = wgpuDeviceCreateBuffer(device_, &wfIbDesc);
-                    wgpuQueueWriteBuffer(queue_, prim.gpuWireframeIndexBuffer, 0, lineIndices.data(), wfIbSize);
+            } else {
+                lineIndices.reserve(prim.vertices.size() * 2);
+                for (size_t i{0}; i + 2 < prim.vertices.size(); i += 3) {
+                    const uint32_t a{static_cast<uint32_t>(i)};
+                    const uint32_t b{static_cast<uint32_t>(i + 1)};
+                    const uint32_t c{static_cast<uint32_t>(i + 2)};
+                    lineIndices.push_back(a); lineIndices.push_back(b);
+                    lineIndices.push_back(b); lineIndices.push_back(c);
+                    lineIndices.push_back(c); lineIndices.push_back(a);
                 }
             }
-
-            if (!prim.gpuUniformBuffer) {
-                WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ubDesc.size = sizeof(PrimitiveUniforms);
-                ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-                ubDesc.label = ToWgpuStringView("PrimitiveUniforms");
-                prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
-            }
-
-            if (!prim.gpuShadowBindGroup && shadowBindGroupLayout_) {
-                int baseColorTexIdx{-1};
-                if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                    baseColorTexIdx = scene.materials[prim.materialIndex].baseColorTextureIndex;
-                }
-                WGPUTextureView baseView = defaultWhiteTextureView_.Get();
-                if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
-                    baseView = scene.gpuTextures[baseColorTexIdx].view;
-                }
-                std::array<WGPUBindGroupEntry, 3> shadowEntries{};
-                shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[0].binding = 0;
-                shadowEntries[0].buffer = prim.gpuUniformBuffer;
-                shadowEntries[0].offset = 0;
-                shadowEntries[0].size = sizeof(PrimitiveUniforms);
-
-                shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[1].binding = 1;
-                shadowEntries[1].sampler = defaultSampler_.Get();
-
-                shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[2].binding = 2;
-                shadowEntries[2].textureView = baseView;
-
-                WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-                shadowBgDesc.layout = shadowBindGroupLayout_;
-                shadowBgDesc.entryCount = shadowEntries.size();
-                shadowBgDesc.entries = shadowEntries.data();
-                prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+            if (!lineIndices.empty()) {
+                prim.wireframeIndexCount = static_cast<uint32_t>(lineIndices.size());
+                const size_t wfIbSize{lineIndices.size() * sizeof(uint32_t)};
+                WGPUBufferDescriptor wfIbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+                wfIbDesc.size = (wfIbSize + 3) & ~3;
+                wfIbDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+                wfIbDesc.label = ToWgpuStringView("WireframeIndexBuffer");
+                prim.gpuWireframeIndexBuffer = wgpuDeviceCreateBuffer(device_, &wfIbDesc);
+                wgpuQueueWriteBuffer(queue_, prim.gpuWireframeIndexBuffer, 0, lineIndices.data(), wfIbSize);
             }
         }
 
+        if (!prim.gpuUniformBuffer) {
+            WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            ubDesc.size = sizeof(PrimitiveUniforms);
+            ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+            ubDesc.label = ToWgpuStringView("PrimitiveUniforms");
+            prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
+        }
+
+        if (!prim.gpuShadowBindGroup && shadowBindGroupLayout_) {
+            int baseColorTexIdx{-1};
+            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+                baseColorTexIdx = scene.materials[prim.materialIndex].baseColorTextureIndex;
+            }
+            WGPUTextureView baseView = defaultWhiteTextureView_.Get();
+            if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
+                baseView = scene.gpuTextures[baseColorTexIdx].view;
+            }
+            std::array<WGPUBindGroupEntry, 3> shadowEntries{};
+            shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[0].binding = 0;
+            shadowEntries[0].buffer = prim.gpuUniformBuffer;
+            shadowEntries[0].offset = 0;
+            shadowEntries[0].size = sizeof(PrimitiveUniforms);
+
+            shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[1].binding = 1;
+            shadowEntries[1].sampler = defaultSampler_.Get();
+
+            shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[2].binding = 2;
+            shadowEntries[2].textureView = baseView;
+
+            WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+            shadowBgDesc.layout = shadowBindGroupLayout_;
+            shadowBgDesc.entryCount = shadowEntries.size();
+            shadowBgDesc.entries = shadowEntries.data();
+            prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+        }
+    };
+
+    // Prepare all shared meshes once
+    for (auto& mesh : scene.meshes) {
+        if (mesh) {
+            for (auto& prim : mesh->primitives) {
+                preparePrimitive(prim);
+            }
+        }
+    }
+
+    auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
+        for (auto& prim : node.GetPrimitives()) {
+            preparePrimitive(const_cast<scene::MeshPrimitive&>(prim));
+        }
         for (auto& child : node.children) {
             if (child) {
                 self(self, *child);
@@ -2363,7 +2362,7 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
 void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform) {
     const glm::mat4 worldMat{parentTransform * node.localTransform};
 
-    for (auto& prim : node.primitives) {
+    for (auto& prim : node.GetPrimitives()) {
         if (!prim.gpuVertexBuffer || !prim.gpuShadowBindGroup || !prim.gpuUniformBuffer) continue;
 
         PrimitiveUniforms uniforms{};
@@ -2384,7 +2383,8 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
 
         if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-            wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
+            const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+            wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0, prim.indices.size() * indexSize);
             wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
         } else {
             wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
@@ -2411,20 +2411,104 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     lastVisiblePrimitiveCount_ = 0;
     lastOccludedPrimitiveCount_ = 0;
 
+    struct RenderItem {
+        std::shared_ptr<scene::SceneNode> node;
+        size_t primitiveIndex;
+        glm::mat4 worldTransform;
+        float distance;
+        int materialIndex;
+        bool isTransparent;
+    };
+
     if (spatialIndex) {
         auto visibleItems = spatialIndex->QueryVisible(frustum, cameraPos, viewProj, occlusionCullingEnabled_);
         lastVisiblePrimitiveCount_ = visibleItems.size();
         lastOccludedPrimitiveCount_ = spatialIndex->GetLastOccludedCount();
-        for (const auto& item : visibleItems) {
-            if (!item.node || item.primitiveIndex >= item.node->primitives.size()) continue;
-            auto& prim = item.node->primitives[item.primitiveIndex];
-            RenderPrimitive(pass, scene, prim, item.node->worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline);
+
+        std::vector<RenderItem> items;
+        items.reserve(visibleItems.size());
+        for (const auto& vis : visibleItems) {
+            if (!vis.node) continue;
+            auto prims = vis.node->GetPrimitives();
+            if (vis.primitiveIndex >= prims.size()) continue;
+            const auto& prim = prims[vis.primitiveIndex];
+            const bool isTransparent = (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
+                                       (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+            items.push_back(RenderItem{
+                .node = vis.node,
+                .primitiveIndex = vis.primitiveIndex,
+                .worldTransform = vis.node->worldTransform,
+                .distance = vis.distanceToCamera,
+                .materialIndex = prim.materialIndex,
+                .isTransparent = isTransparent
+            });
+        }
+
+        // Sort draw calls: Opaques front-to-back (minimizing overdraw and grouping by material),
+        // Transparents back-to-front (for correct alpha blending)
+        std::sort(items.begin(), items.end(), [](const RenderItem& a, const RenderItem& b) {
+            if (a.isTransparent != b.isTransparent) {
+                return !a.isTransparent; // opaques first
+            }
+            if (!a.isTransparent) {
+                if (a.materialIndex != b.materialIndex && std::abs(a.distance - b.distance) < 0.2f) {
+                    return a.materialIndex < b.materialIndex;
+                }
+                return a.distance < b.distance; // nearest first
+            }
+            return a.distance > b.distance; // farthest first
+        });
+
+        for (const auto& item : items) {
+            auto prims = item.node->GetPrimitives();
+            auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
+            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline);
         }
     } else {
-        for (const auto& rootNode : scene.rootNodes) {
-            if (rootNode) {
-                RenderNode(pass, scene, *rootNode, viewProj, glm::mat4{1.0f}, cameraPos, wireframe, frustum, currentBoundPipeline);
+        std::vector<RenderItem> items;
+        auto collectNode = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node, const glm::mat4& parentMat) -> void {
+            if (!node) return;
+            const glm::mat4 worldMat{parentMat * node->localTransform};
+            if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !frustum.IntersectsAABB(node->worldAABB)) {
+                return;
             }
+            auto prims = node->GetPrimitives();
+            for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
+                const auto& prim = prims[pIdx];
+                const float dist = glm::length(prim.boundingBox.Transformed(worldMat).Center() - cameraPos);
+                const bool isTransparent = (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
+                                           (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+                items.push_back(RenderItem{
+                    .node = node,
+                    .primitiveIndex = pIdx,
+                    .worldTransform = worldMat,
+                    .distance = dist,
+                    .materialIndex = prim.materialIndex,
+                    .isTransparent = isTransparent
+                });
+            }
+            for (const auto& child : node->children) {
+                self(self, child, worldMat);
+            }
+        };
+        for (const auto& root : scene.rootNodes) {
+            collectNode(collectNode, root, glm::mat4{1.0f});
+        }
+        lastVisiblePrimitiveCount_ = items.size();
+        std::sort(items.begin(), items.end(), [](const RenderItem& a, const RenderItem& b) {
+            if (a.isTransparent != b.isTransparent) return !a.isTransparent;
+            if (!a.isTransparent) {
+                if (a.materialIndex != b.materialIndex && std::abs(a.distance - b.distance) < 0.2f) {
+                    return a.materialIndex < b.materialIndex;
+                }
+                return a.distance < b.distance;
+            }
+            return a.distance > b.distance;
+        });
+        for (const auto& item : items) {
+            auto prims = item.node->GetPrimitives();
+            auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
+            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline);
         }
     }
 }
@@ -2524,7 +2608,8 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuWireframeIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.wireframeIndexCount * sizeof(uint32_t));
         wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
     } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
+        const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0, prim.indices.size() * indexSize);
         wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
     } else {
         wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);

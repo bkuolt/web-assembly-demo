@@ -10,6 +10,7 @@
 #include <memory>
 #include <span>
 #include <cstdint>
+#include <shared_mutex>
 #include "core/Types.hpp"
 #include "core/MemoryPool.hpp"
 #include "scene/TextureDecoder.hpp"
@@ -60,6 +61,11 @@ public:
     [[nodiscard]] bool HasTexture(uint64_t hash) const noexcept;
 
     /**
+     * @brief Retrieve cached texture by hash, or nullptr if absent.
+     */
+    [[nodiscard]] std::shared_ptr<DecodedImage> GetCachedTexture(uint64_t hash) const noexcept;
+
+    /**
      * @brief Access the scratch arena for per-frame staging allocations.
      */
     [[nodiscard]] core::ScratchArena& GetScratchArena() noexcept { return scratchArena_; }
@@ -67,6 +73,7 @@ public:
     void Clear();
 
 private:
+    mutable std::shared_mutex mutex_{};
     core::ScratchArena scratchArena_;
     std::unordered_map<uint64_t, std::shared_ptr<DecodedImage>> textureCache_;
 };

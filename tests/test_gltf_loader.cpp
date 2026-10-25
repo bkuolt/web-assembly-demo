@@ -35,7 +35,7 @@ TEST(GltfLoaderTest, LoadToyCarAsset) {
     size_t totalPrimitives = 0;
     size_t totalVertices = 0;
     auto traverse = [&](auto& self, const std::shared_ptr<SceneNode>& node) -> void {
-        for (const auto& prim : node->primitives) {
+        for (const auto& prim : node->GetPrimitives()) {
             totalPrimitives++;
             totalVertices += prim.vertices.size();
             EXPECT_FALSE(prim.vertices.empty());
@@ -146,7 +146,7 @@ TEST(GltfLoaderTest, LoadStressTestMegacityAsset) {
     size_t totalVertices = 0;
     size_t totalIndices = 0;
     auto traverse = [&](auto& self, const std::shared_ptr<SceneNode>& node) -> void {
-        for (const auto& prim : node->primitives) {
+        for (const auto& prim : node->GetPrimitives()) {
             totalPrimitives++;
             totalVertices += prim.vertices.size();
             totalIndices += prim.indices.size();

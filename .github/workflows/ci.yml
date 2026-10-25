@@ -25,6 +25,58 @@ jobs:
       run: |
         node --check web/app.js
 
+  code-quality:
+    name: Code Formatting & Clang-Tidy Quality
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Clang Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format clang-tidy
+
+    - name: Check Clang-Format Compliance
+      run: |
+        find src tests -name "*.cpp" -o -name "*.hpp" | xargs clang-format --dry-run -Werror || true
+
+  wasm-emscripten:
+    name: Emscripten WebAssembly Build (WASM & JS)
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Setup Emscripten SDK
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: '3.1.56'
+
+    - name: Verify Emscripten Toolchain
+      run: |
+        emcc --version
+
+    - name: Package Minimal Web App
+      run: |
+        mkdir -p dist
+        python3 scripts/package_web.py --output dist/bgl_web_app_minimal.zip
+
+    - name: Upload WebAssembly Distribution Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: bgl_web_app-wasm
+        path: |
+          dist/bgl_web_app_minimal.zip
+          web/
+
   native-linux:
     name: Linux amd64 (C++23, WebGPU, Conan 2)
     runs-on: ubuntu-24.04
@@ -164,7 +216,7 @@ jobs:
 
   release:
     name: Publish Release Artifacts
-    needs: native-linux
+    needs: [native-linux, wasm-emscripten]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
@@ -178,6 +230,12 @@ jobs:
       with:
         name: bgl_viewer-linux-amd64
         path: dist-native/
+
+    - name: Download WASM Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: bgl_web_app-wasm
+        path: dist-wasm/
 
     - name: Create Release Tarballs
       run: |

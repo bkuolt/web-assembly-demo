@@ -540,7 +540,7 @@ void Application::CacheSceneMetrics() {
     size_t& vertCount{totalVertices_};
     size_t& idxCount{totalIndices_};
     auto countStats = [&](this auto&& self, const scene::SceneNode& node) -> void {
-        for (const auto& prim : node.primitives) {
+        for (const auto& prim : node.GetPrimitives()) {
             primCount++;
             vertCount += prim.vertices.size();
             idxCount += prim.indices.size();
@@ -606,6 +606,7 @@ int Application::PickNodeAt(float screenX, float screenY, float screenWidth, flo
     if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
         if (hit->hitNode) {
             SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
+            soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
             BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)",
                          hit->hitNode->name, hit->hitNode->nodeIndex, hit->distance);
             return hit->hitNode->nodeIndex;

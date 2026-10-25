@@ -3,6 +3,7 @@
  * @brief Implementation of HTTP/HTTPS (libcurl / Emscripten Fetch), data:, file://, and local file fetching.
  */
 #include "core/NetworkFetcher.hpp"
+#include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
 #include "core/Version.hpp"
 #include <fstream>
@@ -475,10 +476,13 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
 }
 
 void NetworkFetcher::FetchAsync(std::string_view url, FetchCallback callback) {
-    auto res = FetchSync(url);
-    if (callback) {
-        callback(std::move(res));
-    }
+    std::string urlStr{url};
+    ThreadPool::Instance().Enqueue([url = std::move(urlStr), cb = std::move(callback)]() mutable {
+        auto res = FetchSync(url);
+        if (cb) {
+            cb(std::move(res));
+        }
+    });
 }
 
 } // namespace bgl::core

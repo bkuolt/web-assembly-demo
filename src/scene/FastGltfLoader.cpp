@@ -5,6 +5,7 @@
 #include "scene/FastGltfLoader.hpp"
 #include "scene/TextureDecoder.hpp"
 #include "core/NetworkFetcher.hpp"
+#include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <sstream>
@@ -85,7 +86,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
     auto gltf = parser_.loadGltf(&dataBuffer, baseDir, parseOptions);
     if (gltf.error() != fastgltf::Error::None) {
-        return std::unexpected(std::string{"fastgltf failed to parse glTF/GLB data: "} + std::string{fastgltf::getErrorMessage(gltf.error())});
+        return std::unexpected(std::string{"fastgltf failed to parse glTF/GLB data: "} + std::string{fastgltf::getErrorName(gltf.error())});
     }
 
     auto& asset = gltf.get();
@@ -125,7 +126,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
             };
         }
 
-        BGL_LOG_INFO("  * Buffer #{}: {} bytes ({:.2f} MB), Source: {}", bIdx, buf.byteLength, buf.byteLength / (1024.0 * 1024.0), typeStr);
+        BGL_LOG_DEBUG("  * Buffer #{}: {} bytes ({:.2f} MB), Source: {}", bIdx, buf.byteLength, buf.byteLength / (1024.0 * 1024.0), typeStr);
     }
 
     BGL_LOG_INFO("[glTF Loader] --- BufferViews ({} total) ---", asset.bufferViews.size());
@@ -146,132 +147,133 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     scene->gpuTextures.resize(numTextures);
     scene->cpuImages.resize(numTextures);
 
-    const unsigned int hwThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
-    BGL_LOG_INFO("[glTF Loader] Launching parallel image decoding across {} worker threads...", hwThreads);
+    BGL_LOG_INFO("[glTF Loader] Launching parallel image decoding via centralized ThreadPool...");
 
     std::vector<std::optional<CpuImage>> decodedImages(numImages);
-    std::atomic<size_t> nextImgIdx{0};
-    {
-        std::vector<std::jthread> workers;
-        workers.reserve(hwThreads);
+    core::ThreadPool::Instance().ParallelFor(0, numImages, [&](size_t imgIdx) {
+        const auto& image = asset.images[imgIdx];
+        std::span<const uint8_t> rawBytes{};
+        std::vector<uint8_t> fetchedUriBytes{};
+        std::string decodeHint{};
+        size_t sourceBvIdx{0};
 
-        for (unsigned int w = 0; w < hwThreads; ++w) {
-            workers.emplace_back([&]() {
-                while (true) {
-                    size_t imgIdx = nextImgIdx.fetch_add(1, std::memory_order_relaxed);
-                    if (imgIdx >= numImages) break;
+        auto extractSafeSlice = [](const void* basePtr, size_t totalSize, size_t offset, size_t length) -> std::span<const uint8_t> {
+            if (!basePtr || offset > totalSize || length > (totalSize - offset)) {
+                return {};
+            }
+            return std::span<const uint8_t>{static_cast<const uint8_t*>(basePtr) + offset, length};
+        };
 
-                    const auto& image = asset.images[imgIdx];
-                    std::span<const uint8_t> rawBytes{};
-                    std::vector<uint8_t> fetchedUriBytes{};
-                    std::string decodeHint{};
-                    size_t sourceBvIdx{0};
+        auto mimeTypeToString = [](fastgltf::MimeType mime) -> std::string {
+            switch (mime) {
+                case fastgltf::MimeType::JPEG: return "image/jpeg";
+                case fastgltf::MimeType::PNG:  return "image/png";
+                case fastgltf::MimeType::KTX2: return "image/ktx2";
+                case fastgltf::MimeType::GltfBuffer:
+                case fastgltf::MimeType::OctetStream:
+                default: return {};
+            }
+        };
 
-                    auto extractSafeSlice = [](const void* basePtr, size_t totalSize, size_t offset, size_t length) -> std::span<const uint8_t> {
-                        if (!basePtr || offset > totalSize || length > (totalSize - offset)) {
-                            return {};
-                        }
-                        return std::span<const uint8_t>{static_cast<const uint8_t*>(basePtr) + offset, length};
-                    };
-
-                    auto mimeTypeToString = [](fastgltf::MimeType mime) -> std::string {
-                        switch (mime) {
-                            case fastgltf::MimeType::JPEG: return "image/jpeg";
-                            case fastgltf::MimeType::PNG:  return "image/png";
-                            case fastgltf::MimeType::KTX2: return "image/ktx2";
-                            case fastgltf::MimeType::GltfBuffer:
-                            case fastgltf::MimeType::OctetStream:
-                            default: return {};
-                        }
-                    };
-
-                    if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
-                        const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
-                        decodeHint = mimeTypeToString(bvSource.mimeType);
-                        sourceBvIdx = bvSource.bufferViewIndex;
-                        if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
-                            const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
-                            if (bufferView.bufferIndex < asset.buffers.size()) {
-                                const auto& buffer = asset.buffers[bufferView.bufferIndex];
-                                if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
-                                    const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
-                                    rawBytes = extractSafeSlice(array.bytes.data(), array.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
-                                } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
-                                    const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
-                                    rawBytes = extractSafeSlice(bv.bytes.data(), bv.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
-                                } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
-                                    const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
-                                    rawBytes = extractSafeSlice(vec.bytes.data(), vec.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
-                                }
-                            }
-                        }
-                    } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
-                        const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
-                        decodeHint = mimeTypeToString(bv.mimeType);
-                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size()};
-                    } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
-                        const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
-                        decodeHint = mimeTypeToString(vec.mimeType);
-                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(vec.bytes.data()), vec.bytes.size()};
-                    } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
-                        const auto& arr = std::get<fastgltf::sources::Array>(image.data);
-                        decodeHint = mimeTypeToString(arr.mimeType);
-                        rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(arr.bytes.data()), arr.bytes.size()};
-                    } else if (std::holds_alternative<fastgltf::sources::URI>(image.data)) {
-                        const auto& uriSource = std::get<fastgltf::sources::URI>(image.data);
-                        const std::string rawUriStr{uriSource.uri.string()};
-                        decodeHint = mimeTypeToString(uriSource.mimeType);
-                        if (decodeHint.empty()) {
-                            decodeHint = rawUriStr;
-                        }
-                        const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
-                        BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, resolvedUri);
-                        auto fetchRes = core::NetworkFetcher::FetchSync(resolvedUri);
-                        if (fetchRes) {
-                            fetchedUriBytes = std::move(*fetchRes);
-                            const size_t offset{std::min(uriSource.fileByteOffset, fetchedUriBytes.size())};
-                            rawBytes = std::span<const uint8_t>{fetchedUriBytes.data() + offset, fetchedUriBytes.size() - offset};
-                        } else {
-                            BGL_LOG_ERROR("  * Image #{}: Failed to fetch external image URI '{}': {}",
-                                          imgIdx, resolvedUri, fetchRes.error());
-                        }
-                    }
-
-                    if (decodeHint.empty() && !image.name.empty()) {
-                        decodeHint = std::string{image.name};
-                    }
-
-                    std::string imgName = image.name.empty()
-                        ? (decodeHint.empty() ? ("Image_" + std::to_string(imgIdx)) : core::NetworkFetcher::ExtractDisplayName(decodeHint))
-                        : std::string(image.name);
-
-                    if (!rawBytes.empty()) {
-                        auto decoded = TextureDecoder::DecodeAuto(rawBytes, decodeHint);
-                        if (decoded) {
-                            decodedImages[imgIdx] = CpuImage{
-                                .width = decoded->width,
-                                .height = decoded->height,
-                                .rgba = std::move(decoded->rgbaData),
-                                .isCompressed = decoded->isCompressed,
-                                .compressionFormat = decoded->compressionFormat,
-                                .mipLevels = std::move(decoded->mipLevels)
-                            };
-                            BGL_LOG_INFO("  * Image #{} (BufferView #{}): '{}' -> Decoded {} {}x{} (Mips: {}, Payload: {:.2f} MB)",
-                                         imgIdx, sourceBvIdx, imgName,
-                                         TextureDecoder::GetKtxTargetName(decodedImages[imgIdx]->compressionFormat),
-                                         decoded->width, decoded->height,
-                                         std::max<size_t>(1, decodedImages[imgIdx]->mipLevels.size()),
-                                         decodedImages[imgIdx]->rgba.size() / (1024.0 * 1024.0));
-                        } else {
-                            BGL_LOG_ERROR("  * Image #{}: Failed to decode: {}", imgIdx, decoded.error());
-                        }
-                    } else {
-                        BGL_LOG_WARN("  * Image #{}: Raw byte stream is empty", imgIdx);
+        if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
+            const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
+            decodeHint = mimeTypeToString(bvSource.mimeType);
+            sourceBvIdx = bvSource.bufferViewIndex;
+            if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
+                const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
+                if (bufferView.bufferIndex < asset.buffers.size()) {
+                    const auto& buffer = asset.buffers[bufferView.bufferIndex];
+                    if (std::holds_alternative<fastgltf::sources::Array>(buffer.data)) {
+                        const auto& array = std::get<fastgltf::sources::Array>(buffer.data);
+                        rawBytes = extractSafeSlice(array.bytes.data(), array.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
+                    } else if (std::holds_alternative<fastgltf::sources::ByteView>(buffer.data)) {
+                        const auto& bv = std::get<fastgltf::sources::ByteView>(buffer.data);
+                        rawBytes = extractSafeSlice(bv.bytes.data(), bv.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
+                    } else if (std::holds_alternative<fastgltf::sources::Vector>(buffer.data)) {
+                        const auto& vec = std::get<fastgltf::sources::Vector>(buffer.data);
+                        rawBytes = extractSafeSlice(vec.bytes.data(), vec.bytes.size(), bufferView.byteOffset, bufferView.byteLength);
                     }
                 }
-            });
+            }
+        } else if (std::holds_alternative<fastgltf::sources::ByteView>(image.data)) {
+            const auto& bv = std::get<fastgltf::sources::ByteView>(image.data);
+            decodeHint = mimeTypeToString(bv.mimeType);
+            rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size()};
+        } else if (std::holds_alternative<fastgltf::sources::Vector>(image.data)) {
+            const auto& vec = std::get<fastgltf::sources::Vector>(image.data);
+            decodeHint = mimeTypeToString(vec.mimeType);
+            rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(vec.bytes.data()), vec.bytes.size()};
+        } else if (std::holds_alternative<fastgltf::sources::Array>(image.data)) {
+            const auto& arr = std::get<fastgltf::sources::Array>(image.data);
+            decodeHint = mimeTypeToString(arr.mimeType);
+            rawBytes = std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(arr.bytes.data()), arr.bytes.size()};
+        } else if (std::holds_alternative<fastgltf::sources::URI>(image.data)) {
+            const auto& uriSource = std::get<fastgltf::sources::URI>(image.data);
+            const std::string rawUriStr{uriSource.uri.string()};
+            decodeHint = mimeTypeToString(uriSource.mimeType);
+            if (decodeHint.empty()) {
+                decodeHint = rawUriStr;
+            }
+            const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
+            BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, resolvedUri);
+            auto fetchRes = core::NetworkFetcher::FetchSync(resolvedUri);
+            if (fetchRes) {
+                fetchedUriBytes = std::move(*fetchRes);
+                const size_t offset{std::min(uriSource.fileByteOffset, fetchedUriBytes.size())};
+                rawBytes = std::span<const uint8_t>{fetchedUriBytes.data() + offset, fetchedUriBytes.size() - offset};
+            } else {
+                BGL_LOG_ERROR("  * Image #{}: Failed to fetch external image URI '{}': {}",
+                              imgIdx, resolvedUri, fetchRes.error());
+            }
         }
-    }
+
+        if (decodeHint.empty() && !image.name.empty()) {
+            decodeHint = std::string{image.name};
+        }
+
+        std::string imgName = image.name.empty()
+            ? (decodeHint.empty() ? ("Image_" + std::to_string(imgIdx)) : core::NetworkFetcher::ExtractDisplayName(decodeHint))
+            : std::string(image.name);
+
+        if (!rawBytes.empty()) {
+            const uint64_t contentHash = Fnv1a64(rawBytes);
+            if (auto cached = assetManager_.GetCachedTexture(contentHash)) {
+                decodedImages[imgIdx] = CpuImage{
+                    .width = cached->width,
+                    .height = cached->height,
+                    .rgba = cached->rgbaData,
+                    .isCompressed = cached->isCompressed,
+                    .compressionFormat = cached->compressionFormat,
+                    .mipLevels = cached->mipLevels
+                };
+                BGL_LOG_DEBUG("  * Image #{} ('{}') hit asset cache (content hash {:x})", imgIdx, imgName, contentHash);
+            } else {
+                auto decoded = TextureDecoder::DecodeAuto(rawBytes, decodeHint);
+                if (decoded) {
+                    auto sharedImg = std::make_shared<DecodedImage>(*decoded);
+                    assetManager_.InsertTexture(contentHash, sharedImg);
+                    decodedImages[imgIdx] = CpuImage{
+                        .width = decoded->width,
+                        .height = decoded->height,
+                        .rgba = std::move(decoded->rgbaData),
+                        .isCompressed = decoded->isCompressed,
+                        .compressionFormat = decoded->compressionFormat,
+                        .mipLevels = std::move(decoded->mipLevels)
+                    };
+                    BGL_LOG_DEBUG("  * Image #{} (BufferView #{}): '{}' -> Decoded {} {}x{} (Mips: {}, Payload: {:.2f} MB)",
+                                 imgIdx, sourceBvIdx, imgName,
+                                 TextureDecoder::GetKtxTargetName(decodedImages[imgIdx]->compressionFormat),
+                                 decoded->width, decoded->height,
+                                 std::max<size_t>(1, decodedImages[imgIdx]->mipLevels.size()),
+                                 decodedImages[imgIdx]->rgba.size() / (1024.0 * 1024.0));
+                } else {
+                    BGL_LOG_ERROR("  * Image #{}: Failed to decode: {}", imgIdx, decoded.error());
+                }
+            }
+        } else {
+            BGL_LOG_WARN("  * Image #{}: Raw byte stream is empty", imgIdx);
+        }
+    });
 
     // Assign decoded images to glTF textures
     for (size_t texIdx{0}; texIdx < numTextures; ++texIdx) {
@@ -403,7 +405,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         if (sceneMat.unlit) extDesc += " Unlit";
         if (sceneMat.doubleSided) extDesc += " DoubleSided";
 
-        BGL_LOG_INFO("  * Material #{}: '{}' | baseColorFactor=[{:.2f}, {:.2f}, {:.2f}, {:.2f}], metal={:.2f}, rough={:.2f}, baseColorTex={}, normalTex={}, emissiveTex={}{}",
+        BGL_LOG_DEBUG("  * Material #{}: '{}' | baseColorFactor=[{:.2f}, {:.2f}, {:.2f}, {:.2f}], metal={:.2f}, rough={:.2f}, baseColorTex={}, normalTex={}, emissiveTex={}{}",
                      mIdx, sceneMat.name,
                      sceneMat.baseColorFactor.r, sceneMat.baseColorFactor.g, sceneMat.baseColorFactor.b, sceneMat.baseColorFactor.a,
                      sceneMat.metallicFactor, sceneMat.roughnessFactor,
@@ -486,25 +488,18 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
-    // 5. Parse glTF Meshes and primitives in parallel (deduplicated across instances)
-    std::vector<std::vector<MeshPrimitive>> parsedMeshes(asset.meshes.size());
-    std::atomic<size_t> nextMeshIdx{0};
-    {
-        std::vector<std::jthread> meshWorkers;
-        meshWorkers.reserve(hwThreads);
+    // 5. Parse glTF Meshes and primitives in parallel (shared zero-copy resources across instances)
+    std::vector<std::shared_ptr<Mesh>> parsedMeshes(asset.meshes.size());
+    core::ThreadPool::Instance().ParallelFor(0, asset.meshes.size(), [&](size_t mIdx) {
+        const auto& mesh = asset.meshes[mIdx];
+        auto sharedMesh = std::make_shared<Mesh>();
+        sharedMesh->name = mesh.name.empty() ? ("Mesh_" + std::to_string(mIdx)) : std::string(mesh.name);
+        sharedMesh->primitives.reserve(mesh.primitives.size());
 
-        for (unsigned int w{0}; w < hwThreads; ++w) {
-            meshWorkers.emplace_back([&]() {
-                while (true) {
-                    size_t mIdx = nextMeshIdx.fetch_add(1, std::memory_order_relaxed);
-                    if (mIdx >= asset.meshes.size()) break;
+        for (const auto& prim : mesh.primitives) {
+            if (prim.type != fastgltf::PrimitiveType::Triangles) continue;
 
-                    const auto& mesh = asset.meshes[mIdx];
-                    parsedMeshes[mIdx].reserve(mesh.primitives.size());
-                    for (const auto& prim : mesh.primitives) {
-                        if (prim.type != fastgltf::PrimitiveType::Triangles) continue;
-
-                        MeshPrimitive meshPrim;
+            MeshPrimitive meshPrim;
                         if (prim.materialIndex.has_value()) {
                             meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
                         }
@@ -623,30 +618,19 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                             meshPrim.ComputeTangents();
                         }
 
-                        parsedMeshes[mIdx].push_back(std::move(meshPrim));
-                    }
-                }
-            });
+                        sharedMesh->primitives.push_back(std::move(meshPrim));
         }
-    }
+        parsedMeshes[mIdx] = std::move(sharedMesh);
+    });
+    scene->meshes = parsedMeshes;
 
     // 6. Instantiate Scene Graph Nodes in parallel
     std::vector<std::shared_ptr<SceneNode>> loadedNodes(asset.nodes.size());
     BGL_LOG_INFO("[glTF Loader] --- Scene Nodes Hierarchy ({} nodes total, parallel parsing) ---", asset.nodes.size());
 
-    std::atomic<size_t> nextNodeIdx{0};
-    {
-        std::vector<std::jthread> nodeWorkers;
-        nodeWorkers.reserve(hwThreads);
-
-        for (unsigned int w = 0; w < hwThreads; ++w) {
-            nodeWorkers.emplace_back([&]() {
-                while (true) {
-                    size_t nodeIdx = nextNodeIdx.fetch_add(1, std::memory_order_relaxed);
-                    if (nodeIdx >= asset.nodes.size()) break;
-
-                    const auto& gltfNode = asset.nodes[nodeIdx];
-                    auto node = std::make_shared<SceneNode>();
+    core::ThreadPool::Instance().ParallelFor(0, asset.nodes.size(), [&](size_t nodeIdx) {
+        const auto& gltfNode = asset.nodes[nodeIdx];
+        auto node = std::make_shared<SceneNode>();
                     node->nodeIndex = static_cast<int>(nodeIdx);
                     node->name = gltfNode.name.empty() ? ("Node_" + std::to_string(nodeIdx)) : std::string(gltfNode.name);
                     if (gltfNode.lightIndex.has_value() && *gltfNode.lightIndex < asset.lights.size()) {
@@ -671,20 +655,12 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
                         node->localTransform = glm::make_mat4(mat.data());
                     }
 
-                    if (gltfNode.meshIndex.has_value() && *gltfNode.meshIndex < parsedMeshes.size()) {
-                        const size_t mIdx{*gltfNode.meshIndex};
-                        const auto& srcPrims{parsedMeshes[mIdx]};
-                        node->primitives.reserve(srcPrims.size());
-                        for (const auto& srcPrim : srcPrims) {
-                            node->primitives.push_back(srcPrim);
-                        }
-                    }
-
-                    loadedNodes[nodeIdx] = std::move(node);
-                }
-            });
+        if (gltfNode.meshIndex.has_value() && *gltfNode.meshIndex < parsedMeshes.size()) {
+            node->mesh = parsedMeshes[*gltfNode.meshIndex];
         }
-    }
+
+        loadedNodes[nodeIdx] = std::move(node);
+    });
 
     // 7. Assemble parent-child scene hierarchy with cycle prevention
     std::vector<bool> isChild(asset.nodes.size(), false);
@@ -759,27 +735,28 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
     // 9. Display ASCII Hierarchy Tree Diagram & Telemetry
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
     BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
-    auto printTree = [&](this auto&& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
+    auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast) -> void {
         if (!n) return;
         std::string nodeInfo{n->name.empty() ? "(Unnamed Node)" : n->name};
-        if (!n->primitives.empty()) {
+        auto prims = n->GetPrimitives();
+        if (!prims.empty()) {
             size_t totalVerts{0};
             size_t totalIndices{0};
-            for (const auto& p : n->primitives) {
+            for (const auto& p : prims) {
                 totalVerts += p.vertices.size();
                 totalIndices += p.indices.size();
             }
-            nodeInfo += " [Mesh: " + std::to_string(n->primitives.size()) + " prims, " +
+            nodeInfo += " [Mesh: " + std::to_string(prims.size()) + " prims, " +
                         std::to_string(totalVerts) + " verts, " + std::to_string(totalIndices / 3) + " tris]";
         }
         BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", nodeInfo);
         for (size_t c{0}; c < n->children.size(); ++c) {
             const bool childLast{c + 1 == n->children.size()};
-            self(n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
+            self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
         }
     };
     for (size_t r{0}; r < scene->rootNodes.size(); ++r) {
-        printTree(scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
+        printTree(printTree, scene->rootNodes[r], "  ", (r + 1 == scene->rootNodes.size()));
     }
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
 
@@ -805,6 +782,14 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 }
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromFile(std::string_view path) {
+    if (!core::NetworkFetcher::IsUrl(path) && std::filesystem::exists(path)) {
+        fastgltf::GltfDataBuffer dataBuffer{};
+        if (dataBuffer.loadFromFile(std::filesystem::path(path))) {
+            auto sp = static_cast<fastgltf::span<std::byte>>(dataBuffer);
+            std::span<const uint8_t> byteSpan(reinterpret_cast<const uint8_t*>(sp.data()), sp.size());
+            return LoadFromMemory(byteSpan, path);
+        }
+    }
     auto fetchRes = core::NetworkFetcher::FetchSync(path);
     if (!fetchRes) {
         return std::unexpected("Failed to fetch glTF file: " + fetchRes.error());

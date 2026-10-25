@@ -67,3 +67,4 @@ size_t MemoryTracker::GetVirtualRamBytes() const noexcept {
 }
 
 } // namespace bgl::core
+
