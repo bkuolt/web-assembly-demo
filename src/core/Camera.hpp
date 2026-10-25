@@ -73,8 +73,8 @@ public:
     [[nodiscard]] glm::vec3 GetPosition() const noexcept { return position_; }
     [[nodiscard]] glm::vec3 GetTarget() const noexcept { return target_; }
     [[nodiscard]] float GetDistance() const noexcept { return distance_; }
-    [[nodiscard]] float GetNearPlane() const noexcept { return nearPlane_; }
-    [[nodiscard]] float GetFarPlane() const noexcept { return farPlane_; }
+    [[nodiscard]] float GetNearPlane() const noexcept { return dynamicNear_; }
+    [[nodiscard]] float GetFarPlane() const noexcept { return dynamicFar_; }
     [[nodiscard]] Frustum GetFrustum() const noexcept { return Frustum::FromViewProjection(GetViewProjectionMatrix()); }
 
     /**
@@ -90,6 +90,8 @@ private:
     float fovY_{glm::radians(45.0f)};
     float nearPlane_{0.1f};
     float farPlane_{1000.0f};
+    float dynamicNear_{0.1f};
+    float dynamicFar_{1000.0f};
 
     glm::vec3 position_{0.0f};
     glm::mat4 viewMatrix_{1.0f};

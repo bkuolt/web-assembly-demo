@@ -34,9 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Comprehensive glTF 2.0 Material Extension Verification & WGSL Documentation:**
   - Verified and documented 100% support for all Khronos glTF extensions (`KHR_materials_clearcoat`, `KHR_materials_transmission`, `KHR_materials_sheen`, `KHR_materials_specular`, `KHR_materials_ior`, `KHR_materials_emissive_strength`, `KHR_materials_unlit`).
   - Added detailed Doxygen and mathematical WGSL comments throughout `src/gpu/Shaders.hpp`.
-- **Test Suite Expansion (131 Passing Tests):**
-  - Expanded test suite to **131 tests across 12 test suites** with 100% pass rate.
-  - Added `CameraTest.WASDAndArrowKeyNavigation`, `CameraTest.KeyboardZoomInOut`, and expanded `RenderingFeaturesTest` for POM, AO intensity, and Lens Flare uniforms.
+- **Test Suite Expansion (137 Passing Tests):**
+  - Expanded test suite to **137 tests across 12 test suites** with 100% pass rate.
+  - Added `CameraTest.WASDAndArrowKeyNavigation`, `CameraTest.KeyboardZoomInOut`, `CameraTest.DiagonalWASDNavigationInvariance`, and `CameraTest.ExtremeDistanceDynamicClippingPlanes`.
+  - Added `RenderingFeaturesTest.ParallaxOcclusionMappingTangentSpaceProjection`, `RenderingFeaturesTest.MultiBounceAmbientOcclusionConservation`, `RenderingFeaturesTest.DirectionalSunLensFlareScreenProjection`, and `RenderingFeaturesTest.PipelineTonemapOperatorAndExposureCPU`.
 
 ---
 

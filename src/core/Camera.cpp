@@ -63,10 +63,10 @@ void Camera::Update(float aspectRatio) noexcept {
     position_ = glm::vec3{x, y, z};
 
     viewMatrix_ = glm::lookAt(position_, target_, glm::vec3{0.0f, 1.0f, 0.0f});
-    const float dynamicNear{std::min(nearPlane_, distance_ * 0.01f)};
-    const float dynamicFar{std::max(farPlane_, distance_ * 10.0f)};
+    dynamicNear_ = std::max(0.0005f, std::min(nearPlane_, distance_ * 0.01f));
+    dynamicFar_ = std::max(farPlane_, distance_ * 10.0f);
     // Use WebGPU 0..1 depth clip space
-    projMatrix_ = glm::perspectiveRH_ZO(fovY_, aspectRatio, dynamicNear, dynamicFar);
+    projMatrix_ = glm::perspectiveRH_ZO(fovY_, aspectRatio, dynamicNear_, dynamicFar_);
 }
 
 Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, float screenHeight) const noexcept {

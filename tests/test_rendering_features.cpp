@@ -883,6 +883,126 @@ TEST(RenderingFeaturesTest, ShadowMatrixBoundingBoxContainment) {
     }
 }
 
+TEST(RenderingFeaturesTest, ParallaxOcclusionMappingTangentSpaceProjection) {
+    // Orthonormal TBN basis (Tangent=+X, Bitangent=+Y, Normal=+Z)
+    const glm::vec3 T(1.0f, 0.0f, 0.0f);
+    const glm::vec3 B(0.0f, 1.0f, 0.0f);
+    const glm::vec3 N(0.0f, 0.0f, 1.0f);
+    const glm::mat3 tbn(T, B, N);
+
+    // 1. Direct normal incidence: V points directly along +Z
+    const glm::vec3 viewNormal(0.0f, 0.0f, 1.0f);
+    const glm::vec3 vTanNorm = glm::transpose(tbn) * viewNormal;
+    EXPECT_NEAR(vTanNorm.x, 0.0f, 1e-5f);
+    EXPECT_NEAR(vTanNorm.y, 0.0f, 1e-5f);
+    EXPECT_NEAR(vTanNorm.z, 1.0f, 1e-5f);
+
+    // Normal view: abs(vTanNorm.z) is 1.0 -> adaptive POM layer count is minimum (8 steps)
+    const float minLayers = 8.0f;
+    const float maxLayers = 32.0f;
+    const float layersNorm = glm::mix(maxLayers, minLayers, std::clamp(std::abs(vTanNorm.z), 0.0f, 1.0f));
+    EXPECT_FLOAT_EQ(layersNorm, 8.0f);
+
+    // 2. Steep grazing incidence: V at 80 degrees from normal
+    const float angle = glm::radians(80.0f);
+    const glm::vec3 viewGrazing(std::sin(angle), 0.0f, std::cos(angle));
+    const glm::vec3 vTanGrazing = glm::transpose(tbn) * viewGrazing;
+    const float layersGrazing = glm::mix(maxLayers, minLayers, std::clamp(std::abs(vTanGrazing.z), 0.0f, 1.0f));
+    EXPECT_GT(layersGrazing, 25.0f);
+    EXPECT_LE(layersGrazing, 32.0f);
+
+    // 3. Parallax offset displacement vector P = (vTan.xy / max(abs(vTan.z), 0.15)) * scale
+    const float pomScale = 0.035f;
+    const glm::vec2 P = (glm::vec2(vTanGrazing.x, vTanGrazing.y) / std::max(std::abs(vTanGrazing.z), 0.15f)) * pomScale;
+    EXPECT_GT(glm::length(P), 0.0f);
+    EXPECT_LT(glm::length(P), 0.3f); // Must stay tightly bounded to prevent UV tearing
+}
+
+TEST(RenderingFeaturesTest, MultiBounceAmbientOcclusionConservation) {
+    // Jimenez multi-bounce AO formula:
+    // ao_multi = mix(ao, ao * (diffuseColor * (1.0 - ao) + 1.0), 0.35)
+    auto evalMultiBounceAO = [](float ao, const glm::vec3& diffuseColor) -> glm::vec3 {
+        const glm::vec3 combinedAO(std::clamp(ao, 0.0f, 1.0f));
+        const glm::vec3 multiBounce = combinedAO * (diffuseColor * (glm::vec3(1.0f) - combinedAO) + glm::vec3(1.0f));
+        return glm::mix(combinedAO, multiBounce, 0.35f);
+    };
+
+    // 1. Fully unoccluded surface (AO = 1.0): returns 1.0 on all channels regardless of color
+    const glm::vec3 white(1.0f);
+    const glm::vec3 aoFull = evalMultiBounceAO(1.0f, white);
+    EXPECT_NEAR(aoFull.r, 1.0f, 1e-5f);
+    EXPECT_NEAR(aoFull.g, 1.0f, 1e-5f);
+    EXPECT_NEAR(aoFull.b, 1.0f, 1e-5f);
+
+    // 2. Fully occluded crevice (AO = 0.0): returns 0.0
+    const glm::vec3 aoZero = evalMultiBounceAO(0.0f, white);
+    EXPECT_NEAR(aoZero.r, 0.0f, 1e-5f);
+    EXPECT_NEAR(aoZero.g, 0.0f, 1e-5f);
+    EXPECT_NEAR(aoZero.b, 0.0f, 1e-5f);
+
+    // 3. Partial occlusion (AO = 0.5) on vivid red surface (1.0, 0.1, 0.1)
+    // Multi-bounce conservation boosts the red channel bounce more than green/blue
+    const glm::vec3 redSurface(1.0f, 0.1f, 0.1f);
+    const glm::vec3 aoRed = evalMultiBounceAO(0.5f, redSurface);
+    EXPECT_GT(aoRed.r, 0.5f); // Red bounce lifts ambient brightness in crevices
+    EXPECT_GT(aoRed.r, aoRed.g); // Preserves chromatic saturation without turning dirty gray
+    EXPECT_NEAR(aoRed.g, aoRed.b, 1e-5f);
+}
+
+TEST(RenderingFeaturesTest, DirectionalSunLensFlareScreenProjection) {
+    core::Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), 10.0f);
+    camera.Update(16.0f / 9.0f);
+    const glm::mat4 vp = camera.GetViewProjectionMatrix();
+    const glm::vec3 camPos = camera.GetPosition();
+
+    // 1. Sun positioned directly ahead of camera along view target
+    const glm::vec3 sunAhead = glm::normalize(camera.GetTarget() - camera.GetPosition());
+    const glm::vec4 sunAheadWorld = glm::vec4(camPos + sunAhead * 1000.0f, 1.0f);
+    const glm::vec4 sunAheadClip = vp * sunAheadWorld;
+
+    EXPECT_GT(sunAheadClip.w, 0.0f); // In front of camera
+    const glm::vec3 sunAheadNdc = glm::vec3(sunAheadClip) / sunAheadClip.w;
+    EXPECT_NEAR(sunAheadNdc.x, 0.0f, 0.05f); // Near center X
+    EXPECT_NEAR(sunAheadNdc.y, 0.0f, 0.05f); // Near center Y
+
+    const glm::vec2 sunAheadUV(sunAheadNdc.x * 0.5f + 0.5f, 0.5f - sunAheadNdc.y * 0.5f);
+    EXPECT_NEAR(sunAheadUV.x, 0.5f, 0.05f);
+    EXPECT_NEAR(sunAheadUV.y, 0.5f, 0.05f);
+
+    // 2. Sun positioned behind camera: W clip must be negative or depth inverted
+    const glm::vec3 sunBehind = -sunAhead;
+    const glm::vec4 sunBehindWorld = glm::vec4(camPos + sunBehind * 1000.0f, 1.0f);
+    const glm::vec4 sunBehindClip = vp * sunBehindWorld;
+    EXPECT_LT(sunBehindClip.w, 0.0f); // Culled behind near plane
+}
+
+TEST(RenderingFeaturesTest, PipelineTonemapOperatorAndExposureCPU) {
+    const glm::vec3 brightHdr(3.5f, 2.8f, 1.9f);
+
+    // 1. Khronos PBR Neutral tonemapper produces valid clamped [0, 1] output
+    const glm::vec3 mappedNeutral = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::KhronosPbrNeutral);
+    EXPECT_GE(mappedNeutral.r, 0.0f); EXPECT_LE(mappedNeutral.r, 1.0f);
+    EXPECT_GE(mappedNeutral.g, 0.0f); EXPECT_LE(mappedNeutral.g, 1.0f);
+    EXPECT_GE(mappedNeutral.b, 0.0f); EXPECT_LE(mappedNeutral.b, 1.0f);
+
+    // 2. AgX tonemapper
+    const glm::vec3 mappedAgX = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::AgX);
+    EXPECT_GE(mappedAgX.r, 0.0f); EXPECT_LE(mappedAgX.r, 1.0f);
+    EXPECT_GE(mappedAgX.g, 0.0f); EXPECT_LE(mappedAgX.g, 1.0f);
+    EXPECT_GE(mappedAgX.b, 0.0f); EXPECT_LE(mappedAgX.b, 1.0f);
+
+    // 3. ACES Filmic tonemapper
+    const glm::vec3 mappedACES = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::ACES);
+    EXPECT_GE(mappedACES.r, 0.0f); EXPECT_LE(mappedACES.r, 1.0f);
+    EXPECT_GE(mappedACES.g, 0.0f); EXPECT_LE(mappedACES.g, 1.0f);
+    EXPECT_GE(mappedACES.b, 0.0f); EXPECT_LE(mappedACES.b, 1.0f);
+
+    // 4. Higher exposure brightens intermediate values monotonically
+    const glm::vec3 lowExp = gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 0.5f, gpu::ToneMapOperator::ACES);
+    const glm::vec3 highExp = gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 2.0f, gpu::ToneMapOperator::ACES);
+    EXPECT_GT(highExp.r, lowExp.r);
+}
+
 
 
 

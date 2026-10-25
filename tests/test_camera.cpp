@@ -229,3 +229,42 @@ TEST(CameraTest, KeyboardZoomInOut) {
     EXPECT_FLOAT_EQ(camera.GetDistance(), 9.5f);
 }
 
+TEST(CameraTest, DiagonalWASDNavigationInvariance) {
+    Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), 7.5f);
+    camera.Update(16.0f / 9.0f);
+
+    const glm::vec3 startTarget = camera.GetTarget();
+    const glm::vec3 startPos = camera.GetPosition();
+
+    // Simultaneous W + D (Forward + Right)
+    camera.MoveForward(2.0f);
+    camera.MoveRight(2.0f);
+    camera.Update(16.0f / 9.0f);
+
+    // Camera target and position both translate on horizontal plane
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), camera.GetTarget()), 7.5f, 1e-3f);
+    EXPECT_NEAR(camera.GetTarget().y, startTarget.y, 1e-4f); // Horizontal plane invariance
+
+    // Reverse with S + A (Backward + Left)
+    camera.MoveForward(-2.0f);
+    camera.MoveRight(-2.0f);
+    camera.Update(16.0f / 9.0f);
+
+    EXPECT_NEAR(glm::distance(camera.GetTarget(), startTarget), 0.0f, 1e-3f);
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), startPos), 0.0f, 1e-3f);
+}
+
+TEST(CameraTest, ExtremeDistanceDynamicClippingPlanes) {
+    // 1. Very close distance (macro / close-up inspection: 0.05m)
+    Camera camClose(glm::vec3(0.0f), 0.05f);
+    camClose.Update(1.0f);
+    EXPECT_GT(camClose.GetNearPlane(), 0.0f);
+    EXPECT_LT(camClose.GetNearPlane(), 0.01f); // Dynamic near plane scales with small distance
+
+    // 2. Huge distance (landscape / orbital: 500m)
+    Camera camFar(glm::vec3(0.0f), 500.0f);
+    camFar.Update(1.0f);
+    EXPECT_GT(camFar.GetFarPlane(), 1000.0f); // Dynamic far plane expands to contain scene
+    EXPECT_GT(camFar.GetFarPlane(), camFar.GetNearPlane());
+}
+
