@@ -9,6 +9,7 @@
 #include <webgpu/webgpu.h>
 #include <glm/glm.hpp>
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 #include "scene/Scene.hpp"
 #include "scene/Quadtree.hpp"
 
@@ -35,12 +36,12 @@ static_assert(sizeof(AabbVertex) == 32, "AabbVertex must be 32 bytes");
 class AabbRenderer {
 public:
     AabbRenderer() = default;
-    ~AabbRenderer();
+    ~AabbRenderer() = default;
 
     AabbRenderer(const AabbRenderer&) = delete;
     AabbRenderer& operator=(const AabbRenderer&) = delete;
-    AabbRenderer(AabbRenderer&& other) noexcept;
-    AabbRenderer& operator=(AabbRenderer&& other) noexcept;
+    AabbRenderer(AabbRenderer&& other) noexcept = default;
+    AabbRenderer& operator=(AabbRenderer&& other) noexcept = default;
 
     core::Result<void> Initialize(WGPUDevice device,
                                   WGPUQueue queue,
@@ -61,11 +62,11 @@ private:
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
-    WGPURenderPipeline aabbPipeline_{nullptr};
-    WGPUBindGroupLayout aabbBindGroupLayout_{nullptr};
-    WGPUBuffer aabbVertexBuffer_{nullptr};
-    WGPUBuffer aabbUniformBuffer_{nullptr};
-    WGPUBindGroup aabbBindGroup_{nullptr};
+    RenderPipelineHandle aabbPipeline_{};
+    BindGroupLayoutHandle aabbBindGroupLayout_{};
+    BufferHandle aabbVertexBuffer_{};
+    BufferHandle aabbUniformBuffer_{};
+    BindGroupHandle aabbBindGroup_{};
     size_t aabbVertexBufferSize_{0};
     size_t aabbFrameByteOffset_{0};
 

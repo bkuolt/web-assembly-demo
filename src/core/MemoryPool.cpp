@@ -3,18 +3,15 @@
  * @brief Implementation of ScratchArena PMR staging allocator.
  */
 #include "core/MemoryPool.hpp"
+#include <memory>
 
 namespace bgl::core {
 
 ScratchArena::ScratchArena(size_t initialCapacity)
     : capacity_(initialCapacity),
-      buffer_(new std::byte[initialCapacity]),
-      monotonicResource_(new std::pmr::monotonic_buffer_resource(buffer_, capacity_, std::pmr::get_default_resource())) {}
-
-ScratchArena::~ScratchArena() {
-    delete monotonicResource_;
-    delete[] buffer_;
-}
+      buffer_(std::make_unique<std::byte[]>(initialCapacity)),
+      monotonicResource_(std::make_unique<std::pmr::monotonic_buffer_resource>(
+          buffer_.get(), capacity_, std::pmr::get_default_resource())) {}
 
 void ScratchArena::Reset() noexcept {
     if (monotonicResource_) {
@@ -23,7 +20,7 @@ void ScratchArena::Reset() noexcept {
 }
 
 std::pmr::memory_resource* ScratchArena::GetResource() noexcept {
-    return monotonicResource_;
+    return monotonicResource_.get();
 }
 
 } // namespace bgl::core

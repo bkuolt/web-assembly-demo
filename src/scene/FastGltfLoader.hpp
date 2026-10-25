@@ -51,6 +51,11 @@ public:
     core::Result<std::shared_ptr<Scene>> LoadFromFile(std::string_view path);
 
 private:
+    core::Result<std::shared_ptr<Scene>> ParseAndAssembleScene(
+        fastgltf::GltfDataBuffer& dataBuffer,
+        std::string_view baseUri,
+        size_t totalBytes);
+
     AssetManager& assetManager_;
     fastgltf::Parser parser_;
 };

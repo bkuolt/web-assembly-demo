@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <memory>
 #include <memory_resource>
 #include <new>
 #include <concepts>
@@ -118,7 +119,12 @@ private:
 class ScratchArena {
 public:
     explicit ScratchArena(size_t initialCapacity = 1024 * 1024 * 4); // 4 MB default
-    ~ScratchArena();
+    ~ScratchArena() = default;
+
+    ScratchArena(const ScratchArena&) = delete;
+    ScratchArena& operator=(const ScratchArena&) = delete;
+    ScratchArena(ScratchArena&&) noexcept = default;
+    ScratchArena& operator=(ScratchArena&&) noexcept = default;
 
     /**
      * @brief Reset all allocations in O(1) without freeing the backing memory.
@@ -134,8 +140,8 @@ public:
 
 private:
     size_t capacity_{0};
-    std::byte* buffer_{nullptr};
-    std::pmr::monotonic_buffer_resource* monotonicResource_{nullptr};
+    std::unique_ptr<std::byte[]> buffer_{nullptr};
+    std::unique_ptr<std::pmr::monotonic_buffer_resource> monotonicResource_{nullptr};
 };
 
 } // namespace bgl::core

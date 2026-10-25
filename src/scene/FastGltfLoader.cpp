@@ -59,15 +59,21 @@ FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
               fastgltf::Extensions::KHR_materials_unlit) {}
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<const uint8_t> data, std::string_view baseUri) {
-    BGL_LOG_INFO("================================================================================");
-    BGL_LOG_INFO("[glTF Loader] Starting Ingestion of Asset: '{}' (Total size: {} bytes / {:.2f} MB)",
-                 baseUri.empty() ? "In-Memory Stream" : baseUri, data.size(), data.size() / (1024.0 * 1024.0));
-    BGL_LOG_INFO("================================================================================");
-
     fastgltf::GltfDataBuffer dataBuffer{};
     if (!dataBuffer.copyBytes(data.data(), data.size())) {
         return std::unexpected("Failed to copy bytes into fastgltf::GltfDataBuffer");
     }
+    return ParseAndAssembleScene(dataBuffer, baseUri, data.size());
+}
+
+core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(
+    fastgltf::GltfDataBuffer& dataBuffer,
+    std::string_view baseUri,
+    size_t totalBytes) {
+    BGL_LOG_INFO("================================================================================");
+    BGL_LOG_INFO("[glTF Loader] Starting Ingestion of Asset: '{}' (Total size: {} bytes / {:.2f} MB)",
+                 baseUri.empty() ? "In-Memory Stream" : baseUri, totalBytes, totalBytes / (1024.0 * 1024.0));
+    BGL_LOG_INFO("================================================================================");
 
     std::filesystem::path baseDir{std::filesystem::current_path()};
     fastgltf::Options parseOptions{
@@ -786,8 +792,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromFile(std::string_vi
         fastgltf::GltfDataBuffer dataBuffer{};
         if (dataBuffer.loadFromFile(std::filesystem::path(path))) {
             auto sp = static_cast<fastgltf::span<std::byte>>(dataBuffer);
-            std::span<const uint8_t> byteSpan(reinterpret_cast<const uint8_t*>(sp.data()), sp.size());
-            return LoadFromMemory(byteSpan, path);
+            return ParseAndAssembleScene(dataBuffer, path, sp.size());
         }
     }
     auto fetchRes = core::NetworkFetcher::FetchSync(path);

@@ -34,23 +34,23 @@ public:
     /**
      * @brief Möller-Trumbore ray-triangle intersection test.
      */
-    static bool IntersectTriangle(const core::Ray& ray,
-                                  const glm::vec3& v0,
-                                  const glm::vec3& v1,
-                                  const glm::vec3& v2,
-                                  float& outDistance,
-                                  glm::vec3& outHitPoint,
-                                  glm::vec3& outNormal) noexcept;
+    [[nodiscard]] static bool IntersectTriangle(const core::Ray& ray,
+                                                const glm::vec3& v0,
+                                                const glm::vec3& v1,
+                                                const glm::vec3& v2,
+                                                float& outDistance,
+                                                glm::vec3& outHitPoint,
+                                                glm::vec3& outNormal) noexcept;
 
     /**
      * @brief Pick nearest scene node and triangle from a span of root nodes.
      */
-    static std::optional<RayHit> Pick(const core::Ray& ray, std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept;
+    [[nodiscard]] static std::optional<RayHit> Pick(const core::Ray& ray, std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept;
 
     /**
      * @brief Pick nearest scene node and triangle from a camera ray.
      */
-    static std::optional<RayHit> Pick(const core::Ray& ray, const Scene& scene) noexcept;
+    [[nodiscard]] static std::optional<RayHit> Pick(const core::Ray& ray, const Scene& scene) noexcept;
 };
 
 } // namespace bgl::scene

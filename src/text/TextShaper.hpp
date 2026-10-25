@@ -51,12 +51,12 @@ public:
      * @param scale Uniform scale factor (default 1.0f).
      * @return Shaped TextLayout with quads and dimensions.
      */
-    static TextLayout Shape(FontAtlas& fontAtlas,
-                            std::string_view text,
-                            float startX,
-                            float startY,
-                            const glm::vec4& color = glm::vec4(1.0f),
-                            float scale = 1.0f);
+    [[nodiscard]] static TextLayout Shape(FontAtlas& fontAtlas,
+                                          std::string_view text,
+                                          float startX,
+                                          float startY,
+                                          const glm::vec4& color = glm::vec4(1.0f),
+                                          float scale = 1.0f);
 };
 
 } // namespace bgl::text

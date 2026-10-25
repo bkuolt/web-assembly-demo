@@ -12,85 +12,18 @@
 
 namespace bgl::gpu {
 
-AabbRenderer::~AabbRenderer() {
-    Shutdown();
-}
-
-AabbRenderer::AabbRenderer(AabbRenderer&& other) noexcept
-    : device_{other.device_}
-    , queue_{other.queue_}
-    , aabbPipeline_{other.aabbPipeline_}
-    , aabbBindGroupLayout_{other.aabbBindGroupLayout_}
-    , aabbVertexBuffer_{other.aabbVertexBuffer_}
-    , aabbUniformBuffer_{other.aabbUniformBuffer_}
-    , aabbBindGroup_{other.aabbBindGroup_}
-    , aabbVertexBufferSize_{other.aabbVertexBufferSize_}
-    , aabbFrameByteOffset_{other.aabbFrameByteOffset_}
-    , batchedAabbVertices_{std::move(other.batchedAabbVertices_)}
-    , cachedSceneAabbVertices_{std::move(other.cachedSceneAabbVertices_)}
-{
-    other.device_ = nullptr;
-    other.queue_ = nullptr;
-    other.aabbPipeline_ = nullptr;
-    other.aabbBindGroupLayout_ = nullptr;
-    other.aabbVertexBuffer_ = nullptr;
-    other.aabbUniformBuffer_ = nullptr;
-    other.aabbBindGroup_ = nullptr;
-    other.aabbVertexBufferSize_ = 0;
-    other.aabbFrameByteOffset_ = 0;
-}
-
-AabbRenderer& AabbRenderer::operator=(AabbRenderer&& other) noexcept {
-    if (this != &other) {
-        Shutdown();
-        device_ = other.device_;
-        queue_ = other.queue_;
-        aabbPipeline_ = other.aabbPipeline_;
-        aabbBindGroupLayout_ = other.aabbBindGroupLayout_;
-        aabbVertexBuffer_ = other.aabbVertexBuffer_;
-        aabbUniformBuffer_ = other.aabbUniformBuffer_;
-        aabbBindGroup_ = other.aabbBindGroup_;
-        aabbVertexBufferSize_ = other.aabbVertexBufferSize_;
-        aabbFrameByteOffset_ = other.aabbFrameByteOffset_;
-        batchedAabbVertices_ = std::move(other.batchedAabbVertices_);
-        cachedSceneAabbVertices_ = std::move(other.cachedSceneAabbVertices_);
-
-        other.device_ = nullptr;
-        other.queue_ = nullptr;
-        other.aabbPipeline_ = nullptr;
-        other.aabbBindGroupLayout_ = nullptr;
-        other.aabbVertexBuffer_ = nullptr;
-        other.aabbUniformBuffer_ = nullptr;
-        other.aabbBindGroup_ = nullptr;
-        other.aabbVertexBufferSize_ = 0;
-        other.aabbFrameByteOffset_ = 0;
-    }
-    return *this;
-}
-
 void AabbRenderer::Shutdown() noexcept {
-    if (aabbBindGroup_) {
-        wgpuBindGroupRelease(aabbBindGroup_);
-        aabbBindGroup_ = nullptr;
-    }
     if (aabbUniformBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(AabbUniforms));
-        wgpuBufferRelease(aabbUniformBuffer_);
-        aabbUniformBuffer_ = nullptr;
     }
     if (aabbVertexBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(aabbVertexBufferSize_);
-        wgpuBufferRelease(aabbVertexBuffer_);
-        aabbVertexBuffer_ = nullptr;
     }
-    if (aabbPipeline_) {
-        wgpuRenderPipelineRelease(aabbPipeline_);
-        aabbPipeline_ = nullptr;
-    }
-    if (aabbBindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(aabbBindGroupLayout_);
-        aabbBindGroupLayout_ = nullptr;
-    }
+    aabbBindGroup_.Reset();
+    aabbUniformBuffer_.Reset();
+    aabbVertexBuffer_.Reset();
+    aabbPipeline_.Reset();
+    aabbBindGroupLayout_.Reset();
     batchedAabbVertices_.clear();
     cachedSceneAabbVertices_.clear();
     aabbVertexBufferSize_ = 0;
@@ -141,7 +74,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device,
     // 3. Create Pipeline Layout
     WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     aabbPlDesc.bindGroupLayoutCount = 1;
-    aabbPlDesc.bindGroupLayouts = &aabbBindGroupLayout_;
+    aabbPlDesc.bindGroupLayouts = aabbBindGroupLayout_.AddressOf();
     aabbPlDesc.label = ToWgpuStringView("AABB_PipelineLayout");
     WGPUPipelineLayout aabbPl = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
 
@@ -287,8 +220,7 @@ void AabbRenderer::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& v
         vbDesc.size = aabbVertexBufferSize_;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         vbDesc.label = ToWgpuStringView("AABB_DynamicVertexBuffer");
-        if (aabbVertexBuffer_) wgpuBufferRelease(aabbVertexBuffer_);
-        aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
+        aabbVertexBuffer_.Reset(wgpuDeviceCreateBuffer(device_, &vbDesc));
         core::MemoryTracker::Instance().TrackBufferAlloc(aabbVertexBufferSize_);
         writeOffset = 0;
     }
