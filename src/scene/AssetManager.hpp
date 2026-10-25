@@ -4,16 +4,16 @@
  */
 #pragma once
 
+#include "core/MemoryPool.hpp"
+#include "core/Types.hpp"
+#include "scene/TextureDecoder.hpp"
+#include <cstdint>
+#include <memory>
+#include <shared_mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <memory>
-#include <span>
-#include <cstdint>
-#include <shared_mutex>
-#include "core/Types.hpp"
-#include "core/MemoryPool.hpp"
-#include "scene/TextureDecoder.hpp"
 
 namespace bgl::scene {
 
@@ -79,4 +79,3 @@ private:
 };
 
 } // namespace bgl::scene
-

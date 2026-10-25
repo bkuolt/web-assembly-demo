@@ -20,9 +20,7 @@ ThreadPool::ThreadPool(size_t numThreads) {
                 std::function<void()> task;
                 {
                     std::unique_lock<std::mutex> lock(queueMutex_);
-                    cv_.wait(lock, [this]() {
-                        return stop_.load(std::memory_order_relaxed) || !tasks_.empty();
-                    });
+                    cv_.wait(lock, [this]() { return stop_.load(std::memory_order_relaxed) || !tasks_.empty(); });
                     if (stop_.load(std::memory_order_relaxed) && tasks_.empty()) {
                         return;
                     }
@@ -52,4 +50,3 @@ void ThreadPool::Shutdown() noexcept {
 }
 
 } // namespace bgl::core
-

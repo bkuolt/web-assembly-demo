@@ -3,10 +3,10 @@
  * @brief Implementation of batched 3D wireframe bounding box renderer for Scene and Quadtree spatial partitions.
  */
 #include "gpu/AabbRenderer.hpp"
-#include "gpu/Shaders.hpp"
-#include "gpu/Handle.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/Handle.hpp"
+#include "gpu/Shaders.hpp"
 #include <algorithm>
 #include <cstring>
 
@@ -36,9 +36,7 @@ void AabbRenderer::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
-core::Result<void> AabbRenderer::Initialize(WGPUDevice device,
-                                            WGPUQueue queue,
-                                            WGPUTextureFormat colorFormat,
+core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
                                             uint32_t sampleCount) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize AabbRenderer with null WebGPU device or queue");
@@ -181,29 +179,21 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device,
 }
 
 void AabbRenderer::AppendAABBLines(const core::AABB& aabb, const glm::vec4& color) {
-    if (aabb.minBound.x > aabb.maxBound.x) return;
+    if (aabb.minBound.x > aabb.maxBound.x)
+        return;
     const glm::vec3 minB{aabb.minBound};
     const glm::vec3 maxB{aabb.maxBound};
 
-    const std::array<glm::vec3, 8> c{{
-        glm::vec3{minB.x, minB.y, minB.z},
-        glm::vec3{maxB.x, minB.y, minB.z},
-        glm::vec3{maxB.x, maxB.y, minB.z},
-        glm::vec3{minB.x, maxB.y, minB.z},
-        glm::vec3{minB.x, minB.y, maxB.z},
-        glm::vec3{maxB.x, minB.y, maxB.z},
-        glm::vec3{maxB.x, maxB.y, maxB.z},
-        glm::vec3{minB.x, maxB.y, maxB.z}
-    }};
+    const std::array<glm::vec3, 8> c{{glm::vec3{minB.x, minB.y, minB.z}, glm::vec3{maxB.x, minB.y, minB.z},
+                                      glm::vec3{maxB.x, maxB.y, minB.z}, glm::vec3{minB.x, maxB.y, minB.z},
+                                      glm::vec3{minB.x, minB.y, maxB.z}, glm::vec3{maxB.x, minB.y, maxB.z},
+                                      glm::vec3{maxB.x, maxB.y, maxB.z}, glm::vec3{minB.x, maxB.y, maxB.z}}};
 
-    static constexpr std::array<size_t, 24> kIndices{{
-        0, 1,  1, 2,  2, 3,  3, 0,
-        4, 5,  5, 6,  6, 7,  7, 4,
-        0, 4,  1, 5,  2, 6,  3, 7
-    }};
+    static constexpr std::array<size_t, 24> kIndices{
+        {0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7}};
 
     for (size_t idx : kIndices) {
-        batchedAabbVertices_.push_back(AabbVertex{ .pos = c[idx], ._pad = 0.0f, .color = color });
+        batchedAabbVertices_.push_back(AabbVertex{.pos = c[idx], ._pad = 0.0f, .color = color});
     }
 }
 
@@ -244,14 +234,16 @@ void AabbRenderer::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& v
     batchedAabbVertices_.clear();
 }
 
-void AabbRenderer::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color) {
+void AabbRenderer::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj,
+                              const glm::vec4& color) {
     AppendAABBLines(aabb, color);
     FlushAABBLines(pass, viewProj);
 }
 
 void AabbRenderer::BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB, bool showPrimitiveAABBs) {
     if (showSceneAABB && showPrimitiveAABBs && !cachedSceneAabbVertices_.empty()) {
-        batchedAabbVertices_.insert(batchedAabbVertices_.end(), cachedSceneAabbVertices_.begin(), cachedSceneAabbVertices_.end());
+        batchedAabbVertices_.insert(batchedAabbVertices_.end(), cachedSceneAabbVertices_.begin(),
+                                    cachedSceneAabbVertices_.end());
         return;
     }
 
@@ -268,12 +260,14 @@ void AabbRenderer::BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB
                 }
             }
             for (const auto& child : node.children) {
-                if (child) self(self, *child, worldMat);
+                if (child)
+                    self(self, *child, worldMat);
             }
         };
 
         for (const auto& rootNode : scene.rootNodes) {
-            if (rootNode) renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f});
+            if (rootNode)
+                renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f});
         }
     }
 }

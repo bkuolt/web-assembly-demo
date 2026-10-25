@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include <expected>
-#include <string>
 #include <algorithm>
-#include <cmath>
 #include <array>
-#include <span>
-#include <vector>
+#include <cmath>
+#include <expected>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <span>
+#include <string>
+#include <vector>
 
 namespace bgl::core {
 
@@ -30,9 +30,7 @@ struct Ray {
     glm::vec3 origin{0.0f};
     glm::vec3 direction{0.0f, 0.0f, -1.0f};
 
-    [[nodiscard]] constexpr glm::vec3 At(float t) const noexcept {
-        return origin + t * direction;
-    }
+    [[nodiscard]] constexpr glm::vec3 At(float t) const noexcept { return origin + t * direction; }
 };
 
 /**
@@ -53,13 +51,9 @@ struct AABB {
         maxBound = glm::max(maxBound, other.maxBound);
     }
 
-    [[nodiscard]] constexpr glm::vec3 Center() const noexcept {
-        return (minBound + maxBound) * 0.5f;
-    }
+    [[nodiscard]] constexpr glm::vec3 Center() const noexcept { return (minBound + maxBound) * 0.5f; }
 
-    [[nodiscard]] constexpr glm::vec3 Extents() const noexcept {
-        return (maxBound - minBound) * 0.5f;
-    }
+    [[nodiscard]] constexpr glm::vec3 Extents() const noexcept { return (maxBound - minBound) * 0.5f; }
 
     /**
      * @brief Transforms the Axis-Aligned Bounding Box by an affine 4x4 matrix using Arvo's algorithm.
@@ -72,19 +66,16 @@ struct AABB {
      * @return Newly computed enclosing Axis-Aligned Bounding Box in target space.
      */
     [[nodiscard]] AABB Transformed(const glm::mat4& transform) const noexcept {
-        if (minBound.x > maxBound.x) return AABB{};
+        if (minBound.x > maxBound.x)
+            return AABB{};
         const glm::vec3 c{Center()};
         const glm::vec3 e{Extents()};
         const glm::vec3 newCenter{transform * glm::vec4{c, 1.0f}};
         const glm::vec3 newExtents{
             std::abs(transform[0][0]) * e.x + std::abs(transform[1][0]) * e.y + std::abs(transform[2][0]) * e.z,
             std::abs(transform[0][1]) * e.x + std::abs(transform[1][1]) * e.y + std::abs(transform[2][1]) * e.z,
-            std::abs(transform[0][2]) * e.x + std::abs(transform[1][2]) * e.y + std::abs(transform[2][2]) * e.z
-        };
-        return AABB{
-            .minBound = newCenter - newExtents,
-            .maxBound = newCenter + newExtents
-        };
+            std::abs(transform[0][2]) * e.x + std::abs(transform[1][2]) * e.y + std::abs(transform[2][2]) * e.z};
+        return AABB{.minBound = newCenter - newExtents, .maxBound = newCenter + newExtents};
     }
 
     /**
@@ -98,14 +89,17 @@ struct AABB {
         float tmin{0.0f};
         float tmax{1e30f};
         for (int i{0}; i < 3; ++i) {
-            const float d = (std::abs(ray.direction[i]) > 1e-8f) ? ray.direction[i] : std::copysign(1e-8f, ray.direction[i]);
+            const float d =
+                (std::abs(ray.direction[i]) > 1e-8f) ? ray.direction[i] : std::copysign(1e-8f, ray.direction[i]);
             const float invD{1.0f / d};
             float t0{(minBound[i] - ray.origin[i]) * invD};
             float t1{(maxBound[i] - ray.origin[i]) * invD};
-            if (invD < 0.0f) std::swap(t0, t1);
+            if (invD < 0.0f)
+                std::swap(t0, t1);
             tmin = std::max(tmin, t0);
             tmax = std::min(tmax, t1);
-            if (tmax < tmin) return false;
+            if (tmax < tmin)
+                return false;
         }
         tMinOut = tmin;
         tMaxOut = tmax;
@@ -140,9 +134,7 @@ struct Plane {
         }
     }
 
-    [[nodiscard]] float DistanceToPoint(const glm::vec3& p) const noexcept {
-        return glm::dot(normal, p) + distance;
-    }
+    [[nodiscard]] float DistanceToPoint(const glm::vec3& p) const noexcept { return glm::dot(normal, p) + distance; }
 };
 
 /**
@@ -188,9 +180,12 @@ struct Frustum {
     [[nodiscard]] bool IntersectsAABB(const AABB& box) const noexcept {
         for (const auto& plane : planes) {
             glm::vec3 p{box.minBound};
-            if (plane.normal.x >= 0.0f) p.x = box.maxBound.x;
-            if (plane.normal.y >= 0.0f) p.y = box.maxBound.y;
-            if (plane.normal.z >= 0.0f) p.z = box.maxBound.z;
+            if (plane.normal.x >= 0.0f)
+                p.x = box.maxBound.x;
+            if (plane.normal.y >= 0.0f)
+                p.y = box.maxBound.y;
+            if (plane.normal.z >= 0.0f)
+                p.z = box.maxBound.z;
 
             if (plane.DistanceToPoint(p) < 0.0f) {
                 return false;

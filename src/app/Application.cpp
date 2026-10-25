@@ -3,13 +3,13 @@
  * @brief Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration.
  */
 #include "app/Application.hpp"
-#include "core/NetworkFetcher.hpp"
-#include "core/MemoryTracker.hpp"
 #include "core/Log.hpp"
+#include "core/MemoryTracker.hpp"
+#include "core/NetworkFetcher.hpp"
 #include "core/Version.hpp"
+#include <algorithm>
 #include <array>
 #include <filesystem>
-#include <algorithm>
 #include <ranges>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -44,12 +44,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         return std::unexpected(std::string{"Failed to initialize SDL2: "} + SDL_GetError());
     }
 
-    SDL_Window* window{SDL_CreateWindow(
-        std::string{kEngineName}.c_str(),
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        static_cast<int>(width), static_cast<int>(height),
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-    )};
+    SDL_Window* window{SDL_CreateWindow(std::string{kEngineName}.c_str(), SDL_WINDOWPOS_CENTERED,
+                                        SDL_WINDOWPOS_CENTERED, static_cast<int>(width), static_cast<int>(height),
+                                        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE)};
     if (window) {
         nativeWindow_ = window;
         SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
@@ -67,7 +64,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         return res;
     }
 
-    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount()); !res) {
+    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
+                                               gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount());
+        !res) {
         return res;
     }
     pipelineManager_.SetBumpMappingEnabled(config.enableBumpMapping);
@@ -77,13 +76,17 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetAmbientOcclusionEnabled(config.enableAmbientOcclusion);
     pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
 
-    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(), gpuContext_.GetSampleCount()); !res) {
+    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(),
+                                      gpuContext_.GetSampleCount());
+        !res) {
         BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
     }
     skybox_.SetEnabled(config.enableSkybox);
     skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
 
-    if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpuContext_.GetPreferredFormat(), 1); !res) {
+    if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
+                                            gpuContext_.GetPreferredFormat(), 1);
+        !res) {
         BGL_LOG_WARN("Could not initialize Debug Overlay: {}", res.error());
     }
     debugOverlay_.SetVisible(config.enableDebugOverlay);
@@ -94,15 +97,10 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     // Resolve model asset path from config or auto-detect Sponza.glb (primary) / ToyCar.glb (fallback)
     std::string assetPathToLoad{config.assetPath};
     if (assetPathToLoad.empty()) {
-        static constexpr std::array<std::string_view, 4> kSearchPaths{
-            "assets/Sponza.glb",
-            "../assets/Sponza.glb",
-            "assets/ToyCar.glb",
-            "../assets/ToyCar.glb"
-        };
-        const auto it = std::ranges::find_if(kSearchPaths, [](std::string_view path) {
-            return std::filesystem::exists(path);
-        });
+        static constexpr std::array<std::string_view, 4> kSearchPaths{"assets/Sponza.glb", "../assets/Sponza.glb",
+                                                                      "assets/ToyCar.glb", "../assets/ToyCar.glb"};
+        const auto it =
+            std::ranges::find_if(kSearchPaths, [](std::string_view path) { return std::filesystem::exists(path); });
         if (it != kSearchPaths.end()) {
             assetPathToLoad = std::string{*it};
         }
@@ -127,7 +125,8 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
 }
 
 void Application::Update(float deltaTime) {
-    if (!running_) return;
+    if (!running_)
+        return;
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (nativeWindow_) {
@@ -138,7 +137,8 @@ void Application::Update(float deltaTime) {
                 return;
             } else if (event.type == SDL_WINDOWEVENT) {
                 if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-                    gpuContext_.Resize(static_cast<uint32_t>(event.window.data1), static_cast<uint32_t>(event.window.data2));
+                    gpuContext_.Resize(static_cast<uint32_t>(event.window.data1),
+                                       static_cast<uint32_t>(event.window.data2));
                 }
             } else if (event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
@@ -152,35 +152,43 @@ void Application::Update(float deltaTime) {
                     BGL_LOG_INFO("Toggled 3D Quadtree Spatial Bounds visibility: {}", showQuadtreeBounds_);
                 } else if (event.key.keysym.sym == SDLK_o || event.key.keysym.sym == SDLK_F3) {
                     ToggleDebugOverlay();
-                    const char* modeStr = (debugOverlay_.GetMode() == ui::OverlayMode::Full) ? "Full" : (debugOverlay_.GetMode() == ui::OverlayMode::Minimal) ? "Minimal" : "Hidden";
+                    const char* modeStr = (debugOverlay_.GetMode() == ui::OverlayMode::Full)      ? "Full"
+                                          : (debugOverlay_.GetMode() == ui::OverlayMode::Minimal) ? "Minimal"
+                                                                                                  : "Hidden";
                     BGL_LOG_INFO("Toggled In-Engine Debug Overlay mode: {}", modeStr);
                 } else if (event.key.keysym.sym == SDLK_v) {
                     ToggleBumpMapping();
                     BGL_LOG_INFO("Toggled Bump & Normal Mapping: {}", pipelineManager_.IsBumpMappingEnabled());
                 } else if (event.key.keysym.sym == SDLK_l) {
                     ToggleMipmapping();
-                    BGL_LOG_INFO("Toggled Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0): {}", pipelineManager_.IsMipmappingEnabled());
+                    BGL_LOG_INFO("Toggled Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0): {}",
+                                 pipelineManager_.IsMipmappingEnabled());
                 } else if (event.key.keysym.sym == SDLK_m) {
                     ToggleShadows();
                     BGL_LOG_INFO("Toggled Directional Shadow Mapping (PCF): {}", pipelineManager_.IsShadowsEnabled());
                 } else if (event.key.keysym.sym == SDLK_r) {
                     ToggleReflections();
-                    BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+                    BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}",
+                                 pipelineManager_.IsReflectionsEnabled());
                 } else if (event.key.keysym.sym == SDLK_u) {
                     ToggleAmbientOcclusion();
-                    BGL_LOG_INFO("Toggled Ambient Occlusion & Micro-Cavities: {}", pipelineManager_.IsAmbientOcclusionEnabled());
+                    BGL_LOG_INFO("Toggled Ambient Occlusion & Micro-Cavities: {}",
+                                 pipelineManager_.IsAmbientOcclusionEnabled());
                 } else if (event.key.keysym.sym == SDLK_h) {
                     ToggleOcclusionCulling();
-                    BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling (Hi-Z): {}", pipelineManager_.IsOcclusionCullingEnabled());
+                    BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling (Hi-Z): {}",
+                                 pipelineManager_.IsOcclusionCullingEnabled());
                 } else if (event.key.keysym.sym == SDLK_x) {
                     CycleTonemapper();
-                    BGL_LOG_INFO("Switched Tonemapper: {}", pipelineManager_.GetToneMapOperatorName(pipelineManager_.GetToneMapOperator()));
+                    BGL_LOG_INFO("Switched Tonemapper: {}",
+                                 pipelineManager_.GetToneMapOperatorName(pipelineManager_.GetToneMapOperator()));
                 } else if (event.key.keysym.sym == SDLK_z) {
                     pipelineManager_.ToggleBloom();
                     BGL_LOG_INFO("Toggled Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
                 } else if (event.key.keysym.sym == SDLK_e) {
                     CycleEnvironmentPreset();
-                    BGL_LOG_INFO("Switched Environment Preset: {}", pipelineManager_.GetEnvironmentPresetName(pipelineManager_.GetEnvironmentPreset()));
+                    BGL_LOG_INFO("Switched Environment Preset: {}",
+                                 pipelineManager_.GetEnvironmentPresetName(pipelineManager_.GetEnvironmentPreset()));
                 } else if (event.key.keysym.sym == SDLK_k) {
                     CycleSkyboxMode();
                     BGL_LOG_INFO("Switched Skybox Mode: {}", skybox_.GetModeName(skybox_.GetMode()));
@@ -192,13 +200,15 @@ void Application::Update(float deltaTime) {
                     BGL_LOG_INFO("Toggled Directional Sun Lens Flare: {}", pipelineManager_.IsLensFlareEnabled());
                 } else if (event.key.keysym.sym == SDLK_g) {
                     pipelineManager_.ToggleSSAO();
-                    BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}", pipelineManager_.IsSsaoEnabled());
+                    BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}",
+                                 pipelineManager_.IsSsaoEnabled());
                 } else if (event.key.keysym.sym == SDLK_f) {
                     FocusSelection();
                     BGL_LOG_INFO("Framed camera on selection / scene bounds");
                 } else if (event.key.keysym.sym == SDLK_c) {
                     ToggleCameraMode();
-                    BGL_LOG_INFO("Switched camera mode: {}", camera_.GetMode() == core::CameraMode::Fly ? "First-Person Fly" : "Orbit");
+                    BGL_LOG_INFO("Switched camera mode: {}",
+                                 camera_.GetMode() == core::CameraMode::Fly ? "First-Person Fly" : "Orbit");
                 } else if (event.key.keysym.sym == SDLK_t) {
                     ToggleTurntable();
                     BGL_LOG_INFO("Turntable autorotation: {}", turntableActive_ ? "ON" : "OFF");
@@ -212,7 +222,8 @@ void Application::Update(float deltaTime) {
                             BGL_LOG_INFO("Restored camera bookmark from slot #{}", slot + 1);
                         }
                     }
-                } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS || event.key.keysym.sym == SDLK_EQUALS) {
+                } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS ||
+                           event.key.keysym.sym == SDLK_EQUALS) {
                     if (event.key.keysym.mod & KMOD_SHIFT) {
                         AdjustExposure(0.15f);
                         BGL_LOG_INFO("Exposure increased: {:.2f}", pipelineManager_.GetExposure());
@@ -231,19 +242,18 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_LEFTBRACKET) {
                     RotateEnvironment(-0.0872665f); // -5 degrees
                 } else if (event.key.keysym.sym == SDLK_RIGHTBRACKET) {
-                    RotateEnvironment(0.0872665f);  // +5 degrees
+                    RotateEnvironment(0.0872665f); // +5 degrees
                 }
             } else if (event.type == SDL_MOUSEBUTTONDOWN &&
                        (event.button.button == SDL_BUTTON_MIDDLE ||
                         (event.button.button == SDL_BUTTON_LEFT && event.button.clicks == 2))) {
-                PickNodeAt(static_cast<float>(event.button.x),
-                           static_cast<float>(event.button.y),
-                           static_cast<float>(gpuContext_.GetWidth()),
-                           static_cast<float>(gpuContext_.GetHeight()));
+                PickNodeAt(static_cast<float>(event.button.x), static_cast<float>(event.button.y),
+                           static_cast<float>(gpuContext_.GetWidth()), static_cast<float>(gpuContext_.GetHeight()));
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
-                camera_.Pan(-event.motion.xrel * 0.0005f * camera_.GetDistance(), event.motion.yrel * 0.0005f * camera_.GetDistance());
+                camera_.Pan(-event.motion.xrel * 0.0005f * camera_.GetDistance(),
+                            event.motion.yrel * 0.0005f * camera_.GetDistance());
             } else if (event.type == SDL_MOUSEWHEEL) {
                 float zoomStep = camera_.GetDistance() * 0.12f;
                 camera_.Zoom(event.wheel.y * zoomStep);
@@ -288,7 +298,8 @@ void Application::Update(float deltaTime) {
             camera_.MoveForward(-gp.smoothedMove.y * deltaTime * 6.0f);
             camera_.MoveRight(gp.smoothedMove.x * deltaTime * 6.0f);
         } else {
-            camera_.Pan(gp.smoothedMove.x * deltaTime * camera_.GetDistance(), gp.smoothedMove.y * deltaTime * camera_.GetDistance());
+            camera_.Pan(gp.smoothedMove.x * deltaTime * camera_.GetDistance(),
+                        gp.smoothedMove.y * deltaTime * camera_.GetDistance());
         }
         // PS5 smooth exponential response curve and stabilized pitch
         camera_.Orbit(gp.smoothedLook.x * deltaTime * 2.8f, gp.smoothedLook.y * deltaTime * 2.8f);
@@ -309,7 +320,8 @@ void Application::Update(float deltaTime) {
         activeScene_->UpdateAnimation(deltaTime);
     }
 
-    float aspect = static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
+    float aspect =
+        static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
     camera_.Update(aspect);
     soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
 
@@ -346,7 +358,7 @@ void Application::Update(float deltaTime) {
     }
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 8 * 4); // RGBA16F 4x MSAA
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 4 * 4); // Depth24 4x MSAA
-    vramBytes += 2048 * 2048 * 4; // Shadow map Depth32F
+    vramBytes += 2048 * 2048 * 4;                                                               // Shadow map Depth32F
     stats.vramBytes = vramBytes;
 
     stats.gamepadConnected = gp.connected;
@@ -367,9 +379,11 @@ void Application::Update(float deltaTime) {
 }
 
 void Application::Render() {
-    if (!running_) return;
+    if (!running_)
+        return;
 
-    if (!gpuContext_.PrepareFrame()) return;
+    if (!gpuContext_.PrepareFrame())
+        return;
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     glm::vec3 camPos = camera_.GetPosition();
@@ -382,30 +396,19 @@ void Application::Render() {
     }
 
     WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
-    if (!hdrPass) return;
+    if (!hdrPass)
+        return;
 
     if (activeScene_) {
         // 1. Hardware 4x MSAA PBR Scene Rendering (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
-        pipelineManager_.RenderScene(
-            hdrPass,
-            *activeScene_,
-            vp,
-            camPos,
-            false,
-            quadtree_.get(),
-            camera_.GetViewMatrix(),
-            camera_.GetProjectionMatrix(),
-            gpuContext_.GetWidth(),
-            gpuContext_.GetHeight(),
-            camera_.GetNearPlane(),
-            camera_.GetFarPlane()
-        );
+        pipelineManager_.RenderScene(hdrPass, *activeScene_, vp, camPos, false, quadtree_.get(),
+                                     camera_.GetViewMatrix(), camera_.GetProjectionMatrix(), gpuContext_.GetWidth(),
+                                     gpuContext_.GetHeight(), camera_.GetNearPlane(), camera_.GetFarPlane());
         static bool loggedFirstFrame = false;
         if (!loggedFirstFrame) {
             loggedFirstFrame = true;
             BGL_LOG_DEBUG("Frame 1 Render Diagnostic: {} visible primitives rendered ({} occluded by Hi-Z)",
-                          pipelineManager_.GetVisiblePrimitiveCount(),
-                          pipelineManager_.GetOccludedPrimitiveCount());
+                          pipelineManager_.GetVisiblePrimitiveCount(), pipelineManager_.GetOccludedPrimitiveCount());
         }
     }
 
@@ -431,19 +434,13 @@ void Application::Render() {
 
     // 4. Resolve HDR RGBA16F (MSAA -> 1x) and begin Swapchain Post-Processing Pass (Surface format)
     WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(hdrPass);
-    if (!swapchainPass) return;
+    if (!swapchainPass)
+        return;
 
     // 5. Fullscreen HDR Tonemapping (Khronos PBR Neutral / AgX / ACES) + Real-time Sun Lens Flares + Exposure
-    pipelineManager_.RenderTonemapPass(
-        swapchainPass,
-        gpuContext_.GetHdrResolveView(),
-        camera_.GetViewProjectionMatrix(),
-        camera_.GetPosition(),
-        sunDir,
-        skybox_.GetRotation(),
-        gpuContext_.GetWidth(),
-        gpuContext_.GetHeight()
-    );
+    pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(),
+                                       camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,
+                                       skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
 
     // 6. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD) onto swapchain
     debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
@@ -452,7 +449,8 @@ void Application::Render() {
 }
 
 void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri) {
-    if (!scene) return;
+    if (!scene)
+        return;
     activeScene_ = std::move(scene);
     currentModelName_ = core::NetworkFetcher::ExtractDisplayName(sourceUri);
     CacheSceneMetrics();
@@ -513,8 +511,8 @@ core::Result<void> Application::LoadSceneFromUri(std::string_view uri) {
         return std::unexpected("Cannot load empty asset URI");
     }
 
-    BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...",
-                 core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path", sanitizedUri);
+    BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...", core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path",
+                 sanitizedUri);
     auto fetchRes = core::NetworkFetcher::FetchSync(sanitizedUri);
     if (!fetchRes) {
         return std::unexpected("Failed to fetch glTF asset '" + sanitizedUri + "': " + fetchRes.error());
@@ -555,7 +553,8 @@ void Application::CacheSceneMetrics() {
     totalPrimitives_ = 0;
     totalVertices_ = 0;
     totalIndices_ = 0;
-    if (!activeScene_) return;
+    if (!activeScene_)
+        return;
 
     size_t& primCount{totalPrimitives_};
     size_t& vertCount{totalVertices_};
@@ -567,15 +566,17 @@ void Application::CacheSceneMetrics() {
             idxCount += prim.indices.size();
         }
         for (const auto& child : node.children) {
-            if (child) self(*child);
+            if (child)
+                self(*child);
         }
     };
 
     for (const auto& rootNode : activeScene_->rootNodes) {
-        if (rootNode) countStats(*rootNode);
+        if (rootNode)
+            countStats(*rootNode);
     }
-    BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices",
-                 currentModelName_, totalPrimitives_, totalVertices_, totalIndices_);
+    BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices", currentModelName_,
+                 totalPrimitives_, totalVertices_, totalIndices_);
 }
 
 void Application::FocusSelection() noexcept {
@@ -613,9 +614,10 @@ void Application::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) 
     }
     if (selectedNode_) {
         BGL_LOG_INFO("Selected Node #{} '{}' (AABB min=[{:.2f}, {:.2f}, {:.2f}], max=[{:.2f}, {:.2f}, {:.2f}])",
-                     selectedNodeIndex_, selectedNode_->name,
-                     selectedNode_->worldAABB.minBound.x, selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
-                     selectedNode_->worldAABB.maxBound.x, selectedNode_->worldAABB.maxBound.y, selectedNode_->worldAABB.maxBound.z);
+                     selectedNodeIndex_, selectedNode_->name, selectedNode_->worldAABB.minBound.x,
+                     selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
+                     selectedNode_->worldAABB.maxBound.x, selectedNode_->worldAABB.maxBound.y,
+                     selectedNode_->worldAABB.maxBound.z);
     }
 }
 
@@ -628,8 +630,8 @@ int Application::PickNodeAt(float screenX, float screenY, float screenWidth, flo
         if (hit->hitNode) {
             SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
             soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
-            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)",
-                         hit->hitNode->name, hit->hitNode->nodeIndex, hit->distance);
+            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)", hit->hitNode->name,
+                         hit->hitNode->nodeIndex, hit->distance);
             return hit->hitNode->nodeIndex;
         }
     }
@@ -646,12 +648,13 @@ void Application::SelectCamera(int cameraIndex) noexcept {
     activeCameraIndex_ = cameraIndex;
     const auto& sc = activeScene_->cameras[cameraIndex];
     camera_.SetFromTransform(sc.worldTransform, sc.yfov, sc.znear, sc.zfar);
-    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})",
-                 cameraIndex, sc.name, glm::degrees(sc.yfov), sc.znear, sc.zfar);
+    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})", cameraIndex, sc.name,
+                 glm::degrees(sc.yfov), sc.znear, sc.zfar);
 }
 
 void Application::CycleCamera() noexcept {
-    if (!activeScene_ || activeScene_->cameras.empty()) return;
+    if (!activeScene_ || activeScene_->cameras.empty())
+        return;
     int next = activeCameraIndex_ + 1;
     if (static_cast<size_t>(next) >= activeScene_->cameras.size()) {
         next = -1;
@@ -687,11 +690,8 @@ void Application::SetSunAzimuthElevation(float azimuthRad, float elevationRad) n
 
 void Application::UpdateSunDirection() noexcept {
     const float cosEl = std::cos(sunElevation_);
-    sunDir_ = glm::normalize(glm::vec3{
-        cosEl * std::sin(sunAzimuth_),
-        std::sin(sunElevation_),
-        cosEl * std::cos(sunAzimuth_)
-    });
+    sunDir_ = glm::normalize(
+        glm::vec3{cosEl * std::sin(sunAzimuth_), std::sin(sunElevation_), cosEl * std::cos(sunAzimuth_)});
 }
 
 } // namespace bgl::app

@@ -6,8 +6,8 @@
 #include <cstdio>
 
 #if defined(BGL_PLATFORM_NATIVE)
-#include <unistd.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #elif defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
 #include <emscripten/heap.h>
 #endif
@@ -67,4 +67,3 @@ size_t MemoryTracker::GetVirtualRamBytes() const noexcept {
 }
 
 } // namespace bgl::core
-

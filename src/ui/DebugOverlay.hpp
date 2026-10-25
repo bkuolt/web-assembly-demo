@@ -4,14 +4,14 @@
  */
 #pragma once
 
-#include <string>
-#include <string_view>
-#include <memory>
-#include <glm/glm.hpp>
-#include <webgpu/webgpu.h>
 #include "core/Types.hpp"
 #include "text/FontAtlas.hpp"
 #include "text/TextRenderer.hpp"
+#include <glm/glm.hpp>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <webgpu/webgpu.h>
 
 namespace bgl::ui {
 
@@ -79,9 +79,7 @@ public:
      * @param sampleCount Multisample count for the presentation surface.
      * @return Result indicating success or error string.
      */
-    core::Result<void> Initialize(WGPUDevice device,
-                                  WGPUQueue queue,
-                                  WGPUTextureFormat surfaceFormat,
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount);
 
     /**
@@ -122,4 +120,3 @@ private:
 };
 
 } // namespace bgl::ui
-

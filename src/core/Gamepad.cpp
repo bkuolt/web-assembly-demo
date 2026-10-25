@@ -24,7 +24,8 @@ Gamepad::~Gamepad() {
 Gamepad::Gamepad(Gamepad&& other) noexcept
     : state_{std::move(other.state_)}
 #if defined(BGL_PLATFORM_NATIVE)
-    , activeController_{other.activeController_}
+      ,
+      activeController_{other.activeController_}
 #endif
 {
 #if defined(BGL_PLATFORM_NATIVE)
@@ -87,7 +88,9 @@ void Gamepad::Rumble(float lowFreq, float highFreq, uint32_t durationMs) noexcep
         SDL_GameControllerRumble(activeController_, low, high, durationMs);
     }
 #else
-    (void)lowFreq; (void)highFreq; (void)durationMs;
+    (void)lowFreq;
+    (void)highFreq;
+    (void)durationMs;
 #endif
 }
 
@@ -109,9 +112,11 @@ void Gamepad::Update(float deltaTime) noexcept {
     if (!activeController_) {
         const int numJoysticks{SDL_NumJoysticks()};
         for (int i{0}; i < numJoysticks; ++i) {
-            if (!SDL_IsGameController(i)) continue;
+            if (!SDL_IsGameController(i))
+                continue;
             activeController_ = SDL_GameControllerOpen(i);
-            if (activeController_) break;
+            if (activeController_)
+                break;
         }
     }
 
@@ -133,19 +138,30 @@ void Gamepad::Update(float deltaTime) noexcept {
     raw.isDualSense = (vendor == 0x054c && (product == 0x0ce6 || product == 0x0df2));
     if (!raw.isDualSense && name) {
         const std::string sName = name;
-        if (sName.find("DualSense") != std::string::npos ||
-            sName.find("PS5") != std::string::npos ||
+        if (sName.find("DualSense") != std::string::npos || sName.find("PS5") != std::string::npos ||
             (vendor == 0x054c && sName.find("Wireless Controller") != std::string::npos)) {
             raw.isDualSense = true;
         }
     }
 
-    raw.leftStick.x  = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_LEFTX))  * kAxisScale, -1.0f, 1.0f);
-    raw.leftStick.y  = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_LEFTY))  * kAxisScale, -1.0f, 1.0f);
-    raw.rightStick.x = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_RIGHTX)) * kAxisScale, -1.0f, 1.0f);
-    raw.rightStick.y = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_RIGHTY)) * kAxisScale, -1.0f, 1.0f);
-    raw.leftTrigger  = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_TRIGGERLEFT))  * kAxisScale, 0.0f, 1.0f);
-    raw.rightTrigger = std::clamp(static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) * kAxisScale, 0.0f, 1.0f);
+    raw.leftStick.x = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_LEFTX)) * kAxisScale, -1.0f,
+        1.0f);
+    raw.leftStick.y = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_LEFTY)) * kAxisScale, -1.0f,
+        1.0f);
+    raw.rightStick.x = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_RIGHTX)) * kAxisScale,
+        -1.0f, 1.0f);
+    raw.rightStick.y = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_RIGHTY)) * kAxisScale,
+        -1.0f, 1.0f);
+    raw.leftTrigger = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_TRIGGERLEFT)) * kAxisScale,
+        0.0f, 1.0f);
+    raw.rightTrigger = std::clamp(
+        static_cast<float>(SDL_GameControllerGetAxis(activeController_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) * kAxisScale,
+        0.0f, 1.0f);
     raw.buttonA = SDL_GameControllerGetButton(activeController_, SDL_CONTROLLER_BUTTON_A) != 0;
     raw.buttonB = SDL_GameControllerGetButton(activeController_, SDL_CONTROLLER_BUTTON_B) != 0;
     raw.buttonX = SDL_GameControllerGetButton(activeController_, SDL_CONTROLLER_BUTTON_X) != 0;
@@ -158,4 +174,3 @@ void Gamepad::Update(float deltaTime) noexcept {
 }
 
 } // namespace bgl::core
-

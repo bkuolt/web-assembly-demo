@@ -4,10 +4,10 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <string>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
+#include <string>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 

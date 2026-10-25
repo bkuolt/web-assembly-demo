@@ -4,16 +4,16 @@
  */
 #pragma once
 
-#include <vector>
+#include <algorithm>
+#include <atomic>
+#include <concepts>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <mutex>
 #include <queue>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <future>
-#include <functional>
-#include <concepts>
-#include <atomic>
-#include <algorithm>
+#include <vector>
 
 namespace bgl::core {
 
@@ -49,10 +49,9 @@ public:
         using ReturnType = std::invoke_result_t<F, Args...>;
 
         auto task = std::make_shared<std::packaged_task<ReturnType()>>(
-            [func = std::forward<F>(f), ...args = std::forward<Args>(args)]() mutable {
+            [func = std::forward<F>(f), ... args = std::forward<Args>(args)]() mutable {
                 return std::invoke(std::forward<decltype(func)>(func), std::forward<decltype(args)>(args)...);
-            }
-        );
+            });
 
         std::future<ReturnType> future = task->get_future();
         {
@@ -77,7 +76,8 @@ public:
     template <typename Func>
         requires std::invocable<Func, size_t>
     void ParallelFor(size_t start, size_t end, Func&& func) {
-        if (start >= end) return;
+        if (start >= end)
+            return;
         const size_t totalWork = end - start;
         const size_t numWorkers = std::min(totalWork, workers_.size());
         // Prevent thread starvation deadlock if already running on a worker thread
@@ -95,7 +95,8 @@ public:
         for (size_t w = 0; w < numWorkers; ++w) {
             const size_t chunkStart = start + w * chunkSize;
             const size_t chunkEnd = std::min(chunkStart + chunkSize, end);
-            if (chunkStart >= end) break;
+            if (chunkStart >= end)
+                break;
 
             futures.push_back(Enqueue([chunkStart, chunkEnd, &func]() {
                 for (size_t i = chunkStart; i < chunkEnd; ++i) {
@@ -136,4 +137,3 @@ private:
 };
 
 } // namespace bgl::core
-

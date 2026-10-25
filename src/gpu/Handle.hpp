@@ -4,10 +4,10 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
+#include <concepts>
 #include <string_view>
 #include <utility>
-#include <concepts>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
@@ -32,15 +32,12 @@ public:
     constexpr Handle(std::nullptr_t) noexcept : handle_{nullptr} {}
     explicit constexpr Handle(T handle) noexcept : handle_{handle} {}
 
-    ~Handle() noexcept {
-        Reset();
-    }
+    ~Handle() noexcept { Reset(); }
 
     Handle(const Handle&) = delete;
     Handle& operator=(const Handle&) = delete;
 
-    constexpr Handle(Handle&& other) noexcept
-        : handle_{std::exchange(other.handle_, nullptr)} {}
+    constexpr Handle(Handle&& other) noexcept : handle_{std::exchange(other.handle_, nullptr)} {}
 
     constexpr Handle& operator=(Handle&& other) noexcept {
         if (this != &other) {
@@ -66,57 +63,42 @@ public:
         handle_ = newHandle;
     }
 
-    [[nodiscard]] constexpr T Release() noexcept {
-        return std::exchange(handle_, nullptr);
-    }
+    [[nodiscard]] constexpr T Release() noexcept { return std::exchange(handle_, nullptr); }
 
-    [[nodiscard]] constexpr T Get() const noexcept {
-        return handle_;
-    }
+    [[nodiscard]] constexpr T Get() const noexcept { return handle_; }
 
-    [[nodiscard]] constexpr const T* AddressOf() const noexcept {
-        return &handle_;
-    }
+    [[nodiscard]] constexpr const T* AddressOf() const noexcept { return &handle_; }
 
-    [[nodiscard]] constexpr operator T() const noexcept {
-        return handle_;
-    }
+    [[nodiscard]] constexpr operator T() const noexcept { return handle_; }
 
-    [[nodiscard]] constexpr explicit operator bool() const noexcept {
-        return handle_ != nullptr;
-    }
+    [[nodiscard]] constexpr explicit operator bool() const noexcept { return handle_ != nullptr; }
 
-    [[nodiscard]] constexpr bool operator==(std::nullptr_t) const noexcept {
-        return handle_ == nullptr;
-    }
+    [[nodiscard]] constexpr bool operator==(std::nullptr_t) const noexcept { return handle_ == nullptr; }
 
-    [[nodiscard]] constexpr bool operator==(T other) const noexcept {
-        return handle_ == other;
-    }
+    [[nodiscard]] constexpr bool operator==(T other) const noexcept { return handle_ == other; }
 
 private:
     T handle_{nullptr};
 };
 
-using InstanceHandle          = Handle<WGPUInstance, wgpuInstanceRelease>;
-using AdapterHandle           = Handle<WGPUAdapter, wgpuAdapterRelease>;
-using DeviceHandle            = Handle<WGPUDevice, wgpuDeviceRelease>;
-using QueueHandle             = Handle<WGPUQueue, wgpuQueueRelease>;
-using SurfaceHandle           = Handle<WGPUSurface, wgpuSurfaceRelease>;
-using BufferHandle            = Handle<WGPUBuffer, wgpuBufferRelease>;
-using TextureHandle           = Handle<WGPUTexture, wgpuTextureRelease>;
-using TextureViewHandle       = Handle<WGPUTextureView, wgpuTextureViewRelease>;
-using SamplerHandle           = Handle<WGPUSampler, wgpuSamplerRelease>;
-using BindGroupHandle         = Handle<WGPUBindGroup, wgpuBindGroupRelease>;
-using BindGroupLayoutHandle   = Handle<WGPUBindGroupLayout, wgpuBindGroupLayoutRelease>;
-using PipelineLayoutHandle     = Handle<WGPUPipelineLayout, wgpuPipelineLayoutRelease>;
-using RenderPipelineHandle     = Handle<WGPURenderPipeline, wgpuRenderPipelineRelease>;
-using ComputePipelineHandle    = Handle<WGPUComputePipeline, wgpuComputePipelineRelease>;
-using ShaderModuleHandle       = Handle<WGPUShaderModule, wgpuShaderModuleRelease>;
-using CommandEncoderHandle     = Handle<WGPUCommandEncoder, wgpuCommandEncoderRelease>;
-using RenderPassEncoderHandle  = Handle<WGPURenderPassEncoder, wgpuRenderPassEncoderRelease>;
+using InstanceHandle = Handle<WGPUInstance, wgpuInstanceRelease>;
+using AdapterHandle = Handle<WGPUAdapter, wgpuAdapterRelease>;
+using DeviceHandle = Handle<WGPUDevice, wgpuDeviceRelease>;
+using QueueHandle = Handle<WGPUQueue, wgpuQueueRelease>;
+using SurfaceHandle = Handle<WGPUSurface, wgpuSurfaceRelease>;
+using BufferHandle = Handle<WGPUBuffer, wgpuBufferRelease>;
+using TextureHandle = Handle<WGPUTexture, wgpuTextureRelease>;
+using TextureViewHandle = Handle<WGPUTextureView, wgpuTextureViewRelease>;
+using SamplerHandle = Handle<WGPUSampler, wgpuSamplerRelease>;
+using BindGroupHandle = Handle<WGPUBindGroup, wgpuBindGroupRelease>;
+using BindGroupLayoutHandle = Handle<WGPUBindGroupLayout, wgpuBindGroupLayoutRelease>;
+using PipelineLayoutHandle = Handle<WGPUPipelineLayout, wgpuPipelineLayoutRelease>;
+using RenderPipelineHandle = Handle<WGPURenderPipeline, wgpuRenderPipelineRelease>;
+using ComputePipelineHandle = Handle<WGPUComputePipeline, wgpuComputePipelineRelease>;
+using ShaderModuleHandle = Handle<WGPUShaderModule, wgpuShaderModuleRelease>;
+using CommandEncoderHandle = Handle<WGPUCommandEncoder, wgpuCommandEncoderRelease>;
+using RenderPassEncoderHandle = Handle<WGPURenderPassEncoder, wgpuRenderPassEncoderRelease>;
 using ComputePassEncoderHandle = Handle<WGPUComputePassEncoder, wgpuComputePassEncoderRelease>;
-using CommandBufferHandle      = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
+using CommandBufferHandle = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
 
 } // namespace bgl::gpu
-

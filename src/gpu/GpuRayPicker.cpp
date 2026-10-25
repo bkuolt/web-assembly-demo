@@ -3,9 +3,9 @@
  * @brief Implementation of WebGPU Compute-shader-driven parallel Ray-Bounding & Geometry Picking.
  */
 #include "gpu/GpuRayPicker.hpp"
-#include "gpu/Handle.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/Handle.hpp"
 #include <algorithm>
 #include <cstring>
 
@@ -83,15 +83,9 @@ GpuRayPicker::~GpuRayPicker() {
 }
 
 GpuRayPicker::GpuRayPicker(GpuRayPicker&& other) noexcept
-    : device_{other.device_}
-    , queue_{other.queue_}
-    , computePipeline_{other.computePipeline_}
-    , bindGroupLayout_{other.bindGroupLayout_}
-    , bindGroup_{other.bindGroup_}
-    , uniformBuffer_{other.uniformBuffer_}
-    , resultBuffer_{other.resultBuffer_}
-    , cachedBoundsBuffer_{other.cachedBoundsBuffer_}
-{
+    : device_{other.device_}, queue_{other.queue_}, computePipeline_{other.computePipeline_},
+      bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_}, uniformBuffer_{other.uniformBuffer_},
+      resultBuffer_{other.resultBuffer_}, cachedBoundsBuffer_{other.cachedBoundsBuffer_} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.computePipeline_ = nullptr;
@@ -245,15 +239,15 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     return {};
 }
 
-void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder,
-                            WGPUBuffer boundsBuffer,
-                            uint32_t primitiveCount,
+void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount,
                             const core::Ray& ray) {
-    if (!encoder || !computePipeline_ || !boundsBuffer || primitiveCount == 0) return;
+    if (!encoder || !computePipeline_ || !boundsBuffer || primitiveCount == 0)
+        return;
 
     if (cachedBoundsBuffer_ != boundsBuffer || !bindGroup_) {
         cachedBoundsBuffer_ = boundsBuffer;
-        if (bindGroup_) wgpuBindGroupRelease(bindGroup_);
+        if (bindGroup_)
+            wgpuBindGroupRelease(bindGroup_);
 
         std::array<WGPUBindGroupEntry, 3> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -297,7 +291,8 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder,
     WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     cpDesc.label = ToWgpuStringView("GpuRayPick_Pass");
     WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &cpDesc);
-    if (!pass) return;
+    if (!pass)
+        return;
 
     wgpuComputePassEncoderSetPipeline(pass, computePipeline_);
     wgpuComputePassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);

@@ -7,32 +7,31 @@
 
 namespace bgl::scene {
 
-bool RayPicker::IntersectTriangle(const core::Ray& ray,
-                                  const glm::vec3& v0,
-                                  const glm::vec3& v1,
-                                  const glm::vec3& v2,
-                                  float& outDistance,
-                                  glm::vec3& outHitPoint,
-                                  glm::vec3& outNormal) noexcept {
+bool RayPicker::IntersectTriangle(const core::Ray& ray, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
+                                  float& outDistance, glm::vec3& outHitPoint, glm::vec3& outNormal) noexcept {
     constexpr float kEpsilon = 1e-7f;
     const glm::vec3 edge1 = v1 - v0;
     const glm::vec3 edge2 = v2 - v0;
     const glm::vec3 pvec = glm::cross(ray.direction, edge2);
     const float det = glm::dot(edge1, pvec);
 
-    if (std::abs(det) < kEpsilon) return false;
+    if (std::abs(det) < kEpsilon)
+        return false;
     const float invDet = 1.0f / det;
 
     const glm::vec3 tvec = ray.origin - v0;
     const float u = glm::dot(tvec, pvec) * invDet;
-    if (u < 0.0f || u > 1.0f) return false;
+    if (u < 0.0f || u > 1.0f)
+        return false;
 
     const glm::vec3 qvec = glm::cross(tvec, edge1);
     const float v = glm::dot(ray.direction, qvec) * invDet;
-    if (v < 0.0f || u + v > 1.0f) return false;
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
 
     const float t = glm::dot(edge2, qvec) * invDet;
-    if (t < kEpsilon) return false;
+    if (t < kEpsilon)
+        return false;
 
     outDistance = t;
     outHitPoint = ray.origin + t * ray.direction;
@@ -40,12 +39,15 @@ bool RayPicker::IntersectTriangle(const core::Ray& ray,
     return true;
 }
 
-std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept {
+std::optional<RayHit> RayPicker::Pick(const core::Ray& ray,
+                                      std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept {
     std::optional<RayHit> closestHit{};
     float minDistance{1e30f};
 
-    auto traverseNode = [&](this auto&& self, const std::shared_ptr<SceneNode>& node, const glm::mat4& parentTransform) -> void {
-        if (!node) return;
+    auto traverseNode = [&](this auto&& self, const std::shared_ptr<SceneNode>& node,
+                            const glm::mat4& parentTransform) -> void {
+        if (!node)
+            return;
         const glm::mat4 worldMat{parentTransform * node->localTransform};
 
         // Hierarchical broad-phase AABB test for entire scene node
@@ -77,13 +79,11 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
                     glm::vec3 norm{0.0f};
                     if (IntersectTriangle(ray, v0, v1, v2, dist, pt, norm) && dist < minDistance) {
                         minDistance = dist;
-                        closestHit = RayHit{
-                            .distance = dist,
-                            .hitPoint = pt,
-                            .normal = norm,
-                            .triangleIndex = static_cast<uint32_t>(i / 3),
-                            .hitNode = node
-                        };
+                        closestHit = RayHit{.distance = dist,
+                                            .hitPoint = pt,
+                                            .normal = norm,
+                                            .triangleIndex = static_cast<uint32_t>(i / 3),
+                                            .hitNode = node};
                     }
                 }
             } else {
@@ -105,13 +105,11 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray, std::span<const std:
                     glm::vec3 norm{0.0f};
                     if (IntersectTriangle(ray, v0, v1, v2, dist, pt, norm) && dist < minDistance) {
                         minDistance = dist;
-                        closestHit = RayHit{
-                            .distance = dist,
-                            .hitPoint = pt,
-                            .normal = norm,
-                            .triangleIndex = static_cast<uint32_t>(i / 3),
-                            .hitNode = node
-                        };
+                        closestHit = RayHit{.distance = dist,
+                                            .hitPoint = pt,
+                                            .normal = norm,
+                                            .triangleIndex = static_cast<uint32_t>(i / 3),
+                                            .hitNode = node};
                     }
                 }
             }

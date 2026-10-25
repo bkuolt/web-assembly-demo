@@ -4,8 +4,8 @@
  */
 #pragma once
 
-#include <cstddef>
 #include <atomic>
+#include <cstddef>
 #include <string>
 
 namespace bgl::core {
@@ -20,17 +20,11 @@ struct MemoryTelemetry {
     size_t gpuBufferBytes{0};
     size_t gpuTextureBytes{0};
 
-    [[nodiscard]] size_t TotalGpuBytes() const noexcept {
-        return gpuBufferBytes + gpuTextureBytes;
-    }
+    [[nodiscard]] size_t TotalGpuBytes() const noexcept { return gpuBufferBytes + gpuTextureBytes; }
 
-    [[nodiscard]] float RamMb() const noexcept {
-        return static_cast<float>(residentRamBytes) / (1024.0f * 1024.0f);
-    }
+    [[nodiscard]] float RamMb() const noexcept { return static_cast<float>(residentRamBytes) / (1024.0f * 1024.0f); }
 
-    [[nodiscard]] float VramMb() const noexcept {
-        return static_cast<float>(TotalGpuBytes()) / (1024.0f * 1024.0f);
-    }
+    [[nodiscard]] float VramMb() const noexcept { return static_cast<float>(TotalGpuBytes()) / (1024.0f * 1024.0f); }
 };
 
 /**
@@ -59,15 +53,15 @@ public:
     void TrackTextureFree(size_t bytes) noexcept { gpuTextureBytes_.fetch_sub(bytes, std::memory_order_relaxed); }
 
     [[nodiscard]] size_t GetGpuBufferBytes() const noexcept { return gpuBufferBytes_.load(std::memory_order_relaxed); }
-    [[nodiscard]] size_t GetGpuTextureBytes() const noexcept { return gpuTextureBytes_.load(std::memory_order_relaxed); }
+    [[nodiscard]] size_t GetGpuTextureBytes() const noexcept {
+        return gpuTextureBytes_.load(std::memory_order_relaxed);
+    }
 
     [[nodiscard]] MemoryTelemetry Query() const noexcept {
-        return MemoryTelemetry{
-            .residentRamBytes = GetResidentRamBytes(),
-            .virtualRamBytes = GetVirtualRamBytes(),
-            .gpuBufferBytes = GetGpuBufferBytes(),
-            .gpuTextureBytes = GetGpuTextureBytes()
-        };
+        return MemoryTelemetry{.residentRamBytes = GetResidentRamBytes(),
+                               .virtualRamBytes = GetVirtualRamBytes(),
+                               .gpuBufferBytes = GetGpuBufferBytes(),
+                               .gpuTextureBytes = GetGpuTextureBytes()};
     }
 
 private:
@@ -77,4 +71,3 @@ private:
 };
 
 } // namespace bgl::core
-

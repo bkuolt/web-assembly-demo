@@ -4,10 +4,10 @@
  */
 #pragma once
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
-#include <span>
-#include <cstdint>
 #include <vector>
 
 namespace bgl::app {
@@ -67,4 +67,3 @@ struct CliOptions {
 };
 
 } // namespace bgl::app
-

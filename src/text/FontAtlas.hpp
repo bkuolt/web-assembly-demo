@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include <string_view>
-#include <vector>
-#include <unordered_map>
-#include <span>
-#include <memory>
-#include <glm/glm.hpp>
-#include <webgpu/webgpu.h>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
+#include <glm/glm.hpp>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+#include <webgpu/webgpu.h>
 
 // Forward declarations for third-party C types
 typedef struct FT_LibraryRec_* FT_Library;
@@ -27,11 +27,11 @@ namespace bgl::text {
  */
 struct GlyphInfo {
     uint32_t glyphIndex{0};
-    glm::vec2 size{0.0f};     ///< Glyph quad width and height in pixels
-    glm::vec2 bearing{0.0f};  ///< Horizontal bearing X and vertical bearing Y in pixels
-    float advance{0.0f};      ///< Horizontal advance in pixels
-    glm::vec2 uvMin{0.0f};    ///< Top-left UV coordinates in atlas (0..1)
-    glm::vec2 uvMax{0.0f};    ///< Bottom-right UV coordinates in atlas (0..1)
+    glm::vec2 size{0.0f};    ///< Glyph quad width and height in pixels
+    glm::vec2 bearing{0.0f}; ///< Horizontal bearing X and vertical bearing Y in pixels
+    float advance{0.0f};     ///< Horizontal advance in pixels
+    glm::vec2 uvMin{0.0f};   ///< Top-left UV coordinates in atlas (0..1)
+    glm::vec2 uvMax{0.0f};   ///< Bottom-right UV coordinates in atlas (0..1)
 };
 
 /**
@@ -55,7 +55,8 @@ public:
      * @param pixelSize Font size in pixels (e.g. 18).
      * @param atlasDim Atlas width and height in pixels (default 1024).
      */
-    core::Result<void> InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize = 18, uint32_t atlasDim = 1024);
+    core::Result<void> InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize = 18,
+                                            uint32_t atlasDim = 1024);
 
     /**
      * @brief Initializes the font atlas by reading a TrueType font file from disk.
@@ -127,4 +128,3 @@ private:
 };
 
 } // namespace bgl::text
-

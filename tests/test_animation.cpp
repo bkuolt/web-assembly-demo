@@ -8,12 +8,12 @@
  *        - Scene animation timeline evaluation and loop wrapping
  */
 
-#include <gtest/gtest.h>
+#include "scene/Animation.hpp"
+#include "scene/Scene.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include "scene/Animation.hpp"
-#include "scene/Scene.hpp"
+#include <gtest/gtest.h>
 
 using namespace bgl;
 using namespace bgl::scene;
@@ -22,11 +22,7 @@ TEST(AnimationTest, SamplerStepInterpolation) {
     AnimationSampler sampler;
     sampler.interpolation = AnimationInterpolation::Step;
     sampler.timestamps = {0.0f, 1.0f, 2.0f};
-    sampler.keyframeValues = {
-        0.0f, 0.0f, 0.0f,
-        10.0f, 20.0f, 30.0f,
-        100.0f, 200.0f, 300.0f
-    };
+    sampler.keyframeValues = {0.0f, 0.0f, 0.0f, 10.0f, 20.0f, 30.0f, 100.0f, 200.0f, 300.0f};
 
     std::array<float, 3> result{};
 
@@ -65,10 +61,7 @@ TEST(AnimationTest, SamplerLinearVectorInterpolation) {
     AnimationSampler sampler;
     sampler.interpolation = AnimationInterpolation::Linear;
     sampler.timestamps = {0.0f, 2.0f};
-    sampler.keyframeValues = {
-        0.0f, 10.0f, 20.0f,
-        10.0f, 30.0f, 40.0f
-    };
+    sampler.keyframeValues = {0.0f, 10.0f, 20.0f, 10.0f, 30.0f, 40.0f};
 
     std::array<float, 3> result{};
 
@@ -95,10 +88,7 @@ TEST(AnimationTest, SamplerLinearRotationSlerp) {
     glm::quat q1 = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     // glTF outputs store [x, y, z, w]
-    sampler.keyframeValues = {
-        q0.x, q0.y, q0.z, q0.w,
-        q1.x, q1.y, q1.z, q1.w
-    };
+    sampler.keyframeValues = {q0.x, q0.y, q0.z, q0.w, q1.x, q1.y, q1.z, q1.w};
 
     std::array<float, 4> result{};
 
@@ -124,7 +114,7 @@ TEST(AnimationTest, SamplerCubicSplineInterpolation) {
     // Keyframe 0 (t = 0): in=(0), val=(0), out=(0)
     // Keyframe 1 (t = 1): in=(0), val=(10), out=(0)
     sampler.keyframeValues = {
-        0.0f,  0.0f, 0.0f, // Keyframe 0: in, val, out
+        0.0f, 0.0f,  0.0f, // Keyframe 0: in, val, out
         0.0f, 10.0f, 0.0f  // Keyframe 1: in, val, out
     };
 

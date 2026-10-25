@@ -6,16 +6,16 @@
  */
 #pragma once
 
-#include <string_view>
+#include "core/Types.hpp"
+#include "scene/AssetManager.hpp"
+#include "scene/Scene.hpp"
+#include <fastgltf/core.hpp>
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/types.hpp>
 #include <memory>
 #include <span>
-#include <fastgltf/core.hpp>
-#include <fastgltf/types.hpp>
-#include <fastgltf/tools.hpp>
-#include <fastgltf/glm_element_traits.hpp>
-#include "core/Types.hpp"
-#include "scene/Scene.hpp"
-#include "scene/AssetManager.hpp"
+#include <string_view>
 
 namespace bgl::scene {
 
@@ -51,14 +51,11 @@ public:
     core::Result<std::shared_ptr<Scene>> LoadFromFile(std::string_view path);
 
 private:
-    core::Result<std::shared_ptr<Scene>> ParseAndAssembleScene(
-        fastgltf::GltfDataBuffer& dataBuffer,
-        std::string_view baseUri,
-        size_t totalBytes);
+    core::Result<std::shared_ptr<Scene>> ParseAndAssembleScene(fastgltf::GltfDataBuffer& dataBuffer,
+                                                               std::string_view baseUri, size_t totalBytes);
 
     AssetManager& assetManager_;
     fastgltf::Parser parser_;
 };
 
 } // namespace bgl::scene
-

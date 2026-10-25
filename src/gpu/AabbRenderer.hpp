@@ -4,14 +4,14 @@
  */
 #pragma once
 
-#include <vector>
-#include <array>
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
-#include "scene/Scene.hpp"
 #include "scene/Quadtree.hpp"
+#include "scene/Scene.hpp"
+#include <array>
+#include <glm/glm.hpp>
+#include <vector>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
@@ -43,9 +43,7 @@ public:
     AabbRenderer(AabbRenderer&& other) noexcept = default;
     AabbRenderer& operator=(AabbRenderer&& other) noexcept = default;
 
-    core::Result<void> Initialize(WGPUDevice device,
-                                  WGPUQueue queue,
-                                  WGPUTextureFormat colorFormat,
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
                                   uint32_t sampleCount);
     void Shutdown() noexcept;
 
@@ -53,7 +51,8 @@ public:
     void BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
     void BatchQuadtreeBounds(const scene::Quadtree& quadtree);
     void FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj);
-    void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
+    void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj,
+                    const glm::vec4& color);
 
     void ResetFrameOffset() noexcept { aabbFrameByteOffset_ = 0; }
     [[nodiscard]] bool IsInitialized() const noexcept { return aabbPipeline_ != nullptr; }
@@ -75,4 +74,3 @@ private:
 };
 
 } // namespace bgl::gpu
-

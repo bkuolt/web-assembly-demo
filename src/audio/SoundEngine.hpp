@@ -4,13 +4,13 @@
  */
 #pragma once
 
-#include <miniaudio.h>
-#include <string_view>
-#include <string>
-#include <unordered_map>
-#include <memory>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
+#include <glm/glm.hpp>
+#include <memory>
+#include <miniaudio.h>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 namespace bgl::audio {
 
@@ -52,7 +52,8 @@ public:
      * @param loop Whether the sound should loop indefinitely until stopped.
      * @return Result indicating success or error string.
      */
-    core::Result<void> PlaySound3D(std::string_view soundId, std::string_view filePath, const glm::vec3& position, bool loop = false);
+    core::Result<void> PlaySound3D(std::string_view soundId, std::string_view filePath, const glm::vec3& position,
+                                   bool loop = false);
 
     /**
      * @brief Updates the world-space position of an active 3D sound emitter.
@@ -76,4 +77,3 @@ private:
 };
 
 } // namespace bgl::audio
-

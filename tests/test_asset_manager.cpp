@@ -2,8 +2,8 @@
  * @file test_asset_manager.cpp
  * @brief Unit tests for FNV-1a 64-bit hashing and AssetManager caching.
  */
-#include <gtest/gtest.h>
 #include "scene/AssetManager.hpp"
+#include <gtest/gtest.h>
 
 TEST(AssetManagerTest, Fnv1a64Hashing) {
     std::string_view uri1 = "assets/ToyCar.glb";
@@ -128,5 +128,3 @@ TEST(AssetManagerTest, TextureCacheInsertionReplacement) {
     mgr.InsertTexture(hash, img2);
     EXPECT_TRUE(mgr.HasTexture(hash));
 }
-
-

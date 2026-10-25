@@ -41,13 +41,16 @@ void SoundEngine::Shutdown() {
 }
 
 void SoundEngine::UpdateListener(const glm::vec3& position, const glm::vec3& forward) {
-    if (!initialized_) return;
+    if (!initialized_)
+        return;
     ma_engine_listener_set_position(&engine_, 0, position.x, position.y, position.z);
     ma_engine_listener_set_direction(&engine_, 0, forward.x, forward.y, forward.z);
 }
 
-core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::string_view filePath, const glm::vec3& position, bool loop) {
-    if (!initialized_) return std::unexpected("SoundEngine not initialized");
+core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::string_view filePath,
+                                            const glm::vec3& position, bool loop) {
+    if (!initialized_)
+        return std::unexpected("SoundEngine not initialized");
 
     const std::string id{soundId};
     const std::string path{filePath};
@@ -76,7 +79,8 @@ core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::strin
 }
 
 void SoundEngine::SetEmitterPosition(std::string_view soundId, const glm::vec3& position) {
-    if (!initialized_) return;
+    if (!initialized_)
+        return;
     auto it = activeSounds_.find(std::string{soundId});
     if (it != activeSounds_.end() && it->second) {
         ma_sound_set_position(it->second.get(), position.x, position.y, position.z);
@@ -84,7 +88,8 @@ void SoundEngine::SetEmitterPosition(std::string_view soundId, const glm::vec3& 
 }
 
 void SoundEngine::StopSound(std::string_view soundId) {
-    if (!initialized_) return;
+    if (!initialized_)
+        return;
     auto it = activeSounds_.find(std::string{soundId});
     if (it != activeSounds_.end()) {
         if (it->second) {
@@ -96,4 +101,3 @@ void SoundEngine::StopSound(std::string_view soundId) {
 }
 
 } // namespace bgl::audio
-

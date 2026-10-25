@@ -24,4 +24,3 @@ void InitLogging(std::string_view logLevel) {
 }
 
 } // namespace bgl::core
-

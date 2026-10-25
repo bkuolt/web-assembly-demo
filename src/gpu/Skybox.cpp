@@ -6,8 +6,8 @@
 #include "core/Log.hpp"
 #include <array>
 #include <cstring>
-#include <utility>
 #include <glm/gtc/matrix_transform.hpp>
+#include <utility>
 
 namespace bgl::gpu {
 
@@ -107,7 +107,8 @@ void Skybox::Shutdown() noexcept {
     hasCustomCubemap_ = false;
 }
 
-core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat hdrFormat, uint32_t sampleCount) {
+core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat hdrFormat,
+                                      uint32_t sampleCount) {
     device_ = device;
     queue_ = queue;
     if (!device_ || !queue_) {
@@ -201,7 +202,7 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     WGPUTextureDescriptor cubeDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     cubeDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
     cubeDesc.dimension = WGPUTextureDimension_2D;
-    cubeDesc.size = WGPUExtent3D{ 1, 1, 6 };
+    cubeDesc.size = WGPUExtent3D{1, 1, 6};
     cubeDesc.format = WGPUTextureFormat_RGBA8Unorm;
     cubeDesc.mipLevelCount = 1;
     cubeDesc.sampleCount = 1;
@@ -239,7 +240,8 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
 }
 
 void Skybox::RebuildBindGroup(WGPUTextureView cubemapView, WGPUSampler sampler) {
-    if (!device_ || !bindGroupLayout_ || !uniformBuffer_) return;
+    if (!device_ || !bindGroupLayout_ || !uniformBuffer_)
+        return;
 
     std::array<WGPUBindGroupEntry, 3> entries{};
     entries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -268,20 +270,18 @@ void Skybox::SetEnvironmentCubemap(WGPUTextureView cubemapView, WGPUSampler samp
     RebuildBindGroup(cubemapView, sampler);
 }
 
-void Skybox::Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir) {
-    if (!pass || !initialized_ || !enabled_ || mode_ == SkyboxMode::Hidden) return;
+void Skybox::Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                    const glm::vec3& sunDir) {
+    if (!pass || !initialized_ || !enabled_ || mode_ == SkyboxMode::Hidden)
+        return;
 
     SkyboxUniforms uniforms{};
     uniforms.invViewProj = glm::inverse(viewProj);
     uniforms.sunDir = glm::vec4{glm::normalize(sunDir), 0.0f};
     uniforms.cameraPos = glm::vec4{cameraPos, 1.0f};
     const float blurLod{(mode_ == SkyboxMode::Blurred) ? (blurRoughness_ * 5.0f) : 0.0f};
-    uniforms.params = glm::vec4{
-        rotation_,
-        blurLod,
-        hasCustomCubemap_ ? 1.0f : 0.0f,
-        static_cast<float>(std::to_underlying(mode_))
-    };
+    uniforms.params =
+        glm::vec4{rotation_, blurLod, hasCustomCubemap_ ? 1.0f : 0.0f, static_cast<float>(std::to_underlying(mode_))};
 
     wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &uniforms, sizeof(uniforms));
 

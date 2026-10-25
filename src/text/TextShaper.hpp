@@ -4,10 +4,10 @@
  */
 #pragma once
 
+#include "text/FontAtlas.hpp"
+#include <glm/glm.hpp>
 #include <string_view>
 #include <vector>
-#include <glm/glm.hpp>
-#include "text/FontAtlas.hpp"
 
 namespace bgl::text {
 
@@ -51,13 +51,8 @@ public:
      * @param scale Uniform scale factor (default 1.0f).
      * @return Shaped TextLayout with quads and dimensions.
      */
-    [[nodiscard]] static TextLayout Shape(FontAtlas& fontAtlas,
-                                          std::string_view text,
-                                          float startX,
-                                          float startY,
-                                          const glm::vec4& color = glm::vec4(1.0f),
-                                          float scale = 1.0f);
+    [[nodiscard]] static TextLayout Shape(FontAtlas& fontAtlas, std::string_view text, float startX, float startY,
+                                          const glm::vec4& color = glm::vec4(1.0f), float scale = 1.0f);
 };
 
 } // namespace bgl::text
-

@@ -4,11 +4,11 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
-#include <optional>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
+#include <glm/glm.hpp>
+#include <optional>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
@@ -48,10 +48,7 @@ public:
     /**
      * @brief Dispatches parallel GPU ray intersection test.
      */
-    void Dispatch(WGPUCommandEncoder encoder,
-                  WGPUBuffer boundsBuffer,
-                  uint32_t primitiveCount,
-                  const core::Ray& ray);
+    void Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount, const core::Ray& ray);
 
     [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
 
@@ -69,4 +66,3 @@ private:
 };
 
 } // namespace bgl::gpu
-

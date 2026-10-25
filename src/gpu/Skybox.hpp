@@ -4,25 +4,22 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
-#include <string_view>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
+#include <glm/glm.hpp>
+#include <string_view>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
-enum class SkyboxMode : uint32_t {
-    Sharp   = 0,
-    Blurred = 1,
-    Hidden  = 2
-};
+enum class SkyboxMode : uint32_t { Sharp = 0, Blurred = 1, Hidden = 2 };
 
 struct alignas(16) SkyboxUniforms {
     glm::mat4 invViewProj{1.0f};
     glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.0f};
     glm::vec4 cameraPos{0.0f};
-    glm::vec4 params{0.0f, 0.0f, 1.0f, 0.0f}; // x = envRotation (rad), y = blurLod, z = useEnvCubemap (1 or 0), w = mode
+    glm::vec4 params{0.0f, 0.0f, 1.0f,
+                     0.0f}; // x = envRotation (rad), y = blurLod, z = useEnvCubemap (1 or 0), w = mode
 };
 
 /**
@@ -42,7 +39,9 @@ public:
      * @param sampleCount Multisample count (default 4 for 4x MSAA).
      * @return Result indicating success or error string.
      */
-    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat hdrFormat = WGPUTextureFormat_RGBA16Float, uint32_t sampleCount = 4);
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue,
+                                  WGPUTextureFormat hdrFormat = WGPUTextureFormat_RGBA16Float,
+                                  uint32_t sampleCount = 4);
 
     /**
      * @brief Releases WebGPU pipelines, bind groups, and fallback cubemap textures.
@@ -63,7 +62,8 @@ public:
      * @param cameraPos Camera world-space eye position.
      * @param sunDir Direction vector pointing toward the sun.
      */
-    void Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir);
+    void Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                const glm::vec3& sunDir);
 
     void SetEnabled(bool enabled) noexcept {
         enabled_ = enabled;
@@ -73,26 +73,33 @@ public:
             mode_ = SkyboxMode::Sharp;
         }
     }
-    void Toggle() noexcept {
-        CycleMode();
-    }
+    void Toggle() noexcept { CycleMode(); }
     void SetMode(SkyboxMode mode) noexcept {
         mode_ = mode;
         enabled_ = (mode_ != SkyboxMode::Hidden);
     }
     void CycleMode() noexcept {
         switch (mode_) {
-            case SkyboxMode::Sharp:   SetMode(SkyboxMode::Blurred); break;
-            case SkyboxMode::Blurred: SetMode(SkyboxMode::Hidden);  break;
-            case SkyboxMode::Hidden:  SetMode(SkyboxMode::Sharp);   break;
+        case SkyboxMode::Sharp:
+            SetMode(SkyboxMode::Blurred);
+            break;
+        case SkyboxMode::Blurred:
+            SetMode(SkyboxMode::Hidden);
+            break;
+        case SkyboxMode::Hidden:
+            SetMode(SkyboxMode::Sharp);
+            break;
         }
     }
     [[nodiscard]] SkyboxMode GetMode() const noexcept { return mode_; }
     [[nodiscard]] static constexpr std::string_view GetModeName(SkyboxMode mode) noexcept {
         switch (mode) {
-            case SkyboxMode::Sharp:   return "Sharp";
-            case SkyboxMode::Blurred: return "Blurred";
-            case SkyboxMode::Hidden:  return "Hidden";
+        case SkyboxMode::Sharp:
+            return "Sharp";
+        case SkyboxMode::Blurred:
+            return "Blurred";
+        case SkyboxMode::Hidden:
+            return "Hidden";
         }
         return "Sharp";
     }

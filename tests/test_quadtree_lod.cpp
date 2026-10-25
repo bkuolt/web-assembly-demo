@@ -2,10 +2,10 @@
  * @file test_quadtree_lod.cpp
  * @brief Unit tests for Quadtree spatial partitioning and distance-based LOD calculation.
  */
-#include <gtest/gtest.h>
-#include "scene/Quadtree.hpp"
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
+#include "scene/Quadtree.hpp"
+#include <gtest/gtest.h>
 
 TEST(QuadtreeTest, InsertionAndLODQuery) {
     bgl::core::AABB worldBounds;
@@ -53,10 +53,10 @@ TEST(QuadtreeTest, SponzaFrustumCullingDiagnostic) {
     }
     auto scene = *res;
     std::cout << "[Sponza Diagnostics]\n";
-    std::cout << "  Scene minBound: (" << scene->sceneAABB.minBound.x << ", "
-              << scene->sceneAABB.minBound.y << ", " << scene->sceneAABB.minBound.z << ")\n";
-    std::cout << "  Scene maxBound: (" << scene->sceneAABB.maxBound.x << ", "
-              << scene->sceneAABB.maxBound.y << ", " << scene->sceneAABB.maxBound.z << ")\n";
+    std::cout << "  Scene minBound: (" << scene->sceneAABB.minBound.x << ", " << scene->sceneAABB.minBound.y << ", "
+              << scene->sceneAABB.minBound.z << ")\n";
+    std::cout << "  Scene maxBound: (" << scene->sceneAABB.maxBound.x << ", " << scene->sceneAABB.maxBound.y << ", "
+              << scene->sceneAABB.maxBound.z << ")\n";
 
     bgl::core::AABB worldBounds = scene->sceneAABB;
     glm::vec3 margin = glm::max(glm::vec3(10.0f), worldBounds.Extents() * 0.1f);
@@ -67,7 +67,8 @@ TEST(QuadtreeTest, SponzaFrustumCullingDiagnostic) {
     size_t totalPrimitives = 0;
     auto countPrims = [&](auto& self, const std::shared_ptr<bgl::scene::SceneNode>& n) -> void {
         totalPrimitives += n->GetPrimitives().size();
-        for (const auto& c : n->children) self(self, c);
+        for (const auto& c : n->children)
+            self(self, c);
     };
     for (const auto& r : scene->rootNodes) {
         countPrims(countPrims, r);
@@ -81,17 +82,23 @@ TEST(QuadtreeTest, SponzaFrustumCullingDiagnostic) {
     for (const auto& r : scene->rootNodes) {
         auto inspectNode = [&](auto& self, const std::shared_ptr<bgl::scene::SceneNode>& n) -> void {
             std::cout << "Node: " << n->name << "\n";
-            std::cout << "  worldTransform[0]: " << n->worldTransform[0][0] << ", " << n->worldTransform[0][1] << ", " << n->worldTransform[0][2] << ", " << n->worldTransform[0][3] << "\n";
-            std::cout << "  worldTransform[1]: " << n->worldTransform[1][0] << ", " << n->worldTransform[1][1] << ", " << n->worldTransform[1][2] << ", " << n->worldTransform[1][3] << "\n";
-            std::cout << "  worldTransform[2]: " << n->worldTransform[2][0] << ", " << n->worldTransform[2][1] << ", " << n->worldTransform[2][2] << ", " << n->worldTransform[2][3] << "\n";
-            std::cout << "  worldTransform[3]: " << n->worldTransform[3][0] << ", " << n->worldTransform[3][1] << ", " << n->worldTransform[3][2] << ", " << n->worldTransform[3][3] << "\n";
-            std::cout << "  worldAABB min: (" << n->worldAABB.minBound.x << ", " << n->worldAABB.minBound.y << ", " << n->worldAABB.minBound.z << ")\n";
-            std::cout << "  worldAABB max: (" << n->worldAABB.maxBound.x << ", " << n->worldAABB.maxBound.y << ", " << n->worldAABB.maxBound.z << ")\n";
-            for (const auto& c : n->children) self(self, c);
+            std::cout << "  worldTransform[0]: " << n->worldTransform[0][0] << ", " << n->worldTransform[0][1] << ", "
+                      << n->worldTransform[0][2] << ", " << n->worldTransform[0][3] << "\n";
+            std::cout << "  worldTransform[1]: " << n->worldTransform[1][0] << ", " << n->worldTransform[1][1] << ", "
+                      << n->worldTransform[1][2] << ", " << n->worldTransform[1][3] << "\n";
+            std::cout << "  worldTransform[2]: " << n->worldTransform[2][0] << ", " << n->worldTransform[2][1] << ", "
+                      << n->worldTransform[2][2] << ", " << n->worldTransform[2][3] << "\n";
+            std::cout << "  worldTransform[3]: " << n->worldTransform[3][0] << ", " << n->worldTransform[3][1] << ", "
+                      << n->worldTransform[3][2] << ", " << n->worldTransform[3][3] << "\n";
+            std::cout << "  worldAABB min: (" << n->worldAABB.minBound.x << ", " << n->worldAABB.minBound.y << ", "
+                      << n->worldAABB.minBound.z << ")\n";
+            std::cout << "  worldAABB max: (" << n->worldAABB.maxBound.x << ", " << n->worldAABB.maxBound.y << ", "
+                      << n->worldAABB.maxBound.z << ")\n";
+            for (const auto& c : n->children)
+                self(self, c);
         };
         inspectNode(inspectNode, r);
     }
-
 
     // Set up camera inside courtyard
     glm::vec3 camPos(-0.5f, 2.0f, -0.3f);
@@ -155,7 +162,7 @@ TEST(QuadtreeTest, FrustumPlaneAABBIntersection) {
 TEST(QuadtreeTest, GridSubdivisionAndContainment) {
     bgl::core::AABB worldBounds;
     worldBounds.minBound = glm::vec3(-50.0f, -10.0f, -50.0f);
-    worldBounds.maxBound = glm::vec3( 50.0f,  10.0f,  50.0f);
+    worldBounds.maxBound = glm::vec3(50.0f, 10.0f, 50.0f);
 
     bgl::scene::Quadtree quadtree(worldBounds);
 
@@ -167,7 +174,7 @@ TEST(QuadtreeTest, GridSubdivisionAndContainment) {
             float px = -35.0f + x * 5.0f;
             float pz = -35.0f + z * 5.0f;
             node->worldAABB.minBound = glm::vec3(px - 1.0f, -1.0f, pz - 1.0f);
-            node->worldAABB.maxBound = glm::vec3(px + 1.0f,  1.0f, pz + 1.0f);
+            node->worldAABB.maxBound = glm::vec3(px + 1.0f, 1.0f, pz + 1.0f);
             quadtree.Insert(node);
         }
     }
@@ -178,7 +185,7 @@ TEST(QuadtreeTest, GridSubdivisionAndContainment) {
     // Also insert a large spanning object across the center line X = 0
     auto spanningNode = std::make_shared<bgl::scene::SceneNode>();
     spanningNode->worldAABB.minBound = glm::vec3(-20.0f, -1.0f, -2.0f);
-    spanningNode->worldAABB.maxBound = glm::vec3( 20.0f,  1.0f,  2.0f);
+    spanningNode->worldAABB.maxBound = glm::vec3(20.0f, 1.0f, 2.0f);
     quadtree.Insert(spanningNode);
 
     // Query looking exclusively at quadrant 0
@@ -217,7 +224,7 @@ TEST(QuadtreeTest, ResetAndClear) {
 TEST(QuadtreeTest, HierarchicalOcclusionCullingAndFrontToBackOrdering) {
     bgl::core::AABB worldBounds{};
     worldBounds.minBound = glm::vec3{-100.0f, -20.0f, -100.0f};
-    worldBounds.maxBound = glm::vec3{ 100.0f,  20.0f,  100.0f};
+    worldBounds.maxBound = glm::vec3{100.0f, 20.0f, 100.0f};
 
     bgl::scene::Quadtree quadtree{worldBounds};
 
@@ -225,21 +232,21 @@ TEST(QuadtreeTest, HierarchicalOcclusionCullingAndFrontToBackOrdering) {
     auto nearWall = std::make_shared<bgl::scene::SceneNode>();
     nearWall->name = "NearWallOccluder";
     nearWall->worldAABB.minBound = glm::vec3{-12.0f, -8.0f, -6.0f};
-    nearWall->worldAABB.maxBound = glm::vec3{ 12.0f,  8.0f, -4.0f};
+    nearWall->worldAABB.maxBound = glm::vec3{12.0f, 8.0f, -4.0f};
     quadtree.Insert(nearWall);
 
     // 2. Place a smaller object directly behind the wall at Z = -25
     auto hiddenBehindWall = std::make_shared<bgl::scene::SceneNode>();
     hiddenBehindWall->name = "HiddenBehindWall";
     hiddenBehindWall->worldAABB.minBound = glm::vec3{-1.5f, -1.5f, -26.0f};
-    hiddenBehindWall->worldAABB.maxBound = glm::vec3{ 1.5f,  1.5f, -24.0f};
+    hiddenBehindWall->worldAABB.maxBound = glm::vec3{1.5f, 1.5f, -24.0f};
     quadtree.Insert(hiddenBehindWall);
 
     // 3. Place a visible object to the side (not behind the wall)
     auto sideObject = std::make_shared<bgl::scene::SceneNode>();
     sideObject->name = "VisibleSideObject";
     sideObject->worldAABB.minBound = glm::vec3{14.0f, -1.0f, -22.0f};
-    sideObject->worldAABB.maxBound = glm::vec3{16.0f,  1.0f, -20.0f};
+    sideObject->worldAABB.maxBound = glm::vec3{16.0f, 1.0f, -20.0f};
     quadtree.Insert(sideObject);
 
     const glm::vec3 camPos{0.0f, 0.0f, 0.0f};
@@ -282,7 +289,7 @@ TEST(QuadtreeTest, OcclusionBufferDirectTileOperationsAndEdgeCases) {
     // 3. ProjectAABB on a box behind camera (z > 0 in standard view-proj where camera looks down -Z)
     bgl::core::AABB behindBox{};
     behindBox.minBound = glm::vec3{-1.0f, -1.0f, 5.0f};
-    behindBox.maxBound = glm::vec3{ 1.0f,  1.0f, 10.0f};
+    behindBox.maxBound = glm::vec3{1.0f, 1.0f, 10.0f};
     const glm::mat4 view = glm::lookAt(glm::vec3{0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
     const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
     EXPECT_FALSE(bgl::scene::OcclusionBuffer::ProjectAABB(behindBox, proj * view, ndcMin, ndcMax, minZ, maxZ));
@@ -290,7 +297,7 @@ TEST(QuadtreeTest, OcclusionBufferDirectTileOperationsAndEdgeCases) {
     // 4. ProjectAABB on a box in front of camera succeeds and produces valid NDC coordinates
     bgl::core::AABB frontBox{};
     frontBox.minBound = glm::vec3{-2.0f, -2.0f, -10.0f};
-    frontBox.maxBound = glm::vec3{ 2.0f,  2.0f, -5.0f};
+    frontBox.maxBound = glm::vec3{2.0f, 2.0f, -5.0f};
     EXPECT_TRUE(bgl::scene::OcclusionBuffer::ProjectAABB(frontBox, proj * view, ndcMin, ndcMax, minZ, maxZ));
     EXPECT_LE(ndcMin.x, ndcMax.x);
     EXPECT_LE(ndcMin.y, ndcMax.y);
@@ -315,7 +322,7 @@ TEST(QuadtreeTest, OcclusionBufferDirectTileOperationsAndEdgeCases) {
 TEST(QuadtreeTest, DeepSubdivisionAndMaxDepthSafety) {
     bgl::core::AABB worldBounds;
     worldBounds.minBound = glm::vec3(-100.0f, -10.0f, -100.0f);
-    worldBounds.maxBound = glm::vec3( 100.0f,  10.0f,  100.0f);
+    worldBounds.maxBound = glm::vec3(100.0f, 10.0f, 100.0f);
 
     bgl::scene::Quadtree quadtree(worldBounds);
 
@@ -338,7 +345,7 @@ TEST(QuadtreeTest, DeepSubdivisionAndMaxDepthSafety) {
 TEST(QuadtreeTest, OutOfBoundsObjectPlacement) {
     bgl::core::AABB bounds;
     bounds.minBound = glm::vec3(-10.0f);
-    bounds.maxBound = glm::vec3( 10.0f);
+    bounds.maxBound = glm::vec3(10.0f);
 
     bgl::scene::Quadtree quadtree(bounds);
 
@@ -365,9 +372,3 @@ TEST(QuadtreeTest, OcclusionBufferScreenEdgeClipping) {
     // Point in front must not be occluded
     EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, 0.5f), 0.1f));
 }
-
-
-
-
-
-

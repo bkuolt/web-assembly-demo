@@ -2,22 +2,23 @@
  * @file test_golden_image.cpp
  * @brief Headless rendering golden-image verification and deterministic frame test suite.
  */
-#include <gtest/gtest.h>
-#include <vector>
+#include "core/NetworkFetcher.hpp"
+#include "scene/AssetManager.hpp"
+#include "scene/FastGltfLoader.hpp"
+#include "scene/Scene.hpp"
+#include "scene/TextureDecoder.hpp"
 #include <cmath>
 #include <filesystem>
 #include <glm/glm.hpp>
-#include "scene/Scene.hpp"
-#include "scene/FastGltfLoader.hpp"
-#include "scene/AssetManager.hpp"
-#include "scene/TextureDecoder.hpp"
-#include "core/NetworkFetcher.hpp"
+#include <gtest/gtest.h>
+#include <vector>
 
 using namespace bgl;
 
 static std::string FindToyCarAsset() {
     for (const auto& path : {"assets/ToyCar.glb", "../assets/ToyCar.glb", "../../assets/ToyCar.glb"}) {
-        if (std::filesystem::exists(path)) return path;
+        if (std::filesystem::exists(path))
+            return path;
     }
     return "assets/ToyCar.glb";
 }
@@ -37,8 +38,8 @@ TEST(GoldenImageTest, HeadlessGlbAssetGoldenGeometryValidation) {
     EXPECT_LE(aabb.minBound.y, aabb.maxBound.y);
     EXPECT_LE(aabb.minBound.z, aabb.maxBound.z);
     EXPECT_NEAR(aabb.minBound.x, -0.035f, 0.01f);
-    EXPECT_NEAR(aabb.maxBound.x,  0.038f, 0.01f);
-    EXPECT_NEAR(aabb.maxBound.y,  0.013f, 0.01f);
+    EXPECT_NEAR(aabb.maxBound.x, 0.038f, 0.01f);
+    EXPECT_NEAR(aabb.maxBound.y, 0.013f, 0.01f);
 
     // Golden verification of material count and textures
     EXPECT_GE(scene->materials.size(), 3u);
@@ -48,7 +49,8 @@ TEST(GoldenImageTest, HeadlessGlbAssetGoldenGeometryValidation) {
     EXPECT_FALSE(scene->meshes.empty());
     size_t totalSharedPrims = 0;
     for (const auto& mesh : scene->meshes) {
-        if (mesh) totalSharedPrims += mesh->primitives.size();
+        if (mesh)
+            totalSharedPrims += mesh->primitives.size();
     }
     EXPECT_GT(totalSharedPrims, 0u);
 }
@@ -89,10 +91,8 @@ TEST(GoldenImageTest, HeadlessOffscreenBufferGoldenDeterminism) {
 }
 
 TEST(GoldenImageTest, Fnv1aDeterministicContentHashing) {
-    const std::vector<uint8_t> sampleData = {
-        0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 'I', 'H', 'D', 'R'
-    };
+    const std::vector<uint8_t> sampleData = {0x89, 'P',  'N',  'G',  0x0D, 0x0A, 0x1A, 0x0A,
+                                             0x00, 0x00, 0x00, 0x0D, 'I',  'H',  'D',  'R'};
     uint64_t h1 = scene::Fnv1a64(sampleData);
     uint64_t h2 = scene::Fnv1a64(sampleData);
     EXPECT_EQ(h1, h2);
@@ -110,7 +110,8 @@ TEST(GoldenImageTest, SceneNodeGetPrimitivesReturnsSharedMeshPrimitives) {
 
     size_t nodePrimitivesCount = 0;
     for (const auto& node : scene->allNodes) {
-        if (!node) continue;
+        if (!node)
+            continue;
         auto prims = node->GetPrimitives();
         nodePrimitivesCount += prims.size();
         for (const auto& prim : prims) {

@@ -3,28 +3,23 @@
  * @brief Unicode text shaping via HarfBuzz and FontAtlas glyph mapping.
  */
 #include "text/TextShaper.hpp"
-#include <harfbuzz/hb.h>
 #include <algorithm>
+#include <harfbuzz/hb.h>
 #include <memory>
 #include <span>
 
 namespace bgl::text {
 
-TextLayout TextShaper::Shape(FontAtlas& fontAtlas,
-                            std::string_view text,
-                            float startX,
-                            float startY,
-                            const glm::vec4& color,
-                            float scale) {
+TextLayout TextShaper::Shape(FontAtlas& fontAtlas, std::string_view text, float startX, float startY,
+                             const glm::vec4& color, float scale) {
     TextLayout layout{};
     if (text.empty() || !fontAtlas.GetHarfBuzzFont()) {
         return layout;
     }
 
-    const std::unique_ptr<hb_buffer_t, decltype(&hb_buffer_destroy)> hbBuffer{
-        hb_buffer_create(), &hb_buffer_destroy
-    };
-    if (!hbBuffer) return layout;
+    const std::unique_ptr<hb_buffer_t, decltype(&hb_buffer_destroy)> hbBuffer{hb_buffer_create(), &hb_buffer_destroy};
+    if (!hbBuffer)
+        return layout;
 
     const float lineHeight{fontAtlas.GetLineHeight() * scale};
     const float ascender{fontAtlas.GetAscender() * scale};
@@ -44,17 +39,16 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas,
 
         if (!line.empty()) {
             hb_buffer_clear_contents(hbBuffer.get());
-            hb_buffer_add_utf8(hbBuffer.get(), line.data(), static_cast<int>(line.size()), 0, static_cast<int>(line.size()));
+            hb_buffer_add_utf8(hbBuffer.get(), line.data(), static_cast<int>(line.size()), 0,
+                               static_cast<int>(line.size()));
             hb_buffer_guess_segment_properties(hbBuffer.get());
             hb_shape(fontAtlas.GetHarfBuzzFont(), hbBuffer.get(), nullptr, 0);
 
             unsigned int glyphCount{0};
-            const std::span<const hb_glyph_info_t> glyphInfos{
-                hb_buffer_get_glyph_infos(hbBuffer.get(), &glyphCount), glyphCount
-            };
+            const std::span<const hb_glyph_info_t> glyphInfos{hb_buffer_get_glyph_infos(hbBuffer.get(), &glyphCount),
+                                                              glyphCount};
             const std::span<const hb_glyph_position_t> glyphPositions{
-                hb_buffer_get_glyph_positions(hbBuffer.get(), &glyphCount), glyphCount
-            };
+                hb_buffer_get_glyph_positions(hbBuffer.get(), &glyphCount), glyphCount};
 
             float currentX{startX};
             float baselineY{currentY + ascender};
@@ -74,13 +68,11 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas,
                     const float qx1{qx0 + info.size.x * scale};
                     const float qy1{qy0 + info.size.y * scale};
 
-                    layout.quads.push_back(TextQuad{
-                        .posMin = glm::vec2{qx0, qy0},
-                        .posMax = glm::vec2{qx1, qy1},
-                        .uvMin = info.uvMin,
-                        .uvMax = info.uvMax,
-                        .color = color
-                    });
+                    layout.quads.push_back(TextQuad{.posMin = glm::vec2{qx0, qy0},
+                                                    .posMax = glm::vec2{qx1, qy1},
+                                                    .uvMin = info.uvMin,
+                                                    .uvMax = info.uvMax,
+                                                    .color = color});
                 }
 
                 currentX += xAdvance;
@@ -98,4 +90,3 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas,
 }
 
 } // namespace bgl::text
-

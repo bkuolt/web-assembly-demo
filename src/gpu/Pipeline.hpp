@@ -7,19 +7,19 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
-#include <array>
-#include <vector>
-#include <span>
-#include <string_view>
 #include "core/Types.hpp"
-#include "gpu/Handle.hpp"
 #include "gpu/AabbRenderer.hpp"
-#include "gpu/ShadowPass.hpp"
-#include "gpu/PostProcessPass.hpp"
 #include "gpu/GpuCuller.hpp"
 #include "gpu/GpuRayPicker.hpp"
+#include "gpu/Handle.hpp"
+#include "gpu/PostProcessPass.hpp"
+#include "gpu/ShadowPass.hpp"
+#include <array>
+#include <glm/glm.hpp>
+#include <span>
+#include <string_view>
+#include <vector>
+#include <webgpu/webgpu.h>
 
 namespace bgl::scene {
 struct Scene;
@@ -27,39 +27,39 @@ class SceneNode;
 struct MeshPrimitive;
 class Quadtree;
 struct DecodedHdrImage;
-}
+} // namespace bgl::scene
 
 namespace bgl::gpu {
 
 enum class EnvironmentPreset : uint32_t {
     MediterraneanCourtyard = 0,
-    SunsetStudio           = 1,
-    OvercastAtelier        = 2,
-    NightNeon              = 3,
-    CustomHdr              = 4
+    SunsetStudio = 1,
+    OvercastAtelier = 2,
+    NightNeon = 3,
+    CustomHdr = 4
 };
 
 namespace MaterialFlags {
-    constexpr uint32_t HasBaseColorTex         = 1u << 0;
-    constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
-    constexpr uint32_t HasNormalTex            = 1u << 2;
-    constexpr uint32_t HasEmissiveTex          = 1u << 3;
-    constexpr uint32_t HasOcclusionTex         = 1u << 4;
-    constexpr uint32_t HasClearcoatTex         = 1u << 5;
-    constexpr uint32_t HasTransmissionTex      = 1u << 6;
-    constexpr uint32_t HasSheenTex             = 1u << 7;
-    constexpr uint32_t Unlit                   = 1u << 8;
-    constexpr uint32_t DoubleSided             = 1u << 9;
-    constexpr uint32_t EnableBumpMapping       = 1u << 10;
-    constexpr uint32_t EnableMipmapping        = 1u << 11;
-    constexpr uint32_t EnableShadows           = 1u << 12;
-    constexpr uint32_t EnableReflections       = 1u << 13;
-    constexpr uint32_t EnableAmbientOcclusion  = 1u << 14;
-    constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
-    constexpr uint32_t HasThicknessTex         = 1u << 16;
-    constexpr uint32_t HasSkinning             = 1u << 17;
-    constexpr uint32_t HasMorphTargets         = 1u << 18;
-}
+constexpr uint32_t HasBaseColorTex = 1u << 0;
+constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
+constexpr uint32_t HasNormalTex = 1u << 2;
+constexpr uint32_t HasEmissiveTex = 1u << 3;
+constexpr uint32_t HasOcclusionTex = 1u << 4;
+constexpr uint32_t HasClearcoatTex = 1u << 5;
+constexpr uint32_t HasTransmissionTex = 1u << 6;
+constexpr uint32_t HasSheenTex = 1u << 7;
+constexpr uint32_t Unlit = 1u << 8;
+constexpr uint32_t DoubleSided = 1u << 9;
+constexpr uint32_t EnableBumpMapping = 1u << 10;
+constexpr uint32_t EnableMipmapping = 1u << 11;
+constexpr uint32_t EnableShadows = 1u << 12;
+constexpr uint32_t EnableReflections = 1u << 13;
+constexpr uint32_t EnableAmbientOcclusion = 1u << 14;
+constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
+constexpr uint32_t HasThicknessTex = 1u << 16;
+constexpr uint32_t HasSkinning = 1u << 17;
+constexpr uint32_t HasMorphTargets = 1u << 18;
+} // namespace MaterialFlags
 
 struct alignas(16) PrimitiveUniforms {
     // 0..191: Matrices (ViewProj, Model, LightViewProj)
@@ -123,8 +123,9 @@ struct alignas(16) PrimitiveUniforms {
 static_assert(sizeof(PrimitiveUniforms) == 8608, "PrimitiveUniforms must be exactly 8608 bytes (16-byte aligned)");
 
 struct alignas(16) GpuPunctualLight {
-    glm::vec4 posOrDir{0.0f};  // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
-    glm::vec4 colorInt{0.0f};  // xyz = color * intensity, w = range (0 = infinite)
+    glm::vec4 posOrDir{
+        0.0f}; // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
+    glm::vec4 colorInt{0.0f};                      // xyz = color * intensity, w = range (0 = infinite)
     glm::vec4 spotParams{0.0f, -1.0f, 0.0f, 0.0f}; // xyz = spotDirection (light-to-target), w = reserved
 };
 static_assert(sizeof(GpuPunctualLight) == 48, "GpuPunctualLight must be 48 bytes");
@@ -132,10 +133,11 @@ static_assert(sizeof(GpuPunctualLight) == 48, "GpuPunctualLight must be 48 bytes
 struct alignas(16) SceneLightingUniforms {
     std::array<glm::vec4, 9> shIrradiance{};
     std::array<GpuPunctualLight, 16> lights{};
-    std::array<glm::vec4, 16> spotAngles{};      // x = lightAngleScale, y = lightAngleOffset, z = castsShadow, w = pad
-    std::array<glm::uvec4, 256> clusterMasks{};  // 1024 uint32_t bitmasks for 16 x 8 x 8 Forward+ frustum clusters
+    std::array<glm::vec4, 16> spotAngles{};     // x = lightAngleScale, y = lightAngleOffset, z = castsShadow, w = pad
+    std::array<glm::uvec4, 256> clusterMasks{}; // 1024 uint32_t bitmasks for 16 x 8 x 8 Forward+ frustum clusters
     glm::vec4 gridParams{1280.0f, 720.0f, 0.1f, 500.0f}; // x = viewportW, y = viewportH, z = zNear, w = zFar
-    glm::vec4 envParams{0.0f, 0.0f, 1.0f, 1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
+    glm::vec4 envParams{0.0f, 0.0f, 1.0f,
+                        1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
     glm::mat4 viewMatrix{1.0f};
 };
 static_assert(sizeof(SceneLightingUniforms) == 5360, "SceneLightingUniforms must be 5360 bytes");
@@ -174,7 +176,8 @@ public:
      * @param sampleCount Multisample count (e.g. 4 for 4x MSAA).
      * @return Result indicating success or error string.
      */
-    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat, uint32_t sampleCount = 4);
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
+                                  uint32_t sampleCount = 4);
 
     /**
      * @brief Releases all GPU pipeline layouts, pipelines, uniform buffers, and textures.
@@ -200,7 +203,8 @@ public:
      * @param lightDir Normalized vector pointing towards the light source.
      * @param spatialIndex Optional spatial Quadtree for accelerated shadow frustum culling.
      */
-    void RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir, const scene::Quadtree* spatialIndex = nullptr);
+    void RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
+                          const scene::Quadtree* spatialIndex = nullptr);
 
     /**
      * @brief Executes the primary HDR forward+ clustered scene render pass.
@@ -211,7 +215,10 @@ public:
      * @param wireframe Render in wireframe mode if true.
      * @param spatialIndex Optional spatial Quadtree for view frustum and occlusion culling.
      */
-    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr, const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f}, uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+    void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                     const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr,
+                     const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f},
+                     uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
 
     /**
      * @brief Executes the fullscreen tonemapping and color space conversion pass onto the swapchain.
@@ -224,21 +231,16 @@ public:
      * @param viewportW Viewport width in pixels.
      * @param viewportH Viewport height in pixels.
      */
-    void RenderTonemapPass(
-        WGPURenderPassEncoder swapchainPass,
-        WGPUTextureView hdrResolveView,
-        const glm::mat4& viewProj = glm::mat4{1.0f},
-        const glm::vec3& cameraPos = glm::vec3{0.0f},
-        const glm::vec3& lightDir = glm::vec3{0.577f},
-        float envRotation = 0.0f,
-        uint32_t viewportW = 1280,
-        uint32_t viewportH = 720
-    );
+    void RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
+                           const glm::mat4& viewProj = glm::mat4{1.0f}, const glm::vec3& cameraPos = glm::vec3{0.0f},
+                           const glm::vec3& lightDir = glm::vec3{0.577f}, float envRotation = 0.0f,
+                           uint32_t viewportW = 1280, uint32_t viewportH = 720);
 
     /**
      * @brief Renders a single 3D wireframe Axis-Aligned Bounding Box.
      */
-    void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj, const glm::vec4& color);
+    void RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb, const glm::mat4& viewProj,
+                    const glm::vec4& color);
 
     /**
      * @brief Batches scene root and mesh primitive bounding box line geometry into CPU buffers.
@@ -253,7 +255,8 @@ public:
     /**
      * @brief Batches and renders scene bounding boxes in a single draw call.
      */
-    void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj, bool showSceneAABB = true, bool showPrimitiveAABBs = true);
+    void RenderSceneAABBs(WGPURenderPassEncoder pass, const scene::Scene& scene, const glm::mat4& viewProj,
+                          bool showSceneAABB = true, bool showPrimitiveAABBs = true);
 
     /**
      * @brief Batches and renders Quadtree cell boundaries in a single draw call.
@@ -276,11 +279,16 @@ public:
     [[nodiscard]] EnvironmentPreset GetEnvironmentPreset() const noexcept { return currentEnvPreset_; }
     [[nodiscard]] static constexpr std::string_view GetEnvironmentPresetName(EnvironmentPreset preset) noexcept {
         switch (preset) {
-            case EnvironmentPreset::MediterraneanCourtyard: return "Mediterranean Courtyard";
-            case EnvironmentPreset::SunsetStudio:           return "Sunset Studio";
-            case EnvironmentPreset::OvercastAtelier:        return "Overcast Atelier";
-            case EnvironmentPreset::NightNeon:              return "Night Neon";
-            case EnvironmentPreset::CustomHdr:              return "Custom HDR/EXR";
+        case EnvironmentPreset::MediterraneanCourtyard:
+            return "Mediterranean Courtyard";
+        case EnvironmentPreset::SunsetStudio:
+            return "Sunset Studio";
+        case EnvironmentPreset::OvercastAtelier:
+            return "Overcast Atelier";
+        case EnvironmentPreset::NightNeon:
+            return "Night Neon";
+        case EnvironmentPreset::CustomHdr:
+            return "Custom HDR/EXR";
         }
         return "Mediterranean Courtyard";
     }
@@ -302,17 +310,26 @@ public:
     void SetToneMapOperator(ToneMapOperator op) noexcept { toneMapOperator_ = op; }
     void CycleToneMapOperator() noexcept {
         switch (toneMapOperator_) {
-            case ToneMapOperator::KhronosPbrNeutral: toneMapOperator_ = ToneMapOperator::AgX; break;
-            case ToneMapOperator::AgX:               toneMapOperator_ = ToneMapOperator::ACES; break;
-            case ToneMapOperator::ACES:              toneMapOperator_ = ToneMapOperator::KhronosPbrNeutral; break;
+        case ToneMapOperator::KhronosPbrNeutral:
+            toneMapOperator_ = ToneMapOperator::AgX;
+            break;
+        case ToneMapOperator::AgX:
+            toneMapOperator_ = ToneMapOperator::ACES;
+            break;
+        case ToneMapOperator::ACES:
+            toneMapOperator_ = ToneMapOperator::KhronosPbrNeutral;
+            break;
         }
     }
     [[nodiscard]] ToneMapOperator GetToneMapOperator() const noexcept { return toneMapOperator_; }
     [[nodiscard]] static constexpr std::string_view GetToneMapOperatorName(ToneMapOperator op) noexcept {
         switch (op) {
-            case ToneMapOperator::KhronosPbrNeutral: return "Khronos PBR Neutral";
-            case ToneMapOperator::AgX:               return "AgX";
-            case ToneMapOperator::ACES:              return "ACES Filmic";
+        case ToneMapOperator::KhronosPbrNeutral:
+            return "Khronos PBR Neutral";
+        case ToneMapOperator::AgX:
+            return "AgX";
+        case ToneMapOperator::ACES:
+            return "ACES Filmic";
         }
         return "Khronos PBR Neutral";
     }
@@ -326,7 +343,9 @@ public:
     [[nodiscard]] bool IsBumpMappingEnabled() const noexcept { return bumpMappingEnabled_; }
 
     void SetMipmappingEnabled(bool enabled, scene::Scene* activeScene = nullptr);
-    void ToggleMipmapping(scene::Scene* activeScene = nullptr) { SetMipmappingEnabled(!mipmappingEnabled_, activeScene); }
+    void ToggleMipmapping(scene::Scene* activeScene = nullptr) {
+        SetMipmappingEnabled(!mipmappingEnabled_, activeScene);
+    }
     [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return mipmappingEnabled_; }
 
     void SetShadowsEnabled(bool enabled) noexcept {
@@ -406,40 +425,58 @@ public:
     [[nodiscard]] GpuRayPicker& GetGpuRayPicker() noexcept { return gpuRayPicker_; }
     [[nodiscard]] const GpuRayPicker& GetGpuRayPicker() const noexcept { return gpuRayPicker_; }
 
-    // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also used by unit tests)
+    // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also
+    // used by unit tests)
     [[nodiscard]] static uint32_t CalculateMipLevels(uint32_t width, uint32_t height) noexcept;
-    [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
-    [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH, uint32_t dstW, uint32_t dstH, bool isNormalMap = false);
-    [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds, const glm::vec3& lightDir) noexcept;
-    [[nodiscard]] static std::vector<uint8_t> GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize, float roughness, const glm::vec3& sunDir);
-    [[nodiscard]] static std::vector<float> GenerateProceduralHdrCubemapFace(uint32_t faceIndex, uint32_t faceSize, EnvironmentPreset preset, const glm::vec3& sunDir);
-    [[nodiscard]] static std::vector<float> ConvertEquirectHdrToCubemapFace(const scene::DecodedHdrImage& hdrImg, uint32_t faceIndex, uint32_t faceSize);
-    [[nodiscard]] static std::array<glm::vec4, 9> ComputeSphericalHarmonicsL2(const std::array<std::vector<float>, 6>& cubemapFaces, uint32_t faceSize) noexcept;
-    [[nodiscard]] static glm::vec3 EvaluateSphericalHarmonicsL2(const std::array<glm::vec4, 9>& shCoeffs, const glm::vec3& normal) noexcept;
-    [[nodiscard]] static glm::vec3 ApplyToneMappingCPU(const glm::vec3& linearHdr, float exposure, ToneMapOperator op) noexcept;
-    [[nodiscard]] static glm::vec3 EvaluateBeerLambertVolumeAttenuation(const glm::vec3& attenuationColor, float attenuationDistance, float thickness, float NdotV) noexcept;
-    [[nodiscard]] static glm::vec3 EvaluateBloomThreshold(const glm::vec3& color, float exposure, float threshold) noexcept;
-    [[nodiscard]] static float EvaluateScreenSpaceOcclusionFactor(float depthCenter, float depthNeighbor, float radius, float bias) noexcept;
-    static void BuildClusteredLightGrid(
-        std::span<const GpuPunctualLight> lights,
-        uint32_t lightCount,
-        const glm::mat4& viewMatrix,
-        const glm::mat4& projMatrix,
-        float zNear,
-        float zFar,
-        std::array<glm::uvec4, 256>& outClusterMasks
-    ) noexcept;
+    [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(std::span<const uint8_t> src, uint32_t srcW,
+                                                                   uint32_t srcH, uint32_t dstW, uint32_t dstH,
+                                                                   bool isNormalMap = false);
+    [[nodiscard]] static std::vector<uint8_t> GenerateNextMipLevel(const uint8_t* src, uint32_t srcW, uint32_t srcH,
+                                                                   uint32_t dstW, uint32_t dstH,
+                                                                   bool isNormalMap = false);
+    [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds,
+                                                                 const glm::vec3& lightDir) noexcept;
+    [[nodiscard]] static std::vector<uint8_t> GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize,
+                                                                        float roughness, const glm::vec3& sunDir);
+    [[nodiscard]] static std::vector<float> GenerateProceduralHdrCubemapFace(uint32_t faceIndex, uint32_t faceSize,
+                                                                             EnvironmentPreset preset,
+                                                                             const glm::vec3& sunDir);
+    [[nodiscard]] static std::vector<float> ConvertEquirectHdrToCubemapFace(const scene::DecodedHdrImage& hdrImg,
+                                                                            uint32_t faceIndex, uint32_t faceSize);
+    [[nodiscard]] static std::array<glm::vec4, 9>
+    ComputeSphericalHarmonicsL2(const std::array<std::vector<float>, 6>& cubemapFaces, uint32_t faceSize) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateSphericalHarmonicsL2(const std::array<glm::vec4, 9>& shCoeffs,
+                                                                const glm::vec3& normal) noexcept;
+    [[nodiscard]] static glm::vec3 ApplyToneMappingCPU(const glm::vec3& linearHdr, float exposure,
+                                                       ToneMapOperator op) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateBeerLambertVolumeAttenuation(const glm::vec3& attenuationColor,
+                                                                        float attenuationDistance, float thickness,
+                                                                        float NdotV) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateBloomThreshold(const glm::vec3& color, float exposure,
+                                                          float threshold) noexcept;
+    [[nodiscard]] static float EvaluateScreenSpaceOcclusionFactor(float depthCenter, float depthNeighbor, float radius,
+                                                                  float bias) noexcept;
+    static void BuildClusteredLightGrid(std::span<const GpuPunctualLight> lights, uint32_t lightCount,
+                                        const glm::mat4& viewMatrix, const glm::mat4& projMatrix, float zNear,
+                                        float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept;
 
 private:
     void InitializeComputeIBLPipelines();
     void InitializeTonemapPipeline();
     void DispatchBrdfLutCompute();
     void BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces, uint32_t faceSize);
-    void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH, float zNear, float zFar);
+    void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix,
+                                     uint32_t viewportW, uint32_t viewportH, float zNear, float zFar);
 
-    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline, const scene::SceneNode* node = nullptr);
-    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
-    void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform);
+    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim,
+                         const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                         bool wireframe, WGPURenderPipeline& currentBoundPipeline,
+                         const scene::SceneNode* node = nullptr);
+    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj,
+                    const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe,
+                    const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
+    void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node,
+                          const glm::mat4& parentTransform);
 
     bool initialized_{false};
     bool bumpMappingEnabled_{true};
@@ -518,17 +555,6 @@ private:
     SamplerHandle tonemapSampler_{};
     WGPUTextureView cachedHdrResolveView_{nullptr};
     BindGroupHandle tonemapBindGroup_{};
-
-    // AABB Wireframe Resources
-    RenderPipelineHandle aabbPipeline_{};
-    BindGroupLayoutHandle aabbBindGroupLayout_{};
-    BufferHandle aabbVertexBuffer_{};
-    BufferHandle aabbUniformBuffer_{};
-    BindGroupHandle aabbBindGroup_{};
-    size_t aabbVertexBufferSize_{0};
-    size_t aabbFrameByteOffset_{0};
-    std::vector<AabbVertex> batchedAabbVertices_{};
-    std::vector<AabbVertex> cachedSceneAabbVertices_{};
 
     // Default 1x1 Fallback Textures
     TextureHandle defaultWhiteTexture_{};

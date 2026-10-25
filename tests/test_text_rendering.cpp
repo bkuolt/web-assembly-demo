@@ -2,12 +2,12 @@
  * @file test_text_rendering.cpp
  * @brief Unit tests for FontAtlas, FreeType rasterization, and HarfBuzz text shaping.
  */
-#include <gtest/gtest.h>
 #include <ft2build.h>
+#include <gtest/gtest.h>
 #include FT_FREETYPE_H
+#include "text/EmbeddedFont.hpp"
 #include "text/FontAtlas.hpp"
 #include "text/TextShaper.hpp"
-#include "text/EmbeddedFont.hpp"
 
 using namespace bgl;
 
@@ -133,4 +133,3 @@ TEST(TextRenderingTest, CustomColorTintPreserved) {
         EXPECT_FLOAT_EQ(quad.color.a, 0.75f);
     }
 }
-

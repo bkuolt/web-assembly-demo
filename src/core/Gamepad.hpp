@@ -4,9 +4,9 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <string>
-#include <cstdint>
 
 #if defined(BGL_PLATFORM_NATIVE)
 struct _SDL_GameController;
@@ -20,19 +20,19 @@ namespace bgl::core {
  * @brief Normalized state of dual-analog gamepad axes, smoothed inputs, and action buttons.
  */
 struct GamepadState {
-    glm::vec2 leftStick{0.0f};      // Raw deadzoned Move / Pan
-    glm::vec2 rightStick{0.0f};     // Raw deadzoned Orbit / Look
-    glm::vec2 curvedLook{0.0f};     // PS5 exponential response curve applied
-    glm::vec2 smoothedMove{0.0f};   // Dynamically smoothed translation
-    glm::vec2 smoothedLook{0.0f};   // Dynamically smoothed look/orbit
-    float leftTrigger{0.0f};        // Zoom Out
-    float rightTrigger{0.0f};       // Zoom In
-    bool buttonA{false};            // Ray-Picking / Confirm
-    bool buttonB{false};            // Back
-    bool buttonX{false};            // Focus
-    bool buttonY{false};            // Bounding-Box Toggle
+    glm::vec2 leftStick{0.0f};    // Raw deadzoned Move / Pan
+    glm::vec2 rightStick{0.0f};   // Raw deadzoned Orbit / Look
+    glm::vec2 curvedLook{0.0f};   // PS5 exponential response curve applied
+    glm::vec2 smoothedMove{0.0f}; // Dynamically smoothed translation
+    glm::vec2 smoothedLook{0.0f}; // Dynamically smoothed look/orbit
+    float leftTrigger{0.0f};      // Zoom Out
+    float rightTrigger{0.0f};     // Zoom In
+    bool buttonA{false};          // Ray-Picking / Confirm
+    bool buttonB{false};          // Back
+    bool buttonX{false};          // Focus
+    bool buttonY{false};          // Bounding-Box Toggle
     bool connected{false};
-    bool isDualSense{false};        // PS5 DualSense / DualSense Edge controller
+    bool isDualSense{false}; // PS5 DualSense / DualSense Edge controller
     std::string deviceName{"None"};
 };
 
@@ -71,7 +71,8 @@ public:
      * @param exponent Sensitivity power curve (default 2.1f for fine precision + fast turning).
      * @param pitchFactor Vertical sensitivity damping (default 0.70f for horizon stability).
      */
-    [[nodiscard]] static glm::vec2 ApplyPs5ResponseCurve(glm::vec2 stick, float exponent = 2.1f, float pitchFactor = 0.70f) noexcept;
+    [[nodiscard]] static glm::vec2 ApplyPs5ResponseCurve(glm::vec2 stick, float exponent = 2.1f,
+                                                         float pitchFactor = 0.70f) noexcept;
 
     /**
      * @brief Delivers a haptic vibration pulse to the controller.
@@ -88,4 +89,3 @@ private:
 };
 
 } // namespace bgl::core
-

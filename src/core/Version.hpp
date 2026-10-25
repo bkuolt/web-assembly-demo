@@ -5,8 +5,8 @@
  */
 #pragma once
 
-#include <string_view>
 #include <cstdint>
+#include <string_view>
 
 namespace bgl {
 
@@ -17,4 +17,3 @@ inline constexpr uint32_t kEngineVersionMinor = 9;
 inline constexpr uint32_t kEngineVersionPatch = 9;
 
 } // namespace bgl
-

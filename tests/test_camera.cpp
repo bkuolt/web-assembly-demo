@@ -2,8 +2,8 @@
  * @file test_camera.cpp
  * @brief Unit tests for Camera orbit, pan, zoom, and screen-to-world ray unprojection.
  */
-#include <gtest/gtest.h>
 #include "core/Camera.hpp"
+#include <gtest/gtest.h>
 
 using namespace bgl::core;
 
@@ -347,5 +347,3 @@ TEST(CameraTest, glTFCameraTransformIngestion) {
     EXPECT_FLOAT_EQ(camera.GetFieldOfView(), glm::radians(60.0f));
     EXPECT_EQ(camera.GetMode(), CameraMode::Fly);
 }
-
-

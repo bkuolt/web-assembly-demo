@@ -1,14 +1,15 @@
 /**
  * @file TextureDecoder.hpp
- * @brief Memory decoding for PNG, JPEG, WebP, KTX2 (RGBA32/BC7/ASTC/ETC2), Radiance HDR (.hdr), and OpenEXR (.exr) textures.
+ * @brief Memory decoding for PNG, JPEG, WebP, KTX2 (RGBA32/BC7/ASTC/ETC2), Radiance HDR (.hdr), and OpenEXR (.exr)
+ * textures.
  */
 #pragma once
 
-#include <vector>
+#include "core/Types.hpp"
 #include <cstdint>
 #include <span>
 #include <string_view>
-#include "core/Types.hpp"
+#include <vector>
 
 namespace bgl::scene {
 
@@ -17,10 +18,10 @@ namespace bgl::scene {
  * @brief Target GPU texture format for KTX2 Basis Universal (ETC1S / UASTC) transcoding.
  */
 enum class KtxTranscodeTarget : uint32_t {
-    Rgba32   = 0, ///< Uncompressed RGBA8 (32 bits/pixel)
-    Bc7      = 1, ///< Desktop BC7 RGBA block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
-    Astc4x4  = 2, ///< Mobile/Modern ASTC 4x4 RGBA block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
-    Etc2Rgba = 3  ///< Mobile/WebGL2 ETC2 EAC RGBA8 block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
+    Rgba32 = 0,  ///< Uncompressed RGBA8 (32 bits/pixel)
+    Bc7 = 1,     ///< Desktop BC7 RGBA block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
+    Astc4x4 = 2, ///< Mobile/Modern ASTC 4x4 RGBA block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
+    Etc2Rgba = 3 ///< Mobile/WebGL2 ETC2 EAC RGBA8 block-compressed (8 bits/pixel, 4x4 blocks, 16 bytes/block)
 };
 
 /**
@@ -137,11 +138,15 @@ public:
     [[nodiscard]] static KtxTranscodeTarget GetDefaultKtxTarget() noexcept;
     [[nodiscard]] static constexpr std::string_view GetKtxTargetName(KtxTranscodeTarget target) noexcept {
         switch (target) {
-            case KtxTranscodeTarget::Bc7:      return "BC7_RGBA";
-            case KtxTranscodeTarget::Astc4x4:  return "ASTC_4x4_RGBA";
-            case KtxTranscodeTarget::Etc2Rgba: return "ETC2_RGBA8";
-            case KtxTranscodeTarget::Rgba32:
-            default:                           return "RGBA32";
+        case KtxTranscodeTarget::Bc7:
+            return "BC7_RGBA";
+        case KtxTranscodeTarget::Astc4x4:
+            return "ASTC_4x4_RGBA";
+        case KtxTranscodeTarget::Etc2Rgba:
+            return "ETC2_RGBA8";
+        case KtxTranscodeTarget::Rgba32:
+        default:
+            return "RGBA32";
         }
     }
 
@@ -187,4 +192,3 @@ public:
 };
 
 } // namespace bgl::scene
-

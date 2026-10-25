@@ -4,17 +4,13 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
+#include <glm/glm.hpp>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
-enum class ToneMapOperator : uint32_t {
-    KhronosPbrNeutral = 0,
-    AgX               = 1,
-    ACES              = 2
-};
+enum class ToneMapOperator : uint32_t { KhronosPbrNeutral = 0, AgX = 1, ACES = 2 };
 
 struct alignas(16) TonemapUniforms {
     float exposure{1.0f};
@@ -22,9 +18,10 @@ struct alignas(16) TonemapUniforms {
     uint32_t isSrgbSurface{0};
     uint32_t lensFlareEnabled{1};
     glm::vec4 sunScreenPos{0.5f, 0.5f, 0.0f, 1.0f}; // xy = sun UV, z = visibility, w = aspect ratio
-    glm::vec4 flareParams{0.75f, 0.38f, 1.0f, 0.0f}; // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
+    glm::vec4 flareParams{0.75f, 0.38f, 1.0f,
+                          0.0f}; // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
     glm::vec4 bloomParams{0.65f, 1.05f, 0.85f, 1.0f}; // x = intensity, y = threshold, z = scatter, w = enabled
-    glm::vec4 ssaoParams{0.75f, 0.02f, 0.005f, 1.0f};  // x = intensity, y = radius, z = bias, w = enabled
+    glm::vec4 ssaoParams{0.75f, 0.02f, 0.005f, 1.0f}; // x = intensity, y = radius, z = bias, w = enabled
 };
 
 static_assert(sizeof(TonemapUniforms) == 80, "TonemapUniforms must be 80 bytes");
@@ -45,13 +42,8 @@ public:
     /**
      * @brief Records fullscreen HDR tonemapping, SSAO, Bloom, and Lens Flare post-processing.
      */
-    void Render(WGPURenderPassEncoder swapchainPass,
-                WGPUTextureView hdrResolveView,
-                const glm::mat4& viewProj,
-                const glm::vec3& cameraPos,
-                const glm::vec3& lightDir,
-                float envRotation,
-                uint32_t viewportW,
+    void Render(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView, const glm::mat4& viewProj,
+                const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation, uint32_t viewportW,
                 uint32_t viewportH);
 
     void SetExposure(float exposure) noexcept { exposure_ = std::clamp(exposure, 0.05f, 20.0f); }

@@ -3,7 +3,8 @@
  * @brief Embedded WGSL Shaders:
  *        - Compute Split-Sum BRDF LUT (`kBrdfLutComputeWGSL`)
  *        - Compute GGX Prefiltered Environment Cubemap (`kGgxPrefilterComputeWGSL`)
- *        - Full glTF 2.0 PBR + Spherical Harmonics (SH) Irradiance + BRDF LUT + Clustered Forward+ `KHR_lights_punctual` (`kPbrShaderWGSL`)
+ *        - Full glTF 2.0 PBR + Spherical Harmonics (SH) Irradiance + BRDF LUT + Clustered Forward+
+ * `KHR_lights_punctual` (`kPbrShaderWGSL`)
  *        - Fullscreen HDR Tonemapping Post-Processing (`kTonemapShaderWGSL`: Khronos PBR Neutral, AgX, ACES)
  *        - Directional Shadow Mapping (`kShadowShaderWGSL`) & Wireframe/AABB Shaders
  */

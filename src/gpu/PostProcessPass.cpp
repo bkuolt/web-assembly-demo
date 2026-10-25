@@ -3,15 +3,15 @@
  * @brief Implementation of fullscreen HDR Tonemapping, SSAO, Bloom, and Lens Flares.
  */
 #include "gpu/PostProcessPass.hpp"
-#include "gpu/Shaders.hpp"
-#include "gpu/Handle.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/Handle.hpp"
+#include "gpu/Shaders.hpp"
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <utility>
 #include <glm/gtc/matrix_transform.hpp>
+#include <utility>
 
 namespace bgl::gpu {
 
@@ -28,24 +28,13 @@ PostProcessPass::~PostProcessPass() {
 }
 
 PostProcessPass::PostProcessPass(PostProcessPass&& other) noexcept
-    : device_{other.device_}
-    , queue_{other.queue_}
-    , tonemapPipeline_{other.tonemapPipeline_}
-    , tonemapBindGroupLayout_{other.tonemapBindGroupLayout_}
-    , tonemapUniformBuffer_{other.tonemapUniformBuffer_}
-    , tonemapVertexBuffer_{other.tonemapVertexBuffer_}
-    , tonemapSampler_{other.tonemapSampler_}
-    , tonemapBindGroup_{other.tonemapBindGroup_}
-    , cachedHdrResolveView_{other.cachedHdrResolveView_}
-    , exposure_{other.exposure_}
-    , toneMapOp_{other.toneMapOp_}
-    , enableLensFlare_{other.enableLensFlare_}
-    , lensFlareIntensity_{other.lensFlareIntensity_}
-    , enableSsao_{other.enableSsao_}
-    , ssaoIntensity_{other.ssaoIntensity_}
-    , enableBloom_{other.enableBloom_}
-    , bloomIntensity_{other.bloomIntensity_}
-{
+    : device_{other.device_}, queue_{other.queue_}, tonemapPipeline_{other.tonemapPipeline_},
+      tonemapBindGroupLayout_{other.tonemapBindGroupLayout_}, tonemapUniformBuffer_{other.tonemapUniformBuffer_},
+      tonemapVertexBuffer_{other.tonemapVertexBuffer_}, tonemapSampler_{other.tonemapSampler_},
+      tonemapBindGroup_{other.tonemapBindGroup_}, cachedHdrResolveView_{other.cachedHdrResolveView_},
+      exposure_{other.exposure_}, toneMapOp_{other.toneMapOp_}, enableLensFlare_{other.enableLensFlare_},
+      lensFlareIntensity_{other.lensFlareIntensity_}, enableSsao_{other.enableSsao_},
+      ssaoIntensity_{other.ssaoIntensity_}, enableBloom_{other.enableBloom_}, bloomIntensity_{other.bloomIntensity_} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.tonemapPipeline_ = nullptr;
@@ -123,9 +112,7 @@ void PostProcessPass::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
-core::Result<void> PostProcessPass::Initialize(WGPUDevice device,
-                                               WGPUQueue queue,
-                                               WGPUTextureFormat surfaceFormat) {
+core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize PostProcessPass with null WebGPU device or queue");
     }
@@ -237,19 +224,16 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device,
     return {};
 }
 
-void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass,
-                             WGPUTextureView hdrResolveView,
-                             const glm::mat4& viewProj,
-                             const glm::vec3& cameraPos,
-                             const glm::vec3& lightDir,
-                             float envRotation,
-                             uint32_t viewportW,
-                             uint32_t viewportH) {
-    if (!swapchainPass || !hdrResolveView || !tonemapPipeline_) return;
+void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
+                             const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                             float envRotation, uint32_t viewportW, uint32_t viewportH) {
+    if (!swapchainPass || !hdrResolveView || !tonemapPipeline_)
+        return;
 
     if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
         cachedHdrResolveView_ = hdrResolveView;
-        if (tonemapBindGroup_) wgpuBindGroupRelease(tonemapBindGroup_);
+        if (tonemapBindGroup_)
+            wgpuBindGroupRelease(tonemapBindGroup_);
 
         std::array<WGPUBindGroupEntry, 3> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -275,13 +259,15 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass,
     }
 
     // Project sun vector to screen NDC for real-time lens flares
-    const glm::vec3 rotatedSun = glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) * glm::vec4{glm::normalize(lightDir), 0.0f};
+    const glm::vec3 rotatedSun = glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) *
+                                 glm::vec4{glm::normalize(lightDir), 0.0f};
     const glm::vec4 sunWorldPos = glm::vec4{cameraPos + rotatedSun * 1000.0f, 1.0f};
     const glm::vec4 sunClip = viewProj * sunWorldPos;
 
     float sunVisibility = 0.0f;
     glm::vec2 sunUV{0.5f, 0.5f};
-    const float aspect = (viewportH > 0) ? (static_cast<float>(viewportW) / static_cast<float>(viewportH)) : (16.0f / 9.0f);
+    const float aspect =
+        (viewportH > 0) ? (static_cast<float>(viewportW) / static_cast<float>(viewportH)) : (16.0f / 9.0f);
 
     if (sunClip.w > 0.001f) {
         const glm::vec3 sunNdc = glm::vec3{sunClip} / sunClip.w;
@@ -294,16 +280,15 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass,
         }
     }
 
-    TonemapUniforms uniforms{
-        .exposure = exposure_,
-        .operatorId = std::to_underlying(toneMapOp_),
-        .isSrgbSurface = IsSrgbSwapchainFormat(surfaceFormat_) ? 1u : 0u,
-        .lensFlareEnabled = enableLensFlare_ ? 1u : 0u,
-        .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
-        .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f},
-        .bloomParams = glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, enableBloom_ ? 1.0f : 0.0f},
-        .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, enableSsao_ ? 1.0f : 0.0f}
-    };
+    TonemapUniforms uniforms{.exposure = exposure_,
+                             .operatorId = std::to_underlying(toneMapOp_),
+                             .isSrgbSurface = IsSrgbSwapchainFormat(surfaceFormat_) ? 1u : 0u,
+                             .lensFlareEnabled = enableLensFlare_ ? 1u : 0u,
+                             .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
+                             .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f},
+                             .bloomParams =
+                                 glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, enableBloom_ ? 1.0f : 0.0f},
+                             .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, enableSsao_ ? 1.0f : 0.0f}};
 
     wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_, 0, &uniforms, sizeof(uniforms));
 
@@ -314,9 +299,15 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass,
 
 void PostProcessPass::CycleToneMapOperator() noexcept {
     switch (toneMapOp_) {
-        case ToneMapOperator::KhronosPbrNeutral: toneMapOp_ = ToneMapOperator::AgX; break;
-        case ToneMapOperator::AgX:               toneMapOp_ = ToneMapOperator::ACES; break;
-        case ToneMapOperator::ACES:              toneMapOp_ = ToneMapOperator::KhronosPbrNeutral; break;
+    case ToneMapOperator::KhronosPbrNeutral:
+        toneMapOp_ = ToneMapOperator::AgX;
+        break;
+    case ToneMapOperator::AgX:
+        toneMapOp_ = ToneMapOperator::ACES;
+        break;
+    case ToneMapOperator::ACES:
+        toneMapOp_ = ToneMapOperator::KhronosPbrNeutral;
+        break;
     }
 }
 

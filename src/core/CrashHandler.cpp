@@ -5,22 +5,22 @@
 #include "core/CrashHandler.hpp"
 #include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cstdio>
 #include <unistd.h>
 
 #if defined(__linux__) || defined(__unix__)
-#include <execinfo.h>
-#include <dlfcn.h>
 #include <cxxabi.h>
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #endif
 
 #if defined(BGL_HAS_STD_STACKTRACE)
-#include <stacktrace>
 #include <iostream>
+#include <stacktrace>
 #endif
 
 namespace bgl::core {
@@ -44,9 +44,11 @@ static std::atomic<bool> g_isHandlingCrash{false};
  * @brief Async-signal-safe string length.
  */
 size_t SafeStrLen(const char* str) noexcept {
-    if (!str) return 0;
+    if (!str)
+        return 0;
     size_t len = 0;
-    while (str[len] != '\0') ++len;
+    while (str[len] != '\0')
+        ++len;
     return len;
 }
 
@@ -54,10 +56,12 @@ size_t SafeStrLen(const char* str) noexcept {
  * @brief Async-signal-safe stderr writer for bounded character spans.
  */
 void SafeWriteStderr(const char* str, size_t len) noexcept {
-    if (!str || len == 0) return;
+    if (!str || len == 0)
+        return;
     while (len > 0) {
         ssize_t written = ::write(STDERR_FILENO, str, len);
-        if (written <= 0) break;
+        if (written <= 0)
+            break;
         str += written;
         len -= static_cast<size_t>(written);
     }
@@ -67,7 +71,8 @@ void SafeWriteStderr(const char* str, size_t len) noexcept {
  * @brief Async-signal-safe stderr writer for null-terminated strings.
  */
 void SafeWriteStderr(const char* str) noexcept {
-    if (!str) return;
+    if (!str)
+        return;
     SafeWriteStderr(str, SafeStrLen(str));
 }
 
@@ -82,7 +87,8 @@ void SafeWriteStderr(std::string_view sv) noexcept {
  * @brief Async-signal-safe pointer-to-hex formatter.
  */
 void SafeFormatHex(uintptr_t val, char* out, size_t outSize) noexcept {
-    if (outSize < 19) return;
+    if (outSize < 19)
+        return;
     out[0] = '0';
     out[1] = 'x';
     const char hexDigits[] = "0123456789abcdef";
@@ -97,7 +103,8 @@ void SafeFormatHex(uintptr_t val, char* out, size_t outSize) noexcept {
  * @brief Async-signal-safe integer-to-decimal formatter.
  */
 void SafeFormatDec(int64_t val, char* out, size_t outSize) noexcept {
-    if (outSize < 22) return;
+    if (outSize < 22)
+        return;
     if (val == 0) {
         out[0] = '0';
         out[1] = '\0';
@@ -112,7 +119,8 @@ void SafeFormatDec(int64_t val, char* out, size_t outSize) noexcept {
         uval /= 10;
     }
     size_t outIdx = 0;
-    if (neg) out[outIdx++] = '-';
+    if (neg)
+        out[outIdx++] = '-';
     while (idx > 0) {
         out[outIdx++] = tmp[--idx];
     }
@@ -121,41 +129,61 @@ void SafeFormatDec(int64_t val, char* out, size_t outSize) noexcept {
 
 const char* GetSignalName(int sig) noexcept {
     switch (sig) {
-        case SIGSEGV: return "SIGSEGV (Segmentation Fault / Invalid Memory Reference)";
-        case SIGABRT: return "SIGABRT (Process Aborted / Assertion Failure)";
-        case SIGFPE:  return "SIGFPE  (Erroneous Arithmetic Operation / Divide by Zero)";
-        case SIGILL:  return "SIGILL  (Illegal Hardware Instruction)";
-        case SIGBUS:  return "SIGBUS  (Bus Error / Misaligned Memory Access)";
-        default:      return "UNKNOWN (Fatal Signal)";
+    case SIGSEGV:
+        return "SIGSEGV (Segmentation Fault / Invalid Memory Reference)";
+    case SIGABRT:
+        return "SIGABRT (Process Aborted / Assertion Failure)";
+    case SIGFPE:
+        return "SIGFPE  (Erroneous Arithmetic Operation / Divide by Zero)";
+    case SIGILL:
+        return "SIGILL  (Illegal Hardware Instruction)";
+    case SIGBUS:
+        return "SIGBUS  (Bus Error / Misaligned Memory Access)";
+    default:
+        return "UNKNOWN (Fatal Signal)";
     }
 }
 
 const char* GetSignalCodeDesc(int sig, int code) noexcept {
     if (sig == SIGSEGV) {
         switch (code) {
-            case SEGV_MAPERR: return "Address not mapped to object";
-            case SEGV_ACCERR: return "Invalid permissions for mapped object";
-            default: return "Memory access violation";
+        case SEGV_MAPERR:
+            return "Address not mapped to object";
+        case SEGV_ACCERR:
+            return "Invalid permissions for mapped object";
+        default:
+            return "Memory access violation";
         }
     } else if (sig == SIGFPE) {
         switch (code) {
-            case FPE_INTDIV: return "Integer divide by zero";
-            case FPE_INTOVF: return "Integer overflow";
-            case FPE_FLTDIV: return "Floating-point divide by zero";
-            case FPE_FLTOVF: return "Floating-point overflow";
-            default: return "Arithmetic fault";
+        case FPE_INTDIV:
+            return "Integer divide by zero";
+        case FPE_INTOVF:
+            return "Integer overflow";
+        case FPE_FLTDIV:
+            return "Floating-point divide by zero";
+        case FPE_FLTOVF:
+            return "Floating-point overflow";
+        default:
+            return "Arithmetic fault";
         }
     } else if (sig == SIGILL) {
         switch (code) {
-            case ILL_ILLOPC: return "Illegal opcode";
-            case ILL_ILLOPN: return "Illegal operand";
-            default: return "Illegal instruction fault";
+        case ILL_ILLOPC:
+            return "Illegal opcode";
+        case ILL_ILLOPN:
+            return "Illegal operand";
+        default:
+            return "Illegal instruction fault";
         }
     } else if (sig == SIGBUS) {
         switch (code) {
-            case BUS_ADRALN: return "Invalid address alignment";
-            case BUS_ADRERR: return "Nonexistent physical address";
-            default: return "Bus error";
+        case BUS_ADRALN:
+            return "Invalid address alignment";
+        case BUS_ADRERR:
+            return "Nonexistent physical address";
+        default:
+            return "Bus error";
         }
     }
     return "Standard signal code";
@@ -262,9 +290,9 @@ void InstallCrashHandler() noexcept {
 
     ::sigaction(SIGSEGV, &sa, &g_oldActionSegv);
     ::sigaction(SIGABRT, &sa, &g_oldActionAbrt);
-    ::sigaction(SIGFPE,  &sa, &g_oldActionFpe);
-    ::sigaction(SIGILL,  &sa, &g_oldActionIll);
-    ::sigaction(SIGBUS,  &sa, &g_oldActionBus);
+    ::sigaction(SIGFPE, &sa, &g_oldActionFpe);
+    ::sigaction(SIGILL, &sa, &g_oldActionIll);
+    ::sigaction(SIGBUS, &sa, &g_oldActionBus);
 #endif
 }
 
@@ -272,9 +300,9 @@ void UninstallCrashHandler() noexcept {
 #if defined(__linux__) || defined(__unix__)
     ::sigaction(SIGSEGV, &g_oldActionSegv, nullptr);
     ::sigaction(SIGABRT, &g_oldActionAbrt, nullptr);
-    ::sigaction(SIGFPE,  &g_oldActionFpe,  nullptr);
-    ::sigaction(SIGILL,  &g_oldActionIll,  nullptr);
-    ::sigaction(SIGBUS,  &g_oldActionBus,  nullptr);
+    ::sigaction(SIGFPE, &g_oldActionFpe, nullptr);
+    ::sigaction(SIGILL, &g_oldActionIll, nullptr);
+    ::sigaction(SIGBUS, &g_oldActionBus, nullptr);
 
     if (g_altStackMemory) {
         stack_t disableStack;
@@ -302,9 +330,7 @@ void PrintStackTrace(std::string_view reason) noexcept {
 
 #if defined(BGL_HAS_STD_STACKTRACE)
     try {
-        std::cerr << "C++23 std::stacktrace:\n"
-                  << std::stacktrace::current()
-                  << "\n";
+        std::cerr << "C++23 std::stacktrace:\n" << std::stacktrace::current() << "\n";
     } catch (...) {}
 #endif
 #endif

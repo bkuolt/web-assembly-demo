@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include <string>
-#include <vector>
-#include <span>
+#include "core/Types.hpp"
 #include <algorithm>
 #include <cmath>
-#include <memory>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include "core/Types.hpp"
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
 
 namespace bgl::scene {
 
@@ -22,22 +22,13 @@ class SceneNode;
  * @enum AnimationInterpolation
  * @brief glTF 2.0 animation sampler interpolation modes.
  */
-enum class AnimationInterpolation : uint8_t {
-    Linear = 0,
-    Step = 1,
-    CubicSpline = 2
-};
+enum class AnimationInterpolation : uint8_t { Linear = 0, Step = 1, CubicSpline = 2 };
 
 /**
  * @enum AnimationPath
  * @brief Target node property driven by an animation channel.
  */
-enum class AnimationPath : uint8_t {
-    Translation = 0,
-    Rotation = 1,
-    Scale = 2,
-    Weights = 3
-};
+enum class AnimationPath : uint8_t { Translation = 0, Rotation = 1, Scale = 2, Weights = 3 };
 
 /**
  * @struct AnimationSampler
@@ -52,9 +43,7 @@ struct AnimationSampler {
         return timestamps.empty() ? 0.0f : timestamps.front();
     }
 
-    [[nodiscard]] constexpr float GetEndTime() const noexcept {
-        return timestamps.empty() ? 0.0f : timestamps.back();
-    }
+    [[nodiscard]] constexpr float GetEndTime() const noexcept { return timestamps.empty() ? 0.0f : timestamps.back(); }
 
     /**
      * @brief Evaluates interpolated values at time t.

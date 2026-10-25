@@ -2,8 +2,8 @@
  * @file test_ray_picker.cpp
  * @brief Unit tests for Möller-Trumbore ray-triangle intersection.
  */
-#include <gtest/gtest.h>
 #include "scene/RayPicker.hpp"
+#include <gtest/gtest.h>
 
 TEST(RayPickerTest, MollerTrumboreDirectHit) {
     bgl::core::Ray ray;
@@ -11,8 +11,8 @@ TEST(RayPickerTest, MollerTrumboreDirectHit) {
     ray.direction = glm::vec3(0.0f, 0.0f, -1.0f);
 
     glm::vec3 v0(-1.0f, -1.0f, 0.0f);
-    glm::vec3 v1( 1.0f, -1.0f, 0.0f);
-    glm::vec3 v2( 0.0f,  1.0f, 0.0f);
+    glm::vec3 v1(1.0f, -1.0f, 0.0f);
+    glm::vec3 v2(0.0f, 1.0f, 0.0f);
 
     float distance = 0.0f;
     glm::vec3 hitPoint{0.0f};
@@ -32,8 +32,8 @@ TEST(RayPickerTest, MollerTrumboreMiss) {
     ray.direction = glm::vec3(0.0f, 0.0f, -1.0f);
 
     glm::vec3 v0(-1.0f, -1.0f, 0.0f);
-    glm::vec3 v1( 1.0f, -1.0f, 0.0f);
-    glm::vec3 v2( 0.0f,  1.0f, 0.0f);
+    glm::vec3 v1(1.0f, -1.0f, 0.0f);
+    glm::vec3 v2(0.0f, 1.0f, 0.0f);
 
     float distance = 0.0f;
     glm::vec3 hitPoint{0.0f};
@@ -50,8 +50,8 @@ TEST(RayPickerTest, MollerTrumboreParallelOrDegenerate) {
 
     // Ray is in the plane of the triangle (parallel / edge-on)
     glm::vec3 v0(-1.0f, 0.0f, 5.0f);
-    glm::vec3 v1( 1.0f, 0.0f, 5.0f);
-    glm::vec3 v2( 0.0f, 0.0f, 0.0f);
+    glm::vec3 v1(1.0f, 0.0f, 5.0f);
+    glm::vec3 v2(0.0f, 0.0f, 0.0f);
 
     float distance = 0.0f;
     glm::vec3 hitPoint{0.0f};
@@ -76,10 +76,10 @@ TEST(RayPickerTest, ScenePickingNearestNode) {
     bgl::scene::MeshPrimitive primNear;
     bgl::core::Vertex v0, v1, v2;
     v0.position = glm::vec3(-2.0f, -2.0f, 2.0f);
-    v1.position = glm::vec3( 2.0f, -2.0f, 2.0f);
-    v2.position = glm::vec3( 0.0f,  2.0f, 2.0f);
-    primNear.vertices = { v0, v1, v2 };
-    primNear.indices = { 0, 1, 2 };
+    v1.position = glm::vec3(2.0f, -2.0f, 2.0f);
+    v2.position = glm::vec3(0.0f, 2.0f, 2.0f);
+    primNear.vertices = {v0, v1, v2};
+    primNear.indices = {0, 1, 2};
     primNear.boundingBox.Expand(v0.position);
     primNear.boundingBox.Expand(v1.position);
     primNear.boundingBox.Expand(v2.position);
@@ -90,10 +90,10 @@ TEST(RayPickerTest, ScenePickingNearestNode) {
     nodeFar->name = "FarObject";
     bgl::scene::MeshPrimitive primFar;
     v0.position = glm::vec3(-5.0f, -5.0f, -5.0f);
-    v1.position = glm::vec3( 5.0f, -5.0f, -5.0f);
-    v2.position = glm::vec3( 0.0f,  5.0f, -5.0f);
-    primFar.vertices = { v0, v1, v2 };
-    primFar.indices = { 0, 1, 2 };
+    v1.position = glm::vec3(5.0f, -5.0f, -5.0f);
+    v2.position = glm::vec3(0.0f, 5.0f, -5.0f);
+    primFar.vertices = {v0, v1, v2};
+    primFar.indices = {0, 1, 2};
     primFar.boundingBox.Expand(v0.position);
     primFar.boundingBox.Expand(v1.position);
     primFar.boundingBox.Expand(v2.position);
@@ -122,8 +122,8 @@ TEST(RayPickerTest, RayOriginBehindTrianglePointingAway) {
     ray.direction = glm::vec3(0.0f, 0.0f, 1.0f);
 
     glm::vec3 v0(-2.0f, -2.0f, 0.0f);
-    glm::vec3 v1( 2.0f, -2.0f, 0.0f);
-    glm::vec3 v2( 0.0f,  2.0f, 0.0f);
+    glm::vec3 v1(2.0f, -2.0f, 0.0f);
+    glm::vec3 v2(0.0f, 2.0f, 0.0f);
 
     float distance = 0.0f;
     glm::vec3 hitPoint{0.0f};
@@ -144,22 +144,22 @@ TEST(RayPickerTest, RayHitsTriangleVerticesAndEdges) {
     glm::vec3 normal{0.0f};
 
     // 1. Ray aimed at vertex v0 (0, 0)
-    bgl::core::Ray rayV0{ glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    bgl::core::Ray rayV0{glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_TRUE(bgl::scene::RayPicker::IntersectTriangle(rayV0, v0, v1, v2, distance, hitPoint, normal));
     EXPECT_NEAR(distance, 5.0f, 1e-3f);
 
     // 2. Ray aimed at hypotenuse edge midpoint (2, 2)
-    bgl::core::Ray rayEdge{ glm::vec3(2.0f, 2.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    bgl::core::Ray rayEdge{glm::vec3(2.0f, 2.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_TRUE(bgl::scene::RayPicker::IntersectTriangle(rayEdge, v0, v1, v2, distance, hitPoint, normal));
     EXPECT_NEAR(distance, 5.0f, 1e-3f);
 
     // 3. Ray slightly outside hypotenuse (2.05, 2.05) must miss
-    bgl::core::Ray rayOutside{ glm::vec3(2.05f, 2.05f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    bgl::core::Ray rayOutside{glm::vec3(2.05f, 2.05f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_FALSE(bgl::scene::RayPicker::IntersectTriangle(rayOutside, v0, v1, v2, distance, hitPoint, normal));
 }
 
 TEST(RayPickerTest, TriangleHitNormalIsPerpendicularToTrianglePlane) {
-    bgl::core::Ray ray{ glm::vec3(1.0f, 1.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    bgl::core::Ray ray{glm::vec3(1.0f, 1.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     // Triangle tilted 45 degrees around X axis
     glm::vec3 v0(0.0f, 0.0f, 0.0f);
     glm::vec3 v1(3.0f, 0.0f, 0.0f);
@@ -193,10 +193,10 @@ TEST(RayPickerTest, HierarchicalChildNodeTransformPicking) {
     bgl::scene::MeshPrimitive prim;
     bgl::core::Vertex v0, v1, v2;
     v0.position = glm::vec3(-1.0f, -1.0f, 0.0f);
-    v1.position = glm::vec3( 1.0f, -1.0f, 0.0f);
-    v2.position = glm::vec3( 0.0f,  1.0f, 0.0f);
-    prim.vertices = { v0, v1, v2 };
-    prim.indices = { 0, 1, 2 };
+    v1.position = glm::vec3(1.0f, -1.0f, 0.0f);
+    v2.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    prim.vertices = {v0, v1, v2};
+    prim.indices = {0, 1, 2};
     prim.boundingBox.Expand(v0.position);
     prim.boundingBox.Expand(v1.position);
     prim.boundingBox.Expand(v2.position);
@@ -222,10 +222,7 @@ TEST(RayPickerTest, HierarchicalChildNodeTransformPicking) {
 
 TEST(RayPickerTest, EmptyScenePickReturnsNoHit) {
     bgl::scene::Scene emptyScene;
-    bgl::core::Ray ray{ glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    bgl::core::Ray ray{glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     auto hit = bgl::scene::RayPicker::Pick(ray, emptyScene);
     EXPECT_FALSE(hit.has_value());
 }
-
-
-

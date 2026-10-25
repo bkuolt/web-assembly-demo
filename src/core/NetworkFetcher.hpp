@@ -4,12 +4,12 @@
  */
 #pragma once
 
+#include "core/Types.hpp"
+#include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <functional>
-#include <span>
-#include "core/Types.hpp"
 
 namespace bgl::core {
 

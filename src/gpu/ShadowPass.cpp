@@ -3,10 +3,10 @@
  * @brief Implementation of directional 2048x2048 PCF shadow map depth pre-pass with alpha testing.
  */
 #include "gpu/ShadowPass.hpp"
-#include "gpu/Shaders.hpp"
-#include "gpu/Handle.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/Handle.hpp"
+#include "gpu/Shaders.hpp"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -18,17 +18,11 @@ ShadowPass::~ShadowPass() {
 }
 
 ShadowPass::ShadowPass(ShadowPass&& other) noexcept
-    : device_{other.device_}
-    , queue_{other.queue_}
-    , shadowPipeline_{other.shadowPipeline_}
-    , shadowBindGroupLayout_{other.shadowBindGroupLayout_}
-    , shadowTexture_{other.shadowTexture_}
-    , shadowTextureView_{other.shadowTextureView_}
-    , shadowSampler_{other.shadowSampler_}
-    , defaultSampler_{other.defaultSampler_}
-    , defaultWhiteView_{other.defaultWhiteView_}
-    , lightViewProj_{other.lightViewProj_}
-{
+    : device_{other.device_}, queue_{other.queue_}, shadowPipeline_{other.shadowPipeline_},
+      shadowBindGroupLayout_{other.shadowBindGroupLayout_}, shadowTexture_{other.shadowTexture_},
+      shadowTextureView_{other.shadowTextureView_}, shadowSampler_{other.shadowSampler_},
+      defaultSampler_{other.defaultSampler_}, defaultWhiteView_{other.defaultWhiteView_},
+      lightViewProj_{other.lightViewProj_} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.shadowPipeline_ = nullptr;
@@ -95,9 +89,7 @@ void ShadowPass::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
-core::Result<void> ShadowPass::Initialize(WGPUDevice device,
-                                          WGPUQueue queue,
-                                          WGPUSampler defaultSampler,
+core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WGPUSampler defaultSampler,
                                           WGPUTextureView defaultWhiteView) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize ShadowPass with null WebGPU device or queue");
@@ -111,7 +103,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device,
     WGPUTextureDescriptor shadowTexDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     shadowTexDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
     shadowTexDesc.dimension = WGPUTextureDimension_2D;
-    shadowTexDesc.size = WGPUExtent3D{ kShadowMapSize, kShadowMapSize, 1 };
+    shadowTexDesc.size = WGPUExtent3D{kShadowMapSize, kShadowMapSize, 1};
     shadowTexDesc.format = WGPUTextureFormat_Depth32Float;
     shadowTexDesc.mipLevelCount = 1;
     shadowTexDesc.sampleCount = 1;
@@ -278,16 +270,14 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
 
     glm::vec3 minLight{1e30f};
     glm::vec3 maxLight{-1e30f};
-    const std::array<glm::vec3, 8> corners{{
-        sceneBounds.minBound,
-        {sceneBounds.maxBound.x, sceneBounds.minBound.y, sceneBounds.minBound.z},
-        {sceneBounds.minBound.x, sceneBounds.maxBound.y, sceneBounds.minBound.z},
-        {sceneBounds.maxBound.x, sceneBounds.maxBound.y, sceneBounds.minBound.z},
-        {sceneBounds.minBound.x, sceneBounds.minBound.y, sceneBounds.maxBound.z},
-        {sceneBounds.maxBound.x, sceneBounds.minBound.y, sceneBounds.maxBound.z},
-        {sceneBounds.minBound.x, sceneBounds.maxBound.y, sceneBounds.maxBound.z},
-        sceneBounds.maxBound
-    }};
+    const std::array<glm::vec3, 8> corners{{sceneBounds.minBound,
+                                            {sceneBounds.maxBound.x, sceneBounds.minBound.y, sceneBounds.minBound.z},
+                                            {sceneBounds.minBound.x, sceneBounds.maxBound.y, sceneBounds.minBound.z},
+                                            {sceneBounds.maxBound.x, sceneBounds.maxBound.y, sceneBounds.minBound.z},
+                                            {sceneBounds.minBound.x, sceneBounds.minBound.y, sceneBounds.maxBound.z},
+                                            {sceneBounds.maxBound.x, sceneBounds.minBound.y, sceneBounds.maxBound.z},
+                                            {sceneBounds.minBound.x, sceneBounds.maxBound.y, sceneBounds.maxBound.z},
+                                            sceneBounds.maxBound}};
 
     for (const auto& corner : corners) {
         const glm::vec4 lightSpace{lightView * glm::vec4{corner, 1.0f}};
@@ -296,21 +286,17 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
     }
 
     const float margin{radius * 0.15f};
-    const glm::mat4 lightProj{glm::orthoRH_ZO(
-        minLight.x - margin, maxLight.x + margin,
-        minLight.y - margin, maxLight.y + margin,
-        std::max(-maxLight.z - margin, 0.1f),
-        -minLight.z + margin * 2.0f
-    )};
+    const glm::mat4 lightProj{glm::orthoRH_ZO(minLight.x - margin, maxLight.x + margin, minLight.y - margin,
+                                              maxLight.y + margin, std::max(-maxLight.z - margin, 0.1f),
+                                              -minLight.z + margin * 2.0f)};
 
     return lightProj * lightView;
 }
 
-void ShadowPass::Render(WGPUCommandEncoder encoder,
-                        scene::Scene& scene,
-                        const glm::vec3& lightDir,
+void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                         const scene::Quadtree* spatialIndex) {
-    if (!encoder || !shadowPipeline_ || !shadowTextureView_) return;
+    if (!encoder || !shadowPipeline_ || !shadowTextureView_)
+        return;
 
     lightViewProj_ = ComputeDirectionalLightMatrix(scene.sceneAABB, lightDir);
 
@@ -325,17 +311,20 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
     passDesc.depthStencilAttachment = &depthAttachment;
 
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-    if (!pass) return;
+    if (!pass)
+        return;
 
     wgpuRenderPassEncoderSetPipeline(pass, shadowPipeline_);
 
     auto renderNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
         const glm::mat4 worldMat{parentMat * node.localTransform};
         for (auto& prim : node.GetPrimitives()) {
-            if (!prim.gpuVertexBuffer || !prim.gpuUniformBuffer) continue;
+            if (!prim.gpuVertexBuffer || !prim.gpuUniformBuffer)
+                continue;
 
             if (prim.morphDirty) {
-                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), prim.vertices.size() * sizeof(core::Vertex));
+                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(),
+                                     prim.vertices.size() * sizeof(core::Vertex));
                 prim.morphDirty = false;
             }
 
@@ -365,7 +354,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
                             jointWorld = jointNode->worldTransform;
                         }
                     }
-                    const glm::mat4 ibm = (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
+                    const glm::mat4 ibm =
+                        (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
                     uniforms.jointMatrices[j] = invWorld * jointWorld * ibm;
                 }
             }
@@ -384,7 +374,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
                 WGPUTextureView baseView = defaultWhiteView_;
                 if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
                     const auto& mat = scene.materials[prim.materialIndex];
-                    if (mat.baseColorTextureIndex >= 0 && mat.baseColorTextureIndex < static_cast<int>(scene.gpuTextures.size())) {
+                    if (mat.baseColorTextureIndex >= 0 &&
+                        mat.baseColorTextureIndex < static_cast<int>(scene.gpuTextures.size())) {
                         baseView = scene.gpuTextures[mat.baseColorTextureIndex].view;
                     }
                 }
@@ -412,11 +403,14 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
             }
 
             wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0,
+                                                 prim.vertices.size() * sizeof(core::Vertex));
 
             if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-                const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
-                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0, prim.indices.size() * indexSize);
+                const size_t indexSize =
+                    (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
+                                                    prim.indices.size() * indexSize);
                 wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
             } else {
                 wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
@@ -424,13 +418,15 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
         }
 
         for (const auto& child : node.children) {
-            if (child) self(self, *child, worldMat);
+            if (child)
+                self(self, *child, worldMat);
         }
     };
 
     (void)spatialIndex;
     for (const auto& root : scene.rootNodes) {
-        if (root) renderNodeShadow(renderNodeShadow, *root, glm::mat4{1.0f});
+        if (root)
+            renderNodeShadow(renderNodeShadow, *root, glm::mat4{1.0f});
     }
 
     wgpuRenderPassEncoderEnd(pass);

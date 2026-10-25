@@ -8,10 +8,9 @@
 namespace bgl::core {
 
 ScratchArena::ScratchArena(size_t initialCapacity)
-    : capacity_(initialCapacity),
-      buffer_(std::make_unique<std::byte[]>(initialCapacity)),
-      monotonicResource_(std::make_unique<std::pmr::monotonic_buffer_resource>(
-          buffer_.get(), capacity_, std::pmr::get_default_resource())) {}
+    : capacity_(initialCapacity), buffer_(std::make_unique<std::byte[]>(initialCapacity)),
+      monotonicResource_(std::make_unique<std::pmr::monotonic_buffer_resource>(buffer_.get(), capacity_,
+                                                                               std::pmr::get_default_resource())) {}
 
 void ScratchArena::Reset() noexcept {
     if (monotonicResource_) {
@@ -24,4 +23,3 @@ std::pmr::memory_resource* ScratchArena::GetResource() noexcept {
 }
 
 } // namespace bgl::core
-

@@ -4,12 +4,12 @@
  */
 #pragma once
 
-#include <vector>
-#include <span>
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
+#include <glm/glm.hpp>
+#include <span>
+#include <vector>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
@@ -82,4 +82,3 @@ private:
 };
 
 } // namespace bgl::gpu
-

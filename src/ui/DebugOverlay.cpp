@@ -3,12 +3,12 @@
  * @brief In-engine 2D Debug Overlay displaying real-time FPS, camera, scene, and spatial metrics.
  */
 #include "ui/DebugOverlay.hpp"
-#include "text/EmbeddedFont.hpp"
 #include "core/Log.hpp"
 #include "core/Version.hpp"
+#include "text/EmbeddedFont.hpp"
+#include <algorithm>
 #include <filesystem>
 #include <format>
-#include <algorithm>
 
 namespace bgl::ui {
 
@@ -16,17 +16,13 @@ DebugOverlay::DebugOverlay() = default;
 
 DebugOverlay::~DebugOverlay() = default;
 
-core::Result<void> DebugOverlay::Initialize(WGPUDevice device,
-                                            WGPUQueue queue,
-                                            WGPUTextureFormat surfaceFormat,
+core::Result<void> DebugOverlay::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                             uint32_t sampleCount) {
     // 1. Try to load LiberationMono from disk, or fallback to zero-dependency embedded font
     std::string fontPath;
-    const std::vector<std::string> searchPaths = {
-        "assets/fonts/LiberationMono-Regular.ttf",
-        "../assets/fonts/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
-    };
+    const std::vector<std::string> searchPaths = {"assets/fonts/LiberationMono-Regular.ttf",
+                                                  "../assets/fonts/LiberationMono-Regular.ttf",
+                                                  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"};
 
     for (const auto& path : searchPaths) {
         if (std::filesystem::exists(path)) {
@@ -55,9 +51,15 @@ core::Result<void> DebugOverlay::Initialize(WGPUDevice device,
 
 void DebugOverlay::Toggle() noexcept {
     switch (mode_) {
-        case OverlayMode::Full:    mode_ = OverlayMode::Minimal; break;
-        case OverlayMode::Minimal: mode_ = OverlayMode::Hidden;  break;
-        case OverlayMode::Hidden:  mode_ = OverlayMode::Full;    break;
+    case OverlayMode::Full:
+        mode_ = OverlayMode::Minimal;
+        break;
+    case OverlayMode::Minimal:
+        mode_ = OverlayMode::Hidden;
+        break;
+    case OverlayMode::Hidden:
+        mode_ = OverlayMode::Full;
+        break;
     }
 }
 
@@ -72,12 +74,13 @@ void DebugOverlay::Update(float deltaTime, const OverlayStats& stats) {
 }
 
 void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight) {
-    if (mode_ == OverlayMode::Hidden || !pass || viewportWidth == 0 || viewportHeight == 0) return;
+    if (mode_ == OverlayMode::Hidden || !pass || viewportWidth == 0 || viewportHeight == 0)
+        return;
 
     // Determine FPS status color (Green -> Yellow -> Red)
-    const glm::vec4 fpsColor = (smoothedFps_ >= 55.0f) ? glm::vec4(0.22f, 0.86f, 0.56f, 1.0f)   // Vivid Emerald
-                             : (smoothedFps_ >= 30.0f) ? glm::vec4(0.98f, 0.80f, 0.08f, 1.0f)   // Amber
-                                                       : glm::vec4(0.94f, 0.27f, 0.24f, 1.0f);  // Rose
+    const glm::vec4 fpsColor = (smoothedFps_ >= 55.0f)   ? glm::vec4(0.22f, 0.86f, 0.56f, 1.0f)  // Vivid Emerald
+                               : (smoothedFps_ >= 30.0f) ? glm::vec4(0.98f, 0.80f, 0.08f, 1.0f)  // Amber
+                                                         : glm::vec4(0.94f, 0.27f, 0.24f, 1.0f); // Rose
 
     // --------------------------------------------------------------------------
     // Minimal Overlay Mode: Floating Top-Left Status Strip
@@ -96,9 +99,9 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
         textRenderer_.DrawRect(pillX, pillY, 3.0f, pillH, glm::vec4(0.22f, 0.74f, 0.97f, 1.0f));
 
         const float ramMb = static_cast<float>(currentStats_.residentRamBytes) / (1024.0f * 1024.0f);
-        std::string minText = std::format("bgl v{} | {:.0f} FPS ({:.1f}ms) | RAM {:.0f}M | {} [O:Expand]",
-                                          bgl::kEngineVersion, smoothedFps_, smoothedFrameTimeMs_,
-                                          ramMb, currentStats_.sceneName);
+        std::string minText =
+            std::format("bgl v{} | {:.0f} FPS ({:.1f}ms) | RAM {:.0f}M | {} [O:Expand]", bgl::kEngineVersion,
+                        smoothedFps_, smoothedFrameTimeMs_, ramMb, currentStats_.sceneName);
         textRenderer_.DrawText(minText, pillX + 12.0f, pillY + 6.0f, glm::vec4(0.92f, 0.95f, 0.98f, 1.0f));
 
         textRenderer_.Render(pass, viewportWidth, viewportHeight);
@@ -123,8 +126,8 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     // 3. Header: Engine name & Version (Left) and Live FPS Pill (Right)
     const float textX = panelX + 14.0f;
-    textRenderer_.DrawText(std::format("{} v{} [4x MSAA]", bgl::kEngineName, bgl::kEngineVersion),
-                           textX, panelY + 10.0f, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
+    textRenderer_.DrawText(std::format("{} v{} [4x MSAA]", bgl::kEngineName, bgl::kEngineVersion), textX,
+                           panelY + 10.0f, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
 
     // Right-aligned FPS badge pill
     const float fpsPillW = 144.0f;
@@ -146,54 +149,51 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     std::string memText = std::format("RAM: {:.1f} MB | VRAM: {:.1f} MB", ramMb, vramMb);
     textRenderer_.DrawText(memText, textX, panelY + 39.0f, glm::vec4(0.38f, 0.76f, 0.97f, 1.0f));
 
-    std::string padText = currentStats_.gamepadConnected
-        ? (currentStats_.isDualSense ? "🎮 PS5 DualSense" : std::format("🎮 {}", currentStats_.gamepadName.substr(0, 12)))
-        : "🎮 Disconnected";
-    glm::vec4 padColor = currentStats_.gamepadConnected ? glm::vec4(0.25f, 0.88f, 0.65f, 1.0f) : glm::vec4(0.55f, 0.60f, 0.68f, 0.75f);
+    std::string padText =
+        currentStats_.gamepadConnected
+            ? (currentStats_.isDualSense ? "🎮 PS5 DualSense"
+                                         : std::format("🎮 {}", currentStats_.gamepadName.substr(0, 12)))
+            : "🎮 Disconnected";
+    glm::vec4 padColor =
+        currentStats_.gamepadConnected ? glm::vec4(0.25f, 0.88f, 0.65f, 1.0f) : glm::vec4(0.55f, 0.60f, 0.68f, 0.75f);
     textRenderer_.DrawText(padText, panelX + 310.0f, panelY + 39.0f, padColor);
 
     // 5. Row 2: Active Scene & Primitives
-    std::string sceneText = std::format("Scene: {} ({} prims, {} verts)",
-                                        currentStats_.sceneName,
-                                        currentStats_.primitiveCount,
-                                        currentStats_.vertexCount);
+    std::string sceneText = std::format("Scene: {} ({} prims, {} verts)", currentStats_.sceneName,
+                                        currentStats_.primitiveCount, currentStats_.vertexCount);
     textRenderer_.DrawText(sceneText, textX, panelY + 61.0f, glm::vec4(0.95f, 0.97f, 0.99f, 1.0f));
 
     // 6. Row 3: Camera & Spatial Culling
-    std::string camText = std::format("Cam: [{:.1f}, {:.1f}, {:.1f}]",
-                                      currentStats_.cameraPos.x, currentStats_.cameraPos.y, currentStats_.cameraPos.z);
+    std::string camText = std::format("Cam: [{:.1f}, {:.1f}, {:.1f}]", currentStats_.cameraPos.x,
+                                      currentStats_.cameraPos.y, currentStats_.cameraPos.z);
     textRenderer_.DrawText(camText, textX, panelY + 83.0f, glm::vec4(0.80f, 0.85f, 0.92f, 1.0f));
 
-    std::string cullText = std::format("Vis: {}/{} ({} Occl)",
-                                       currentStats_.visiblePrimitives,
-                                       currentStats_.primitiveCount,
-                                       currentStats_.occludedPrimitives);
+    std::string cullText = std::format("Vis: {}/{} ({} Occl)", currentStats_.visiblePrimitives,
+                                       currentStats_.primitiveCount, currentStats_.occludedPrimitives);
     textRenderer_.DrawText(cullText, panelX + 310.0f, panelY + 83.0f, glm::vec4(0.22f, 0.86f, 0.56f, 1.0f));
 
     // Separator line 2
     textRenderer_.DrawRect(panelX + 10.0f, panelY + 105.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
 
     // 7. Row 4: Geometry & Spatial Feature Status
-    std::string geoToggleText = std::format("Geo: [B]AABB:{}  [Q]Quad:{}  [H]Hi-Z:{}  [K]Sky:{}",
-                                            currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
-                                            currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF",
-                                            currentStats_.occlusionCullingEnabled ? "ON" : "OFF",
-                                            currentStats_.skyboxEnabled ? "ON" : "OFF");
+    std::string geoToggleText = std::format(
+        "Geo: [B]AABB:{}  [Q]Quad:{}  [H]Hi-Z:{}  [K]Sky:{}", currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
+        currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF", currentStats_.occlusionCullingEnabled ? "ON" : "OFF",
+        currentStats_.skyboxEnabled ? "ON" : "OFF");
     textRenderer_.DrawText(geoToggleText, textX, panelY + 114.0f, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
 
     // 8. Row 5: PBR Shading & Lighting Status
-    std::string pbrToggleText = std::format("PBR: [V]Bump:{} [M]Shdw:{} [R]Refl:{} [U]AO:{} [L]Mip:{}",
-                                            currentStats_.bumpMappingEnabled ? "ON" : "OFF",
-                                            currentStats_.shadowsEnabled ? "ON" : "OFF",
-                                            currentStats_.reflectionsEnabled ? "ON" : "OFF",
-                                            currentStats_.ambientOcclusionEnabled ? "ON" : "OFF",
-                                            currentStats_.mipmappingEnabled ? "ON" : "OFF");
+    std::string pbrToggleText = std::format(
+        "PBR: [V]Bump:{} [M]Shdw:{} [R]Refl:{} [U]AO:{} [L]Mip:{}", currentStats_.bumpMappingEnabled ? "ON" : "OFF",
+        currentStats_.shadowsEnabled ? "ON" : "OFF", currentStats_.reflectionsEnabled ? "ON" : "OFF",
+        currentStats_.ambientOcclusionEnabled ? "ON" : "OFF", currentStats_.mipmappingEnabled ? "ON" : "OFF");
     textRenderer_.DrawText(pbrToggleText, textX, panelY + 136.0f, glm::vec4(0.72f, 0.65f, 0.98f, 1.0f));
 
     // 9. Row 6: Camera Target & Spatial Partitioning
-    std::string camDetailText = std::format("Target: [{:.1f}, {:.1f}, {:.1f}] | Dist: {:.1f} | Quad: {} nodes",
-                                            currentStats_.cameraTarget.x, currentStats_.cameraTarget.y, currentStats_.cameraTarget.z,
-                                            currentStats_.cameraDistance, currentStats_.quadtreeNodes);
+    std::string camDetailText =
+        std::format("Target: [{:.1f}, {:.1f}, {:.1f}] | Dist: {:.1f} | Quad: {} nodes", currentStats_.cameraTarget.x,
+                    currentStats_.cameraTarget.y, currentStats_.cameraTarget.z, currentStats_.cameraDistance,
+                    currentStats_.quadtreeNodes);
     textRenderer_.DrawText(camDetailText, textX, panelY + 158.0f, glm::vec4(0.75f, 0.82f, 0.90f, 1.0f));
 
     // Separator line 3
@@ -205,8 +205,8 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawRect(panelX, footerY, panelW, footerH, glm::vec4(0.02f, 0.04f, 0.07f, 0.75f));
     textRenderer_.DrawRect(panelX, footerY, panelW, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.05f));
 
-    textRenderer_.DrawText("[O] Cycle HUD  |  [F] Focus  |  [T] Turntable  |  [C] Fly/Orbit",
-                           textX, footerY + 5.0f, glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
+    textRenderer_.DrawText("[O] Cycle HUD  |  [F] Focus  |  [T] Turntable  |  [C] Fly/Orbit", textX, footerY + 5.0f,
+                           glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
 
     // Flush GPU draw call
     textRenderer_.Render(pass, viewportWidth, viewportHeight);

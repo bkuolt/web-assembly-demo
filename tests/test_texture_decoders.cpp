@@ -2,9 +2,9 @@
  * @file test_texture_decoders.cpp
  * @brief Unit tests for texture format decoders (PNG, JPEG, WebP, KTX2) and magic-byte sniffing.
  */
-#include <gtest/gtest.h>
-#include "scene/TextureDecoder.hpp"
 #include "gpu/Pipeline.hpp"
+#include "scene/TextureDecoder.hpp"
+#include <gtest/gtest.h>
 
 using namespace bgl::scene;
 
@@ -15,28 +15,36 @@ TEST(TextureDecoderTest, SupportedFormatsQuery) {
 #if defined(BGL_ENABLE_PNG)
     EXPECT_TRUE(TextureDecoder::IsPngSupported());
     bool hasPng = false;
-    for (auto f : formats) if (f == "PNG") hasPng = true;
+    for (auto f : formats)
+        if (f == "PNG")
+            hasPng = true;
     EXPECT_TRUE(hasPng);
 #endif
 
 #if defined(BGL_ENABLE_JPEG)
     EXPECT_TRUE(TextureDecoder::IsJpegSupported());
     bool hasJpeg = false;
-    for (auto f : formats) if (f == "JPEG") hasJpeg = true;
+    for (auto f : formats)
+        if (f == "JPEG")
+            hasJpeg = true;
     EXPECT_TRUE(hasJpeg);
 #endif
 
 #if defined(BGL_ENABLE_WEBP)
     EXPECT_TRUE(TextureDecoder::IsWebpSupported());
     bool hasWebp = false;
-    for (auto f : formats) if (f == "WebP") hasWebp = true;
+    for (auto f : formats)
+        if (f == "WebP")
+            hasWebp = true;
     EXPECT_TRUE(hasWebp);
 #endif
 
 #if defined(BGL_ENABLE_KTX)
     EXPECT_TRUE(TextureDecoder::IsKtxSupported());
     bool hasKtx = false;
-    for (auto f : formats) if (f.find("KTX") != std::string_view::npos) hasKtx = true;
+    for (auto f : formats)
+        if (f.find("KTX") != std::string_view::npos)
+            hasKtx = true;
     EXPECT_TRUE(hasKtx);
 #endif
 }
@@ -62,23 +70,23 @@ TEST(TextureDecoderTest, EmptyAndInvalidBuffers) {
 
 TEST(TextureDecoderTest, MagicByteSniffingAutoRouting) {
     // 1. PNG magic bytes: \x89 P N G \r \n \x1a \n
-    std::vector<uint8_t> fakePng = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00 };
+    std::vector<uint8_t> fakePng = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00};
     auto resPng = TextureDecoder::DecodeAuto(fakePng, "unknown_file");
     // Should fail cleanly in PNG decoder rather than unsupported format error
     EXPECT_FALSE(resPng.has_value());
 
     // 2. JPEG magic bytes: \xFF \xD8 \xFF
-    std::vector<uint8_t> fakeJpeg = { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10 };
+    std::vector<uint8_t> fakeJpeg = {0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10};
     auto resJpeg = TextureDecoder::DecodeAuto(fakeJpeg, "unknown_file");
     EXPECT_FALSE(resJpeg.has_value());
 
     // 3. WebP magic bytes: RIFF .... WEBP
-    std::vector<uint8_t> fakeWebp = { 'R', 'I', 'F', 'F', 0x00, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P' };
+    std::vector<uint8_t> fakeWebp = {'R', 'I', 'F', 'F', 0x00, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P'};
     auto resWebp = TextureDecoder::DecodeAuto(fakeWebp, "unknown_file");
     EXPECT_FALSE(resWebp.has_value());
 
     // 4. KTX2 magic bytes: \xAB K T X ' ' '2' '0' \xBB
-    std::vector<uint8_t> fakeKtx2 = { 0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
+    std::vector<uint8_t> fakeKtx2 = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
     auto resKtx2 = TextureDecoder::DecodeAuto(fakeKtx2, "unknown_file");
     EXPECT_FALSE(resKtx2.has_value());
 }
@@ -90,25 +98,24 @@ TEST(TextureDecoderTest, RadianceHdrAndOpenExrSignatures) {
     EXPECT_FALSE(resEmpty.has_value());
 
     // 2. Minimal valid uncompressed Radiance HDR payload
-    std::string validHdrStr =
-        "#?RADIANCE\n"
-        "FORMAT=32-bit_rle_rgbe\n\n"
-        "-Y 1 +X 2\n";
+    std::string validHdrStr = "#?RADIANCE\n"
+                              "FORMAT=32-bit_rle_rgbe\n\n"
+                              "-Y 1 +X 2\n";
     // 2 uncompressed pixels: black (0,0,0,0) and unit white (128,128,128,128)
     std::vector<uint8_t> hdrBytes(validHdrStr.begin(), validHdrStr.end());
-    hdrBytes.insert(hdrBytes.end(), { 0, 0, 0, 0,  128, 128, 128, 128 });
+    hdrBytes.insert(hdrBytes.end(), {0, 0, 0, 0, 128, 128, 128, 128});
 
     auto resHdr = TextureDecoder::DecodeHDR(hdrBytes);
     ASSERT_TRUE(resHdr.has_value()) << (resHdr.has_value() ? "" : resHdr.error());
     EXPECT_EQ(resHdr->width, 2u);
     EXPECT_EQ(resHdr->height, 1u);
-    ASSERT_EQ(resHdr->rgbaFloat.size(), 8u); // 2 pixels * 4 components
+    ASSERT_EQ(resHdr->rgbaFloat.size(), 8u);     // 2 pixels * 4 components
     EXPECT_FLOAT_EQ(resHdr->rgbaFloat[0], 0.0f); // pixel 0 R
     EXPECT_FLOAT_EQ(resHdr->rgbaFloat[3], 1.0f); // pixel 0 A
     EXPECT_GT(resHdr->rgbaFloat[4], 0.0f);       // pixel 1 R > 0
 
     // 3. OpenEXR magic signature detection (0x76, 0x2F, 0x31, 0x01)
-    std::vector<uint8_t> fakeExr = { 0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00 };
+    std::vector<uint8_t> fakeExr = {0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00};
     auto resExr = TextureDecoder::DecodeEXR(fakeExr);
     // Signature detected but payload truncated: cleanly returns error result
     EXPECT_FALSE(resExr.has_value());
@@ -147,16 +154,11 @@ TEST(TextureDecoderTest, RadianceHdrMultiPixelDecodedValues) {
     // Pixel 0: RGBE (0, 0, 0, 0) -> Black (0, 0, 0, 1)
     // Pixel 1: RGBE (255, 0, 0, 129) -> Red: (255/256)*2^(129-128) = (255/256)*2 = ~1.992
     // Pixel 2: RGBE (0, 255, 0, 128) -> Green: (255/256)*2^0 = ~0.996
-    std::string hdrHeader =
-        "#?RADIANCE\n"
-        "FORMAT=32-bit_rle_rgbe\n\n"
-        "-Y 1 +X 3\n";
+    std::string hdrHeader = "#?RADIANCE\n"
+                            "FORMAT=32-bit_rle_rgbe\n\n"
+                            "-Y 1 +X 3\n";
     std::vector<uint8_t> hdrData(hdrHeader.begin(), hdrHeader.end());
-    hdrData.insert(hdrData.end(), {
-          0,   0,   0,   0,
-        255,   0,   0, 129,
-          0, 255,   0, 128
-    });
+    hdrData.insert(hdrData.end(), {0, 0, 0, 0, 255, 0, 0, 129, 0, 255, 0, 128});
 
     auto res = TextureDecoder::DecodeHDR(hdrData);
     ASSERT_TRUE(res.has_value()) << (res.has_value() ? "" : res.error());
@@ -182,8 +184,7 @@ TEST(TextureDecoderTest, RadianceHdrMultiPixelDecodedValues) {
 }
 
 TEST(TextureDecoderTest, InvalidExtensionAndUnsupportedPayload) {
-    std::vector<uint8_t> dummyData = { 0x01, 0x02, 0x03, 0x04 };
+    std::vector<uint8_t> dummyData = {0x01, 0x02, 0x03, 0x04};
     auto resUnknown = TextureDecoder::DecodeAuto(dummyData, "texture.unsupported_extension");
     EXPECT_FALSE(resUnknown.has_value());
 }
-

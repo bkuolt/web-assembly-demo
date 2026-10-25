@@ -3,9 +3,9 @@
  * @brief Implementation of WebGPU Compute-shader-driven Frustum & Spatial Bounding Culling.
  */
 #include "gpu/GpuCuller.hpp"
-#include "gpu/Handle.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/Handle.hpp"
 #include <algorithm>
 #include <cstring>
 
@@ -79,19 +79,11 @@ GpuCuller::~GpuCuller() {
 }
 
 GpuCuller::GpuCuller(GpuCuller&& other) noexcept
-    : device_{other.device_}
-    , queue_{other.queue_}
-    , computePipeline_{other.computePipeline_}
-    , bindGroupLayout_{other.bindGroupLayout_}
-    , bindGroup_{other.bindGroup_}
-    , uniformBuffer_{other.uniformBuffer_}
-    , boundsStorageBuffer_{other.boundsStorageBuffer_}
-    , visibilityStorageBuffer_{other.visibilityStorageBuffer_}
-    , atomicCounterBuffer_{other.atomicCounterBuffer_}
-    , primitiveCount_{other.primitiveCount_}
-    , boundsBufferSize_{other.boundsBufferSize_}
-    , cpuBounds_{std::move(other.cpuBounds_)}
-{
+    : device_{other.device_}, queue_{other.queue_}, computePipeline_{other.computePipeline_},
+      bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_}, uniformBuffer_{other.uniformBuffer_},
+      boundsStorageBuffer_{other.boundsStorageBuffer_}, visibilityStorageBuffer_{other.visibilityStorageBuffer_},
+      atomicCounterBuffer_{other.atomicCounterBuffer_}, primitiveCount_{other.primitiveCount_},
+      boundsBufferSize_{other.boundsBufferSize_}, cpuBounds_{std::move(other.cpuBounds_)} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.computePipeline_ = nullptr;
@@ -292,16 +284,19 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
             }
         }
         for (const auto& child : node.children) {
-            if (child) self(self, *child, worldMat);
+            if (child)
+                self(self, *child, worldMat);
         }
     };
 
     for (const auto& root : scene.rootNodes) {
-        if (root) collectBounds(collectBounds, *root, glm::mat4{1.0f});
+        if (root)
+            collectBounds(collectBounds, *root, glm::mat4{1.0f});
     }
 
     primitiveCount_ = cpuBounds_.size();
-    if (primitiveCount_ == 0) return;
+    if (primitiveCount_ == 0)
+        return;
 
     const size_t neededBytes = primitiveCount_ * sizeof(GpuBoundingBox);
     const size_t visNeededBytes = primitiveCount_ * sizeof(uint32_t);
@@ -332,7 +327,8 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         visibilityStorageBuffer_ = wgpuDeviceCreateBuffer(device_, &vDesc);
         core::MemoryTracker::Instance().TrackBufferAlloc(vDesc.size);
 
-        if (bindGroup_) wgpuBindGroupRelease(bindGroup_);
+        if (bindGroup_)
+            wgpuBindGroupRelease(bindGroup_);
 
         std::array<WGPUBindGroupEntry, 4> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -371,7 +367,8 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
 }
 
 void GpuCuller::Dispatch(WGPUCommandEncoder encoder, const core::Frustum& frustum) {
-    if (!encoder || !computePipeline_ || !bindGroup_ || primitiveCount_ == 0) return;
+    if (!encoder || !computePipeline_ || !bindGroup_ || primitiveCount_ == 0)
+        return;
 
     GpuCullUniforms uniforms{};
     for (size_t i = 0; i < 6; ++i) {
@@ -386,7 +383,8 @@ void GpuCuller::Dispatch(WGPUCommandEncoder encoder, const core::Frustum& frustu
     WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     cpDesc.label = ToWgpuStringView("GpuCull_Pass");
     WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &cpDesc);
-    if (!pass) return;
+    if (!pass)
+        return;
 
     wgpuComputePassEncoderSetPipeline(pass, computePipeline_);
     wgpuComputePassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);

@@ -22,7 +22,8 @@ Context::~Context() {
 }
 
 void Context::Shutdown() noexcept {
-    if (!initialized_ && !instance_) return;
+    if (!initialized_ && !instance_)
+        return;
 #if defined(BGL_PLATFORM_NATIVE)
     encoder_.Reset();
     currentView_.Reset();
@@ -60,7 +61,7 @@ void Context::CreateRenderBuffers() {
         WGPUTextureDescriptor msaaDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
         msaaDesc.usage = WGPUTextureUsage_RenderAttachment;
         msaaDesc.dimension = WGPUTextureDimension_2D;
-        msaaDesc.size = WGPUExtent3D{ width_, height_, 1 };
+        msaaDesc.size = WGPUExtent3D{width_, height_, 1};
         msaaDesc.format = WGPUTextureFormat_RGBA16Float;
         msaaDesc.mipLevelCount = 1;
         msaaDesc.sampleCount = sampleCount_;
@@ -73,9 +74,10 @@ void Context::CreateRenderBuffers() {
 
     // 1b. Create 1x Linear HDR (RGBA16Float) Resolve & Sampled Texture for Tonemapping Post-Process
     WGPUTextureDescriptor hdrResolveDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    hdrResolveDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
+    hdrResolveDesc.usage =
+        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
     hdrResolveDesc.dimension = WGPUTextureDimension_2D;
-    hdrResolveDesc.size = WGPUExtent3D{ width_, height_, 1 };
+    hdrResolveDesc.size = WGPUExtent3D{width_, height_, 1};
     hdrResolveDesc.format = WGPUTextureFormat_RGBA16Float;
     hdrResolveDesc.mipLevelCount = 1;
     hdrResolveDesc.sampleCount = 1;
@@ -89,7 +91,7 @@ void Context::CreateRenderBuffers() {
     WGPUTextureDescriptor depthDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     depthDesc.usage = WGPUTextureUsage_RenderAttachment;
     depthDesc.dimension = WGPUTextureDimension_2D;
-    depthDesc.size = WGPUExtent3D{ width_, height_, 1 };
+    depthDesc.size = WGPUExtent3D{width_, height_, 1};
     depthDesc.format = WGPUTextureFormat_Depth24Plus;
     depthDesc.mipLevelCount = 1;
     depthDesc.sampleCount = sampleCount_;
@@ -99,7 +101,8 @@ void Context::CreateRenderBuffers() {
         depthView_ = wgpuTextureCreateView(depthTexture_, nullptr);
     }
 
-    BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_, height_, sampleCount_);
+    BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_,
+                 height_, sampleCount_);
 #endif
 }
 
@@ -169,7 +172,8 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         bool done = false;
     } adapterData;
 
-    auto onAdapter = [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView msg, void* userdata1, void* userdata2) {
+    auto onAdapter = [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView msg, void* userdata1,
+                        void* userdata2) {
         (void)userdata2;
         auto* data = static_cast<AdapterData*>(userdata1);
         if (status == WGPURequestAdapterStatus_Success) {
@@ -194,15 +198,15 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     WGPUAdapterInfo adapterInfo = WGPU_ADAPTER_INFO_INIT;
     wgpuAdapterGetInfo(adapter_, &adapterInfo);
     auto stringViewFromWgpu = [](WGPUStringView sv, std::string_view fallback) -> std::string_view {
-        if (!sv.data) return fallback;
-        if (sv.length == WGPU_STRLEN) return std::string_view{sv.data};
+        if (!sv.data)
+            return fallback;
+        if (sv.length == WGPU_STRLEN)
+            return std::string_view{sv.data};
         return std::string_view{sv.data, sv.length};
     };
     const auto gpuDeviceName = stringViewFromWgpu(adapterInfo.device, "Unknown GPU");
     const auto gpuDriverDesc = stringViewFromWgpu(adapterInfo.description, "Unknown Driver");
-    BGL_LOG_INFO("WebGPU Adapter: {} (Driver: {}, Backend: {})",
-                 gpuDeviceName,
-                 gpuDriverDesc,
+    BGL_LOG_INFO("WebGPU Adapter: {} (Driver: {}, Backend: {})", gpuDeviceName, gpuDriverDesc,
                  static_cast<int>(adapterInfo.backendType));
 #if defined(BGL_PLATFORM_NATIVE)
     wgpuAdapterInfoFreeMembers(adapterInfo);
@@ -224,9 +228,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     }
 
     BGL_LOG_INFO("WebGPU Hardware Texture Compression Support: BC7={} | ASTC_4x4={} | ETC2={}",
-                 supportsBC_ ? "YES" : "NO",
-                 supportsASTC_ ? "YES" : "NO",
-                 supportsETC2_ ? "YES" : "NO");
+                 supportsBC_ ? "YES" : "NO", supportsASTC_ ? "YES" : "NO", supportsETC2_ ? "YES" : "NO");
 
     if (supportsBC_) {
         scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Bc7);
@@ -250,7 +252,8 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         bool done = false;
     } devData;
 
-    auto onDevice = [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView msg, void* userdata1, void* userdata2) {
+    auto onDevice = [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView msg, void* userdata1,
+                       void* userdata2) {
         (void)userdata2;
         auto* data = static_cast<DeviceData*>(userdata1);
         if (status == WGPURequestDeviceStatus_Success) {
@@ -318,7 +321,8 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
 }
 
 void Context::Resize(uint32_t width, uint32_t height) {
-    if (width == 0 || height == 0) return;
+    if (width == 0 || height == 0)
+        return;
     width_ = width;
     height_ = height;
 #if defined(BGL_PLATFORM_NATIVE)
@@ -355,8 +359,10 @@ void Context::Resize(uint32_t width, uint32_t height) {
 
 bool Context::PrepareFrame() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (encoder_) return true;
-    if (!surface_ || !device_ || !queue_) return false;
+    if (encoder_)
+        return true;
+    if (!surface_ || !device_ || !queue_)
+        return false;
 
     surfaceTexture_ = {};
     wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
@@ -436,7 +442,7 @@ WGPURenderPassEncoder Context::BeginFrame() {
     }
     colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     colorAttachment.loadOp = WGPULoadOp_Clear;
-    colorAttachment.clearValue = WGPUColor{ 0.04, 0.06, 0.09, 1.0 }; // Linear HDR dark studio slate
+    colorAttachment.clearValue = WGPUColor{0.04, 0.06, 0.09, 1.0}; // Linear HDR dark studio slate
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.colorAttachmentCount = 1;
@@ -475,7 +481,7 @@ WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPas
     colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     colorAttachment.loadOp = WGPULoadOp_Clear;
     colorAttachment.storeOp = WGPUStoreOp_Store;
-    colorAttachment.clearValue = WGPUColor{ 0.05, 0.07, 0.11, 1.0 };
+    colorAttachment.clearValue = WGPUColor{0.05, 0.07, 0.11, 1.0};
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.colorAttachmentCount = 1;

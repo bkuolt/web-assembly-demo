@@ -4,17 +4,17 @@
  */
 #pragma once
 
-#include <string>
-#include <vector>
-#include <span>
+#include "core/Types.hpp"
+#include "scene/Animation.hpp"
+#include "scene/TextureDecoder.hpp"
 #include <array>
+#include <glm/glm.hpp>
 #include <memory>
 #include <memory_resource>
-#include <glm/glm.hpp>
+#include <span>
+#include <string>
+#include <vector>
 #include <webgpu/webgpu.h>
-#include "core/Types.hpp"
-#include "scene/TextureDecoder.hpp"
-#include "scene/Animation.hpp"
 
 namespace bgl::scene {
 
@@ -39,11 +39,7 @@ struct CpuImage {
  * @enum LightType
  * @brief Punctual light source type from glTF 2.0 KHR_lights_punctual extension.
  */
-enum class LightType : uint32_t {
-    Directional = 0,
-    Point       = 1,
-    Spot        = 2
-};
+enum class LightType : uint32_t { Directional = 0, Point = 1, Spot = 2 };
 
 /**
  * @struct PunctualLight
@@ -53,17 +49,13 @@ struct PunctualLight {
     std::string name{};
     LightType type{LightType::Directional};
     glm::vec3 color{1.0f, 0.98f, 0.95f};
-    float intensity{1.0f};          ///< Illuminance in lux (Directional) or luminous intensity in candela (Point/Spot)
-    float range{0.0f};              ///< Cutoff distance (>0) or 0 for infinite range
-    float innerConeAngle{0.0f};     ///< Spot light inner cone half-angle in radians
-    float outerConeAngle{0.785398f};///< Spot light outer cone half-angle in radians (default pi/4)
+    float intensity{1.0f};           ///< Illuminance in lux (Directional) or luminous intensity in candela (Point/Spot)
+    float range{0.0f};               ///< Cutoff distance (>0) or 0 for infinite range
+    float innerConeAngle{0.0f};      ///< Spot light inner cone half-angle in radians
+    float outerConeAngle{0.785398f}; ///< Spot light outer cone half-angle in radians (default pi/4)
 };
 
-enum class AlphaMode : uint32_t {
-    Opaque = 0,
-    Mask = 1,
-    Blend = 2
-};
+enum class AlphaMode : uint32_t { Opaque = 0, Mask = 1, Blend = 2 };
 
 /**
  * @struct SceneCamera
@@ -219,12 +211,14 @@ public:
     std::vector<std::shared_ptr<SceneNode>> children{};
 
     [[nodiscard]] std::span<const MeshPrimitive> GetPrimitives() const noexcept {
-        if (mesh) return mesh->primitives;
+        if (mesh)
+            return mesh->primitives;
         return primitives;
     }
 
     [[nodiscard]] std::span<MeshPrimitive> GetPrimitives() noexcept {
-        if (mesh) return mesh->primitives;
+        if (mesh)
+            return mesh->primitives;
         return primitives;
     }
 

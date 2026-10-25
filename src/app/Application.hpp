@@ -4,20 +4,20 @@
  */
 #pragma once
 
-#include <memory>
-#include <string_view>
+#include "audio/SoundEngine.hpp"
 #include "core/Camera.hpp"
 #include "core/Gamepad.hpp"
 #include "gpu/Context.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/Skybox.hpp"
-#include "audio/SoundEngine.hpp"
-#include "scene/Scene.hpp"
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/RayPicker.hpp"
+#include "scene/Scene.hpp"
 #include "ui/DebugOverlay.hpp"
+#include <memory>
+#include <string_view>
 
 struct SDL_Window;
 
@@ -118,7 +118,8 @@ public:
 
     /** @brief Selects active glTF animation by index (-1 to disable). */
     void SetAnimation(int index) noexcept {
-        if (activeScene_) activeScene_->SetAnimation(index);
+        if (activeScene_)
+            activeScene_->SetAnimation(index);
     }
 
     /** @brief Returns currently playing animation index or -1. */
@@ -133,7 +134,8 @@ public:
 
     /** @brief Sets animation playback state (playing / paused). */
     void SetAnimationPlaying(bool playing) noexcept {
-        if (activeScene_) activeScene_->animationPlaying = playing;
+        if (activeScene_)
+            activeScene_->animationPlaying = playing;
     }
 
     /** @brief Queries whether animation playback is currently active. */
@@ -171,7 +173,8 @@ public:
     /** @brief Cycles built-in HDR environment presets (Courtyard, Sunset, Atelier, Night, Custom). */
     void CycleEnvironmentPreset() noexcept {
         pipelineManager_.CycleEnvironmentPreset(activeScene_.get());
-        skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
+        skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(),
+                                      pipelineManager_.GetDefaultSampler());
     }
 
     /** @brief Cycles skybox display mode (Sharp -> Blurred -> Hidden). */
@@ -206,7 +209,10 @@ public:
     /** @brief Selects scene node by index (-1 clears selection). */
     void SelectNodeByIndex(int index) noexcept;
     void SelectNode(std::shared_ptr<scene::SceneNode> node, int index = -1) noexcept;
-    void ClearSelection() noexcept { selectedNode_ = nullptr; selectedNodeIndex_ = -1; }
+    void ClearSelection() noexcept {
+        selectedNode_ = nullptr;
+        selectedNodeIndex_ = -1;
+    }
     [[nodiscard]] std::shared_ptr<scene::SceneNode> GetSelectedNode() const noexcept { return selectedNode_; }
     [[nodiscard]] int GetSelectedNodeIndex() const noexcept { return selectedNodeIndex_; }
 
@@ -240,8 +246,12 @@ public:
     [[nodiscard]] bool IsMipmappingEnabled() const noexcept { return pipelineManager_.IsMipmappingEnabled(); }
     [[nodiscard]] bool IsShadowsEnabled() const noexcept { return pipelineManager_.IsShadowsEnabled(); }
     [[nodiscard]] bool IsReflectionsEnabled() const noexcept { return pipelineManager_.IsReflectionsEnabled(); }
-    [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept { return pipelineManager_.IsAmbientOcclusionEnabled(); }
-    [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return pipelineManager_.IsOcclusionCullingEnabled(); }
+    [[nodiscard]] bool IsAmbientOcclusionEnabled() const noexcept {
+        return pipelineManager_.IsAmbientOcclusionEnabled();
+    }
+    [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept {
+        return pipelineManager_.IsOcclusionCullingEnabled();
+    }
 
     /**
      * @brief Ingests raw file bytes dropped directly onto the viewer window.
@@ -318,4 +328,3 @@ private:
 };
 
 } // namespace bgl::app
-

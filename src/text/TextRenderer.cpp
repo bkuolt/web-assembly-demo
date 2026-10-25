@@ -4,8 +4,8 @@
  */
 #include "text/TextRenderer.hpp"
 #include "core/Log.hpp"
-#include <glm/gtc/matrix_transform.hpp>
 #include <array>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::text {
 
@@ -54,11 +54,8 @@ TextRenderer::TextRenderer() = default;
 
 TextRenderer::~TextRenderer() = default;
 
-core::Result<void> TextRenderer::Initialize(WGPUDevice device,
-                                            WGPUQueue queue,
-                                            WGPUTextureFormat surfaceFormat,
-                                            uint32_t sampleCount,
-                                            FontAtlas& fontAtlas) {
+core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
+                                            uint32_t sampleCount, FontAtlas& fontAtlas) {
     device_ = device;
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;
@@ -229,15 +226,16 @@ void TextRenderer::EnsureBuffers(size_t vertexCount, size_t indexCount) {
 }
 
 void TextRenderer::DrawRect(float x, float y, float width, float height, const glm::vec4& color) {
-    if (!fontAtlas_ || width <= 0.0f || height <= 0.0f) return;
+    if (!fontAtlas_ || width <= 0.0f || height <= 0.0f)
+        return;
 
     glm::vec2 whiteUV = fontAtlas_->GetWhitePixelUV();
     uint32_t baseIdx = static_cast<uint32_t>(vertexBatch_.size());
 
-    vertexBatch_.push_back(TextVertex{ .pos = glm::vec2(x, y),                 .uv = whiteUV, .color = color });
-    vertexBatch_.push_back(TextVertex{ .pos = glm::vec2(x + width, y),         .uv = whiteUV, .color = color });
-    vertexBatch_.push_back(TextVertex{ .pos = glm::vec2(x + width, y + height), .uv = whiteUV, .color = color });
-    vertexBatch_.push_back(TextVertex{ .pos = glm::vec2(x, y + height),         .uv = whiteUV, .color = color });
+    vertexBatch_.push_back(TextVertex{.pos = glm::vec2(x, y), .uv = whiteUV, .color = color});
+    vertexBatch_.push_back(TextVertex{.pos = glm::vec2(x + width, y), .uv = whiteUV, .color = color});
+    vertexBatch_.push_back(TextVertex{.pos = glm::vec2(x + width, y + height), .uv = whiteUV, .color = color});
+    vertexBatch_.push_back(TextVertex{.pos = glm::vec2(x, y + height), .uv = whiteUV, .color = color});
 
     indexBatch_.push_back(baseIdx + 0);
     indexBatch_.push_back(baseIdx + 1);
@@ -247,16 +245,15 @@ void TextRenderer::DrawRect(float x, float y, float width, float height, const g
     indexBatch_.push_back(baseIdx + 3);
 }
 
-void TextRenderer::DrawRectWithBorder(float x, float y, float width, float height,
-                                      const glm::vec4& fillColor, const glm::vec4& borderColor,
-                                      float borderWidth) {
+void TextRenderer::DrawRectWithBorder(float x, float y, float width, float height, const glm::vec4& fillColor,
+                                      const glm::vec4& borderColor, float borderWidth) {
     // Fill interior
     DrawRect(x, y, width, height, fillColor);
 
     // 4 Border strips
-    DrawRect(x, y, width, borderWidth, borderColor);                                  // Top
-    DrawRect(x, y + height - borderWidth, width, borderWidth, borderColor);           // Bottom
-    DrawRect(x, y + borderWidth, borderWidth, height - 2.0f * borderWidth, borderColor); // Left
+    DrawRect(x, y, width, borderWidth, borderColor);                                                           // Top
+    DrawRect(x, y + height - borderWidth, width, borderWidth, borderColor);                                    // Bottom
+    DrawRect(x, y + borderWidth, borderWidth, height - 2.0f * borderWidth, borderColor);                       // Left
     DrawRect(x + width - borderWidth, y + borderWidth, borderWidth, height - 2.0f * borderWidth, borderColor); // Right
 }
 
@@ -264,26 +261,18 @@ void TextRenderer::DrawQuads(std::span<const TextQuad> quads) {
     for (const auto& quad : quads) {
         const uint32_t baseIdx{static_cast<uint32_t>(vertexBatch_.size())};
 
-        vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2{quad.posMin.x, quad.posMin.y},
-            .uv = glm::vec2{quad.uvMin.x, quad.uvMin.y},
-            .color = quad.color
-        });
-        vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2{quad.posMax.x, quad.posMin.y},
-            .uv = glm::vec2{quad.uvMax.x, quad.uvMin.y},
-            .color = quad.color
-        });
-        vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2{quad.posMax.x, quad.posMax.y},
-            .uv = glm::vec2{quad.uvMax.x, quad.uvMax.y},
-            .color = quad.color
-        });
-        vertexBatch_.push_back(TextVertex{
-            .pos = glm::vec2{quad.posMin.x, quad.posMax.y},
-            .uv = glm::vec2{quad.uvMin.x, quad.uvMax.y},
-            .color = quad.color
-        });
+        vertexBatch_.push_back(TextVertex{.pos = glm::vec2{quad.posMin.x, quad.posMin.y},
+                                          .uv = glm::vec2{quad.uvMin.x, quad.uvMin.y},
+                                          .color = quad.color});
+        vertexBatch_.push_back(TextVertex{.pos = glm::vec2{quad.posMax.x, quad.posMin.y},
+                                          .uv = glm::vec2{quad.uvMax.x, quad.uvMin.y},
+                                          .color = quad.color});
+        vertexBatch_.push_back(TextVertex{.pos = glm::vec2{quad.posMax.x, quad.posMax.y},
+                                          .uv = glm::vec2{quad.uvMax.x, quad.uvMax.y},
+                                          .color = quad.color});
+        vertexBatch_.push_back(TextVertex{.pos = glm::vec2{quad.posMin.x, quad.posMax.y},
+                                          .uv = glm::vec2{quad.uvMin.x, quad.uvMax.y},
+                                          .color = quad.color});
 
         indexBatch_.push_back(baseIdx + 0);
         indexBatch_.push_back(baseIdx + 1);
@@ -294,9 +283,9 @@ void TextRenderer::DrawQuads(std::span<const TextQuad> quads) {
     }
 }
 
-void TextRenderer::DrawText(std::string_view text, float x, float y,
-                            const glm::vec4& color, float scale) {
-    if (!fontAtlas_ || text.empty()) return;
+void TextRenderer::DrawText(std::string_view text, float x, float y, const glm::vec4& color, float scale) {
+    if (!fontAtlas_ || text.empty())
+        return;
 
     const TextLayout layout{TextShaper::Shape(*fontAtlas_, text, x, y, color, scale)};
     DrawQuads(std::span<const TextQuad>{layout.quads});
@@ -313,7 +302,8 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     fontAtlas_->SyncGPU(device_, queue_);
 
     // 2. Upload orthographic projection matrix (top-left 0,0 to bottom-right W,H)
-    glm::mat4 ortho = glm::ortho(0.0f, static_cast<float>(viewportWidth), static_cast<float>(viewportHeight), 0.0f, -1.0f, 1.0f);
+    glm::mat4 ortho =
+        glm::ortho(0.0f, static_cast<float>(viewportWidth), static_cast<float>(viewportHeight), 0.0f, -1.0f, 1.0f);
     wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ortho, sizeof(glm::mat4));
 
     // 3. Ensure GPU vertex and index buffers are sized appropriately and upload
@@ -325,7 +315,8 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
     wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, vertexBatch_.size() * sizeof(TextVertex));
-    wgpuRenderPassEncoderSetIndexBuffer(pass, indexBuffer_, WGPUIndexFormat_Uint32, 0, indexBatch_.size() * sizeof(uint32_t));
+    wgpuRenderPassEncoderSetIndexBuffer(pass, indexBuffer_, WGPUIndexFormat_Uint32, 0,
+                                        indexBatch_.size() * sizeof(uint32_t));
     wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(indexBatch_.size()), 1, 0, 0, 0);
 
     // 5. Clear batch for next frame
@@ -334,4 +325,3 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 }
 
 } // namespace bgl::text
-

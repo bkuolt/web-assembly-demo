@@ -73,11 +73,14 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
     if (interpolation == AnimationInterpolation::Linear) {
         const size_t offset0 = k * stride;
         const size_t offset1 = k1 * stride;
-        if (offset1 + stride > keyframeValues.size()) return;
+        if (offset1 + stride > keyframeValues.size())
+            return;
 
         if (path == AnimationPath::Rotation && stride >= 4) {
-            glm::quat q0(keyframeValues[offset0 + 3], keyframeValues[offset0 + 0], keyframeValues[offset0 + 1], keyframeValues[offset0 + 2]);
-            glm::quat q1(keyframeValues[offset1 + 3], keyframeValues[offset1 + 0], keyframeValues[offset1 + 1], keyframeValues[offset1 + 2]);
+            glm::quat q0(keyframeValues[offset0 + 3], keyframeValues[offset0 + 0], keyframeValues[offset0 + 1],
+                         keyframeValues[offset0 + 2]);
+            glm::quat q1(keyframeValues[offset1 + 3], keyframeValues[offset1 + 0], keyframeValues[offset1 + 1],
+                         keyframeValues[offset1 + 2]);
             // Ensure shortest path for spherical linear interpolation
             if (glm::dot(q0, q1) < 0.0f) {
                 q1 = -q1;
@@ -100,12 +103,13 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
         // Layout per keyframe: [in-tangent (stride), value (stride), out-tangent (stride)]
         const size_t kStride3 = k * 3 * stride;
         const size_t k1Stride3 = k1 * 3 * stride;
-        if (k1Stride3 + 3 * stride > keyframeValues.size()) return;
+        if (k1Stride3 + 3 * stride > keyframeValues.size())
+            return;
 
-        const size_t v0Offset = kStride3 + stride;         // v_k
-        const size_t b0Offset = kStride3 + 2 * stride;     // out-tangent b_k
-        const size_t a1Offset = k1Stride3;                 // in-tangent a_{k+1}
-        const size_t v1Offset = k1Stride3 + stride;        // v_{k+1}
+        const size_t v0Offset = kStride3 + stride;     // v_k
+        const size_t b0Offset = kStride3 + 2 * stride; // out-tangent b_k
+        const size_t a1Offset = k1Stride3;             // in-tangent a_{k+1}
+        const size_t v1Offset = k1Stride3 + stride;    // v_{k+1}
 
         const float s = alpha;
         const float s2 = s * s;
@@ -129,4 +133,3 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
 }
 
 } // namespace bgl::scene
-

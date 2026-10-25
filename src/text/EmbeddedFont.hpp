@@ -4,8 +4,8 @@
  */
 #pragma once
 
-#include <span>
 #include <cstdint>
+#include <span>
 
 namespace bgl::text {
 
@@ -16,4 +16,3 @@ namespace bgl::text {
 [[nodiscard]] std::span<const uint8_t> GetEmbeddedFontData() noexcept;
 
 } // namespace bgl::text
-

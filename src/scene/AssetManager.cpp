@@ -3,8 +3,8 @@
  * @brief Implementation of AssetManager caching and hash deduplication.
  */
 #include "scene/AssetManager.hpp"
-#include "core/NetworkFetcher.hpp"
 #include "core/Log.hpp"
+#include "core/NetworkFetcher.hpp"
 
 namespace bgl::scene {
 
@@ -50,7 +50,8 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
         textureCache_[pathHash] = sharedImg;
         textureCache_[contentHash] = sharedImg;
     }
-    BGL_LOG_INFO("AssetManager: Cached new texture '{}' ({}x{}) with content hash {:x}", path, sharedImg->width, sharedImg->height, contentHash);
+    BGL_LOG_INFO("AssetManager: Cached new texture '{}' ({}x{}) with content hash {:x}", path, sharedImg->width,
+                 sharedImg->height, contentHash);
     return sharedImg;
 }
 
@@ -80,4 +81,3 @@ void AssetManager::Clear() {
 }
 
 } // namespace bgl::scene
-

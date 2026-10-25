@@ -7,10 +7,10 @@
 #ifndef SPDLOG_ACTIVE_LEVEL
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
-#include <spdlog/spdlog.h>
 #include <chrono>
-#include <string_view>
+#include <spdlog/spdlog.h>
 #include <string>
+#include <string_view>
 
 namespace bgl::core {
 
@@ -20,8 +20,7 @@ namespace bgl::core {
  */
 class ScopedTimer {
 public:
-    explicit ScopedTimer(std::string_view name)
-        : name_(name), start_(std::chrono::high_resolution_clock::now()) {}
+    explicit ScopedTimer(std::string_view name) : name_(name), start_(std::chrono::high_resolution_clock::now()) {}
 
     ~ScopedTimer() {
         auto end = std::chrono::high_resolution_clock::now();
@@ -45,8 +44,7 @@ void InitLogging(std::string_view logLevel = "info");
 
 #define BGL_LOG_TRACE(...) SPDLOG_TRACE(__VA_ARGS__)
 #define BGL_LOG_DEBUG(...) SPDLOG_DEBUG(__VA_ARGS__)
-#define BGL_LOG_INFO(...)  SPDLOG_INFO(__VA_ARGS__)
-#define BGL_LOG_WARN(...)  SPDLOG_WARN(__VA_ARGS__)
+#define BGL_LOG_INFO(...) SPDLOG_INFO(__VA_ARGS__)
+#define BGL_LOG_WARN(...) SPDLOG_WARN(__VA_ARGS__)
 #define BGL_LOG_ERROR(...) SPDLOG_ERROR(__VA_ARGS__)
 #define BGL_PROFILE_SCOPE(name) ::bgl::core::ScopedTimer _bgl_timer_##__LINE__(name)
-

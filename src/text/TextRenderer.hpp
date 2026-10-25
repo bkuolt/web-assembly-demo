@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include <string_view>
-#include <span>
-#include <vector>
-#include <glm/glm.hpp>
-#include <webgpu/webgpu.h>
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
 #include "text/FontAtlas.hpp"
 #include "text/TextShaper.hpp"
+#include <glm/glm.hpp>
+#include <span>
+#include <string_view>
+#include <vector>
+#include <webgpu/webgpu.h>
 
 namespace bgl::text {
 
@@ -47,11 +47,8 @@ public:
      * @param fontAtlas Reference to active font atlas.
      * @return Result indicating success or error string.
      */
-    core::Result<void> Initialize(WGPUDevice device,
-                                  WGPUQueue queue,
-                                  WGPUTextureFormat surfaceFormat,
-                                  uint32_t sampleCount,
-                                  FontAtlas& fontAtlas);
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
+                                  uint32_t sampleCount, FontAtlas& fontAtlas);
 
     /**
      * @brief Enqueues a solid or translucent rectangle.
@@ -73,9 +70,8 @@ public:
      * @param borderColor Outline border RGBA color vector.
      * @param borderWidth Border line width in pixels.
      */
-    void DrawRectWithBorder(float x, float y, float width, float height,
-                            const glm::vec4& fillColor, const glm::vec4& borderColor,
-                            float borderWidth = 1.0f);
+    void DrawRectWithBorder(float x, float y, float width, float height, const glm::vec4& fillColor,
+                            const glm::vec4& borderColor, float borderWidth = 1.0f);
 
     /**
      * @brief Enqueues a span of pre-shaped text quads into the current vertex/index batch.
@@ -91,8 +87,8 @@ public:
      * @param color Text RGBA color vector.
      * @param scale Uniform scale factor (default 1.0).
      */
-    void DrawText(std::string_view text, float x, float y,
-                  const glm::vec4& color = glm::vec4{1.0f}, float scale = 1.0f);
+    void DrawText(std::string_view text, float x, float y, const glm::vec4& color = glm::vec4{1.0f},
+                  float scale = 1.0f);
 
     /**
      * @brief Flushes batched quads and renders them in the current render pass encoder.
@@ -128,4 +124,3 @@ private:
 };
 
 } // namespace bgl::text
-

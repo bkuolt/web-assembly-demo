@@ -2,8 +2,8 @@
  * @file test_memory_pool.cpp
  * @brief Unit tests for bgl::core::MemoryPool and ScratchArena.
  */
-#include <gtest/gtest.h>
 #include "core/MemoryPool.hpp"
+#include <gtest/gtest.h>
 
 struct TestStruct {
     int a;
@@ -101,13 +101,9 @@ struct LifetimeTracker {
     static inline int activeInstances = 0;
     int id;
 
-    LifetimeTracker(int val) : id(val) {
-        ++activeInstances;
-    }
+    LifetimeTracker(int val) : id(val) { ++activeInstances; }
 
-    ~LifetimeTracker() {
-        --activeInstances;
-    }
+    ~LifetimeTracker() { --activeInstances; }
 };
 
 TEST(MemoryPoolTest, DestructorInvocationTracking) {
@@ -233,7 +229,8 @@ TEST(MemoryPoolTest, LargeScaleStressAndInterleavedDeallocation) {
 
     // Cleanup remaining original even elements and new elements
     for (size_t i = 0; i < kTotalAllocations; i += 2) {
-        if (ptrs[i]) pool.Deallocate(ptrs[i]);
+        if (ptrs[i])
+            pool.Deallocate(ptrs[i]);
     }
     for (auto* p : newPtrs) {
         pool.Deallocate(p);
@@ -277,6 +274,3 @@ TEST(MemoryPoolTest, ScratchArenaRepeatedResetUnderPMRVectors) {
     }
     EXPECT_EQ(arena.Capacity(), 1024 * 128);
 }
-
-
-

@@ -4,11 +4,11 @@
  */
 #pragma once
 
-#include <webgpu/webgpu.h>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
-#include "scene/Scene.hpp"
 #include "scene/Quadtree.hpp"
+#include "scene/Scene.hpp"
+#include <glm/glm.hpp>
+#include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
 
@@ -66,20 +66,20 @@ public:
     ShadowPass(ShadowPass&& other) noexcept;
     ShadowPass& operator=(ShadowPass&& other) noexcept;
 
-    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUSampler defaultSampler, WGPUTextureView defaultWhiteView);
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUSampler defaultSampler,
+                                  WGPUTextureView defaultWhiteView);
     void Shutdown() noexcept;
 
     /**
      * @brief Computes scene-enclosing directional light-space projection matrix.
      */
-    [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds, const glm::vec3& lightDir) noexcept;
+    [[nodiscard]] static glm::mat4 ComputeDirectionalLightMatrix(const core::AABB& sceneBounds,
+                                                                 const glm::vec3& lightDir) noexcept;
 
     /**
      * @brief Records directional shadow map depth pre-pass.
      */
-    void Render(WGPUCommandEncoder encoder,
-                scene::Scene& scene,
-                const glm::vec3& lightDir,
+    void Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                 const scene::Quadtree* spatialIndex = nullptr);
 
     [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_; }

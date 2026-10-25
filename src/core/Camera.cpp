@@ -8,8 +8,7 @@
 
 namespace bgl::core {
 
-Camera::Camera(glm::vec3 target, float distance)
-    : target_{target}, distance_{distance} {
+Camera::Camera(glm::vec3 target, float distance) : target_{target}, distance_{distance} {
     Update(16.0f / 9.0f);
 }
 
@@ -71,7 +70,8 @@ void Camera::Zoom(float deltaZoom) noexcept {
 }
 
 void Camera::FocusOnBounds(const AABB& bounds, float margin) noexcept {
-    if (bounds.minBound.x > bounds.maxBound.x) return;
+    if (bounds.minBound.x > bounds.maxBound.x)
+        return;
     const glm::vec3 center = bounds.Center();
     const glm::vec3 extents = bounds.Extents();
     const float radius = std::max(glm::length(extents), 0.1f);
@@ -85,21 +85,21 @@ void Camera::FocusOnBounds(const AABB& bounds, float margin) noexcept {
 }
 
 bool Camera::SaveBookmark(size_t slot) noexcept {
-    if (slot >= bookmarks_.size()) return false;
-    bookmarks_[slot] = CameraBookmark{
-        .position = position_,
-        .target = target_,
-        .distance = distance_,
-        .yaw = yaw_,
-        .pitch = pitch_,
-        .mode = mode_,
-        .valid = true
-    };
+    if (slot >= bookmarks_.size())
+        return false;
+    bookmarks_[slot] = CameraBookmark{.position = position_,
+                                      .target = target_,
+                                      .distance = distance_,
+                                      .yaw = yaw_,
+                                      .pitch = pitch_,
+                                      .mode = mode_,
+                                      .valid = true};
     return true;
 }
 
 bool Camera::RestoreBookmark(size_t slot) noexcept {
-    if (slot >= bookmarks_.size() || !bookmarks_[slot].valid) return false;
+    if (slot >= bookmarks_.size() || !bookmarks_[slot].valid)
+        return false;
     const auto& b = bookmarks_[slot];
     position_ = b.position;
     target_ = b.target;
@@ -155,11 +155,8 @@ void Camera::Update(float aspectRatio) noexcept {
         const float z{target_.z + distance_ * std::cos(pitch_) * std::cos(yaw_)};
         position_ = glm::vec3{x, y, z};
     } else { // CameraMode::Fly
-        const glm::vec3 forward{
-            -std::cos(pitch_) * std::sin(yaw_),
-            std::sin(pitch_),
-            -std::cos(pitch_) * std::cos(yaw_)
-        };
+        const glm::vec3 forward{-std::cos(pitch_) * std::sin(yaw_), std::sin(pitch_),
+                                -std::cos(pitch_) * std::cos(yaw_)};
         target_ = position_ + forward * distance_;
     }
 

@@ -2,11 +2,11 @@
  * @file test_types_math.cpp
  * @brief Comprehensive unit tests for core 3D types: AABB, Plane, Frustum, Ray, and Vertex layout.
  */
-#include <gtest/gtest.h>
-#include <glm/gtc/matrix_transform.hpp>
 #include "core/Types.hpp"
-#include "scene/Scene.hpp"
 #include "gpu/Pipeline.hpp"
+#include "scene/Scene.hpp"
+#include <glm/gtc/matrix_transform.hpp>
+#include <gtest/gtest.h>
 
 using namespace bgl::core;
 
@@ -62,23 +62,23 @@ TEST(TypesMathTest, AABBRayIntersection) {
     float tMax = 0.0f;
 
     // Direct hit along Z
-    Ray ray1{ glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    Ray ray1{glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_TRUE(box.Intersects(ray1, tMin, tMax));
     EXPECT_NEAR(tMin, 4.0f, 1e-4f);
     EXPECT_NEAR(tMax, 6.0f, 1e-4f);
 
     // Direct hit from inside box
-    Ray rayInside{ glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f) };
+    Ray rayInside{glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
     EXPECT_TRUE(box.Intersects(rayInside, tMin, tMax));
     EXPECT_NEAR(tMin, 0.0f, 1e-4f);
     EXPECT_NEAR(tMax, 1.0f, 1e-4f);
 
     // Miss - ray pointing opposite direction
-    Ray rayAway{ glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 1.0f) };
+    Ray rayAway{glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 1.0f)};
     EXPECT_FALSE(box.Intersects(rayAway, tMin, tMax));
 
     // Miss - parallel to box
-    Ray rayParallel{ glm::vec3(5.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f) };
+    Ray rayParallel{glm::vec3(5.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)};
     EXPECT_FALSE(box.Intersects(rayParallel, tMin, tMax));
 }
 
@@ -192,13 +192,21 @@ TEST(TypesMathTest, MeshPrimitiveComputeTangentsOrthogonalityAndHandedness) {
     bgl::scene::MeshPrimitive prim;
     // Create a quad on an X-facing wall (Normal = +X = (1, 0, 0)), where default tangent (1,0,0) would be degenerate!
     Vertex v0, v1, v2, v3;
-    v0.position = glm::vec3(0.0f, 0.0f, 0.0f); v0.normal = glm::vec3(1.0f, 0.0f, 0.0f); v0.uv = glm::vec2(0.0f, 0.0f);
-    v1.position = glm::vec3(0.0f, 0.0f, 2.0f); v1.normal = glm::vec3(1.0f, 0.0f, 0.0f); v1.uv = glm::vec2(1.0f, 0.0f);
-    v2.position = glm::vec3(0.0f, 2.0f, 2.0f); v2.normal = glm::vec3(1.0f, 0.0f, 0.0f); v2.uv = glm::vec2(1.0f, 1.0f);
-    v3.position = glm::vec3(0.0f, 2.0f, 0.0f); v3.normal = glm::vec3(1.0f, 0.0f, 0.0f); v3.uv = glm::vec2(0.0f, 1.0f);
+    v0.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    v0.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v0.uv = glm::vec2(0.0f, 0.0f);
+    v1.position = glm::vec3(0.0f, 0.0f, 2.0f);
+    v1.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v1.uv = glm::vec2(1.0f, 0.0f);
+    v2.position = glm::vec3(0.0f, 2.0f, 2.0f);
+    v2.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v2.uv = glm::vec2(1.0f, 1.0f);
+    v3.position = glm::vec3(0.0f, 2.0f, 0.0f);
+    v3.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v3.uv = glm::vec2(0.0f, 1.0f);
 
-    prim.vertices = { v0, v1, v2, v3 };
-    prim.indices = { 0, 1, 2, 0, 2, 3 };
+    prim.vertices = {v0, v1, v2, v3};
+    prim.indices = {0, 1, 2, 0, 2, 3};
 
     prim.ComputeTangents();
 
@@ -221,10 +229,7 @@ TEST(TypesMathTest, MipmapCalculationAndDownsamplingWithNormalMapRenormalization
     EXPECT_EQ(bgl::gpu::PipelineManager::CalculateMipLevels(512, 256), 10u);
 
     // 1. Box-filtered color mipmap test (2x2 -> 1x1)
-    std::vector<uint8_t> colorSrc = {
-        200, 100, 50, 255,   100, 200, 50, 255,
-        100, 100, 150, 255,  200, 200, 150, 255
-    };
+    std::vector<uint8_t> colorSrc = {200, 100, 50, 255, 100, 200, 50, 255, 100, 100, 150, 255, 200, 200, 150, 255};
     auto colorMip1 = bgl::gpu::PipelineManager::GenerateNextMipLevel(colorSrc.data(), 2, 2, 1, 1, false);
     ASSERT_EQ(colorMip1.size(), 4u);
     EXPECT_EQ(colorMip1[0], 150u);
@@ -237,10 +242,7 @@ TEST(TypesMathTest, MipmapCalculationAndDownsamplingWithNormalMapRenormalization
     // Texel 2 & 3 tilted -X: (-0.7071, 0, 0.7071) -> RGB(37, 128, 218)
     // Simple box average would yield unnormalized (0, 0, 0.7071) -> B=218.
     // Proper 3D vector renormalization must yield unit normal (0, 0, 1.0) -> RGB(128, 128, 255)!
-    std::vector<uint8_t> normalSrc = {
-        218, 128, 218, 255,  218, 128, 218, 255,
-         37, 128, 218, 255,   37, 128, 218, 255
-    };
+    std::vector<uint8_t> normalSrc = {218, 128, 218, 255, 218, 128, 218, 255, 37, 128, 218, 255, 37, 128, 218, 255};
     auto normalMip1 = bgl::gpu::PipelineManager::GenerateNextMipLevel(normalSrc.data(), 2, 2, 1, 1, true);
     ASSERT_EQ(normalMip1.size(), 4u);
     EXPECT_NEAR(normalMip1[0], 128, 2);
@@ -333,9 +335,12 @@ TEST(TypesMathTest, MeshPrimitiveCopySemanticsAndGPUHandleSafety) {
     orig.boundingBox.minBound = glm::vec3(-1.0f, -2.0f, -3.0f);
     orig.boundingBox.maxBound = glm::vec3(1.0f, 2.0f, 3.0f);
 
-    Vertex v1{}; v1.position = glm::vec3(0.0f, 1.0f, 0.0f);
-    Vertex v2{}; v2.position = glm::vec3(-1.0f, 0.0f, 0.0f);
-    Vertex v3{}; v3.position = glm::vec3(1.0f, 0.0f, 0.0f);
+    Vertex v1{};
+    v1.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    Vertex v2{};
+    v2.position = glm::vec3(-1.0f, 0.0f, 0.0f);
+    Vertex v3{};
+    v3.position = glm::vec3(1.0f, 0.0f, 0.0f);
     orig.vertices = {v1, v2, v3};
     orig.indices = {0, 1, 2};
 
@@ -370,10 +375,7 @@ TEST(TypesMathTest, MeshPrimitiveCopySemanticsAndGPUHandleSafety) {
 }
 
 TEST(TypesMathTest, RaySegmentParametricEvaluator) {
-    const Ray ray{
-        .origin = glm::vec3{1.0f, 2.0f, 3.0f},
-        .direction = glm::vec3{0.0f, 1.0f, 0.0f}
-    };
+    const Ray ray{.origin = glm::vec3{1.0f, 2.0f, 3.0f}, .direction = glm::vec3{0.0f, 1.0f, 0.0f}};
     EXPECT_EQ(ray.At(0.0f), glm::vec3(1.0f, 2.0f, 3.0f));
     EXPECT_EQ(ray.At(5.0f), glm::vec3(1.0f, 7.0f, 3.0f));
     EXPECT_EQ(ray.At(-2.5f), glm::vec3(1.0f, -0.5f, 3.0f));
@@ -402,12 +404,12 @@ TEST(TypesMathTest, SceneDestructorTextureSamplerNulling) {
 TEST(TypesMathTest, AABBOverlapAndContainmentCases) {
     AABB base;
     base.Expand(glm::vec3(-2.0f, -2.0f, -2.0f));
-    base.Expand(glm::vec3( 2.0f,  2.0f,  2.0f));
+    base.Expand(glm::vec3(2.0f, 2.0f, 2.0f));
 
     // 1. Fully contained box
     AABB inner;
     inner.Expand(glm::vec3(-1.0f, -1.0f, -1.0f));
-    inner.Expand(glm::vec3( 1.0f,  1.0f,  1.0f));
+    inner.Expand(glm::vec3(1.0f, 1.0f, 1.0f));
     EXPECT_TRUE(base.Intersects(inner));
     EXPECT_TRUE(inner.Intersects(base));
 
@@ -428,26 +430,26 @@ TEST(TypesMathTest, AABBOverlapAndContainmentCases) {
     // 4. Touching on face (X = 2.0)
     AABB touchingFace;
     touchingFace.Expand(glm::vec3(2.0f, -1.0f, -1.0f));
-    touchingFace.Expand(glm::vec3(4.0f,  1.0f,  1.0f));
+    touchingFace.Expand(glm::vec3(4.0f, 1.0f, 1.0f));
     EXPECT_TRUE(base.Intersects(touchingFace));
 }
 
 TEST(TypesMathTest, AABBRayGrazingEdgesAndCorners) {
     AABB box;
     box.Expand(glm::vec3(-1.0f, -1.0f, -1.0f));
-    box.Expand(glm::vec3( 1.0f,  1.0f,  1.0f));
+    box.Expand(glm::vec3(1.0f, 1.0f, 1.0f));
 
     float tMin = 0.0f;
     float tMax = 0.0f;
 
     // Ray passing slightly inside the top face boundary (Y = 0.999f, X = 0.0f)
-    Ray grazingRay{ glm::vec3(0.0f, 0.999f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    Ray grazingRay{glm::vec3(0.0f, 0.999f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_TRUE(box.Intersects(grazingRay, tMin, tMax));
     EXPECT_NEAR(tMin, 4.0f, 1e-3f);
     EXPECT_NEAR(tMax, 6.0f, 1e-3f);
 
     // Ray passing strictly outside by epsilon
-    Ray missedRay{ glm::vec3(0.0f, 1.01f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f) };
+    Ray missedRay{glm::vec3(0.0f, 1.01f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
     EXPECT_FALSE(box.Intersects(missedRay, tMin, tMax));
 }
 
@@ -488,7 +490,3 @@ TEST(TypesMathTest, TransformMatrixPropertiesAndInversion) {
         }
     }
 }
-
-
-
-

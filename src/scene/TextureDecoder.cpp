@@ -35,8 +35,8 @@ static void PngReadCallback(png_structp png_ptr, png_bytep outBytes, png_size_t 
 #endif
 
 #if defined(BGL_ENABLE_JPEG)
-#include <jpeglib.h>
 #include <csetjmp>
+#include <jpeglib.h>
 
 struct CustomJpegErrorMgr {
     struct jpeg_error_mgr pub;
@@ -64,18 +64,14 @@ namespace bgl::scene {
 static constexpr size_t kMaxTextureDimension{16384};
 
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
-static bool ReadPngStreamIsolateSetjmp(
-    png_structp png_ptr,
-    png_infop info_ptr,
-    std::span<const uint8_t> data,
-    DecodedImage& outImg,
-    std::vector<png_bytep>& rowPointers) {
-
+static bool ReadPngStreamIsolateSetjmp(png_structp png_ptr, png_infop info_ptr, std::span<const uint8_t> data,
+                                       DecodedImage& outImg, std::vector<png_bytep>& rowPointers) {
     if (setjmp(png_jmpbuf(png_ptr))) {
         return false;
     }
 
-    png_set_user_limits(png_ptr, static_cast<png_uint_32>(kMaxTextureDimension), static_cast<png_uint_32>(kMaxTextureDimension));
+    png_set_user_limits(png_ptr, static_cast<png_uint_32>(kMaxTextureDimension),
+                        static_cast<png_uint_32>(kMaxTextureDimension));
 
     PngMemoryReader reader{data.data(), data.size(), 8};
     png_set_read_fn(png_ptr, &reader, PngReadCallback);
@@ -104,8 +100,7 @@ static bool ReadPngStreamIsolateSetjmp(
     }
     if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
         png_set_tRNS_to_alpha(png_ptr);
-    } else if (color_type == PNG_COLOR_TYPE_RGB ||
-               color_type == PNG_COLOR_TYPE_GRAY ||
+    } else if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY ||
                color_type == PNG_COLOR_TYPE_PALETTE) {
         png_set_add_alpha(png_ptr, 0xFF, PNG_FILLER_AFTER);
     }
@@ -132,11 +127,8 @@ static bool ReadPngStreamIsolateSetjmp(
 #endif
 
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_JPEG)
-static bool ReadJpegStreamIsolateSetjmp(
-    std::span<const uint8_t> data,
-    DecodedImage& outImg,
-    std::vector<uint8_t>& rowBuffer) {
-
+static bool ReadJpegStreamIsolateSetjmp(std::span<const uint8_t> data, DecodedImage& outImg,
+                                        std::vector<uint8_t>& rowBuffer) {
     struct jpeg_decompress_struct cinfo{};
     CustomJpegErrorMgr jerr{};
 
@@ -159,8 +151,8 @@ static bool ReadJpegStreamIsolateSetjmp(
     cinfo.out_color_space = JCS_RGB;
     jpeg_start_decompress(&cinfo);
 
-    if (cinfo.output_width == 0 || cinfo.output_height == 0 ||
-        cinfo.output_width > kMaxTextureDimension || cinfo.output_height > kMaxTextureDimension) {
+    if (cinfo.output_width == 0 || cinfo.output_height == 0 || cinfo.output_width > kMaxTextureDimension ||
+        cinfo.output_height > kMaxTextureDimension) {
         jpeg_destroy_decompress(&cinfo);
         return false;
     }
@@ -201,7 +193,8 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
     }
 
     png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png_ptr) return std::unexpected("Failed to create png read struct");
+    if (!png_ptr)
+        return std::unexpected("Failed to create png read struct");
 
     png_infop info_ptr = png_create_info_struct(png_ptr);
     if (!info_ptr) {
@@ -224,7 +217,8 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
 #else
     (void)data;
     DecodedImage img;
-    img.width = 2; img.height = 2;
+    img.width = 2;
+    img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
     return img;
 #endif
@@ -237,15 +231,12 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     }
     int width{0};
     int height{0};
-    std::unique_ptr<uint8_t, decltype(&WebPFree)> decoded{
-        WebPDecodeRGBA(data.data(), data.size(), &width, &height),
-        &WebPFree
-    };
+    std::unique_ptr<uint8_t, decltype(&WebPFree)> decoded{WebPDecodeRGBA(data.data(), data.size(), &width, &height),
+                                                          &WebPFree};
     if (!decoded) {
         return std::unexpected("Failed to decode WebP stream");
     }
-    if (width <= 0 || height <= 0 ||
-        static_cast<size_t>(width) > kMaxTextureDimension ||
+    if (width <= 0 || height <= 0 || static_cast<size_t>(width) > kMaxTextureDimension ||
         static_cast<size_t>(height) > kMaxTextureDimension) {
         return std::unexpected("WebP image dimensions exceed maximum allowed limits");
     }
@@ -262,7 +253,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
 #else
     (void)data;
     DecodedImage img;
-    img.width = 2; img.height = 2;
+    img.width = 2;
+    img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
     return img;
 #endif
@@ -286,7 +278,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
 #else
     (void)data;
     DecodedImage img;
-    img.width = 2; img.height = 2;
+    img.width = 2;
+    img.height = 2;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
     return img;
 #endif
@@ -338,12 +331,10 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_KTX)
-    static constexpr std::array<uint8_t, 12> kKtx2Ident{
-        0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A
-    };
-    static constexpr std::array<uint8_t, 12> kKtx1Ident{
-        0xAB, 'K', 'T', 'X', ' ', '1', '1', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A
-    };
+    static constexpr std::array<uint8_t, 12> kKtx2Ident{0xAB, 'K',  'T',  'X',  ' ',  '2',
+                                                        '0',  0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
+    static constexpr std::array<uint8_t, 12> kKtx1Ident{0xAB, 'K',  'T',  'X',  ' ',  '1',
+                                                        '1',  0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
     if (data.size() < 12) {
         return std::unexpected("Data too small to be a valid KTX texture");
     }
@@ -360,18 +351,15 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     }
 
     ktxTexture* rawKtx{nullptr};
-    KTX_error_code result{ktxTexture_CreateFromMemory(
-        data.data(),
-        data.size(),
-        KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-        &rawKtx
-    )};
+    KTX_error_code result{
+        ktxTexture_CreateFromMemory(data.data(), data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &rawKtx)};
 
     if (result != KTX_SUCCESS || !rawKtx) {
         return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));
     }
     const auto ktxDeleter = [](ktxTexture* t) noexcept {
-        if (t) ktxTexture_Destroy(t);
+        if (t)
+            ktxTexture_Destroy(t);
     };
     std::unique_ptr<ktxTexture, decltype(ktxDeleter)> kTexture{rawKtx, ktxDeleter};
 
@@ -394,11 +382,19 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         if (ktxTexture2_NeedsTranscoding(ktx2)) {
             ktx_transcode_fmt_e ktxFmt{KTX_TTF_RGBA32};
             switch (effectiveTarget) {
-                case KtxTranscodeTarget::Bc7:      ktxFmt = KTX_TTF_BC7_RGBA; break;
-                case KtxTranscodeTarget::Astc4x4:  ktxFmt = KTX_TTF_ASTC_4x4_RGBA; break;
-                case KtxTranscodeTarget::Etc2Rgba: ktxFmt = KTX_TTF_ETC2_RGBA; break;
-                case KtxTranscodeTarget::Rgba32:
-                default:                           ktxFmt = KTX_TTF_RGBA32; break;
+            case KtxTranscodeTarget::Bc7:
+                ktxFmt = KTX_TTF_BC7_RGBA;
+                break;
+            case KtxTranscodeTarget::Astc4x4:
+                ktxFmt = KTX_TTF_ASTC_4x4_RGBA;
+                break;
+            case KtxTranscodeTarget::Etc2Rgba:
+                ktxFmt = KTX_TTF_ETC2_RGBA;
+                break;
+            case KtxTranscodeTarget::Rgba32:
+            default:
+                ktxFmt = KTX_TTF_RGBA32;
+                break;
             }
             result = ktxTexture2_TranscodeBasis(ktx2, ktxFmt, 0);
             if (result != KTX_SUCCESS && ktxFmt != KTX_TTF_RGBA32) {
@@ -407,7 +403,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
                 result = ktxTexture2_TranscodeBasis(ktx2, KTX_TTF_RGBA32, 0);
             }
             if (result != KTX_SUCCESS) {
-                return std::unexpected(std::string("ktxTexture2_TranscodeBasis failed: error ") + std::to_string(result));
+                return std::unexpected(std::string("ktxTexture2_TranscodeBasis failed: error ") +
+                                       std::to_string(result));
             }
             transcodedCompressed = (effectiveTarget != KtxTranscodeTarget::Rgba32);
         } else {
@@ -488,7 +485,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     (void)data;
     (void)target;
     DecodedImage img{};
-    img.width = 2; img.height = 2;
+    img.width = 2;
+    img.height = 2;
     img.channels = 4;
     img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
     return img;
@@ -507,7 +505,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
 
     size_t pos{0};
     auto readLine = [&]() -> std::string_view {
-        if (pos >= textView.size()) return {};
+        if (pos >= textView.size())
+            return {};
         const size_t nl{textView.find('\n', pos)};
         if (nl == std::string_view::npos) {
             const std::string_view line{textView.substr(pos)};
@@ -525,7 +524,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
     // 1. Read header lines until empty line
     while (pos < textView.size()) {
         const std::string_view line{readLine()};
-        if (line.empty()) break;
+        if (line.empty())
+            break;
     }
 
     // 2. Read resolution line: "-Y <height> +X <width>"
@@ -635,13 +635,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
 
         float* dstRow{&hdr.rgbaFloat[static_cast<size_t>(y) * width * 4u]};
         for (uint32_t x{0}; x < width; ++x) {
-            rgbeToFloat(
-                scanline[x * 4u + 0],
-                scanline[x * 4u + 1],
-                scanline[x * 4u + 2],
-                scanline[x * 4u + 3],
-                &dstRow[x * 4u]
-            );
+            rgbeToFloat(scanline[x * 4u + 0], scanline[x * 4u + 1], scanline[x * 4u + 2], scanline[x * 4u + 3],
+                        &dstRow[x * 4u]);
         }
     }
 
@@ -676,7 +671,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
         while (cur < limit && data[cur] != 0) {
             ++cur;
         }
-        if (cur >= limit) return {};
+        if (cur >= limit)
+            return {};
         const std::string_view s{reinterpret_cast<const char*>(data.data() + start), cur - start};
         ++cur; // Skip null terminator
         return s;
@@ -715,7 +711,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
             size_t chPos{pos};
             while (chPos < attrEnd && data[chPos] != 0) {
                 const std::string_view chName{readCString(chPos, attrEnd)};
-                if (chPos + 16 > attrEnd) break;
+                if (chPos + 16 > attrEnd)
+                    break;
                 const int32_t pType{readI32(chPos)};
                 chPos += 16; // pixelType(4) + pLinear(1) + reserved(3) + xSampling(4) + ySampling(4)
 
@@ -723,10 +720,14 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
                 ch.name = std::string{chName};
                 ch.pixelType = pType;
                 ch.byteSize = (pType == 1) ? 2u : 4u;
-                if (chName == "R" || chName == "r") ch.rgbaComp = 0;
-                else if (chName == "G" || chName == "g") ch.rgbaComp = 1;
-                else if (chName == "B" || chName == "b") ch.rgbaComp = 2;
-                else if (chName == "A" || chName == "a") ch.rgbaComp = 3;
+                if (chName == "R" || chName == "r")
+                    ch.rgbaComp = 0;
+                else if (chName == "G" || chName == "g")
+                    ch.rgbaComp = 1;
+                else if (chName == "B" || chName == "b")
+                    ch.rgbaComp = 2;
+                else if (chName == "A" || chName == "a")
+                    ch.rgbaComp = 3;
                 channels.push_back(std::move(ch));
             }
         } else if (attrName == "compression" && attrSize >= 1) {
@@ -744,7 +745,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
         return std::unexpected("Invalid OpenEXR dataWindow or channel list");
     }
     if (compression != 0) {
-        return std::unexpected("OpenEXR compression mode " + std::to_string(compression) + " not supported (use uncompressed EXR or Radiance .hdr)");
+        return std::unexpected("OpenEXR compression mode " + std::to_string(compression) +
+                               " not supported (use uncompressed EXR or Radiance .hdr)");
     }
 
     const uint32_t width{static_cast<uint32_t>(maxX - minX + 1)};
@@ -782,7 +784,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
         float* dstRow{&hdr.rgbaFloat[static_cast<size_t>(relY) * width * 4u]};
         for (const auto& ch : channels) {
             const size_t chRowBytes{static_cast<size_t>(width) * ch.byteSize};
-            if (cPtr + chRowBytes > chunkOffset + 8 + dataSize) break;
+            if (cPtr + chRowBytes > chunkOffset + 8 + dataSize)
+                break;
             if (ch.rgbaComp >= 0 && ch.rgbaComp < 4) {
                 for (uint32_t x{0}; x < width; ++x) {
                     float val{0.0f};
@@ -803,7 +806,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
     return hdr;
 }
 
-core::Result<DecodedHdrImage> TextureDecoder::DecodeHdrAuto(std::span<const uint8_t> data, std::string_view mimeOrPath) {
+core::Result<DecodedHdrImage> TextureDecoder::DecodeHdrAuto(std::span<const uint8_t> data,
+                                                            std::string_view mimeOrPath) {
     if (data.empty()) {
         return std::unexpected("Cannot decode empty HDR image buffer");
     }
@@ -837,9 +841,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
         return DecodeJPEG(data);
     }
     // WebP magic: 'RIFF' .... 'WEBP'
-    if (data.size() >= 12 &&
-        data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F' &&
-        data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P') {
+    if (data.size() >= 12 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F' && data[8] == 'W' &&
+        data[9] == 'E' && data[10] == 'B' && data[11] == 'P') {
         return DecodeWebP(data);
     }
     // KTX2 magic: 0xAB 'K' 'T' 'X' ' ' '2' '0' 0xBB 0x0D 0x0A 0x1A 0x0A
@@ -851,36 +854,41 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
     if (mimeOrPath.ends_with(".png") || mimeOrPath.ends_with(".PNG") || mimeOrPath == "image/png") {
         return DecodePNG(data);
     }
-    if (mimeOrPath.ends_with(".jpg") || mimeOrPath.ends_with(".jpeg") ||
-        mimeOrPath.ends_with(".JPG") || mimeOrPath.ends_with(".JPEG") || mimeOrPath == "image/jpeg") {
+    if (mimeOrPath.ends_with(".jpg") || mimeOrPath.ends_with(".jpeg") || mimeOrPath.ends_with(".JPG") ||
+        mimeOrPath.ends_with(".JPEG") || mimeOrPath == "image/jpeg") {
         return DecodeJPEG(data);
     }
     if (mimeOrPath.ends_with(".webp") || mimeOrPath.ends_with(".WEBP") || mimeOrPath == "image/webp") {
         return DecodeWebP(data);
     }
-    if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.ends_with(".ktx") ||
-        mimeOrPath.ends_with(".KTX2") || mimeOrPath.ends_with(".KTX") ||
-        mimeOrPath == "image/ktx2" || mimeOrPath == "image/ktx") {
+    if (mimeOrPath.ends_with(".ktx2") || mimeOrPath.ends_with(".ktx") || mimeOrPath.ends_with(".KTX2") ||
+        mimeOrPath.ends_with(".KTX") || mimeOrPath == "image/ktx2" || mimeOrPath == "image/ktx") {
         return DecodeKTX2(data);
     }
 
     // 3. Fallback attempts
     auto jpegRes = DecodeJPEG(data);
-    if (jpegRes) return jpegRes;
+    if (jpegRes)
+        return jpegRes;
 
     return DecodeWebP(data);
 }
 
 std::vector<std::string_view> TextureDecoder::GetSupportedFormats() {
     std::vector<std::string_view> formats;
-    if constexpr (IsPngSupported()) formats.push_back("PNG");
-    if constexpr (IsJpegSupported()) formats.push_back("JPEG");
-    if constexpr (IsWebpSupported()) formats.push_back("WebP");
-    if constexpr (IsKtxSupported()) formats.push_back("KTX2 (BasisU -> BC7/ASTC/ETC2/RGBA32)");
-    if constexpr (IsHdrSupported()) formats.push_back("HDR (Radiance RGBE)");
-    if constexpr (IsExrSupported()) formats.push_back("EXR (OpenEXR FP16/FP32)");
+    if constexpr (IsPngSupported())
+        formats.push_back("PNG");
+    if constexpr (IsJpegSupported())
+        formats.push_back("JPEG");
+    if constexpr (IsWebpSupported())
+        formats.push_back("WebP");
+    if constexpr (IsKtxSupported())
+        formats.push_back("KTX2 (BasisU -> BC7/ASTC/ETC2/RGBA32)");
+    if constexpr (IsHdrSupported())
+        formats.push_back("HDR (Radiance RGBE)");
+    if constexpr (IsExrSupported())
+        formats.push_back("EXR (OpenEXR FP16/FP32)");
     return formats;
 }
 
 } // namespace bgl::scene
-

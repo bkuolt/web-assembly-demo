@@ -6,11 +6,11 @@
 #include "core/Log.hpp"
 #include <ft2build.h>
 #include FT_FREETYPE_H
-#include <harfbuzz/hb.h>
-#include <harfbuzz/hb-ft.h>
-#include <fstream>
 #include <algorithm>
 #include <cstring>
+#include <fstream>
+#include <harfbuzz/hb-ft.h>
+#include <harfbuzz/hb.h>
 
 namespace bgl::text {
 
@@ -21,25 +21,14 @@ FontAtlas::~FontAtlas() {
 }
 
 FontAtlas::FontAtlas(FontAtlas&& other) noexcept
-    : ftLibrary_{std::exchange(other.ftLibrary_, nullptr)}
-    , ftFace_{std::exchange(other.ftFace_, nullptr)}
-    , hbFont_{std::exchange(other.hbFont_, nullptr)}
-    , fontDataBuffer_{std::move(other.fontDataBuffer_)}
-    , pixelSize_{other.pixelSize_}
-    , lineHeight_{other.lineHeight_}
-    , ascender_{other.ascender_}
-    , descender_{other.descender_}
-    , atlasDim_{other.atlasDim_}
-    , cpuAtlas_{std::move(other.cpuAtlas_)}
-    , isDirty_{other.isDirty_}
-    , packX_{other.packX_}
-    , packY_{other.packY_}
-    , rowHeight_{other.rowHeight_}
-    , whitePixelUV_{other.whitePixelUV_}
-    , glyphCache_{std::move(other.glyphCache_)}
-    , gpuTexture_{std::move(other.gpuTexture_)}
-    , gpuTextureView_{std::move(other.gpuTextureView_)}
-    , gpuSampler_{std::move(other.gpuSampler_)} {}
+    : ftLibrary_{std::exchange(other.ftLibrary_, nullptr)}, ftFace_{std::exchange(other.ftFace_, nullptr)},
+      hbFont_{std::exchange(other.hbFont_, nullptr)}, fontDataBuffer_{std::move(other.fontDataBuffer_)},
+      pixelSize_{other.pixelSize_}, lineHeight_{other.lineHeight_}, ascender_{other.ascender_},
+      descender_{other.descender_}, atlasDim_{other.atlasDim_}, cpuAtlas_{std::move(other.cpuAtlas_)},
+      isDirty_{other.isDirty_}, packX_{other.packX_}, packY_{other.packY_}, rowHeight_{other.rowHeight_},
+      whitePixelUV_{other.whitePixelUV_}, glyphCache_{std::move(other.glyphCache_)},
+      gpuTexture_{std::move(other.gpuTexture_)}, gpuTextureView_{std::move(other.gpuTextureView_)},
+      gpuSampler_{std::move(other.gpuSampler_)} {}
 
 FontAtlas& FontAtlas::operator=(FontAtlas&& other) noexcept {
     if (this != &other) {
@@ -87,7 +76,8 @@ void FontAtlas::Cleanup() {
     cpuAtlas_.clear();
 }
 
-core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize, uint32_t atlasDim) {
+core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize,
+                                                   uint32_t atlasDim) {
     Cleanup();
     pixelSize_ = pixelSize;
     atlasDim_ = atlasDim;
@@ -99,7 +89,8 @@ core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> font
     FT_Error err = FT_New_Memory_Face(ftLibrary_, fontData.data(), static_cast<FT_Long>(fontData.size()), 0, &ftFace_);
     if (err) {
         Cleanup();
-        return std::unexpected(std::string("FreeType failed to load font face from memory: error ") + std::to_string(err));
+        return std::unexpected(std::string("FreeType failed to load font face from memory: error ") +
+                               std::to_string(err));
     }
 
     FT_Set_Pixel_Sizes(ftFace_, 0, pixelSize_);
@@ -176,7 +167,8 @@ const GlyphInfo& FontAtlas::GetGlyph(uint32_t glyphIndex) {
 
 void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     info.glyphIndex = glyphIndex;
-    if (!ftFace_) return;
+    if (!ftFace_)
+        return;
 
     FT_Error err = FT_Load_Glyph(ftFace_, glyphIndex, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
     if (err) {
@@ -241,7 +233,8 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
 }
 
 void FontAtlas::PrewarmAscii() {
-    if (!ftFace_) return;
+    if (!ftFace_)
+        return;
 
     for (uint32_t c = 32; c <= 126; ++c) {
         FT_UInt gIdx = FT_Get_Char_Index(ftFace_, c);
@@ -252,11 +245,12 @@ void FontAtlas::PrewarmAscii() {
 }
 
 void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
-    if (!device || !queue) return;
+    if (!device || !queue)
+        return;
 
     if (!gpuTexture_) {
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-        texDesc.size = WGPUExtent3D{ atlasDim_, atlasDim_, 1 };
+        texDesc.size = WGPUExtent3D{atlasDim_, atlasDim_, 1};
         texDesc.mipLevelCount = 1;
         texDesc.sampleCount = 1;
         texDesc.dimension = WGPUTextureDimension_2D;
@@ -291,7 +285,7 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
         WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
         copyDst.texture = gpuTexture_;
         copyDst.mipLevel = 0;
-        copyDst.origin = WGPUOrigin3D{ 0, 0, 0 };
+        copyDst.origin = WGPUOrigin3D{0, 0, 0};
         copyDst.aspect = WGPUTextureAspect_All;
 
         WGPUTexelCopyBufferLayout dataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
@@ -299,11 +293,10 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
         dataLayout.bytesPerRow = atlasDim_ * 4;
         dataLayout.rowsPerImage = atlasDim_;
 
-        WGPUExtent3D writeSize = { atlasDim_, atlasDim_, 1 };
+        WGPUExtent3D writeSize = {atlasDim_, atlasDim_, 1};
         wgpuQueueWriteTexture(queue, &copyDst, cpuAtlas_.data(), cpuAtlas_.size(), &dataLayout, &writeSize);
         isDirty_ = false;
     }
 }
 
 } // namespace bgl::text
-

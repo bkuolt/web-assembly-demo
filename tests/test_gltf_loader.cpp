@@ -2,18 +2,19 @@
  * @file test_gltf_loader.cpp
  * @brief Unit tests for FastGltfLoader, scene graph hierarchy, and PBR/KHR material extensions.
  */
-#include <gtest/gtest.h>
-#include <filesystem>
-#include <chrono>
-#include "scene/FastGltfLoader.hpp"
 #include "scene/AssetManager.hpp"
+#include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
+#include <chrono>
+#include <filesystem>
+#include <gtest/gtest.h>
 
 using namespace bgl::scene;
 
 static std::string FindToyCarAsset() {
     for (const auto& path : {"assets/ToyCar.glb", "../assets/ToyCar.glb", "../../assets/ToyCar.glb"}) {
-        if (std::filesystem::exists(path)) return path;
+        if (std::filesystem::exists(path))
+            return path;
     }
     return "assets/ToyCar.glb";
 }
@@ -77,7 +78,7 @@ TEST(GltfLoaderTest, CorruptedGlbHandling) {
     FastGltfLoader loader(assetMgr);
 
     // Pass invalid truncated buffer
-    std::vector<uint8_t> corruptedData = { 'g', 'l', 'T', 'F', 0x02, 0x00, 0x00, 0x00, 0x10, 0x00 };
+    std::vector<uint8_t> corruptedData = {'g', 'l', 'T', 'F', 0x02, 0x00, 0x00, 0x00, 0x10, 0x00};
     auto res = loader.LoadFromMemory(corruptedData, "corrupted.glb");
     EXPECT_FALSE(res.has_value());
     EXPECT_FALSE(res.error().empty());
@@ -247,7 +248,7 @@ TEST(GltfLoaderTest, SceneAABBEnclosesAllPrimitives) {
     auto nodeA = std::make_shared<SceneNode>();
     MeshPrimitive primA;
     primA.boundingBox.minBound = glm::vec3(-50.0f, -10.0f, -20.0f);
-    primA.boundingBox.maxBound = glm::vec3(-40.0f,   0.0f, -10.0f);
+    primA.boundingBox.maxBound = glm::vec3(-40.0f, 0.0f, -10.0f);
     nodeA->primitives.push_back(std::move(primA));
 
     auto nodeB = std::make_shared<SceneNode>();
@@ -267,6 +268,3 @@ TEST(GltfLoaderTest, SceneAABBEnclosesAllPrimitives) {
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.y, 15.0f);
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.z, 80.0f);
 }
-
-
-

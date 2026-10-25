@@ -3,35 +3,35 @@
  * @brief Dedicated unit test suite for Bump/Normal Mapping, Mip-Mapping,
  *        Directional PCF Shadow Mapping, and Cubemap Environment Reflections (IBL).
  */
-#include <gtest/gtest.h>
 #include <cmath>
-#include <numeric>
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
+#include <numeric>
 #include <thread>
 #if defined(__linux__)
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include "core/Types.hpp"
-#include "core/NetworkFetcher.hpp"
-#include "scene/Scene.hpp"
-#include "scene/RayPicker.hpp"
-#include "scene/TextureDecoder.hpp"
-#include "gpu/Handle.hpp"
-#include "gpu/Pipeline.hpp"
-#include "core/MemoryTracker.hpp"
+#include "app/Application.hpp"
 #include "core/Gamepad.hpp"
+#include "core/MemoryTracker.hpp"
+#include "core/NetworkFetcher.hpp"
+#include "core/Types.hpp"
 #include "gpu/AabbRenderer.hpp"
-#include "gpu/ShadowPass.hpp"
-#include "gpu/PostProcessPass.hpp"
 #include "gpu/GpuCuller.hpp"
 #include "gpu/GpuRayPicker.hpp"
-#include "app/Application.hpp"
+#include "gpu/Handle.hpp"
+#include "gpu/Pipeline.hpp"
+#include "gpu/PostProcessPass.hpp"
+#include "gpu/ShadowPass.hpp"
+#include "scene/RayPicker.hpp"
+#include "scene/Scene.hpp"
+#include "scene/TextureDecoder.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 using namespace bgl;
 
@@ -48,24 +48,31 @@ TEST(RenderingFeaturesTest, BumpMappingTangentsOnAllSixAxisAlignedFaces) {
     };
 
     const std::vector<FaceCase> faces = {
-        { glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f) },
-        { glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, 0.0f,  1.0f), glm::vec3(0.0f, 1.0f, 0.0f) },
-        { glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(1.0f, 0.0f,  0.0f), glm::vec3(0.0f, 0.0f, 1.0f) },
-        { glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(1.0f, 0.0f,  0.0f), glm::vec3(0.0f, 0.0f, -1.0f) },
-        { glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(1.0f, 0.0f,  0.0f), glm::vec3(0.0f, 1.0f, 0.0f) },
-        { glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f) }
-    };
+        {glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f)},
+        {glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f)},
+        {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)},
+        {glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)},
+        {glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)},
+        {glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)}};
 
     for (const auto& f : faces) {
         scene::MeshPrimitive prim;
         core::Vertex v0, v1, v2, v3;
-        v0.position = glm::vec3(0.0f);               v0.normal = f.normal; v0.uv = glm::vec2(0.0f, 0.0f);
-        v1.position = f.uAxis * 2.0f;                v1.normal = f.normal; v1.uv = glm::vec2(1.0f, 0.0f);
-        v2.position = f.uAxis * 2.0f + f.vAxis * 2.0f; v2.normal = f.normal; v2.uv = glm::vec2(1.0f, 1.0f);
-        v3.position = f.vAxis * 2.0f;                v3.normal = f.normal; v3.uv = glm::vec2(0.0f, 1.0f);
+        v0.position = glm::vec3(0.0f);
+        v0.normal = f.normal;
+        v0.uv = glm::vec2(0.0f, 0.0f);
+        v1.position = f.uAxis * 2.0f;
+        v1.normal = f.normal;
+        v1.uv = glm::vec2(1.0f, 0.0f);
+        v2.position = f.uAxis * 2.0f + f.vAxis * 2.0f;
+        v2.normal = f.normal;
+        v2.uv = glm::vec2(1.0f, 1.0f);
+        v3.position = f.vAxis * 2.0f;
+        v3.normal = f.normal;
+        v3.uv = glm::vec2(0.0f, 1.0f);
 
-        prim.vertices = { v0, v1, v2, v3 };
-        prim.indices = { 0, 1, 2, 0, 2, 3 };
+        prim.vertices = {v0, v1, v2, v3};
+        prim.indices = {0, 1, 2, 0, 2, 3};
         prim.ComputeTangents();
 
         for (const auto& v : prim.vertices) {
@@ -85,20 +92,26 @@ TEST(RenderingFeaturesTest, BumpMappingMirroredUVFlipsHandedness) {
     scene::MeshPrimitive mirroredPrim;
 
     core::Vertex v0, v1, v2;
-    v0.position = glm::vec3(0.0f, 0.0f, 0.0f); v0.normal = glm::vec3(0.0f, 0.0f, 1.0f); v0.uv = glm::vec2(0.0f, 0.0f);
-    v1.position = glm::vec3(1.0f, 0.0f, 0.0f); v1.normal = glm::vec3(0.0f, 0.0f, 1.0f); v1.uv = glm::vec2(1.0f, 0.0f);
-    v2.position = glm::vec3(0.0f, 1.0f, 0.0f); v2.normal = glm::vec3(0.0f, 0.0f, 1.0f); v2.uv = glm::vec2(0.0f, 1.0f);
+    v0.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    v0.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    v0.uv = glm::vec2(0.0f, 0.0f);
+    v1.position = glm::vec3(1.0f, 0.0f, 0.0f);
+    v1.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    v1.uv = glm::vec2(1.0f, 0.0f);
+    v2.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    v2.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    v2.uv = glm::vec2(0.0f, 1.0f);
 
-    regularPrim.vertices = { v0, v1, v2 };
-    regularPrim.indices = { 0, 1, 2 };
+    regularPrim.vertices = {v0, v1, v2};
+    regularPrim.indices = {0, 1, 2};
     regularPrim.ComputeTangents();
 
     // Mirror the V coordinate so UV winding is inverted relative to 3D winding
     v0.uv = glm::vec2(0.0f, 1.0f);
     v1.uv = glm::vec2(1.0f, 1.0f);
     v2.uv = glm::vec2(0.0f, 0.0f);
-    mirroredPrim.vertices = { v0, v1, v2 };
-    mirroredPrim.indices = { 0, 1, 2 };
+    mirroredPrim.vertices = {v0, v1, v2};
+    mirroredPrim.indices = {0, 1, 2};
     mirroredPrim.ComputeTangents();
 
     EXPECT_NEAR(regularPrim.vertices[0].tangent.w, -mirroredPrim.vertices[0].tangent.w, 1e-4f);
@@ -108,12 +121,18 @@ TEST(RenderingFeaturesTest, BumpMappingDegenerateUVFallbackProducesOrthonormalBa
     // All vertices have identical UVs (det = 0): ComputeTangents must still produce a valid orthogonal unit tangent
     scene::MeshPrimitive prim;
     core::Vertex v0, v1, v2;
-    v0.position = glm::vec3(0.0f, 0.0f, 0.0f); v0.normal = glm::vec3(1.0f, 0.0f, 0.0f); v0.uv = glm::vec2(0.5f, 0.5f);
-    v1.position = glm::vec3(0.0f, 1.0f, 0.0f); v1.normal = glm::vec3(1.0f, 0.0f, 0.0f); v1.uv = glm::vec2(0.5f, 0.5f);
-    v2.position = glm::vec3(0.0f, 0.0f, 1.0f); v2.normal = glm::vec3(1.0f, 0.0f, 0.0f); v2.uv = glm::vec2(0.5f, 0.5f);
+    v0.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    v0.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v0.uv = glm::vec2(0.5f, 0.5f);
+    v1.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    v1.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v1.uv = glm::vec2(0.5f, 0.5f);
+    v2.position = glm::vec3(0.0f, 0.0f, 1.0f);
+    v2.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+    v2.uv = glm::vec2(0.5f, 0.5f);
 
-    prim.vertices = { v0, v1, v2 };
-    prim.indices = { 0, 1, 2 };
+    prim.vertices = {v0, v1, v2};
+    prim.indices = {0, 1, 2};
     prim.ComputeTangents();
 
     for (const auto& v : prim.vertices) {
@@ -126,12 +145,19 @@ TEST(RenderingFeaturesTest, BumpMappingDegenerateUVFallbackProducesOrthonormalBa
 }
 
 TEST(RenderingFeaturesTest, BumpMappingScaledModelMatrixPreservesOrthonormalTBN) {
-    // Verify that downscaled models (e.g. Sponza scale = 0.008) keep unit-length tangents after vertex shader normalization
+    // Verify that downscaled models (e.g. Sponza scale = 0.008) keep unit-length tangents after vertex shader
+    // normalization
     scene::MeshPrimitive prim{};
     core::Vertex v0{}, v1{}, v2{};
-    v0.position = glm::vec3{0.0f, 0.0f, 0.0f}; v0.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v0.uv = glm::vec2{0.0f, 0.0f};
-    v1.position = glm::vec3{100.0f, 0.0f, 0.0f}; v1.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v1.uv = glm::vec2{1.0f, 0.0f};
-    v2.position = glm::vec3{0.0f, 100.0f, 0.0f}; v2.normal = glm::vec3{0.0f, 0.0f, 1.0f}; v2.uv = glm::vec2{0.0f, 1.0f};
+    v0.position = glm::vec3{0.0f, 0.0f, 0.0f};
+    v0.normal = glm::vec3{0.0f, 0.0f, 1.0f};
+    v0.uv = glm::vec2{0.0f, 0.0f};
+    v1.position = glm::vec3{100.0f, 0.0f, 0.0f};
+    v1.normal = glm::vec3{0.0f, 0.0f, 1.0f};
+    v1.uv = glm::vec2{1.0f, 0.0f};
+    v2.position = glm::vec3{0.0f, 100.0f, 0.0f};
+    v2.normal = glm::vec3{0.0f, 0.0f, 1.0f};
+    v2.uv = glm::vec2{0.0f, 1.0f};
 
     prim.vertices = {v0, v1, v2};
     prim.indices = {0, 1, 2};
@@ -159,7 +185,7 @@ TEST(RenderingFeaturesTest, MipmapLevelCountForStandardAndNonPowerOfTwoTextures)
     EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(1, 1), 1u);
     EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(2, 2), 2u);
     EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(4, 1), 3u);
-    EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(300, 150), 9u);   // floor(log2(300)) + 1 = 8 + 1 = 9
+    EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(300, 150), 9u); // floor(log2(300)) + 1 = 8 + 1 = 9
     EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(2048, 2048), 12u);
     EXPECT_EQ(gpu::PipelineManager::CalculateMipLevels(4096, 2048), 13u);
 }
@@ -179,7 +205,7 @@ TEST(RenderingFeaturesTest, MipmapFullPyramidGenerationPreservesAverageColor) {
             bool even = ((x + y) % 2) == 0;
             currentMip[idx + 0] = even ? 200 : 100;
             currentMip[idx + 1] = even ? 100 : 200;
-            currentMip[idx + 2] = even ?  50 : 150;
+            currentMip[idx + 2] = even ? 50 : 150;
             currentMip[idx + 3] = 255;
         }
     }
@@ -187,7 +213,8 @@ TEST(RenderingFeaturesTest, MipmapFullPyramidGenerationPreservesAverageColor) {
     for (uint32_t mip{1}; mip < levels; ++mip) {
         const uint32_t nextW{std::max(1u, w >> 1u)};
         const uint32_t nextH{std::max(1u, h >> 1u)};
-        currentMip = gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{currentMip}, w, h, nextW, nextH, false);
+        currentMip =
+            gpu::PipelineManager::GenerateNextMipLevel(std::span<const uint8_t>{currentMip}, w, h, nextW, nextH, false);
         ASSERT_EQ(currentMip.size(), static_cast<size_t>(nextW * nextH * 4));
         w = nextW;
         h = nextH;
@@ -208,9 +235,9 @@ TEST(RenderingFeaturesTest, NormalMapMipDownsamplingMaintainsUnitLengthVectors) 
     for (uint32_t i = 0; i < w * h; ++i) {
         float angle = static_cast<float>(i) * 0.7f;
         glm::vec3 n = glm::normalize(glm::vec3(std::cos(angle) * 0.8f, std::sin(angle) * 0.8f, 0.6f));
-        normalMip0[i * 4 + 0] = static_cast<uint8_t>( std::clamp((n.x * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
-        normalMip0[i * 4 + 1] = static_cast<uint8_t>( std::clamp((n.y * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
-        normalMip0[i * 4 + 2] = static_cast<uint8_t>( std::clamp((n.z * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+        normalMip0[i * 4 + 0] = static_cast<uint8_t>(std::clamp((n.x * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+        normalMip0[i * 4 + 1] = static_cast<uint8_t>(std::clamp((n.y * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
+        normalMip0[i * 4 + 2] = static_cast<uint8_t>(std::clamp((n.z * 0.5f + 0.5f) * 255.0f, 0.0f, 255.0f));
         normalMip0[i * 4 + 3] = 255;
     }
 
@@ -218,11 +245,9 @@ TEST(RenderingFeaturesTest, NormalMapMipDownsamplingMaintainsUnitLengthVectors) 
     ASSERT_EQ(normalMip1.size(), 2u * 2u * 4u);
 
     for (size_t i = 0; i < 4; ++i) {
-        glm::vec3 decoded(
-            (static_cast<float>(normalMip1[i * 4 + 0]) / 255.0f) * 2.0f - 1.0f,
-            (static_cast<float>(normalMip1[i * 4 + 1]) / 255.0f) * 2.0f - 1.0f,
-            (static_cast<float>(normalMip1[i * 4 + 2]) / 255.0f) * 2.0f - 1.0f
-        );
+        glm::vec3 decoded((static_cast<float>(normalMip1[i * 4 + 0]) / 255.0f) * 2.0f - 1.0f,
+                          (static_cast<float>(normalMip1[i * 4 + 1]) / 255.0f) * 2.0f - 1.0f,
+                          (static_cast<float>(normalMip1[i * 4 + 2]) / 255.0f) * 2.0f - 1.0f);
         // Every downsampled normal texel must remain unit-length (within 8-bit quantization tolerance)
         EXPECT_NEAR(glm::length(decoded), 1.0f, 0.02f);
         EXPECT_GT(decoded.z, 0.0f);
@@ -236,26 +261,24 @@ TEST(RenderingFeaturesTest, NormalMapMipDownsamplingMaintainsUnitLengthVectors) 
 TEST(RenderingFeaturesTest, ShadowMatrixEnclosesAllEightSceneCornersAndOrdersDepth) {
     core::AABB sceneAABB;
     sceneAABB.Expand(glm::vec3(-15.0f, -2.0f, -9.5f));
-    sceneAABB.Expand(glm::vec3( 14.5f, 12.0f,  9.0f));
+    sceneAABB.Expand(glm::vec3(14.5f, 12.0f, 9.0f));
 
     glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
     glm::mat4 lightVP = gpu::PipelineManager::ComputeDirectionalLightMatrix(sceneAABB, sunDir);
 
     // Check all 8 corners of the scene AABB map strictly inside [-1, 1]^2 x [0, 1]
     for (int mask = 0; mask < 8; ++mask) {
-        glm::vec3 corner(
-            (mask & 1) ? sceneAABB.maxBound.x : sceneAABB.minBound.x,
-            (mask & 2) ? sceneAABB.maxBound.y : sceneAABB.minBound.y,
-            (mask & 4) ? sceneAABB.maxBound.z : sceneAABB.minBound.z
-        );
+        glm::vec3 corner((mask & 1) ? sceneAABB.maxBound.x : sceneAABB.minBound.x,
+                         (mask & 2) ? sceneAABB.maxBound.y : sceneAABB.minBound.y,
+                         (mask & 4) ? sceneAABB.maxBound.z : sceneAABB.minBound.z);
         glm::vec4 clip = lightVP * glm::vec4(corner, 1.0f);
         ASSERT_NEAR(clip.w, 1.0f, 1e-5f); // Orthographic projection has w == 1
         EXPECT_GE(clip.x, -1.0f);
-        EXPECT_LE(clip.x,  1.0f);
+        EXPECT_LE(clip.x, 1.0f);
         EXPECT_GE(clip.y, -1.0f);
-        EXPECT_LE(clip.y,  1.0f);
-        EXPECT_GE(clip.z,  0.0f);
-        EXPECT_LE(clip.z,  1.0f);
+        EXPECT_LE(clip.y, 1.0f);
+        EXPECT_GE(clip.z, 0.0f);
+        EXPECT_LE(clip.z, 1.0f);
     }
 
     // Verify depth ordering: an occluder shifted toward the sun has smaller Z depth than the receiver at scene center
@@ -279,7 +302,7 @@ TEST(RenderingFeaturesTest, ShadowMatrixHandlesEmptyAABBAndVerticalSunDirection)
     // 2. Straight vertical zenith sun (0, 1, 0) collinear with standard Y-up
     core::AABB validBox;
     validBox.Expand(glm::vec3(-5.0f));
-    validBox.Expand(glm::vec3( 5.0f));
+    validBox.Expand(glm::vec3(5.0f));
     glm::mat4 matZenith = gpu::PipelineManager::ComputeDirectionalLightMatrix(validBox, glm::vec3(0.0f, 1.0f, 0.0f));
     glm::vec4 originClip = matZenith * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     EXPECT_NEAR(originClip.x, 0.0f, 1e-4f);
@@ -315,8 +338,10 @@ TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
     // Verify 8608-byte UBO alignment and distinct feature bitflags
     EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 8608u);
     EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
-    EXPECT_NE(gpu::MaterialFlags::EnableBumpMapping & gpu::MaterialFlags::EnableShadows, gpu::MaterialFlags::EnableBumpMapping);
-    EXPECT_NE(gpu::MaterialFlags::EnableShadows & gpu::MaterialFlags::EnableReflections, gpu::MaterialFlags::EnableShadows);
+    EXPECT_NE(gpu::MaterialFlags::EnableBumpMapping & gpu::MaterialFlags::EnableShadows,
+              gpu::MaterialFlags::EnableBumpMapping);
+    EXPECT_NE(gpu::MaterialFlags::EnableShadows & gpu::MaterialFlags::EnableReflections,
+              gpu::MaterialFlags::EnableShadows);
 
     gpu::PipelineManager pm;
     // All 4 features are enabled by default
@@ -392,24 +417,26 @@ TEST(RenderingFeaturesTest, NetworkFetcherUriClassificationAndSanitization) {
 
     // Sanitize text/uri-list drag-and-drop payload with comments and CRLF
     const std::string rawDropList{"# KDE/GNOME URI list\r\nhttps://example.com/assets/Toy%20Car.glb?raw=true#view\r\n"};
-    EXPECT_EQ(core::NetworkFetcher::SanitizeUri(rawDropList),
-              "https://example.com/assets/Toy%20Car.glb?raw=true#view");
+    EXPECT_EQ(core::NetworkFetcher::SanitizeUri(rawDropList), "https://example.com/assets/Toy%20Car.glb?raw=true#view");
     EXPECT_EQ(core::NetworkFetcher::ExtractDisplayName(rawDropList), "Toy Car.glb");
 }
 
 TEST(RenderingFeaturesTest, NetworkFetcherRelativeUriResolution) {
-    const std::string baseHttp{"https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/glTF/ToyCar.gltf?token=abc"};
+    const std::string baseHttp{
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/glTF/ToyCar.gltf?token=abc"};
 
     // Relative binary buffer in same directory
     EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri(baseHttp, "ToyCar.bin"),
               "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/glTF/ToyCar.bin");
 
     // Parent directory traversal for shared textures
-    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri(baseHttp, "../textures/baseColor.png"),
-              "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/textures/baseColor.png");
+    EXPECT_EQ(
+        core::NetworkFetcher::ResolveRelativeUri(baseHttp, "../textures/baseColor.png"),
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/ToyCar/textures/baseColor.png");
 
     // Root-relative URI
-    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri("https://cdn.example.com:8443/models/v1/scene.gltf", "/shared/env.ktx2"),
+    EXPECT_EQ(core::NetworkFetcher::ResolveRelativeUri("https://cdn.example.com:8443/models/v1/scene.gltf",
+                                                       "/shared/env.ktx2"),
               "https://cdn.example.com:8443/shared/env.ktx2");
 
     // Absolute URL inside glTF buffer/image URI overrides base URL
@@ -433,11 +460,7 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
     std::filesystem::create_directories(tmpDir / "textures");
 
     // Write minimal 3-vertex triangle binary buffer (3 * vec3<float> = 36 bytes)
-    const std::array<float, 9> trianglePositions{
-        0.0f, 0.0f, 0.0f,
-        1.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f
-    };
+    const std::array<float, 9> trianglePositions{0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
     const std::filesystem::path binPath{tmpDir / "geometry.bin"};
     {
         std::ofstream binOut{binPath, std::ios::binary};
@@ -446,16 +469,10 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
 
     // Write a valid 1x1 RGBA PNG file into textures/albedo.png
     const std::array<uint8_t, 68> minimalPng{
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-        0x89, 0x00, 0x00, 0x00, 0x0B, 0x49, 0x44, 0x41,
-        0x54, 0x08, 0xD7, 0x63, 0x60, 0x00, 0x02, 0x00,
-        0x00, 0x05, 0x00, 0x01, 0xE2, 0x26, 0x05, 0x9B,
-        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-        0xAE, 0x42, 0x60, 0x82
-    };
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00,
+        0x00, 0x00, 0x0B, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0x60, 0x00, 0x02, 0x00, 0x00, 0x05, 0x00,
+        0x01, 0xE2, 0x26, 0x05, 0x9B, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
     const std::filesystem::path pngPath{tmpDir / "textures" / "albedo.png"};
     {
         std::ofstream pngOut{pngPath, std::ios::binary};
@@ -552,7 +569,8 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
     std::jthread httpServer{[serverFd, &gltfJson, &trianglePositions, &minimalPng]() {
         for (int reqCount{0}; reqCount < 3; ++reqCount) {
             const int clientFd{::accept(serverFd, nullptr, nullptr)};
-            if (clientFd < 0) break;
+            if (clientFd < 0)
+                break;
 
             std::array<char, 1024> reqBuf{};
             const ssize_t n{::recv(clientFd, reqBuf.data(), reqBuf.size() - 1, 0)};
@@ -571,12 +589,14 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
                 contentType = "image/png";
             }
 
-            const std::string header{
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: " + contentType + "\r\n"
-                "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                "Connection: close\r\n\r\n"
-            };
+            const std::string header{"HTTP/1.1 200 OK\r\n"
+                                     "Content-Type: " +
+                                     contentType +
+                                     "\r\n"
+                                     "Content-Length: " +
+                                     std::to_string(body.size()) +
+                                     "\r\n"
+                                     "Connection: close\r\n\r\n"};
             (void)::send(clientFd, header.data(), header.size(), 0);
             if (!body.empty()) {
                 (void)::send(clientFd, body.data(), body.size(), 0);
@@ -603,7 +623,9 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
 
 namespace {
 int g_dummyReleaseCount = 0;
-struct DummyWgpuResource { int id{42}; };
+struct DummyWgpuResource {
+    int id{42};
+};
 void ReleaseDummyWgpuResource(DummyWgpuResource* ptr) {
     if (ptr) {
         ++g_dummyReleaseCount;
@@ -639,8 +661,8 @@ TEST(RenderingFeaturesTest, RayPickerHitsTranslatedAndScaledPrimitiveAABB) {
     scene::MeshPrimitive prim{};
     core::Vertex v0{}, v1{}, v2{};
     v0.position = glm::vec3{-1.0f, -1.0f, 0.0f};
-    v1.position = glm::vec3{ 1.0f, -1.0f, 0.0f};
-    v2.position = glm::vec3{ 0.0f,  1.0f, 0.0f};
+    v1.position = glm::vec3{1.0f, -1.0f, 0.0f};
+    v2.position = glm::vec3{0.0f, 1.0f, 0.0f};
     prim.vertices = {v0, v1, v2};
     prim.indices = {0, 1, 2, 999, 999, 999}; // Includes out-of-bounds indices to test bounds safety
     prim.boundingBox.Expand(v0.position);
@@ -653,10 +675,7 @@ TEST(RenderingFeaturesTest, RayPickerHitsTranslatedAndScaledPrimitiveAABB) {
     scene.Update();
 
     // Ray originates at (50, 0, 5) pointing along -Z toward the translated triangle at (50, 0, 0)
-    const core::Ray ray{
-        .origin = glm::vec3{50.0f, 0.0f, 5.0f},
-        .direction = glm::vec3{0.0f, 0.0f, -1.0f}
-    };
+    const core::Ray ray{.origin = glm::vec3{50.0f, 0.0f, 5.0f}, .direction = glm::vec3{0.0f, 0.0f, -1.0f}};
     const auto hit{scene::RayPicker::Pick(ray, scene.rootNodes)};
     ASSERT_TRUE(hit.has_value());
     EXPECT_NEAR(hit->distance, 5.0f, 1e-4f);
@@ -702,15 +721,8 @@ TEST(RenderingFeaturesTest, ClusteredForwardGridBoundsValidation) {
     const glm::mat4 proj{glm::perspectiveRH_ZO(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f)};
 
     std::array<glm::uvec4, 256> clusterMasks{};
-    gpu::PipelineManager::BuildClusteredLightGrid(
-        std::span<const gpu::GpuPunctualLight>{lights.data(), 2},
-        2,
-        view,
-        proj,
-        0.1f,
-        100.0f,
-        clusterMasks
-    );
+    gpu::PipelineManager::BuildClusteredLightGrid(std::span<const gpu::GpuPunctualLight>{lights.data(), 2}, 2, view,
+                                                  proj, 0.1f, 100.0f, clusterMasks);
 
     // Directional light (bit 0) must be present in every cluster
     for (const auto& uvec : clusterMasks) {
@@ -721,15 +733,8 @@ TEST(RenderingFeaturesTest, ClusteredForwardGridBoundsValidation) {
     }
 
     // Zero lights test resets all masks
-    gpu::PipelineManager::BuildClusteredLightGrid(
-        std::span<const gpu::GpuPunctualLight>{lights.data(), 2},
-        0,
-        view,
-        proj,
-        0.1f,
-        100.0f,
-        clusterMasks
-    );
+    gpu::PipelineManager::BuildClusteredLightGrid(std::span<const gpu::GpuPunctualLight>{lights.data(), 2}, 0, view,
+                                                  proj, 0.1f, 100.0f, clusterMasks);
     for (const auto& uvec : clusterMasks) {
         EXPECT_EQ(uvec.x, 0u);
         EXPECT_EQ(uvec.y, 0u);
@@ -747,14 +752,12 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
 
     const auto sh = gpu::PipelineManager::ComputeSphericalHarmonicsL2(uniformFaces, faceSize);
     // Evaluating diffuse irradiance across multiple surface normals should yield ~1.0
-    const std::array<glm::vec3, 6> testNormals{{
-        {1.0f, 0.0f, 0.0f},
-        {-1.0f, 0.0f, 0.0f},
-        {0.0f, 1.0f, 0.0f},
-        {0.0f, -1.0f, 0.0f},
-        {0.0f, 0.0f, 1.0f},
-        {0.0f, 0.0f, -1.0f}
-    }};
+    const std::array<glm::vec3, 6> testNormals{{{1.0f, 0.0f, 0.0f},
+                                                {-1.0f, 0.0f, 0.0f},
+                                                {0.0f, 1.0f, 0.0f},
+                                                {0.0f, -1.0f, 0.0f},
+                                                {0.0f, 0.0f, 1.0f},
+                                                {0.0f, 0.0f, -1.0f}}};
 
     for (const auto& norm : testNormals) {
         const glm::vec3 irr = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(sh, norm);
@@ -863,7 +866,8 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsExtremeRadiances) {
         face.resize(faceSize * faceSize * 4, 100.0f);
     }
     const auto shHdr100 = gpu::PipelineManager::ComputeSphericalHarmonicsL2(hdrFaces100, faceSize);
-    const glm::vec3 irrHdr100 = gpu::PipelineManager::EvaluateSphericalHarmonicsL2(shHdr100, glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::vec3 irrHdr100 =
+        gpu::PipelineManager::EvaluateSphericalHarmonicsL2(shHdr100, glm::vec3(0.0f, 1.0f, 0.0f));
     EXPECT_NEAR(irrHdr100.r, 25.0f, 2.0f);
     EXPECT_NEAR(irrHdr100.g, 25.0f, 2.0f);
     EXPECT_NEAR(irrHdr100.b, 25.0f, 2.0f);
@@ -872,7 +876,7 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsExtremeRadiances) {
 TEST(RenderingFeaturesTest, ShadowMatrixBoundingBoxContainment) {
     core::AABB sceneBounds;
     sceneBounds.minBound = glm::vec3(-25.0f, 0.0f, -25.0f);
-    sceneBounds.maxBound = glm::vec3( 25.0f, 20.0f,  25.0f);
+    sceneBounds.maxBound = glm::vec3(25.0f, 20.0f, 25.0f);
 
     const glm::vec3 sunDirection = glm::normalize(glm::vec3(0.4f, 0.8f, 0.3f));
     const glm::mat4 lightVP = gpu::PipelineManager::ComputeDirectionalLightMatrix(sceneBounds, sunDirection);
@@ -886,11 +890,11 @@ TEST(RenderingFeaturesTest, ShadowMatrixBoundingBoxContainment) {
 
                 // WebGPU clip coordinates: X in [-1, 1], Y in [-1, 1], Z in [0, 1]
                 EXPECT_GE(ndc.x, -1.05f);
-                EXPECT_LE(ndc.x,  1.05f);
+                EXPECT_LE(ndc.x, 1.05f);
                 EXPECT_GE(ndc.y, -1.05f);
-                EXPECT_LE(ndc.y,  1.05f);
+                EXPECT_LE(ndc.y, 1.05f);
                 EXPECT_GE(ndc.z, -0.05f);
-                EXPECT_LE(ndc.z,  1.05f);
+                EXPECT_LE(ndc.z, 1.05f);
             }
         }
     }
@@ -957,7 +961,7 @@ TEST(RenderingFeaturesTest, MultiBounceAmbientOcclusionConservation) {
     // Multi-bounce conservation boosts the red channel bounce more than green/blue
     const glm::vec3 redSurface(1.0f, 0.1f, 0.1f);
     const glm::vec3 aoRed = evalMultiBounceAO(0.5f, redSurface);
-    EXPECT_GT(aoRed.r, 0.5f); // Red bounce lifts ambient brightness in crevices
+    EXPECT_GT(aoRed.r, 0.5f);    // Red bounce lifts ambient brightness in crevices
     EXPECT_GT(aoRed.r, aoRed.g); // Preserves chromatic saturation without turning dirty gray
     EXPECT_NEAR(aoRed.g, aoRed.b, 1e-5f);
 }
@@ -993,39 +997,52 @@ TEST(RenderingFeaturesTest, PipelineTonemapOperatorAndExposureCPU) {
     const glm::vec3 brightHdr(3.5f, 2.8f, 1.9f);
 
     // 1. Khronos PBR Neutral tonemapper produces valid clamped [0, 1] output
-    const glm::vec3 mappedNeutral = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::KhronosPbrNeutral);
-    EXPECT_GE(mappedNeutral.r, 0.0f); EXPECT_LE(mappedNeutral.r, 1.0f);
-    EXPECT_GE(mappedNeutral.g, 0.0f); EXPECT_LE(mappedNeutral.g, 1.0f);
-    EXPECT_GE(mappedNeutral.b, 0.0f); EXPECT_LE(mappedNeutral.b, 1.0f);
+    const glm::vec3 mappedNeutral =
+        gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::KhronosPbrNeutral);
+    EXPECT_GE(mappedNeutral.r, 0.0f);
+    EXPECT_LE(mappedNeutral.r, 1.0f);
+    EXPECT_GE(mappedNeutral.g, 0.0f);
+    EXPECT_LE(mappedNeutral.g, 1.0f);
+    EXPECT_GE(mappedNeutral.b, 0.0f);
+    EXPECT_LE(mappedNeutral.b, 1.0f);
 
     // 2. AgX tonemapper
     const glm::vec3 mappedAgX = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::AgX);
-    EXPECT_GE(mappedAgX.r, 0.0f); EXPECT_LE(mappedAgX.r, 1.0f);
-    EXPECT_GE(mappedAgX.g, 0.0f); EXPECT_LE(mappedAgX.g, 1.0f);
-    EXPECT_GE(mappedAgX.b, 0.0f); EXPECT_LE(mappedAgX.b, 1.0f);
+    EXPECT_GE(mappedAgX.r, 0.0f);
+    EXPECT_LE(mappedAgX.r, 1.0f);
+    EXPECT_GE(mappedAgX.g, 0.0f);
+    EXPECT_LE(mappedAgX.g, 1.0f);
+    EXPECT_GE(mappedAgX.b, 0.0f);
+    EXPECT_LE(mappedAgX.b, 1.0f);
 
     // 3. ACES Filmic tonemapper
     const glm::vec3 mappedACES = gpu::PipelineManager::ApplyToneMappingCPU(brightHdr, 1.0f, gpu::ToneMapOperator::ACES);
-    EXPECT_GE(mappedACES.r, 0.0f); EXPECT_LE(mappedACES.r, 1.0f);
-    EXPECT_GE(mappedACES.g, 0.0f); EXPECT_LE(mappedACES.g, 1.0f);
-    EXPECT_GE(mappedACES.b, 0.0f); EXPECT_LE(mappedACES.b, 1.0f);
+    EXPECT_GE(mappedACES.r, 0.0f);
+    EXPECT_LE(mappedACES.r, 1.0f);
+    EXPECT_GE(mappedACES.g, 0.0f);
+    EXPECT_LE(mappedACES.g, 1.0f);
+    EXPECT_GE(mappedACES.b, 0.0f);
+    EXPECT_LE(mappedACES.b, 1.0f);
 
     // 4. Higher exposure brightens intermediate values monotonically
-    const glm::vec3 lowExp = gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 0.5f, gpu::ToneMapOperator::ACES);
-    const glm::vec3 highExp = gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 2.0f, gpu::ToneMapOperator::ACES);
+    const glm::vec3 lowExp =
+        gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 0.5f, gpu::ToneMapOperator::ACES);
+    const glm::vec3 highExp =
+        gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 2.0f, gpu::ToneMapOperator::ACES);
     EXPECT_GT(highExp.r, lowExp.r);
 }
 
 TEST(RenderingFeaturesTest, AlphaTestedShadowMaskDiscardLogic) {
     // Helper replicating the shadow shader fragment discard logic
-    auto evaluateShadowDiscard = [](uint32_t alphaMode, float alphaCutoff, float textureAlpha, float baseColorFactorAlpha, bool hasBaseTex) -> bool {
+    auto evaluateShadowDiscard = [](uint32_t alphaMode, float alphaCutoff, float textureAlpha,
+                                    float baseColorFactorAlpha, bool hasBaseTex) -> bool {
         float alpha = baseColorFactorAlpha;
         if (hasBaseTex) {
             alpha *= textureAlpha;
         }
-        if (alphaMode == 1u) { // Mask
+        if (alphaMode == 1u) {          // Mask
             return alpha < alphaCutoff; // true = discard
-        } else if (alphaMode == 2u) { // Blend
+        } else if (alphaMode == 2u) {   // Blend
             return alpha < std::max(alphaCutoff, 0.5f);
         }
         return false; // Opaque = never discard
@@ -1044,7 +1061,8 @@ TEST(RenderingFeaturesTest, AlphaTestedShadowMaskDiscardLogic) {
     EXPECT_TRUE(evaluateShadowDiscard(1, 0.75f, 0.70f, 1.0f, true));
     EXPECT_FALSE(evaluateShadowDiscard(1, 0.75f, 0.76f, 1.0f, true));
 
-    // 4. BaseColorFactor alpha modulation: baseFactor = 0.5, texAlpha = 0.8 -> effective alpha = 0.4 < cutoff(0.5) -> discard
+    // 4. BaseColorFactor alpha modulation: baseFactor = 0.5, texAlpha = 0.8 -> effective alpha = 0.4 < cutoff(0.5) ->
+    // discard
     EXPECT_TRUE(evaluateShadowDiscard(1, 0.5f, 0.8f, 0.5f, true));
 }
 
@@ -1072,9 +1090,12 @@ TEST(RenderingFeaturesTest, Ktx2TranscodeTargetSelectionByGPUFeatures) {
     // 2. Hardware feature prioritization logic:
     // If BC7 supported (desktop), select BC7
     auto selectTarget = [](bool bc, bool astc, bool etc2) -> scene::KtxTranscodeTarget {
-        if (bc) return scene::KtxTranscodeTarget::Bc7;
-        if (astc) return scene::KtxTranscodeTarget::Astc4x4;
-        if (etc2) return scene::KtxTranscodeTarget::Etc2Rgba;
+        if (bc)
+            return scene::KtxTranscodeTarget::Bc7;
+        if (astc)
+            return scene::KtxTranscodeTarget::Astc4x4;
+        if (etc2)
+            return scene::KtxTranscodeTarget::Etc2Rgba;
         return scene::KtxTranscodeTarget::Rgba32;
     };
 
@@ -1096,26 +1117,31 @@ TEST(RenderingFeaturesTest, TrueTransmissionBeerLambertVolumeAttenuation) {
     EXPECT_NEAR(noAtten.b, 1.0f, 1e-5f);
 
     // 2. Infinite attenuation distance produces no attenuation
-    const glm::vec3 infDistAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1e9f, 2.0f, 1.0f);
+    const glm::vec3 infDistAtten =
+        gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1e9f, 2.0f, 1.0f);
     EXPECT_NEAR(infDistAtten.r, 1.0f, 1e-5f);
     EXPECT_NEAR(infDistAtten.g, 1.0f, 1e-5f);
     EXPECT_NEAR(infDistAtten.b, 1.0f, 1e-5f);
 
     // 3. For green-tinted glass: red and blue attenuate faster than green
-    const glm::vec3 glassAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
+    const glm::vec3 glassAtten =
+        gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
     EXPECT_GT(glassAtten.g, glassAtten.r);
     EXPECT_GT(glassAtten.g, glassAtten.b);
     EXPECT_LT(glassAtten.r, 1.0f);
     EXPECT_LT(glassAtten.g, 1.0f);
 
     // 4. Monotonicity: Doubling thickness halves remaining transmission exponentially
-    const glm::vec3 thickGlassAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 2.0f, 1.0f);
+    const glm::vec3 thickGlassAtten =
+        gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 2.0f, 1.0f);
     EXPECT_LT(thickGlassAtten.g, glassAtten.g);
     EXPECT_NEAR(thickGlassAtten.g, glassAtten.g * glassAtten.g, 1e-4f);
 
     // 5. Glancing angle (small NdotV) lengthens optical path and reduces transmittance
-    const glm::vec3 directView = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
-    const glm::vec3 glancingView = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 0.2f);
+    const glm::vec3 directView =
+        gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
+    const glm::vec3 glancingView =
+        gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 0.2f);
     EXPECT_LT(glancingView.g, directView.g);
 }
 
@@ -1298,35 +1324,34 @@ TEST(RenderingFeaturesTest, GpuCullerFrustumAnalyticalPlanesEvaluation) {
     // Verify frustum analytical plane tests identical to cs_cull WGSL shader
     // Symmetrical perspective frustum from origin looking down -Z
     const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
-    const glm::mat4 view = glm::lookAtRH(glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+    const glm::mat4 view =
+        glm::lookAtRH(glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, -1.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
     const core::Frustum frustum = core::Frustum::FromViewProjection(proj * view);
 
     // 1. Box strictly in front of camera
-    const core::AABB boxInside{ glm::vec3{-1.0f, -1.0f, -10.0f}, glm::vec3{1.0f, 1.0f, -5.0f} };
+    const core::AABB boxInside{glm::vec3{-1.0f, -1.0f, -10.0f}, glm::vec3{1.0f, 1.0f, -5.0f}};
     EXPECT_TRUE(frustum.IntersectsAABB(boxInside));
 
     // 2. Box strictly behind camera (+Z)
-    const core::AABB boxBehind{ glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 10.0f} };
+    const core::AABB boxBehind{glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 10.0f}};
     EXPECT_FALSE(frustum.IntersectsAABB(boxBehind));
 
     // 3. Plane equation dot(normal, pVertex) + d evaluation
     for (int p = 0; p < 6; ++p) {
         const auto& plane = frustum.planes[p];
-        const glm::vec3 pVertex{
-            (plane.normal.x >= 0.0f) ? boxInside.maxBound.x : boxInside.minBound.x,
-            (plane.normal.y >= 0.0f) ? boxInside.maxBound.y : boxInside.minBound.y,
-            (plane.normal.z >= 0.0f) ? boxInside.maxBound.z : boxInside.minBound.z
-        };
+        const glm::vec3 pVertex{(plane.normal.x >= 0.0f) ? boxInside.maxBound.x : boxInside.minBound.x,
+                                (plane.normal.y >= 0.0f) ? boxInside.maxBound.y : boxInside.minBound.y,
+                                (plane.normal.z >= 0.0f) ? boxInside.maxBound.z : boxInside.minBound.z};
         EXPECT_GE(glm::dot(plane.normal, pVertex) + plane.distance, 0.0f);
     }
 }
 
 TEST(RenderingFeaturesTest, GpuRayPickerSlabIntersectionOrdering) {
     // Tests ordering preservation when floats are bitcast to u32 for atomicMin
-    const core::Ray ray{ glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f} };
+    const core::Ray ray{glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f}};
 
-    const core::AABB nearBox{ glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 7.0f} };
-    const core::AABB farBox{ glm::vec3{-1.0f, -1.0f, 15.0f}, glm::vec3{1.0f, 1.0f, 17.0f} };
+    const core::AABB nearBox{glm::vec3{-1.0f, -1.0f, 5.0f}, glm::vec3{1.0f, 1.0f, 7.0f}};
+    const core::AABB farBox{glm::vec3{-1.0f, -1.0f, 15.0f}, glm::vec3{1.0f, 1.0f, 17.0f}};
 
     float tNearMin = 0.0f, tNearMax = 0.0f;
     float tFarMin = 0.0f, tFarMax = 0.0f;
@@ -1353,31 +1378,31 @@ TEST(RenderingFeaturesTest, ModularPassesRaiiAndDelegation) {
     {
         gpu::AabbRenderer aabbRenderer{};
         EXPECT_FALSE(aabbRenderer.IsInitialized());
-        gpu::AabbRenderer movedAabb{ std::move(aabbRenderer) };
+        gpu::AabbRenderer movedAabb{std::move(aabbRenderer)};
         EXPECT_FALSE(movedAabb.IsInitialized());
     }
     {
         gpu::ShadowPass shadowPass{};
         EXPECT_FALSE(shadowPass.IsInitialized());
-        gpu::ShadowPass movedShadow{ std::move(shadowPass) };
+        gpu::ShadowPass movedShadow{std::move(shadowPass)};
         EXPECT_FALSE(movedShadow.IsInitialized());
     }
     {
         gpu::PostProcessPass postPass{};
         EXPECT_FALSE(postPass.IsInitialized());
-        gpu::PostProcessPass movedPost{ std::move(postPass) };
+        gpu::PostProcessPass movedPost{std::move(postPass)};
         EXPECT_FALSE(movedPost.IsInitialized());
     }
     {
         gpu::GpuCuller culler{};
         EXPECT_FALSE(culler.IsInitialized());
-        gpu::GpuCuller movedCuller{ std::move(culler) };
+        gpu::GpuCuller movedCuller{std::move(culler)};
         EXPECT_FALSE(movedCuller.IsInitialized());
     }
     {
         gpu::GpuRayPicker rayPicker{};
         EXPECT_FALSE(rayPicker.IsInitialized());
-        gpu::GpuRayPicker movedPicker{ std::move(rayPicker) };
+        gpu::GpuRayPicker movedPicker{std::move(rayPicker)};
         EXPECT_FALSE(movedPicker.IsInitialized());
     }
 }
@@ -1421,10 +1446,3 @@ TEST(RenderingFeaturesTest, DebugOverlayModeCyclingAndStatsState) {
     stats.residentRamBytes = 64 * 1024 * 1024;
     overlay.Update(0.0166f, stats);
 }
-
-
-
-
-
-
-

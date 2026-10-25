@@ -21,172 +21,207 @@ static void EmscriptenMainLoop() {
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_bbox() {
-    if (g_pApp) g_pApp->ToggleBoundingBoxes();
+    if (g_pApp)
+        g_pApp->ToggleBoundingBoxes();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_quadtree() {
-    if (g_pApp) g_pApp->ToggleQuadtreeBounds();
+    if (g_pApp)
+        g_pApp->ToggleQuadtreeBounds();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_skybox() {
-    if (g_pApp) g_pApp->ToggleSkybox();
+    if (g_pApp)
+        g_pApp->ToggleSkybox();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_debug_overlay() {
-    if (g_pApp) g_pApp->ToggleDebugOverlay();
+    if (g_pApp)
+        g_pApp->ToggleDebugOverlay();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_bump() {
-    if (g_pApp) g_pApp->ToggleBumpMapping();
+    if (g_pApp)
+        g_pApp->ToggleBumpMapping();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_mipmaps() {
-    if (g_pApp) g_pApp->ToggleMipmapping();
+    if (g_pApp)
+        g_pApp->ToggleMipmapping();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_shadows() {
-    if (g_pApp) g_pApp->ToggleShadows();
+    if (g_pApp)
+        g_pApp->ToggleShadows();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_reflections() {
-    if (g_pApp) g_pApp->ToggleReflections();
+    if (g_pApp)
+        g_pApp->ToggleReflections();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_ao() {
-    if (g_pApp) g_pApp->ToggleAmbientOcclusion();
+    if (g_pApp)
+        g_pApp->ToggleAmbientOcclusion();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_pom() {
-    if (g_pApp) g_pApp->ToggleParallaxOcclusion();
+    if (g_pApp)
+        g_pApp->ToggleParallaxOcclusion();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_lens_flare() {
-    if (g_pApp) g_pApp->ToggleLensFlare();
+    if (g_pApp)
+        g_pApp->ToggleLensFlare();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_ssao() {
-    if (g_pApp) g_pApp->ToggleSSAO();
+    if (g_pApp)
+        g_pApp->ToggleSSAO();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_bloom() {
-    if (g_pApp) g_pApp->ToggleBloom();
+    if (g_pApp)
+        g_pApp->ToggleBloom();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_ao_intensity(float val) {
-    if (g_pApp) g_pApp->SetAoIntensity(val);
+    if (g_pApp)
+        g_pApp->SetAoIntensity(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_ssao_intensity(float val) {
-    if (g_pApp) g_pApp->SetSsaoIntensity(val);
+    if (g_pApp)
+        g_pApp->SetSsaoIntensity(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_bloom_intensity(float val) {
-    if (g_pApp) g_pApp->SetBloomIntensity(val);
+    if (g_pApp)
+        g_pApp->SetBloomIntensity(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_parallax_scale(float val) {
-    if (g_pApp) g_pApp->SetParallaxScale(val);
+    if (g_pApp)
+        g_pApp->SetParallaxScale(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_lens_flare_intensity(float val) {
-    if (g_pApp) g_pApp->SetLensFlareIntensity(val);
+    if (g_pApp)
+        g_pApp->SetLensFlareIntensity(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_move(float forward, float right, float up) {
     if (g_pApp) {
-        if (std::abs(forward) > 1e-4f) g_pApp->GetCamera().MoveForward(forward);
-        if (std::abs(right) > 1e-4f) g_pApp->GetCamera().MoveRight(right);
-        if (std::abs(up) > 1e-4f) g_pApp->GetCamera().MoveUp(up);
+        if (std::abs(forward) > 1e-4f)
+            g_pApp->GetCamera().MoveForward(forward);
+        if (std::abs(right) > 1e-4f)
+            g_pApp->GetCamera().MoveRight(right);
+        if (std::abs(up) > 1e-4f)
+            g_pApp->GetCamera().MoveUp(up);
     }
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_orbit(float deltaYaw, float deltaPitch) {
-    if (g_pApp) g_pApp->GetCamera().Orbit(deltaYaw, deltaPitch);
+    if (g_pApp)
+        g_pApp->GetCamera().Orbit(deltaYaw, deltaPitch);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_pan(float deltaX, float deltaY) {
-    if (g_pApp) g_pApp->GetCamera().Pan(deltaX, deltaY);
+    if (g_pApp)
+        g_pApp->GetCamera().Pan(deltaX, deltaY);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_focus_selection() {
-    if (g_pApp) g_pApp->FocusSelection();
+    if (g_pApp)
+        g_pApp->FocusSelection();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_frame_all() {
-    if (g_pApp) g_pApp->FrameAll();
+    if (g_pApp)
+        g_pApp->FrameAll();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_camera_mode() {
-    if (g_pApp) g_pApp->ToggleCameraMode();
+    if (g_pApp)
+        g_pApp->ToggleCameraMode();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_save_bookmark(int slot) {
-    if (g_pApp && slot >= 0) g_pApp->GetCamera().SaveBookmark(static_cast<size_t>(slot));
+    if (g_pApp && slot >= 0)
+        g_pApp->GetCamera().SaveBookmark(static_cast<size_t>(slot));
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_restore_bookmark(int slot) {
-    if (g_pApp && slot >= 0) g_pApp->GetCamera().RestoreBookmark(static_cast<size_t>(slot));
+    if (g_pApp && slot >= 0)
+        g_pApp->GetCamera().RestoreBookmark(static_cast<size_t>(slot));
 }
 
 EMSCRIPTEN_KEEPALIVE
 int bgl_pick_node(float screenX, float screenY, float screenWidth, float screenHeight) {
-    if (g_pApp) return g_pApp->PickNodeAt(screenX, screenY, screenWidth, screenHeight);
+    if (g_pApp)
+        return g_pApp->PickNodeAt(screenX, screenY, screenWidth, screenHeight);
     return -1;
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_select_node(int nodeIndex) {
-    if (g_pApp) g_pApp->SelectNodeByIndex(nodeIndex);
+    if (g_pApp)
+        g_pApp->SelectNodeByIndex(nodeIndex);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_clear_selection() {
-    if (g_pApp) g_pApp->ClearSelection();
+    if (g_pApp)
+        g_pApp->ClearSelection();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_turntable() {
-    if (g_pApp) g_pApp->ToggleTurntable();
+    if (g_pApp)
+        g_pApp->ToggleTurntable();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_turntable(int enabled) {
-    if (g_pApp) g_pApp->SetTurntable(enabled != 0);
+    if (g_pApp)
+        g_pApp->SetTurntable(enabled != 0);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_turntable_speed(float speed) {
-    if (g_pApp) g_pApp->SetTurntableSpeed(speed);
+    if (g_pApp)
+        g_pApp->SetTurntableSpeed(speed);
 }
 
 EMSCRIPTEN_KEEPALIVE
 int bgl_get_camera_count() {
-    if (g_pApp) return g_pApp->GetCameraCount();
+    if (g_pApp)
+        return g_pApp->GetCameraCount();
     return 0;
 }
 
@@ -202,26 +237,31 @@ const char* bgl_get_camera_name(int index) {
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_select_camera(int index) {
-    if (g_pApp) g_pApp->SelectCamera(index);
+    if (g_pApp)
+        g_pApp->SelectCamera(index);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_cycle_camera() {
-    if (g_pApp) g_pApp->CycleCamera();
+    if (g_pApp)
+        g_pApp->CycleCamera();
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_time_of_day(float hour) {
-    if (g_pApp) g_pApp->SetTimeOfDay(hour);
+    if (g_pApp)
+        g_pApp->SetTimeOfDay(hour);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_sun_angle(float azimuthRad, float elevationRad) {
-    if (g_pApp) g_pApp->SetSunAzimuthElevation(azimuthRad, elevationRad);
+    if (g_pApp)
+        g_pApp->SetSunAzimuthElevation(azimuthRad, elevationRad);
 }
 
 EMSCRIPTEN_KEEPALIVE
-void bgl_gamepad_state(float lx, float ly, float rx, float ry, float lt, float rt, int btnA, int btnB, int btnX, int btnY) {
+void bgl_gamepad_state(float lx, float ly, float rx, float ry, float lt, float rt, int btnA, int btnB, int btnX,
+                       int btnY) {
     if (g_pApp) {
         bgl::core::GamepadState raw{};
         raw.connected = true;
@@ -239,12 +279,14 @@ void bgl_gamepad_state(float lx, float ly, float rx, float ry, float lt, float r
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_camera_zoom(float deltaZoom) {
-    if (g_pApp) g_pApp->GetCamera().Zoom(deltaZoom);
+    if (g_pApp)
+        g_pApp->GetCamera().Zoom(deltaZoom);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_occlusion() {
-    if (g_pApp) g_pApp->ToggleOcclusionCulling();
+    if (g_pApp)
+        g_pApp->ToggleOcclusionCulling();
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -274,10 +316,10 @@ int main() {
 
 #else
 
-#include <chrono>
-#include <thread>
 #include "app/CommandLine.hpp"
 #include "core/CrashHandler.hpp"
+#include <chrono>
+#include <thread>
 
 int main(int argc, char** argv) {
     // 1. Install crash signal handling immediately
@@ -357,4 +399,3 @@ int main(int argc, char** argv) {
 }
 
 #endif
-

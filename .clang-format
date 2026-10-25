@@ -1,0 +1,30 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: Latest
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Braces & Formatting
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AlwaysBreakTemplateDeclarations: Yes
+
+# Namespaces & Structs
+NamespaceIndentation: None
+FixNamespaceComments: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# Includes
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+...

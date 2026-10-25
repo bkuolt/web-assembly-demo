@@ -4,10 +4,10 @@
  */
 #pragma once
 
+#include "core/Types.hpp"
 #include <array>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "core/Types.hpp"
 
 namespace bgl::core {
 
@@ -17,7 +17,7 @@ namespace bgl::core {
  */
 enum class CameraMode : uint32_t {
     Orbit = 0, ///< Orbits around a 3D target point at a radial distance.
-    Fly   = 1  ///< First-person free-look / WASD flight through scene interior.
+    Fly = 1    ///< First-person free-look / WASD flight through scene interior.
 };
 
 /**
@@ -124,7 +124,8 @@ public:
     /**
      * @brief Sets camera viewpoint directly from a 4x4 world transform matrix (glTF camera).
      */
-    void SetFromTransform(const glm::mat4& transform, float fovY = glm::radians(45.0f), float nearPlane = 0.1f, float farPlane = 1000.0f) noexcept;
+    void SetFromTransform(const glm::mat4& transform, float fovY = glm::radians(45.0f), float nearPlane = 0.1f,
+                          float farPlane = 1000.0f) noexcept;
 
     /**
      * @brief Recalculates view and WebGPU 0..1 depth perspective projection matrices.
@@ -144,7 +145,10 @@ public:
     [[nodiscard]] float GetPitch() const noexcept { return pitch_; }
     [[nodiscard]] float GetFieldOfView() const noexcept { return fovY_; }
     void SetFieldOfView(float fovY) noexcept { fovY_ = std::clamp(fovY, 0.05f, 3.10f); }
-    void SetYawPitch(float yaw, float pitch) noexcept { yaw_ = yaw; pitch_ = std::clamp(pitch, -1.55f, 1.55f); }
+    void SetYawPitch(float yaw, float pitch) noexcept {
+        yaw_ = yaw;
+        pitch_ = std::clamp(pitch, -1.55f, 1.55f);
+    }
     void SetPositionAndTarget(const glm::vec3& position, const glm::vec3& target) noexcept;
 
     [[nodiscard]] Frustum GetFrustum() const noexcept { return Frustum::FromViewProjection(GetViewProjectionMatrix()); }
@@ -152,7 +156,8 @@ public:
     /**
      * @brief Unproject screen coordinates (normalized 0..1) into a 3D ray in world space.
      */
-    [[nodiscard]] Ray ScreenPointToRay(float screenX, float screenY, float screenWidth, float screenHeight) const noexcept;
+    [[nodiscard]] Ray ScreenPointToRay(float screenX, float screenY, float screenWidth,
+                                       float screenHeight) const noexcept;
 
 private:
     CameraMode mode_{CameraMode::Orbit};

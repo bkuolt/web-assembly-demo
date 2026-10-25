@@ -4,13 +4,13 @@
  */
 #pragma once
 
-#include <vector>
-#include <span>
-#include <memory>
-#include <array>
-#include <glm/glm.hpp>
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
+#include <array>
+#include <glm/glm.hpp>
+#include <memory>
+#include <span>
+#include <vector>
 
 namespace bgl::scene {
 
@@ -44,35 +44,25 @@ public:
 
     OcclusionBuffer() noexcept { Clear(); }
 
-    void Clear() noexcept {
-        tiles_.fill(1.0f);
-    }
+    void Clear() noexcept { tiles_.fill(1.0f); }
 
     /**
      * @brief Projects a world-space AABB into NDC [-1, 1]^2 x [0, 1].
      * @return false if the AABB clips behind the near plane (w <= 0) or is invalid.
      */
-    [[nodiscard]] static bool ProjectAABB(const core::AABB& box,
-                                          const glm::mat4& viewProj,
-                                          glm::vec2& ndcMinOut,
-                                          glm::vec2& ndcMaxOut,
-                                          float& minZOut,
-                                          float& maxZOut) noexcept;
+    [[nodiscard]] static bool ProjectAABB(const core::AABB& box, const glm::mat4& viewProj, glm::vec2& ndcMinOut,
+                                          glm::vec2& ndcMaxOut, float& minZOut, float& maxZOut) noexcept;
 
     /**
      * @brief Returns true if a projected AABB [ndcMin..ndcMax] with nearest depth minZ
      *        is completely hidden behind existing occluders in all covered screen tiles.
      */
-    [[nodiscard]] bool IsOccluded(const glm::vec2& ndcMin,
-                                  const glm::vec2& ndcMax,
-                                  float minZ) const noexcept;
+    [[nodiscard]] bool IsOccluded(const glm::vec2& ndcMin, const glm::vec2& ndcMax, float minZ) const noexcept;
 
     /**
      * @brief Conservatively rasterizes an opaque AABB's inner core into the depth tiles.
      */
-    void RasterizeOccluder(const glm::vec2& ndcMin,
-                           const glm::vec2& ndcMax,
-                           float occluderMaxZ) noexcept;
+    void RasterizeOccluder(const glm::vec2& ndcMin, const glm::vec2& ndcMax, float occluderMaxZ) noexcept;
 
 private:
     std::array<float, kWidth * kHeight> tiles_{};
@@ -91,11 +81,8 @@ public:
 
     bool Insert(const QuadtreeItem& item);
     void ForceInsert(const QuadtreeItem& item) { items_.push_back(item); }
-    void QueryFrustum(const core::Frustum& frustum,
-                      const glm::vec3& camPos,
-                      std::vector<QuadtreeItem>& visibleItemsOut,
-                      const glm::mat4* viewProj = nullptr,
-                      OcclusionBuffer* occlusionBuf = nullptr,
+    void QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut,
+                      const glm::mat4* viewProj = nullptr, OcclusionBuffer* occlusionBuf = nullptr,
                       size_t* occludedCountOut = nullptr) const;
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
@@ -158,8 +145,7 @@ public:
      * @param enableOcclusionCulling Whether conservative Hi-Z tile occlusion testing is active.
      * @return Vector of visible QuadtreeItems sorted front-to-back.
      */
-    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
-                                                         const glm::vec3& cameraPos,
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                          const glm::mat4& viewProj,
                                                          bool enableOcclusionCulling = true) const;
 
@@ -169,7 +155,8 @@ public:
      * @param cameraPos Camera eye position for LOD and distance calculation.
      * @return Vector of visible QuadtreeItems.
      */
-    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const;
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
+                                                         const glm::vec3& cameraPos) const;
 
     /**
      * @brief Queries all items in the spatial tree with distance-based LOD calculation.

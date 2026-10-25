@@ -3,15 +3,15 @@
  * @brief Implementation of HTTP/HTTPS (libcurl / Emscripten Fetch), data:, file://, and local file fetching.
  */
 #include "core/NetworkFetcher.hpp"
-#include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
+#include "core/ThreadPool.hpp"
 #include "core/Version.hpp"
-#include <fstream>
-#include <filesystem>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -30,20 +30,20 @@ namespace {
 constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safety limit against unbounded allocations
 
 [[nodiscard]] bool StartsWithCaseInsensitive(std::string_view str, std::string_view prefix) noexcept {
-    if (str.size() < prefix.size()) return false;
-    return std::ranges::equal(
-        str.substr(0, prefix.size()),
-        prefix,
-        [](unsigned char a, unsigned char b) noexcept {
-            return std::tolower(a) == std::tolower(b);
-        }
-    );
+    if (str.size() < prefix.size())
+        return false;
+    return std::ranges::equal(str.substr(0, prefix.size()), prefix, [](unsigned char a, unsigned char b) noexcept {
+        return std::tolower(a) == std::tolower(b);
+    });
 }
 
 [[nodiscard]] int HexVal(char c) noexcept {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
     return -1;
 }
 
@@ -71,8 +71,10 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
     uint32_t val{0};
     int valb{-8};
     for (unsigned char c : encoded) {
-        if (std::isspace(c)) continue;
-        if (c == '=') break;
+        if (std::isspace(c))
+            continue;
+        if (c == '=')
+            break;
         const int8_t decoded{kDecTable[c]};
         if (decoded == -1) {
             return std::unexpected("Invalid character encountered in base64 data URI");
@@ -106,14 +108,17 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
             segments.push_back(seg);
         }
 
-        if (pos == std::string_view::npos) break;
+        if (pos == std::string_view::npos)
+            break;
         start = pos + 1;
     }
 
     std::string result{};
-    if (leadingSlash) result.push_back('/');
+    if (leadingSlash)
+        result.push_back('/');
     for (size_t i{0}; i < segments.size(); ++i) {
-        if (i > 0) result.push_back('/');
+        if (i > 0)
+            result.push_back('/');
         result.append(segments[i]);
     }
     if (trailingSlash && (result.empty() || result.back() != '/')) {
@@ -128,9 +133,7 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
 #if defined(BGL_HAS_CURL)
 void EnsureCurlGlobalInitialized() {
     static std::once_flag initFlag{};
-    std::call_once(initFlag, []() {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-    });
+    std::call_once(initFlag, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
 }
 
 size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -176,8 +179,7 @@ size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 
 bool NetworkFetcher::IsHttpUrl(std::string_view uri) noexcept {
     const std::string cleaned{SanitizeUri(uri)};
-    return StartsWithCaseInsensitive(cleaned, "http://") ||
-           StartsWithCaseInsensitive(cleaned, "https://");
+    return StartsWithCaseInsensitive(cleaned, "http://") || StartsWithCaseInsensitive(cleaned, "https://");
 }
 
 bool NetworkFetcher::IsFileUrl(std::string_view uri) noexcept {
@@ -214,27 +216,29 @@ std::string NetworkFetcher::SanitizeUri(std::string_view rawUri) {
     };
 
     std::string_view trimmed{trim(rawUri)};
-    if (trimmed.empty()) return {};
+    if (trimmed.empty())
+        return {};
 
     // Handle RFC 2483 text/uri-list payloads (may contain # comment lines and multiple CRLF-separated lines)
     if (trimmed.find('\n') != std::string_view::npos || trimmed.find('\r') != std::string_view::npos) {
         size_t pos{0};
         while (pos < trimmed.size()) {
             const size_t nextNl{trimmed.find_first_of("\r\n", pos)};
-            const std::string_view line{trim(trimmed.substr(pos, (nextNl == std::string_view::npos) ? (trimmed.size() - pos) : (nextNl - pos)))};
+            const std::string_view line{trim(
+                trimmed.substr(pos, (nextNl == std::string_view::npos) ? (trimmed.size() - pos) : (nextNl - pos)))};
             if (!line.empty() && line.front() != '#') {
                 trimmed = line;
                 break;
             }
-            if (nextNl == std::string_view::npos) break;
+            if (nextNl == std::string_view::npos)
+                break;
             pos = nextNl + 1;
         }
     }
 
     // Strip surrounding quotes or angle brackets
     if (trimmed.size() >= 2) {
-        if ((trimmed.front() == '"' && trimmed.back() == '"') ||
-            (trimmed.front() == '\'' && trimmed.back() == '\'') ||
+        if ((trimmed.front() == '"' && trimmed.back() == '"') || (trimmed.front() == '\'' && trimmed.back() == '\'') ||
             (trimmed.front() == '<' && trimmed.back() == '>')) {
             trimmed = trim(trimmed.substr(1, trimmed.size() - 2));
         }
@@ -263,7 +267,8 @@ std::string NetworkFetcher::DecodeUrlPercent(std::string_view input) {
 
 std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::string_view relativeUri) {
     const std::string cleanRel{SanitizeUri(relativeUri)};
-    if (cleanRel.empty()) return SanitizeUri(baseUri);
+    if (cleanRel.empty())
+        return SanitizeUri(baseUri);
 
     // If relativeUri is already an absolute URL (http://, https://, file://, data:), return it directly
     if (IsUrl(cleanRel)) {
@@ -278,9 +283,8 @@ std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::st
     if (IsHttpUrl(cleanBase) || IsFileUrl(cleanBase)) {
         // Strip query and fragment from base URL before resolving relative path
         const size_t qPos{cleanBase.find_first_of("?#")};
-        const std::string_view baseNoQuery{
-            (qPos == std::string::npos) ? std::string_view{cleanBase} : std::string_view{cleanBase}.substr(0, qPos)
-        };
+        const std::string_view baseNoQuery{(qPos == std::string::npos) ? std::string_view{cleanBase}
+                                                                       : std::string_view{cleanBase}.substr(0, qPos)};
 
         const size_t schemePos{baseNoQuery.find("://")};
         if (schemePos == std::string_view::npos) {
@@ -289,18 +293,16 @@ std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::st
         const size_t authorityStart{schemePos + 3};
         const size_t pathStart{baseNoQuery.find('/', authorityStart)};
 
-        const std::string_view origin{
-            (pathStart == std::string_view::npos) ? baseNoQuery : baseNoQuery.substr(0, pathStart)
-        };
+        const std::string_view origin{(pathStart == std::string_view::npos) ? baseNoQuery
+                                                                            : baseNoQuery.substr(0, pathStart)};
 
         // Split relative URI into path and optional query/fragment
         const size_t relQueryPos{cleanRel.find_first_of("?#")};
-        const std::string_view relPath{
-            (relQueryPos == std::string::npos) ? std::string_view{cleanRel} : std::string_view{cleanRel}.substr(0, relQueryPos)
-        };
+        const std::string_view relPath{(relQueryPos == std::string::npos)
+                                           ? std::string_view{cleanRel}
+                                           : std::string_view{cleanRel}.substr(0, relQueryPos)};
         const std::string_view relSuffix{
-            (relQueryPos == std::string::npos) ? std::string_view{} : std::string_view{cleanRel}.substr(relQueryPos)
-        };
+            (relQueryPos == std::string::npos) ? std::string_view{} : std::string_view{cleanRel}.substr(relQueryPos)};
 
         if (!relPath.empty() && relPath.front() == '/') {
             return std::string{origin} + NormalizeUrlPath(relPath) + std::string{relSuffix};
@@ -334,22 +336,22 @@ std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::st
 
 std::string NetworkFetcher::ExtractDisplayName(std::string_view uri) {
     const std::string cleaned{SanitizeUri(uri)};
-    if (cleaned.empty()) return "None";
-    if (IsDataUri(cleaned)) return "EmbeddedData";
+    if (cleaned.empty())
+        return "None";
+    if (IsDataUri(cleaned))
+        return "EmbeddedData";
 
     const size_t qPos{cleaned.find_first_of("?#")};
-    std::string_view withoutQuery{
-        (qPos == std::string::npos) ? std::string_view{cleaned} : std::string_view{cleaned}.substr(0, qPos)
-    };
+    std::string_view withoutQuery{(qPos == std::string::npos) ? std::string_view{cleaned}
+                                                              : std::string_view{cleaned}.substr(0, qPos)};
 
     while (withoutQuery.size() > 1 && (withoutQuery.back() == '/' || withoutQuery.back() == '\\')) {
         withoutQuery.remove_suffix(1);
     }
 
     const size_t lastSlash{withoutQuery.find_last_of("/\\")};
-    const std::string_view filename{
-        (lastSlash == std::string_view::npos) ? withoutQuery : withoutQuery.substr(lastSlash + 1)
-    };
+    const std::string_view filename{(lastSlash == std::string_view::npos) ? withoutQuery
+                                                                          : withoutQuery.substr(lastSlash + 1)};
 
     const std::string decoded{DecodeUrlPercent(filename)};
     return decoded.empty() ? cleaned : decoded;
@@ -452,8 +454,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
             return std::unexpected("HTTP error " + std::to_string(httpCode) + " when fetching URL: " + cleanedUri);
         }
 
-        BGL_LOG_INFO("[NetworkFetcher] Downloaded {} bytes ({:.2f} MB) from '{}' (HTTP {})",
-                     responseBuffer.size(), responseBuffer.size() / (1024.0 * 1024.0), cleanedUri, httpCode);
+        BGL_LOG_INFO("[NetworkFetcher] Downloaded {} bytes ({:.2f} MB) from '{}' (HTTP {})", responseBuffer.size(),
+                     responseBuffer.size() / (1024.0 * 1024.0), cleanedUri, httpCode);
         return responseBuffer;
 #else
         return std::unexpected("HTTP/HTTPS URL fetching is not enabled in this build: " + cleanedUri);

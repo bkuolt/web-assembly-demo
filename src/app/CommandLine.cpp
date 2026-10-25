@@ -6,15 +6,16 @@
 #include "core/NetworkFetcher.hpp"
 #include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
-#include <iostream>
-#include <format>
-#include <filesystem>
 #include <algorithm>
+#include <filesystem>
+#include <format>
+#include <iostream>
 
 namespace bgl::app {
 
 CliOptions CliOptions::Parse(int argc, char** argv) {
-    if (argc <= 0 || !argv) return CliOptions{};
+    if (argc <= 0 || !argv)
+        return CliOptions{};
     return Parse(std::span<const char* const>{argv, static_cast<size_t>(argc)});
 }
 
@@ -112,10 +113,10 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
 
 void CliOptions::PrintHelp(std::string_view programName) {
     std::string exec{std::filesystem::path{programName}.filename().string()};
-    if (exec.empty()) exec = "bgl_viewer";
+    if (exec.empty())
+        exec = "bgl_viewer";
 
-    std::cout <<
-std::format(R"(================================================================================
+    std::cout << std::format(R"(================================================================================
 {} (bgl_viewer v{})
 ================================================================================
 
@@ -178,12 +179,13 @@ INTERACTIVE CONTROLS:
   ESC                           Exit viewer
   Drag & Drop                   Drop any .glb/.gltf file or HTTP/HTTPS URL onto the window
 ================================================================================
-)", kEngineName, kEngineVersion, exec);
+)",
+                             kEngineName, kEngineVersion, exec);
 }
 
 void CliOptions::PrintVersion() {
-    std::cout << std::format("{} (bgl_viewer version {}) [C++23 WebGPU glTF 2.1 Engine]\n",
-                             kEngineName, kEngineVersion);
+    std::cout << std::format("{} (bgl_viewer version {}) [C++23 WebGPU glTF 2.1 Engine]\n", kEngineName,
+                             kEngineVersion);
 }
 
 void CliOptions::PrintFormats() {
@@ -191,15 +193,19 @@ void CliOptions::PrintFormats() {
               << "bgl-Engine Compiled Asset & Texture Decoders:\n"
               << "================================================================================\n"
               << "  - glTF 2.0 / 2.1 (.gltf, .glb): [ENABLED] (fastgltf SIMD parser)\n"
-              << "  - HTTP/HTTPS Asset Streaming:  " << (core::NetworkFetcher::IsCurlSupported() ? "[ENABLED] (libcurl / Fetch API)" : "[DISABLED]") << "\n"
-              << "  - PNG textures:                " << (scene::TextureDecoder::IsPngSupported() ? "[ENABLED] (libpng)" : "[DISABLED]") << "\n"
-              << "  - JPEG textures:               " << (scene::TextureDecoder::IsJpegSupported() ? "[ENABLED] (libjpeg-turbo)" : "[DISABLED]") << "\n"
-              << "  - WebP textures:               " << (scene::TextureDecoder::IsWebpSupported() ? "[ENABLED] (libwebp)" : "[DISABLED]") << "\n"
-              << "  - KTX / KTX2 (Basis Universal): " << (scene::TextureDecoder::IsKtxSupported() ? "[ENABLED] (libktx 4.3.2)" : "[DISABLED]") << "\n"
+              << "  - HTTP/HTTPS Asset Streaming:  "
+              << (core::NetworkFetcher::IsCurlSupported() ? "[ENABLED] (libcurl / Fetch API)" : "[DISABLED]") << "\n"
+              << "  - PNG textures:                "
+              << (scene::TextureDecoder::IsPngSupported() ? "[ENABLED] (libpng)" : "[DISABLED]") << "\n"
+              << "  - JPEG textures:               "
+              << (scene::TextureDecoder::IsJpegSupported() ? "[ENABLED] (libjpeg-turbo)" : "[DISABLED]") << "\n"
+              << "  - WebP textures:               "
+              << (scene::TextureDecoder::IsWebpSupported() ? "[ENABLED] (libwebp)" : "[DISABLED]") << "\n"
+              << "  - KTX / KTX2 (Basis Universal): "
+              << (scene::TextureDecoder::IsKtxSupported() ? "[ENABLED] (libktx 4.3.2)" : "[DISABLED]") << "\n"
               << "  - Audio (WAV, MP3, FLAC):      [ENABLED] (miniaudio)\n"
               << "  - Fonts (TTF, OTF):            [ENABLED] (FreeType 2.13.2 + HarfBuzz 8.3.0)\n"
               << "================================================================================\n";
 }
 
 } // namespace bgl::app
-

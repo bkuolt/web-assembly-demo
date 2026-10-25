@@ -4,15 +4,15 @@
  */
 #pragma once
 
+#include "core/Types.hpp"
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 #include <memory>
 #include <memory_resource>
 #include <new>
-#include <concepts>
 #include <utility>
-#include "core/Types.hpp"
+#include <vector>
 
 namespace bgl::core {
 
@@ -26,15 +26,12 @@ template <typename T, size_t BlockSize = 256>
 class MemoryPool {
 public:
     MemoryPool() = default;
-    ~MemoryPool() {
-        Clear();
-    }
+    ~MemoryPool() { Clear(); }
 
     MemoryPool(const MemoryPool&) = delete;
     MemoryPool& operator=(const MemoryPool&) = delete;
     MemoryPool(MemoryPool&& other) noexcept
-        : blocks_(std::move(other.blocks_)),
-          freeHead_(std::exchange(other.freeHead_, nullptr)),
+        : blocks_(std::move(other.blocks_)), freeHead_(std::exchange(other.freeHead_, nullptr)),
           allocatedCount_(std::exchange(other.allocatedCount_, 0)) {}
 
     MemoryPool& operator=(MemoryPool&& other) noexcept {
@@ -68,7 +65,8 @@ public:
      * @brief Destruct and return object storage back to the pool free list.
      */
     void Deallocate(T* ptr) noexcept {
-        if (!ptr) return;
+        if (!ptr)
+            return;
         ptr->~T();
         Node* node = reinterpret_cast<Node*>(ptr);
         node->next = freeHead_;
@@ -145,4 +143,3 @@ private:
 };
 
 } // namespace bgl::core
-

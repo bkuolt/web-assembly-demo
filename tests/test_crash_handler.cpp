@@ -2,8 +2,8 @@
  * @file test_crash_handler.cpp
  * @brief Unit tests for CrashHandler and stacktrace capturing.
  */
-#include <gtest/gtest.h>
 #include "core/CrashHandler.hpp"
+#include <gtest/gtest.h>
 
 using namespace bgl;
 
@@ -54,5 +54,3 @@ TEST(CrashHandlerTest, MultipleConsecutiveInstallCalls) {
     core::UninstallCrashHandler();
     SUCCEED();
 }
-
-
