@@ -114,8 +114,20 @@ public:
     /** @brief Toggles directional sun lens flare post-processing effect. */
     void ToggleLensFlare() noexcept { pipelineManager_.ToggleLensFlare(); }
 
+    /** @brief Toggles screen-space ambient occlusion (SSAO/GTAO) post-pass. */
+    void ToggleSSAO() noexcept { pipelineManager_.ToggleSSAO(); }
+
+    /** @brief Toggles emissive HDR bloom post-processing. */
+    void ToggleBloom() noexcept { pipelineManager_.ToggleBloom(); }
+
     /** @brief Sets ambient occlusion intensity multiplier. */
     void SetAoIntensity(float val) noexcept { pipelineManager_.SetAoIntensity(val); }
+
+    /** @brief Sets SSAO intensity multiplier. */
+    void SetSsaoIntensity(float val) noexcept { pipelineManager_.SetSsaoIntensity(val); }
+
+    /** @brief Sets HDR Bloom intensity multiplier. */
+    void SetBloomIntensity(float val) noexcept { pipelineManager_.SetBloomIntensity(val); }
 
     /** @brief Sets Parallax Occlusion Mapping displacement height scale. */
     void SetParallaxScale(float val) noexcept { pipelineManager_.SetParallaxScale(val); }

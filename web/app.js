@@ -228,8 +228,12 @@
     isShadowsActive: true,
     isReflectionsActive: true,
     isAOActive: true,
+    isSsaoActive: true,
+    isBloomActive: true,
     isFlareActive: true,
     aoIntensity: 1.0,
+    ssaoIntensity: 0.75,
+    bloomIntensity: 0.65,
     pomScale: 0.035,
     flareIntensity: 0.75,
   };
@@ -255,6 +259,8 @@
     btnShadows: document.getElementById('btn-shadows'),
     btnReflections: document.getElementById('btn-reflections'),
     btnAO: document.getElementById('btn-ao'),
+    btnSSAO: document.getElementById('btn-ssao'),
+    btnBloom: document.getElementById('btn-bloom'),
     btnFlare: document.getElementById('btn-flare'),
 
     btnToyCar: document.getElementById('btn-load-toycar'),
@@ -1274,6 +1280,48 @@
   }
   window.toggleLensFlare = toggleLensFlare;
 
+  function toggleSSAO() {
+    BglState.isSsaoActive = !BglState.isSsaoActive;
+    if (BglUI.btnSSAO) BglUI.btnSSAO.style.background = BglState.isSsaoActive ? '#0284c7' : '#334155';
+    BglLogger.log('Engine', `Toggle Screen-Space Ambient Occlusion (SSAO/GTAO): ${BglState.isSsaoActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_ssao) {
+      BglState.wasmExports.bgl_toggle_ssao();
+    }
+  }
+  window.toggleSSAO = toggleSSAO;
+
+  function toggleBloom() {
+    BglState.isBloomActive = !BglState.isBloomActive;
+    if (BglUI.btnBloom) BglUI.btnBloom.style.background = BglState.isBloomActive ? '#0284c7' : '#334155';
+    BglLogger.log('Engine', `Toggle Emissive HDR Bloom: ${BglState.isBloomActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bloom) {
+      BglState.wasmExports.bgl_toggle_bloom();
+    }
+  }
+  window.toggleBloom = toggleBloom;
+
+  function onSsaoSlider(val) {
+    const num = Number(val);
+    BglState.ssaoIntensity = num;
+    const label = document.getElementById('val-ssao-intensity');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_ssao_intensity) {
+      BglState.wasmExports.bgl_set_ssao_intensity(num);
+    }
+  }
+  window.onSsaoSlider = onSsaoSlider;
+
+  function onBloomSlider(val) {
+    const num = Number(val);
+    BglState.bloomIntensity = num;
+    const label = document.getElementById('val-bloom-intensity');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_bloom_intensity) {
+      BglState.wasmExports.bgl_set_bloom_intensity(num);
+    }
+  }
+  window.onBloomSlider = onBloomSlider;
+
   function onAoSlider(val) {
     const num = Number(val);
     BglState.aoIntensity = num;
@@ -1401,6 +1449,8 @@
         case 'M': toggleShadows(); break;
         case 'R': toggleReflections(); break;
         case 'U': toggleAO(); break;
+        case 'G': toggleSSAO(); break;
+        case 'F': toggleBloom(); break;
         case '+':
         case '=':
           if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);

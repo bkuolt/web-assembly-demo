@@ -185,6 +185,12 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_j) {
                     ToggleLensFlare();
                     BGL_LOG_INFO("Toggled Directional Sun Lens Flare: {}", pipelineManager_.IsLensFlareEnabled());
+                } else if (event.key.keysym.sym == SDLK_g) {
+                    pipelineManager_.ToggleSSAO();
+                    BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}", pipelineManager_.IsSsaoEnabled());
+                } else if (event.key.keysym.sym == SDLK_f) {
+                    pipelineManager_.ToggleBloom();
+                    BGL_LOG_INFO("Toggled Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
                 } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS || event.key.keysym.sym == SDLK_EQUALS) {
                     if (event.key.keysym.mod & KMOD_SHIFT) {
                         AdjustExposure(0.15f);
@@ -325,6 +331,7 @@ void Application::Render() {
 
     // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
     if (activeScene_) {
+        pipelineManager_.EnsureOpaqueCopyTexture(gpuContext_.GetWidth(), gpuContext_.GetHeight());
         pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
     }
 

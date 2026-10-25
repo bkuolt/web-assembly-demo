@@ -44,7 +44,7 @@
 
   <!-- Top-Left In-Engine Telemetry HUD -->
   <div id="ui-hud">
-    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.9.0</span></h1>
+    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.9.1</span></h1>
     <p>Professional WebGPU 3D Runtime with Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares, 4× MSAA, 16× Anisotropic Mipmapping, PCF Shadows, and Cubemap IBL.</p>
     <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Initializing WebAssembly runtime...</div>
     <div class="progress-bar-container">
@@ -58,7 +58,9 @@
     <div class="hud-grid">
       <button class="btn" id="btn-bump" onclick="toggleBump()" style="background: #0284c7;">Bump [V]</button>
       <button class="btn" id="btn-pom" onclick="togglePOM()" style="background: #0284c7;">Parallax POM [P]</button>
-      <button class="btn" id="btn-ao" onclick="toggleAO()" style="background: #0284c7;">Ambient Occlusion [U]</button>
+      <button class="btn" id="btn-ao" onclick="toggleAO()" style="background: #0284c7;">Material AO [U]</button>
+      <button class="btn" id="btn-ssao" onclick="toggleSSAO()" style="background: #0284c7;">SSAO [G]</button>
+      <button class="btn" id="btn-bloom" onclick="toggleBloom()" style="background: #0284c7;">Bloom [F]</button>
       <button class="btn" id="btn-flare" onclick="toggleLensFlare()" style="background: #0284c7;">Lens Flares [J]</button>
       <button class="btn" id="btn-mipmaps" onclick="toggleMipmaps()" style="background: #0284c7;">Mipmaps [L]</button>
       <button class="btn" id="btn-shadows" onclick="toggleShadows()" style="background: #0284c7;">Shadows [M]</button>
@@ -82,6 +84,22 @@
             <span class="slider-value" id="val-ao-intensity">1.00×</span>
           </div>
           <input type="range" class="slider-input" id="slider-ao" min="0" max="2" step="0.05" value="1.0" oninput="onAoSlider(this.value)">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Screen-Space AO (SSAO)</span>
+            <span class="slider-value" id="val-ssao-intensity">0.75×</span>
+          </div>
+          <input type="range" class="slider-input" id="slider-ssao" min="0" max="2" step="0.05" value="0.75" oninput="onSsaoSlider(this.value)">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>HDR Bloom Intensity</span>
+            <span class="slider-value" id="val-bloom-intensity">0.65×</span>
+          </div>
+          <input type="range" class="slider-input" id="slider-bloom" min="0" max="2.5" step="0.05" value="0.65" oninput="onBloomSlider(this.value)">
         </div>
 
         <div class="slider-row">

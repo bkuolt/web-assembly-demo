@@ -111,6 +111,12 @@ struct Material {
     float specularFactor{1.0f};
     glm::vec3 specularColorFactor{1.0f};
     int specularTextureIndex{-1};
+
+    // 9. Volume & Transmission (KHR_materials_volume)
+    float thicknessFactor{0.0f};
+    int thicknessTextureIndex{-1};
+    float attenuationDistance{1e9f};
+    glm::vec3 attenuationColor{1.0f};
 };
 
 /**

@@ -4,6 +4,7 @@
  */
 #include "gpu/Context.hpp"
 #include "core/Log.hpp"
+#include "scene/TextureDecoder.hpp"
 #include <vector>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -72,7 +73,7 @@ void Context::CreateRenderBuffers() {
 
     // 1b. Create 1x Linear HDR (RGBA16Float) Resolve & Sampled Texture for Tonemapping Post-Process
     WGPUTextureDescriptor hdrResolveDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    hdrResolveDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    hdrResolveDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
     hdrResolveDesc.dimension = WGPUTextureDimension_2D;
     hdrResolveDesc.size = WGPUExtent3D{ width_, height_, 1 };
     hdrResolveDesc.format = WGPUTextureFormat_RGBA16Float;
@@ -216,6 +217,18 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
                  supportsBC_ ? "YES" : "NO",
                  supportsASTC_ ? "YES" : "NO",
                  supportsETC2_ ? "YES" : "NO");
+
+    if (supportsBC_) {
+        scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Bc7);
+    } else if (supportsASTC_) {
+        scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Astc4x4);
+    } else if (supportsETC2_) {
+        scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Etc2Rgba);
+    } else {
+        scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Rgba32);
+    }
+    BGL_LOG_INFO("Configured KTX2 transcoding target to native GPU block format: {}",
+                 scene::TextureDecoder::GetKtxTargetName(scene::TextureDecoder::GetDefaultKtxTarget()));
 
     WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
     devDesc.label = ToWgpuStringView("BglDevice");

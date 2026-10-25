@@ -201,6 +201,8 @@ struct TonemapUniforms {
     lensFlareEnabled : u32,
     sunScreenPos : vec4<f32>, // xy = sun UV [0..1], z = visibility [0..1], w = aspect ratio (width / height)
     flareParams : vec4<f32>,  // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
+    bloomParams : vec4<f32>,  // x = intensity, y = threshold, z = scatter, w = enabled
+    ssaoParams : vec4<f32>,   // x = intensity, y = radius, z = bias, w = enabled
 };
 
 @group(0) @binding(0) var<uniform> ubo : TonemapUniforms;
@@ -361,12 +363,86 @@ fn evaluateLensFlare(uv : vec2<f32>, sunUV : vec2<f32>, visibility : f32, aspect
     return (flareColor + ghosts) * (visibility * intensity * borderFade);
 }
 
+// Screen-Space Ambient Occlusion (SSAO/GTAO complement to material occlusion)
+fn evaluateSSAO(uv : vec2<f32>, radius : f32, intensity : f32) -> f32 {
+    let centerCol = textureSample(hdrTexture, hdrSampler, uv).rgb;
+    let centerLum = dot(centerCol, vec3<f32>(0.2126, 0.7152, 0.0722));
+
+    var occlusion = 0.0;
+    let r = max(radius, 0.002);
+    let offsets = array<vec2<f32>, 8>(
+        vec2<f32>( 0.707,  0.707) * r * 0.45,
+        vec2<f32>(-0.707, -0.707) * r * 0.45,
+        vec2<f32>(-0.707,  0.707) * r * 0.75,
+        vec2<f32>( 0.707, -0.707) * r * 0.75,
+        vec2<f32>( 1.0,    0.0  ) * r * 1.0,
+        vec2<f32>(-1.0,    0.0  ) * r * 1.0,
+        vec2<f32>( 0.0,    1.0  ) * r * 1.0,
+        vec2<f32>( 0.0,   -1.0  ) * r * 1.0
+    );
+
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        let sampleUV = clamp(uv + offsets[i], vec2<f32>(0.001), vec2<f32>(0.999));
+        let sampleCol = textureSample(hdrTexture, hdrSampler, sampleUV).rgb;
+        let sampleLum = dot(sampleCol, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let diff = centerLum - sampleLum;
+        if (diff > 0.02) {
+            occlusion = occlusion + clamp(diff * 2.5, 0.0, 1.0);
+        }
+    }
+
+    let ao = clamp(1.0 - (occlusion / 8.0) * intensity, 0.15, 1.0);
+    return ao;
+}
+
+// HDR Bloom for emissive materials (golden-angle multi-ring kernel with luminance threshold)
+fn evaluateBloom(uv : vec2<f32>, exposure : f32, threshold : f32, intensity : f32) -> vec3<f32> {
+    var bloomAcc = vec3<f32>(0.0);
+    var totalWeight = 0.0;
+
+    let ringSteps = array<f32, 4>(0.0035, 0.0085, 0.0185, 0.0385);
+    let ringWeights = array<f32, 4>(0.40, 0.28, 0.20, 0.12);
+
+    for (var ring = 0u; ring < 4u; ring = ring + 1u) {
+        let r = ringSteps[ring];
+        let w = ringWeights[ring];
+        for (var tap = 0u; tap < 3u; tap = tap + 1u) {
+            let angle = f32(ring * 3u + tap) * 2.39996;
+            let offset = vec2<f32>(cos(angle), sin(angle)) * r;
+            let sampleUV = clamp(uv + offset, vec2<f32>(0.001), vec2<f32>(0.999));
+            let sampleCol = textureSample(hdrTexture, hdrSampler, sampleUV).rgb;
+            let exposedSample = sampleCol * exposure;
+            let lum = dot(exposedSample, vec3<f32>(0.2126, 0.7152, 0.0722));
+            if (lum > threshold) {
+                let factor = (lum - threshold) / max(lum, 1e-4);
+                let brightColor = exposedSample * factor;
+                bloomAcc = bloomAcc + brightColor * w;
+            }
+            totalWeight = totalWeight + w;
+        }
+    }
+
+    return (bloomAcc / max(totalWeight, 1e-4)) * intensity;
+}
+
 @fragment
 fn fs_tonemap(in : VertexOutput) -> @location(0) vec4<f32> {
     let hdrSample = textureSample(hdrTexture, hdrSampler, in.uv);
     var exposed = hdrSample.rgb * ubo.exposure;
 
-    // Evaluate additive sun lens flare in linear HDR space prior to tonemapping
+    // 1. Complementary Screen-Space Ambient Occlusion (SSAO)
+    if (ubo.ssaoParams.w > 0.5) {
+        let ssao = evaluateSSAO(in.uv, ubo.ssaoParams.y, ubo.ssaoParams.x);
+        exposed = exposed * ssao;
+    }
+
+    // 2. Additive HDR Bloom for emissive and bright materials
+    if (ubo.bloomParams.w > 0.5 && ubo.bloomParams.x > 0.001) {
+        let bloom = evaluateBloom(in.uv, ubo.exposure, ubo.bloomParams.y, ubo.bloomParams.x);
+        exposed = exposed + bloom;
+    }
+
+    // 3. Evaluate additive sun lens flare in linear HDR space prior to tonemapping
     if (ubo.lensFlareEnabled != 0u && ubo.sunScreenPos.z > 0.001) {
         let flare = evaluateLensFlare(
             in.uv,
@@ -424,9 +500,16 @@ struct Uniforms {
     reflectionIntensity : f32,
     shadowBias : f32,
     envMipCount : f32,
+    thicknessFactor : f32,
+    attenuationDistance : f32,
+    transmissionRoughness : f32,
+    paddingVol1 : f32,
+    attenuationColor : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
+@group(0) @binding(1) var defaultSampler : sampler;
+@group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
@@ -435,10 +518,38 @@ struct VertexInput {
     @location(3) uv : vec2<f32>,
 };
 
+struct VertexOutput {
+    @builtin(position) clipPos : vec4<f32>,
+    @location(0) uv : vec2<f32>,
+};
+
 @vertex
-fn vs_shadow(in : VertexInput) -> @builtin(position) vec4<f32> {
+fn vs_shadow(in : VertexInput) -> VertexOutput {
+    var out : VertexOutput;
     let worldPos = ubo.model * vec4<f32>(in.position, 1.0);
-    return ubo.lightViewProj * worldPos;
+    out.clipPos = ubo.lightViewProj * worldPos;
+    out.uv = in.uv;
+    return out;
+}
+
+@fragment
+fn fs_shadow(in : VertexOutput) {
+    var alpha = ubo.baseColorFactor.a;
+    if ((ubo.flags & 1u) != 0u) { // MaterialFlags::HasBaseColorTex
+        let texColor = textureSample(baseColorTexture, defaultSampler, in.uv);
+        alpha = alpha * texColor.a;
+    }
+
+    // alphaMode: 0 = Opaque, 1 = Mask, 2 = Blend
+    if (ubo.alphaMode == 1u) {
+        if (alpha < ubo.alphaCutoff) {
+            discard;
+        }
+    } else if (ubo.alphaMode == 2u) {
+        if (alpha < max(ubo.alphaCutoff, 0.5)) {
+            discard;
+        }
+    }
 }
 )";
 
@@ -476,6 +587,11 @@ struct Uniforms {
     reflectionIntensity : f32,
     shadowBias : f32,
     envMipCount : f32,
+    thicknessFactor : f32,
+    attenuationDistance : f32,
+    transmissionRoughness : f32,
+    paddingVol1 : f32,
+    attenuationColor : vec4<f32>,
 };
 
 struct GpuPunctualLight {
@@ -509,6 +625,7 @@ struct SceneLightingUniforms {
 @group(0) @binding(12) var shadowSampler : sampler_comparison;
 @group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
 @group(0) @binding(14) var<uniform> sceneLighting : SceneLightingUniforms;
+@group(0) @binding(15) var opaqueColorTexture : texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
@@ -1114,12 +1231,44 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         ambientSpecular = (F_ibl * brdfSample.x + vec3<f32>(brdfSample.y)) * shIrradiance * (1.0 - roughness) * 0.25 * ao;
     }
 
-    let finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
+    var finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
     var outAlpha = baseColor.a;
     if (transFactor > 0.001) {
         let fresnelGlass = fresnelSchlick(NdotV, vec3<f32>(f0_dielectric)).r;
-        outAlpha = mix(baseColor.a, 0.25 + 0.75 * fresnelGlass, transFactor);
+
+        // Screen-space refraction coordinate
+        let screenDim = max(sceneLighting.gridParams.xy, vec2<f32>(1.0, 1.0));
+        let screenUV = in.clipPos.xy / screenDim;
+
+        // Physical Snell's law refraction in view space
+        let ior = max(ubo.ior, 1.0);
+        let eta = 1.0 / ior;
+        let viewPos = sceneLighting.viewMatrix * vec4<f32>(in.worldPos, 1.0);
+        let viewZ = max(-viewPos.z, 0.1);
+        let N_view = normalize((sceneLighting.viewMatrix * vec4<f32>(N, 0.0)).xyz);
+        let thickness = max(ubo.thicknessFactor, 0.05);
+
+        // Chromatic dispersion & refraction UV offset
+        let refrOffset = (N_view.xy * (1.0 - eta)) * (thickness / viewZ) * 0.12;
+        let refrUV = clamp(screenUV + refrOffset, vec2<f32>(0.001), vec2<f32>(0.999));
+
+        var bgSample = textureSample(opaqueColorTexture, defaultSampler, refrUV).rgb;
+
+        // Beer-Lambert volume attenuation (KHR_materials_volume)
+        if (ubo.thicknessFactor > 0.0 && ubo.attenuationDistance < 1e8) {
+            let attDist = max(ubo.attenuationDistance, 1e-4);
+            let attColor = clamp(ubo.attenuationColor.rgb, vec3<f32>(1e-4), vec3<f32>(1.0));
+            let extinction = -log(attColor) / attDist;
+            let opticalPath = ubo.thicknessFactor / max(NdotV, 0.1);
+            let transmittance = exp(-extinction * opticalPath);
+            bgSample = bgSample * transmittance;
+        }
+
+        let transmittedColor = bgSample * baseColor.rgb;
+        let transMix = (1.0 - fresnelGlass) * transFactor;
+        finalColor = mix(directLighting + ambientSpecular, transmittedColor, transMix) + emissive;
+        outAlpha = 1.0;
     }
 
     return vec4<f32>(finalColor, outAlpha);
@@ -1190,6 +1339,11 @@ struct Uniforms {
     reflectionIntensity : f32,
     shadowBias : f32,
     envMipCount : f32,
+    thicknessFactor : f32,
+    attenuationDistance : f32,
+    transmissionRoughness : f32,
+    paddingVol1 : f32,
+    attenuationColor : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1207,6 +1361,7 @@ struct Uniforms {
 @group(0) @binding(12) var shadowSampler : sampler_comparison;
 @group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
 @group(0) @binding(14) var<uniform> sceneLighting : array<vec4<f32>, 305>;
+@group(0) @binding(15) var opaqueColorTexture : texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,

@@ -379,9 +379,26 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
             }
         }
 
+        // KHR_materials_volume
+        if (mat.volume) {
+            sceneMat.thicknessFactor = mat.volume->thicknessFactor;
+            sceneMat.attenuationDistance = std::isfinite(mat.volume->attenuationDistance)
+                ? mat.volume->attenuationDistance
+                : 1e9f;
+            sceneMat.attenuationColor = glm::vec3(
+                mat.volume->attenuationColor[0],
+                mat.volume->attenuationColor[1],
+                mat.volume->attenuationColor[2]
+            );
+            if (mat.volume->thicknessTexture.has_value()) {
+                sceneMat.thicknessTextureIndex = static_cast<int>(mat.volume->thicknessTexture->textureIndex);
+            }
+        }
+
         std::string extDesc = "";
         if (sceneMat.clearcoatFactor > 0.0f) extDesc += " Clearcoat(" + std::to_string(sceneMat.clearcoatFactor) + ")";
         if (sceneMat.transmissionFactor > 0.0f) extDesc += " Transmission(" + std::to_string(sceneMat.transmissionFactor) + ")";
+        if (sceneMat.thicknessFactor > 0.0f) extDesc += " Volume(thick=" + std::to_string(sceneMat.thicknessFactor) + ")";
         if (glm::length(sceneMat.sheenColorFactor) > 0.0f) extDesc += " Sheen";
         if (sceneMat.unlit) extDesc += " Unlit";
         if (sceneMat.doubleSided) extDesc += " DoubleSided";

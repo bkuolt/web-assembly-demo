@@ -57,6 +57,7 @@ namespace MaterialFlags {
     constexpr uint32_t EnableReflections       = 1u << 13;
     constexpr uint32_t EnableAmbientOcclusion  = 1u << 14;
     constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
+    constexpr uint32_t HasThicknessTex         = 1u << 16;
 }
 
 struct alignas(16) PrimitiveUniforms {
@@ -98,8 +99,15 @@ struct alignas(16) PrimitiveUniforms {
     float reflectionIntensity{1.0f};
     float shadowBias{0.0015f};
     float envMipCount{7.0f};
+
+    // 352..383: Volume & Attenuation (KHR_materials_volume)
+    float thicknessFactor{0.0f};
+    float attenuationDistance{1e9f};
+    float transmissionRoughness{0.0f};
+    float paddingVol1{0.0f};
+    glm::vec4 attenuationColor{1.0f, 1.0f, 1.0f, 1.0f};
 };
-static_assert(sizeof(PrimitiveUniforms) == 352, "PrimitiveUniforms must be exactly 352 bytes (16-byte aligned)");
+static_assert(sizeof(PrimitiveUniforms) == 384, "PrimitiveUniforms must be exactly 384 bytes (16-byte aligned)");
 
 struct alignas(16) GpuPunctualLight {
     glm::vec4 posOrDir{0.0f};  // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
@@ -126,8 +134,10 @@ struct alignas(16) TonemapUniforms {
     uint32_t lensFlareEnabled{1};
     glm::vec4 sunScreenPos{0.5f, 0.5f, 0.0f, 1.0f}; // xy = sun UV, z = visibility, w = aspect ratio
     glm::vec4 flareParams{0.75f, 0.38f, 1.0f, 0.0f}; // x = intensity, y = haloRadius, z = chromaticDispersal, w = unused
+    glm::vec4 bloomParams{0.65f, 1.05f, 0.85f, 1.0f}; // x = intensity, y = threshold, z = scatter, w = enabled
+    glm::vec4 ssaoParams{0.75f, 0.02f, 0.005f, 1.0f}; // x = intensity, y = radius, z = bias, w = enabled
 };
-static_assert(sizeof(TonemapUniforms) == 48, "TonemapUniforms must be 48 bytes");
+static_assert(sizeof(TonemapUniforms) == 80, "TonemapUniforms must be 80 bytes");
 
 struct alignas(16) PrefilterComputeParams {
     float roughness{0.0f};
@@ -364,9 +374,31 @@ public:
     void SetLensFlareIntensity(float intensity) noexcept { lensFlareIntensity_ = std::clamp(intensity, 0.0f, 5.0f); }
     [[nodiscard]] float GetLensFlareIntensity() const noexcept { return lensFlareIntensity_; }
 
+    void SetBloomEnabled(bool enabled) noexcept { bloomEnabled_ = enabled; }
+    void ToggleBloom() noexcept { bloomEnabled_ = !bloomEnabled_; }
+    [[nodiscard]] bool IsBloomEnabled() const noexcept { return bloomEnabled_; }
+
+    void SetBloomIntensity(float intensity) noexcept { bloomIntensity_ = std::max(0.0f, intensity); }
+    [[nodiscard]] float GetBloomIntensity() const noexcept { return bloomIntensity_; }
+
+    void SetBloomThreshold(float threshold) noexcept { bloomThreshold_ = std::max(0.0f, threshold); }
+    [[nodiscard]] float GetBloomThreshold() const noexcept { return bloomThreshold_; }
+
+    void SetSsaoEnabled(bool enabled) noexcept { ssaoEnabled_ = enabled; }
+    void ToggleSSAO() noexcept { ssaoEnabled_ = !ssaoEnabled_; }
+    [[nodiscard]] bool IsSsaoEnabled() const noexcept { return ssaoEnabled_; }
+
+    void SetSsaoIntensity(float intensity) noexcept { ssaoIntensity_ = std::clamp(intensity, 0.0f, 2.0f); }
+    [[nodiscard]] float GetSsaoIntensity() const noexcept { return ssaoIntensity_; }
+
+    void SetSsaoRadius(float radius) noexcept { ssaoRadius_ = std::clamp(radius, 0.001f, 0.1f); }
+    [[nodiscard]] float GetSsaoRadius() const noexcept { return ssaoRadius_; }
+
     void SetOcclusionCullingEnabled(bool enabled) noexcept { occlusionCullingEnabled_ = enabled; }
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
+
+    void EnsureOpaqueCopyTexture(uint32_t width, uint32_t height);
 
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
     [[nodiscard]] size_t GetOccludedPrimitiveCount() const noexcept { return lastOccludedPrimitiveCount_; }
@@ -384,6 +416,9 @@ public:
     [[nodiscard]] static std::array<glm::vec4, 9> ComputeSphericalHarmonicsL2(const std::array<std::vector<float>, 6>& cubemapFaces, uint32_t faceSize) noexcept;
     [[nodiscard]] static glm::vec3 EvaluateSphericalHarmonicsL2(const std::array<glm::vec4, 9>& shCoeffs, const glm::vec3& normal) noexcept;
     [[nodiscard]] static glm::vec3 ApplyToneMappingCPU(const glm::vec3& linearHdr, float exposure, ToneMapOperator op) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateBeerLambertVolumeAttenuation(const glm::vec3& attenuationColor, float attenuationDistance, float thickness, float NdotV) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateBloomThreshold(const glm::vec3& color, float exposure, float threshold) noexcept;
+    [[nodiscard]] static float EvaluateScreenSpaceOcclusionFactor(float depthCenter, float depthNeighbor, float radius, float bias) noexcept;
     static void BuildClusteredLightGrid(
         std::span<const GpuPunctualLight> lights,
         uint32_t lightCount,
@@ -416,8 +451,19 @@ private:
     float parallaxScale_{0.035f};
     bool lensFlareEnabled_{true};
     float lensFlareIntensity_{0.75f};
+    bool bloomEnabled_{true};
+    float bloomIntensity_{0.65f};
+    float bloomThreshold_{1.05f};
+    bool ssaoEnabled_{true};
+    float ssaoIntensity_{0.75f};
+    float ssaoRadius_{0.02f};
     bool occlusionCullingEnabled_{true};
     bool shadowMapDirty_{true};
+
+    TextureHandle opaqueColorCopyTexture_{};
+    TextureViewHandle opaqueColorCopyView_{};
+    uint32_t opaqueCopyWidth_{0};
+    uint32_t opaqueCopyHeight_{0};
 
     ToneMapOperator toneMapOperator_{ToneMapOperator::KhronosPbrNeutral};
     EnvironmentPreset currentEnvPreset_{EnvironmentPreset::MediterraneanCourtyard};

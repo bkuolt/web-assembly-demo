@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - 2026-10-25
+
+### Alpha-Tested Shadows, SSAO, Emissive Bloom, True Transmission & Native Compressed Textures
+- **Alpha-Tested Directional Shadows:**
+  - Implemented `@fragment fn fs_shadow(in : VertexOutput)` in `kShadowShaderWGSL` taking `baseColorTexture` and `defaultSampler`.
+  - Directional shadow map pass now tests primitive materials for `alphaMode == MASK` (and `BLEND`), discarding fragments where $\alpha < \alpha_{\text{cutoff}}$.
+  - Foliage, leaf cutouts, grates, and fences (such as in Sponza) now cast accurate, cutout shadow silhouettes instead of solid rectangular block shadows.
+  - Added unit test `RenderingFeaturesTest.AlphaTestedShadowMaskDiscardLogic`.
+- **Screen-Space Ambient Occlusion (SSAO/GTAO Complement):**
+  - Added screen-space ambient occlusion post-processing evaluating geometric depth and contrast gradients via Poisson-disc horizon sampling.
+  - Complements static material glTF occlusion textures, normal-curvature micro-cavities, and horizon contact angles with dynamic view-dependent ambient shadowing.
+  - Added live intensity slider `[0.0×–2.0×]`, keyboard shortcut `[G]`, and unit test `RenderingFeaturesTest.ScreenSpaceAmbientOcclusionHorizonFactor`.
+- **HDR Bloom for Emissive Materials:**
+  - Implemented linear HDR bright-pass extraction and golden-angle multi-ring scatter glow filter in `kTonemapShaderWGSL` prior to tonemapping.
+  - Neon surfaces, lamps, car headlights, and materials with `KHR_materials_emissive_strength` now emit a radiant optical glow.
+  - Added live intensity slider `[0.0×–2.5×]`, keyboard shortcut `[F]`, and unit test `RenderingFeaturesTest.EmissiveBloomThresholdAndScatter`.
+- **True Physical Transmission & Screen-Space Refraction (`KHR_materials_volume`):**
+  - Integrated full parsing for `KHR_materials_volume` (`thicknessFactor`, `attenuationDistance`, `attenuationColor`, `thicknessTexture`).
+  - Added screen-space refraction offset in `kPbrShaderWGSL` derived from Snell's law, view-space surface normal, IOR, and material thickness.
+  - Implemented Beer-Lambert volume light extinction law:
+    $$\text{extinction} = -\frac{\ln(\text{attenuationColor})}{\text{attenuationDistance}}$$
+    $$\text{transmittance} = \exp(-\text{extinction} \times \text{opticalPath})$$
+  - Created dedicated `opaqueColorCopyTexture_` (`RGBA16Float`) allowing transmissive dielectric geometry to sample background scenes with chromatic refraction and physical absorption.
+  - Added unit test `RenderingFeaturesTest.TrueTransmissionBeerLambertVolumeAttenuation`.
+- **Native GPU Compressed Textures (KTX2 Transcoding by GPU Features):**
+  - Integrated automatic detection of WebGPU hardware block compression features (`TextureCompressionBC`, `TextureCompressionASTC`, `TextureCompressionETC2`).
+  - Configures default KTX2 Basis Universal transcoding target based on GPU adapter capabilities (desktop BC7 `BC7_RGBA`, mobile ASTC `ASTC_4x4_RGBA`, fallback ETC2 `ETC2_RGBA`, or RGBA32).
+  - Eliminates uncompressed RGBA32 GPU memory bloat by uploading block-compressed mip chains directly.
+  - Added unit test `RenderingFeaturesTest.Ktx2TranscodeTargetSelectionByGPUFeatures`.
+- **Test Suite Expansion (142 Passing Tests):**
+  - Expanded test suite to **142 tests across 12 test suites** with 100% pass rate.
+
+---
+
 ## [0.9.0] - 2026-10-25
 
 ### Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares & Keyboard Navigation

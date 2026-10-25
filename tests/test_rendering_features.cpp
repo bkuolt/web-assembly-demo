@@ -305,8 +305,8 @@ TEST(RenderingFeaturesTest, EnvCubemapSkyVsGroundAndRoughnessFiltering) {
 }
 
 TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
-    // Verify 352-byte UBO alignment and distinct feature bitflags
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 352u);
+    // Verify 384-byte UBO alignment and distinct feature bitflags
+    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 384u);
     EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
     EXPECT_NE(gpu::MaterialFlags::EnableBumpMapping & gpu::MaterialFlags::EnableShadows, gpu::MaterialFlags::EnableBumpMapping);
     EXPECT_NE(gpu::MaterialFlags::EnableShadows & gpu::MaterialFlags::EnableReflections, gpu::MaterialFlags::EnableShadows);
@@ -758,16 +758,18 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
 
 TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     // 1. Struct sizes must strictly match WebGPU WGSL std140 / uniform layout contracts
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 352u);
+    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 384u);
     EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
 
     EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5360u);
     EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
 
-    EXPECT_EQ(sizeof(gpu::TonemapUniforms), 48u);
+    EXPECT_EQ(sizeof(gpu::TonemapUniforms), 80u);
     EXPECT_EQ(alignof(gpu::TonemapUniforms), 16u);
     EXPECT_EQ(offsetof(gpu::TonemapUniforms, sunScreenPos), 16u);
     EXPECT_EQ(offsetof(gpu::TonemapUniforms, flareParams), 32u);
+    EXPECT_EQ(offsetof(gpu::TonemapUniforms, bloomParams), 48u);
+    EXPECT_EQ(offsetof(gpu::TonemapUniforms, ssaoParams), 64u);
 
     EXPECT_EQ(sizeof(gpu::PrefilterComputeParams), 16u);
     EXPECT_EQ(alignof(gpu::PrefilterComputeParams), 16u);
@@ -1002,6 +1004,150 @@ TEST(RenderingFeaturesTest, PipelineTonemapOperatorAndExposureCPU) {
     const glm::vec3 highExp = gpu::PipelineManager::ApplyToneMappingCPU(glm::vec3(0.5f), 2.0f, gpu::ToneMapOperator::ACES);
     EXPECT_GT(highExp.r, lowExp.r);
 }
+
+TEST(RenderingFeaturesTest, AlphaTestedShadowMaskDiscardLogic) {
+    // Helper replicating the shadow shader fragment discard logic
+    auto evaluateShadowDiscard = [](uint32_t alphaMode, float alphaCutoff, float textureAlpha, float baseColorFactorAlpha, bool hasBaseTex) -> bool {
+        float alpha = baseColorFactorAlpha;
+        if (hasBaseTex) {
+            alpha *= textureAlpha;
+        }
+        if (alphaMode == 1u) { // Mask
+            return alpha < alphaCutoff; // true = discard
+        } else if (alphaMode == 2u) { // Blend
+            return alpha < std::max(alphaCutoff, 0.5f);
+        }
+        return false; // Opaque = never discard
+    };
+
+    // 1. OPAQUE mode (0) never discards regardless of alpha
+    EXPECT_FALSE(evaluateShadowDiscard(0, 0.5f, 0.1f, 1.0f, true));
+    EXPECT_FALSE(evaluateShadowDiscard(0, 0.5f, 0.0f, 0.0f, true));
+
+    // 2. MASK mode (1) discards when alpha < cutoff
+    EXPECT_TRUE(evaluateShadowDiscard(1, 0.5f, 0.49f, 1.0f, true));
+    EXPECT_FALSE(evaluateShadowDiscard(1, 0.5f, 0.50f, 1.0f, true));
+    EXPECT_FALSE(evaluateShadowDiscard(1, 0.5f, 0.85f, 1.0f, true));
+
+    // 3. Custom alphaCutoff (e.g. 0.75 for tight foliage leaf cutouts)
+    EXPECT_TRUE(evaluateShadowDiscard(1, 0.75f, 0.70f, 1.0f, true));
+    EXPECT_FALSE(evaluateShadowDiscard(1, 0.75f, 0.76f, 1.0f, true));
+
+    // 4. BaseColorFactor alpha modulation: baseFactor = 0.5, texAlpha = 0.8 -> effective alpha = 0.4 < cutoff(0.5) -> discard
+    EXPECT_TRUE(evaluateShadowDiscard(1, 0.5f, 0.8f, 0.5f, true));
+}
+
+TEST(RenderingFeaturesTest, Ktx2TranscodeTargetSelectionByGPUFeatures) {
+    // Save original default target
+    const auto origTarget = scene::TextureDecoder::GetDefaultKtxTarget();
+
+    // 1. Check setting and getting transcode targets
+    scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Bc7);
+    EXPECT_EQ(scene::TextureDecoder::GetDefaultKtxTarget(), scene::KtxTranscodeTarget::Bc7);
+    EXPECT_EQ(scene::TextureDecoder::GetKtxTargetName(scene::KtxTranscodeTarget::Bc7), "BC7_RGBA");
+
+    scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Astc4x4);
+    EXPECT_EQ(scene::TextureDecoder::GetDefaultKtxTarget(), scene::KtxTranscodeTarget::Astc4x4);
+    EXPECT_EQ(scene::TextureDecoder::GetKtxTargetName(scene::KtxTranscodeTarget::Astc4x4), "ASTC_4x4_RGBA");
+
+    scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Etc2Rgba);
+    EXPECT_EQ(scene::TextureDecoder::GetDefaultKtxTarget(), scene::KtxTranscodeTarget::Etc2Rgba);
+    EXPECT_EQ(scene::TextureDecoder::GetKtxTargetName(scene::KtxTranscodeTarget::Etc2Rgba), "ETC2_RGBA8");
+
+    scene::TextureDecoder::SetDefaultKtxTarget(scene::KtxTranscodeTarget::Rgba32);
+    EXPECT_EQ(scene::TextureDecoder::GetDefaultKtxTarget(), scene::KtxTranscodeTarget::Rgba32);
+    EXPECT_EQ(scene::TextureDecoder::GetKtxTargetName(scene::KtxTranscodeTarget::Rgba32), "RGBA32");
+
+    // 2. Hardware feature prioritization logic:
+    // If BC7 supported (desktop), select BC7
+    auto selectTarget = [](bool bc, bool astc, bool etc2) -> scene::KtxTranscodeTarget {
+        if (bc) return scene::KtxTranscodeTarget::Bc7;
+        if (astc) return scene::KtxTranscodeTarget::Astc4x4;
+        if (etc2) return scene::KtxTranscodeTarget::Etc2Rgba;
+        return scene::KtxTranscodeTarget::Rgba32;
+    };
+
+    EXPECT_EQ(selectTarget(true, false, false), scene::KtxTranscodeTarget::Bc7);
+    EXPECT_EQ(selectTarget(false, true, false), scene::KtxTranscodeTarget::Astc4x4);
+    EXPECT_EQ(selectTarget(false, false, true), scene::KtxTranscodeTarget::Etc2Rgba);
+    EXPECT_EQ(selectTarget(false, false, false), scene::KtxTranscodeTarget::Rgba32);
+
+    // Restore original target
+    scene::TextureDecoder::SetDefaultKtxTarget(origTarget);
+}
+
+TEST(RenderingFeaturesTest, TrueTransmissionBeerLambertVolumeAttenuation) {
+    // 1. Zero thickness produces no attenuation (transmittance = 1.0)
+    const glm::vec3 greenTint(0.2f, 0.9f, 0.3f);
+    const glm::vec3 noAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 0.0f, 1.0f);
+    EXPECT_NEAR(noAtten.r, 1.0f, 1e-5f);
+    EXPECT_NEAR(noAtten.g, 1.0f, 1e-5f);
+    EXPECT_NEAR(noAtten.b, 1.0f, 1e-5f);
+
+    // 2. Infinite attenuation distance produces no attenuation
+    const glm::vec3 infDistAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1e9f, 2.0f, 1.0f);
+    EXPECT_NEAR(infDistAtten.r, 1.0f, 1e-5f);
+    EXPECT_NEAR(infDistAtten.g, 1.0f, 1e-5f);
+    EXPECT_NEAR(infDistAtten.b, 1.0f, 1e-5f);
+
+    // 3. For green-tinted glass: red and blue attenuate faster than green
+    const glm::vec3 glassAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
+    EXPECT_GT(glassAtten.g, glassAtten.r);
+    EXPECT_GT(glassAtten.g, glassAtten.b);
+    EXPECT_LT(glassAtten.r, 1.0f);
+    EXPECT_LT(glassAtten.g, 1.0f);
+
+    // 4. Monotonicity: Doubling thickness halves remaining transmission exponentially
+    const glm::vec3 thickGlassAtten = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 2.0f, 1.0f);
+    EXPECT_LT(thickGlassAtten.g, glassAtten.g);
+    EXPECT_NEAR(thickGlassAtten.g, glassAtten.g * glassAtten.g, 1e-4f);
+
+    // 5. Glancing angle (small NdotV) lengthens optical path and reduces transmittance
+    const glm::vec3 directView = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 1.0f);
+    const glm::vec3 glancingView = gpu::PipelineManager::EvaluateBeerLambertVolumeAttenuation(greenTint, 1.0f, 1.0f, 0.2f);
+    EXPECT_LT(glancingView.g, directView.g);
+}
+
+TEST(RenderingFeaturesTest, EmissiveBloomThresholdAndScatter) {
+    const float threshold = 1.05f;
+
+    // 1. Color with luminance below threshold produces zero bloom
+    const glm::vec3 dimColor(0.5f, 0.5f, 0.5f);
+    const glm::vec3 noBloom = gpu::PipelineManager::EvaluateBloomThreshold(dimColor, 1.0f, threshold);
+    EXPECT_FLOAT_EQ(noBloom.r, 0.0f);
+    EXPECT_FLOAT_EQ(noBloom.g, 0.0f);
+    EXPECT_FLOAT_EQ(noBloom.b, 0.0f);
+
+    // 2. High-intensity emissive neon surface produces bright bloom extraction
+    const glm::vec3 neonColor(6.0f, 2.0f, 1.0f);
+    const glm::vec3 bloom = gpu::PipelineManager::EvaluateBloomThreshold(neonColor, 1.0f, threshold);
+    EXPECT_GT(bloom.r, 0.0f);
+    EXPECT_LT(bloom.r, neonColor.r);
+
+    // 3. Increasing exposure scales luminance and increases extracted bloom
+    const glm::vec3 lowExpBloom = gpu::PipelineManager::EvaluateBloomThreshold(neonColor, 1.0f, threshold);
+    const glm::vec3 highExpBloom = gpu::PipelineManager::EvaluateBloomThreshold(neonColor, 2.0f, threshold);
+    EXPECT_GT(highExpBloom.r, lowExpBloom.r);
+}
+
+TEST(RenderingFeaturesTest, ScreenSpaceAmbientOcclusionHorizonFactor) {
+    const float radius = 0.05f;
+    const float bias = 0.005f;
+
+    // 1. Coplanar neighbor (diff <= bias) produces 1.0 (unoccluded)
+    const float flatOcclusion = gpu::PipelineManager::EvaluateScreenSpaceOcclusionFactor(1.0f, 1.002f, radius, bias);
+    EXPECT_FLOAT_EQ(flatOcclusion, 1.0f);
+
+    // 2. Crevice geometry (diff > bias and diff < radius) produces occlusion < 1.0
+    const float creviceOcclusion = gpu::PipelineManager::EvaluateScreenSpaceOcclusionFactor(1.03f, 1.0f, radius, bias);
+    EXPECT_LT(creviceOcclusion, 1.0f);
+    EXPECT_GT(creviceOcclusion, 0.0f);
+
+    // 3. Far distant geometry (diff >= radius) falls outside horizon kernel (factor = 1.0)
+    const float farOcclusion = gpu::PipelineManager::EvaluateScreenSpaceOcclusionFactor(1.5f, 1.0f, radius, bias);
+    EXPECT_FLOAT_EQ(farOcclusion, 1.0f);
+}
+
 
 
 

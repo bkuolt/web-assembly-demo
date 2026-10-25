@@ -1126,7 +1126,9 @@ void PipelineManager::RenderTonemapPass(
         .isSrgbSurface = IsSrgbSwapchainFormat(surfaceFormat_) ? 1u : 0u,
         .lensFlareEnabled = lensFlareEnabled_ ? 1u : 0u,
         .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
-        .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f}
+        .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f},
+        .bloomParams = glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, bloomEnabled_ ? 1.0f : 0.0f},
+        .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, ssaoEnabled_ ? 1.0f : 0.0f}
     };
     wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_, 0, &uniforms, sizeof(uniforms));
 
@@ -1178,7 +1180,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     ShaderModuleHandle shadowShaderModule{wgpuDeviceCreateShaderModule(device_, &shadowSmDesc)};
 
-    // 4. Bind Group Layout (15 entries):
+    // 4. Bind Group Layout (16 entries):
     // 0: PrimitiveUniforms
     // 1: Default Sampler
     // 2..9: 2D Material Textures
@@ -1187,7 +1189,8 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     // 12: Shadow Comparison Sampler (sampler_comparison)
     // 13: Split-Sum BRDF LUT (texture_2d<f32>)
     // 14: SceneLightingUniforms (L2 SH + Clustered Forward+ KHR_lights_punctual)
-    std::array<WGPUBindGroupLayoutEntry, 15> bglEntries{};
+    // 15: Opaque Scene Color Copy (texture_2d<f32> for Screen-Space Refraction)
+    std::array<WGPUBindGroupLayoutEntry, 16> bglEntries{};
 
     bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     bglEntries[0].binding = 0;
@@ -1241,6 +1244,13 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     bglEntries[14].buffer.type = WGPUBufferBindingType_Uniform;
     bglEntries[14].buffer.minBindingSize = sizeof(SceneLightingUniforms);
 
+    bglEntries[15] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    bglEntries[15].binding = 15;
+    bglEntries[15].visibility = WGPUShaderStage_Fragment;
+    bglEntries[15].texture.sampleType = WGPUTextureSampleType_Float;
+    bglEntries[15].texture.viewDimension = WGPUTextureViewDimension_2D;
+    bglEntries[15].texture.multisampled = WGPU_FALSE;
+
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     bglDesc.entryCount = bglEntries.size();
     bglDesc.entries = bglEntries.data();
@@ -1249,16 +1259,29 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
     }
 
-    // 4b. Shadow Pass Bind Group Layout (Binding 0 only)
-    WGPUBindGroupLayoutEntry shadowBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    shadowBglEntry.binding = 0;
-    shadowBglEntry.visibility = WGPUShaderStage_Vertex;
-    shadowBglEntry.buffer.type = WGPUBufferBindingType_Uniform;
-    shadowBglEntry.buffer.minBindingSize = sizeof(PrimitiveUniforms);
+    // 4b. Shadow Pass Bind Group Layout (0: Uniforms, 1: Sampler, 2: BaseColor Texture for Alpha Discard)
+    std::array<WGPUBindGroupLayoutEntry, 3> shadowBglEntries{};
+    shadowBglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    shadowBglEntries[0].binding = 0;
+    shadowBglEntries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    shadowBglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
+    shadowBglEntries[0].buffer.minBindingSize = sizeof(PrimitiveUniforms);
+
+    shadowBglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    shadowBglEntries[1].binding = 1;
+    shadowBglEntries[1].visibility = WGPUShaderStage_Fragment;
+    shadowBglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+
+    shadowBglEntries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    shadowBglEntries[2].binding = 2;
+    shadowBglEntries[2].visibility = WGPUShaderStage_Fragment;
+    shadowBglEntries[2].texture.sampleType = WGPUTextureSampleType_Float;
+    shadowBglEntries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
+    shadowBglEntries[2].texture.multisampled = WGPU_FALSE;
 
     WGPUBindGroupLayoutDescriptor shadowBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    shadowBglDesc.entryCount = 1;
-    shadowBglDesc.entries = &shadowBglEntry;
+    shadowBglDesc.entryCount = shadowBglEntries.size();
+    shadowBglDesc.entries = shadowBglEntries.data();
     shadowBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &shadowBglDesc);
 
     // 5. Pipeline Layouts
@@ -1343,13 +1366,19 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         shadowDepthStencil.depthBiasSlopeScale = 2.0f;
         shadowDepthStencil.depthBiasClamp = 0.0f;
 
+        WGPUFragmentState shadowFragState = WGPU_FRAGMENT_STATE_INIT;
+        shadowFragState.module = shadowShaderModule;
+        shadowFragState.entryPoint = ToWgpuStringView("fs_shadow");
+        shadowFragState.targetCount = 0;
+        shadowFragState.targets = nullptr;
+
         WGPURenderPipelineDescriptor shadowRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
         shadowRpDesc.layout = shadowPipelineLayout;
         shadowRpDesc.vertex.module = shadowShaderModule;
         shadowRpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
         shadowRpDesc.vertex.bufferCount = 1;
         shadowRpDesc.vertex.buffers = &vbLayout;
-        shadowRpDesc.fragment = nullptr;
+        shadowRpDesc.fragment = &shadowFragState;
         shadowRpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
         shadowRpDesc.primitive.cullMode = WGPUCullMode_None;
         shadowRpDesc.depthStencil = &shadowDepthStencil;
@@ -1662,7 +1691,7 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
                 sheenTexIdx = mat.sheenColorTextureIndex;
             }
 
-            std::array<WGPUBindGroupEntry, 15> bgEntries{};
+            std::array<WGPUBindGroupEntry, 16> bgEntries{};
             bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
             bgEntries[0].binding = 0;
             bgEntries[0].buffer = prim.gpuUniformBuffer;
@@ -1727,11 +1756,46 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
             bgEntries[14].offset = 0;
             bgEntries[14].size = sizeof(SceneLightingUniforms);
 
+            bgEntries[15] = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntries[15].binding = 15;
+            bgEntries[15].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
+
             WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
             bgDesc.layout = bindGroupLayout_;
             bgDesc.entryCount = bgEntries.size();
             bgDesc.entries = bgEntries.data();
             prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+
+            if (prim.gpuShadowBindGroup) {
+                wgpuBindGroupRelease(prim.gpuShadowBindGroup);
+                prim.gpuShadowBindGroup = nullptr;
+            }
+            if (shadowBindGroupLayout_) {
+                WGPUTextureView baseView = defaultWhiteTextureView_.Get();
+                if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
+                    baseView = scene.gpuTextures[baseColorTexIdx].view;
+                }
+                std::array<WGPUBindGroupEntry, 3> shadowEntries{};
+                shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[0].binding = 0;
+                shadowEntries[0].buffer = prim.gpuUniformBuffer;
+                shadowEntries[0].offset = 0;
+                shadowEntries[0].size = sizeof(PrimitiveUniforms);
+
+                shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[1].binding = 1;
+                shadowEntries[1].sampler = defaultSampler_.Get();
+
+                shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[2].binding = 2;
+                shadowEntries[2].textureView = baseView;
+
+                WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+                shadowBgDesc.layout = shadowBindGroupLayout_;
+                shadowBgDesc.entryCount = shadowEntries.size();
+                shadowBgDesc.entries = shadowEntries.data();
+                prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+            }
         }
 
         for (auto& child : node.children) {
@@ -2048,16 +2112,33 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             }
 
             if (!prim.gpuShadowBindGroup && shadowBindGroupLayout_) {
-                WGPUBindGroupEntry shadowBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowBgEntry.binding = 0;
-                shadowBgEntry.buffer = prim.gpuUniformBuffer;
-                shadowBgEntry.offset = 0;
-                shadowBgEntry.size = sizeof(PrimitiveUniforms);
+                int baseColorTexIdx{-1};
+                if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+                    baseColorTexIdx = scene.materials[prim.materialIndex].baseColorTextureIndex;
+                }
+                WGPUTextureView baseView = defaultWhiteTextureView_.Get();
+                if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
+                    baseView = scene.gpuTextures[baseColorTexIdx].view;
+                }
+                std::array<WGPUBindGroupEntry, 3> shadowEntries{};
+                shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[0].binding = 0;
+                shadowEntries[0].buffer = prim.gpuUniformBuffer;
+                shadowEntries[0].offset = 0;
+                shadowEntries[0].size = sizeof(PrimitiveUniforms);
+
+                shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[1].binding = 1;
+                shadowEntries[1].sampler = defaultSampler_.Get();
+
+                shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+                shadowEntries[2].binding = 2;
+                shadowEntries[2].textureView = baseView;
 
                 WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
                 shadowBgDesc.layout = shadowBindGroupLayout_;
-                shadowBgDesc.entryCount = 1;
-                shadowBgDesc.entries = &shadowBgEntry;
+                shadowBgDesc.entryCount = shadowEntries.size();
+                shadowBgDesc.entries = shadowEntries.data();
                 prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
             }
         }
@@ -2250,7 +2331,16 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
         PrimitiveUniforms uniforms{};
         uniforms.model = worldMat;
         uniforms.lightViewProj = currentLightViewProj_;
-        wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(glm::mat4) * 3);
+        if (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex) < scene.materials.size()) {
+            const auto& mat = scene.materials[prim.materialIndex];
+            uniforms.baseColorFactor = mat.baseColorFactor;
+            uniforms.alphaCutoff = mat.alphaCutoff;
+            uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
+            if (mat.baseColorTextureIndex >= 0) {
+                uniforms.flags |= MaterialFlags::HasBaseColorTex;
+            }
+        }
+        wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
         wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
@@ -2358,6 +2448,9 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         uniforms.specularFactor = mat.specularFactor;
         uniforms.sheenColorFactor = glm::vec4{mat.sheenColorFactor, mat.sheenRoughnessFactor};
         uniforms.specularColorFactor = glm::vec4{mat.specularColorFactor, 0.0f};
+        uniforms.thicknessFactor = mat.thicknessFactor;
+        uniforms.attenuationDistance = mat.attenuationDistance;
+        uniforms.attenuationColor = glm::vec4{mat.attenuationColor, 1.0f};
 
         if (mat.baseColorTextureIndex >= 0) flags |= MaterialFlags::HasBaseColorTex;
         if (mat.metallicRoughnessTextureIndex >= 0) flags |= MaterialFlags::HasMetallicRoughnessTex;
@@ -2366,6 +2459,7 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
         if (mat.occlusionTextureIndex >= 0) flags |= MaterialFlags::HasOcclusionTex;
         if (mat.clearcoatTextureIndex >= 0) flags |= MaterialFlags::HasClearcoatTex;
         if (mat.transmissionTextureIndex >= 0) flags |= MaterialFlags::HasTransmissionTex;
+        if (mat.thicknessTextureIndex >= 0) flags |= MaterialFlags::HasThicknessTex;
         if (mat.sheenColorTextureIndex >= 0) flags |= MaterialFlags::HasSheenTex;
         if (mat.unlit) flags |= MaterialFlags::Unlit;
         if (mat.doubleSided) {
@@ -2513,6 +2607,57 @@ void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const sce
     if (!pass || !aabbPipeline_) return;
     BatchQuadtreeBounds(quadtree);
     FlushAABBLines(pass, viewProj);
+}
+
+void PipelineManager::EnsureOpaqueCopyTexture(uint32_t width, uint32_t height) {
+    if (opaqueColorCopyTexture_ && opaqueCopyWidth_ == width && opaqueCopyHeight_ == height) {
+        return;
+    }
+    opaqueCopyWidth_ = std::max(1u, width);
+    opaqueCopyHeight_ = std::max(1u, height);
+
+    WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    desc.dimension = WGPUTextureDimension_2D;
+    desc.size = WGPUExtent3D{ opaqueCopyWidth_, opaqueCopyHeight_, 1 };
+    desc.format = WGPUTextureFormat_RGBA16Float;
+    desc.mipLevelCount = 1;
+    desc.sampleCount = 1;
+    desc.label = ToWgpuStringView("OpaqueColorCopyTexture");
+    opaqueColorCopyTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+    if (opaqueColorCopyTexture_) {
+        opaqueColorCopyView_ = wgpuTextureCreateView(opaqueColorCopyTexture_, nullptr);
+    }
+}
+
+glm::vec3 PipelineManager::EvaluateBeerLambertVolumeAttenuation(const glm::vec3& attenuationColor, float attenuationDistance, float thickness, float NdotV) noexcept {
+    if (thickness <= 0.0f || attenuationDistance >= 1e8f) {
+        return glm::vec3{1.0f};
+    }
+    const float attDist = std::max(attenuationDistance, 1e-4f);
+    const glm::vec3 safeColor = glm::clamp(attenuationColor, glm::vec3{1e-4f}, glm::vec3{1.0f});
+    const glm::vec3 extinction = -glm::log(safeColor) / attDist;
+    const float opticalPath = thickness / std::max(NdotV, 0.1f);
+    return glm::exp(-extinction * opticalPath);
+}
+
+glm::vec3 PipelineManager::EvaluateBloomThreshold(const glm::vec3& color, float exposure, float threshold) noexcept {
+    const glm::vec3 exposed = color * exposure;
+    const float lum = glm::dot(exposed, glm::vec3{0.2126f, 0.7152f, 0.0722f});
+    if (lum <= threshold) {
+        return glm::vec3{0.0f};
+    }
+    const float factor = (lum - threshold) / std::max(lum, 1e-4f);
+    return exposed * factor;
+}
+
+float PipelineManager::EvaluateScreenSpaceOcclusionFactor(float depthCenter, float depthNeighbor, float radius, float bias) noexcept {
+    const float diff = depthCenter - depthNeighbor;
+    if (diff > bias && diff < radius) {
+        const float occ = (diff - bias) / std::max(radius - bias, 1e-4f);
+        return std::clamp(1.0f - occ, 0.0f, 1.0f);
+    }
+    return 1.0f;
 }
 
 } // namespace bgl::gpu

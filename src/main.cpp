@@ -75,8 +75,28 @@ void bgl_toggle_lens_flare() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_ssao() {
+    if (g_pApp) g_pApp->ToggleSSAO();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_bloom() {
+    if (g_pApp) g_pApp->ToggleBloom();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_set_ao_intensity(float val) {
     if (g_pApp) g_pApp->SetAoIntensity(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_ssao_intensity(float val) {
+    if (g_pApp) g_pApp->SetSsaoIntensity(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_bloom_intensity(float val) {
+    if (g_pApp) g_pApp->SetBloomIntensity(val);
 }
 
 EMSCRIPTEN_KEEPALIVE
