@@ -1282,8 +1282,8 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     shadowPlDesc.bindGroupLayouts = shadowBindGroupLayout_.AddressOf();
     PipelineLayoutHandle shadowPipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &shadowPlDesc)};
 
-    // 6. Vertex Layout (Position, Normal, Tangent, UV)
-    std::array<WGPUVertexAttribute, 4> vertAttrs{};
+    // 6. Vertex Layout (Position, Normal, Tangent, UV, Joints, Weights)
+    std::array<WGPUVertexAttribute, 6> vertAttrs{};
     vertAttrs[0].format = WGPUVertexFormat_Float32x3;
     vertAttrs[0].offset = offsetof(core::Vertex, position);
     vertAttrs[0].shaderLocation = 0;
@@ -1299,6 +1299,14 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     vertAttrs[3].format = WGPUVertexFormat_Float32x2;
     vertAttrs[3].offset = offsetof(core::Vertex, uv);
     vertAttrs[3].shaderLocation = 3;
+
+    vertAttrs[4].format = WGPUVertexFormat_Uint32x4;
+    vertAttrs[4].offset = offsetof(core::Vertex, joints);
+    vertAttrs[4].shaderLocation = 4;
+
+    vertAttrs[5].format = WGPUVertexFormat_Float32x4;
+    vertAttrs[5].offset = offsetof(core::Vertex, weights);
+    vertAttrs[5].shaderLocation = 5;
 
     WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vbLayout.arrayStride = sizeof(core::Vertex);
@@ -2335,7 +2343,7 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
         return;
     }
 
-    if (!shadowMapDirty_ && lastShadowScene_ == &scene && glm::distance(lastShadowLightDir_, currentLightDir_) < 1e-4f) {
+    if (!shadowMapDirty_ && (!scene.animationPlaying || scene.activeAnimationIndex < 0) && lastShadowScene_ == &scene && glm::distance(lastShadowLightDir_, currentLightDir_) < 1e-4f) {
         return;
     }
 
@@ -2376,6 +2384,11 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
     for (auto& prim : node.GetPrimitives()) {
         if (!prim.gpuVertexBuffer || !prim.gpuShadowBindGroup || !prim.gpuUniformBuffer) continue;
 
+        if (prim.morphDirty) {
+            wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), prim.vertices.size() * sizeof(core::Vertex));
+            prim.morphDirty = false;
+        }
+
         PrimitiveUniforms uniforms{};
         uniforms.model = worldMat;
         uniforms.lightViewProj = currentLightViewProj_;
@@ -2388,6 +2401,35 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
                 uniforms.flags |= MaterialFlags::HasBaseColorTex;
             }
         }
+
+        if (node.skinIndex >= 0 && static_cast<size_t>(node.skinIndex) < scene.skins.size()) {
+            const auto& skin = scene.skins[static_cast<size_t>(node.skinIndex)];
+            const uint32_t count = std::min(static_cast<uint32_t>(skin.joints.size()), 128u);
+            uniforms.jointCount = count;
+            const glm::mat4 invWorld = glm::inverse(worldMat);
+            for (uint32_t j = 0; j < count; ++j) {
+                const int jointNodeIdx = skin.joints[j];
+                glm::mat4 jointWorld{1.0f};
+                if (jointNodeIdx >= 0 && static_cast<size_t>(jointNodeIdx) < scene.allNodes.size()) {
+                    if (const auto& jointNode = scene.allNodes[static_cast<size_t>(jointNodeIdx)]) {
+                        jointWorld = jointNode->worldTransform;
+                    }
+                }
+                const glm::mat4 ibm = (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
+                uniforms.jointMatrices[j] = invWorld * jointWorld * ibm;
+            }
+            uniforms.flags |= MaterialFlags::HasSkinning;
+        }
+
+        if (!node.morphWeights.empty()) {
+            const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 8u);
+            uniforms.morphTargetCount = count;
+            for (uint32_t m = 0; m < count; ++m) {
+                uniforms.morphWeights[m] = node.morphWeights[m];
+            }
+            uniforms.flags |= MaterialFlags::HasMorphTargets;
+        }
+
         wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
         wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
@@ -2473,7 +2515,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         for (const auto& item : items) {
             auto prims = item.node->GetPrimitives();
             auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
-            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline);
+            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline, item.node.get());
         }
     } else {
         std::vector<RenderItem> items;
@@ -2519,7 +2561,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         for (const auto& item : items) {
             auto prims = item.node->GetPrimitives();
             auto& prim = const_cast<scene::MeshPrimitive&>(prims[item.primitiveIndex]);
-            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline);
+            RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline, item.node.get());
         }
     }
 }
@@ -2534,7 +2576,7 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
     const auto prims = node.GetPrimitives();
     lastVisiblePrimitiveCount_ += prims.size();
     for (auto& prim : prims) {
-        RenderPrimitive(pass, scene, const_cast<scene::MeshPrimitive&>(prim), worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline);
+        RenderPrimitive(pass, scene, const_cast<scene::MeshPrimitive&>(prim), worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node);
     }
 
     for (const auto& child : node.children) {
@@ -2544,8 +2586,13 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
     }
 }
 
-void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline) {
+void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline, const scene::SceneNode* node) {
     if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer) return;
+
+    if (prim.morphDirty) {
+        wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), prim.vertices.size() * sizeof(core::Vertex));
+        prim.morphDirty = false;
+    }
 
     PrimitiveUniforms uniforms{};
     uniforms.viewProj = viewProj;
@@ -2562,6 +2609,34 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     if (reflectionsEnabled_)      flags |= MaterialFlags::EnableReflections;
     if (ambientOcclusionEnabled_) flags |= MaterialFlags::EnableAmbientOcclusion;
     if (parallaxEnabled_)         flags |= MaterialFlags::EnableParallaxOcclusion;
+
+    if (node && node->skinIndex >= 0 && static_cast<size_t>(node->skinIndex) < scene.skins.size()) {
+        const auto& skin = scene.skins[static_cast<size_t>(node->skinIndex)];
+        const uint32_t count = std::min(static_cast<uint32_t>(skin.joints.size()), 128u);
+        uniforms.jointCount = count;
+        const glm::mat4 invWorld = glm::inverse(worldMat);
+        for (uint32_t j = 0; j < count; ++j) {
+            const int jointNodeIdx = skin.joints[j];
+            glm::mat4 jointWorld{1.0f};
+            if (jointNodeIdx >= 0 && static_cast<size_t>(jointNodeIdx) < scene.allNodes.size()) {
+                if (const auto& jointNode = scene.allNodes[static_cast<size_t>(jointNodeIdx)]) {
+                    jointWorld = jointNode->worldTransform;
+                }
+            }
+            const glm::mat4 ibm = (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
+            uniforms.jointMatrices[j] = invWorld * jointWorld * ibm;
+        }
+        flags |= MaterialFlags::HasSkinning;
+    }
+
+    if (node && !node->morphWeights.empty()) {
+        const uint32_t count = std::min(static_cast<uint32_t>(node->morphWeights.size()), 8u);
+        uniforms.morphTargetCount = count;
+        for (uint32_t m = 0; m < count; ++m) {
+            uniforms.morphWeights[m] = node->morphWeights[m];
+        }
+        flags |= MaterialFlags::HasMorphTargets;
+    }
 
     bool isDoubleSided{false};
     if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {

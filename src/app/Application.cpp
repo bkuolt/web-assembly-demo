@@ -305,6 +305,10 @@ void Application::Update(float deltaTime) {
         camera_.Orbit(turntableSpeed_ * deltaTime, 0.0f);
     }
 
+    if (activeScene_) {
+        activeScene_->UpdateAnimation(deltaTime);
+    }
+
     float aspect = static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
     camera_.Update(aspect);
     soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
@@ -479,6 +483,13 @@ void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string
     quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
     quadtree_->InsertNodes(activeScene_->rootNodes);
     cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
+
+    if (!activeScene_->animations.empty()) {
+        activeScene_->SetAnimation(0);
+        BGL_LOG_INFO("Activated default glTF animation 0 ('{}', duration: {:.2f}s)",
+                     activeScene_->animations[0].name.empty() ? "unnamed" : activeScene_->animations[0].name,
+                     activeScene_->animations[0].duration);
+    }
 }
 
 core::Result<void> Application::LoadScene(std::span<const uint8_t> data, std::string_view baseUri) {

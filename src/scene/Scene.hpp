@@ -14,6 +14,7 @@
 #include <webgpu/webgpu.h>
 #include "core/Types.hpp"
 #include "scene/TextureDecoder.hpp"
+#include "scene/Animation.hpp"
 
 namespace bgl::scene {
 
@@ -141,7 +142,10 @@ struct Material {
  */
 struct MeshPrimitive {
     std::pmr::vector<core::Vertex> vertices;
+    std::pmr::vector<core::Vertex> baseVertices;
     std::pmr::vector<uint32_t> indices;
+    std::vector<MorphTarget> morphTargets{};
+    bool morphDirty{false};
     core::AABB boundingBox{};
     int materialIndex{-1};
 
@@ -167,6 +171,11 @@ struct MeshPrimitive {
      * @brief Compute MikkTSpace/Lengyel tangent vectors and handedness from triangle UVs and positions.
      */
     void ComputeTangents();
+
+    /**
+     * @brief Apply morph target deltas weighted by active weights onto vertices.
+     */
+    void ApplyMorphTargets(std::span<const float> weights);
 };
 
 /**
@@ -189,6 +198,14 @@ public:
     int nodeIndex{-1};
     int cameraIndex{-1};
     int lightIndex{-1}; ///< Optional index into Scene::lights (KHR_lights_punctual)
+    int skinIndex{-1};  ///< Optional index into Scene::skins (Skeletal skinning)
+
+    // Decoupled TRS local transform
+    glm::vec3 translation{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f}; // Identity quaternion
+    glm::vec3 scale{1.0f};
+    std::vector<float> morphWeights{};
+
     glm::mat4 localTransform{1.0f};
     glm::mat4 worldTransform{1.0f};
     core::AABB worldAABB{};
@@ -211,6 +228,8 @@ public:
         return primitives;
     }
 
+    void UpdateLocalTransform() noexcept;
+    void ApplyMorphWeights();
     void UpdateTransforms(const glm::mat4& parentTransform = glm::mat4{1.0f});
 };
 
@@ -227,10 +246,18 @@ struct Scene {
     std::vector<SceneCamera> cameras{};
     std::vector<CpuImage> cpuImages{};
     std::vector<TextureGpuResource> gpuTextures{};
+    std::vector<Animation> animations{};
+    std::vector<Skin> skins{};
+    int activeAnimationIndex{-1};
+    float animationTime{0.0f};
+    bool animationPlaying{true};
     core::AABB sceneAABB{};
 
     ~Scene();
     void Update();
+    void UpdateAnimation(float deltaTime);
+    void EvaluateAnimation(size_t animIndex, float time);
+    void SetAnimation(int index) noexcept;
 };
 
 } // namespace bgl::scene

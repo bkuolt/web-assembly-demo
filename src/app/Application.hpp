@@ -114,6 +114,31 @@ public:
     /** @brief Toggles directional sun lens flare post-processing effect. */
     void ToggleLensFlare() noexcept { pipelineManager_.ToggleLensFlare(); }
 
+    /** @brief Selects active glTF animation by index (-1 to disable). */
+    void SetAnimation(int index) noexcept {
+        if (activeScene_) activeScene_->SetAnimation(index);
+    }
+
+    /** @brief Returns currently playing animation index or -1. */
+    [[nodiscard]] int GetActiveAnimationIndex() const noexcept {
+        return activeScene_ ? activeScene_->activeAnimationIndex : -1;
+    }
+
+    /** @brief Returns total number of animations loaded in active scene. */
+    [[nodiscard]] size_t GetAnimationCount() const noexcept {
+        return activeScene_ ? activeScene_->animations.size() : 0;
+    }
+
+    /** @brief Sets animation playback state (playing / paused). */
+    void SetAnimationPlaying(bool playing) noexcept {
+        if (activeScene_) activeScene_->animationPlaying = playing;
+    }
+
+    /** @brief Queries whether animation playback is currently active. */
+    [[nodiscard]] bool IsAnimationPlaying() const noexcept {
+        return activeScene_ ? activeScene_->animationPlaying : false;
+    }
+
     /** @brief Toggles screen-space ambient occlusion (SSAO/GTAO) post-pass. */
     void ToggleSSAO() noexcept { pipelineManager_.ToggleSSAO(); }
 

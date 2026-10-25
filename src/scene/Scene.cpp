@@ -14,11 +14,14 @@
 namespace bgl::scene {
 
 MeshPrimitive::MeshPrimitive(std::pmr::memory_resource* mr)
-    : vertices{mr}, indices{mr} {}
+    : vertices{mr}, baseVertices{mr}, indices{mr} {}
 
 MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
     : vertices{other.vertices},
+      baseVertices{other.baseVertices},
       indices{other.indices},
+      morphTargets{other.morphTargets},
+      morphDirty{other.morphDirty},
       boundingBox{other.boundingBox},
       materialIndex{other.materialIndex},
       indexFormat{other.indexFormat},
@@ -34,7 +37,10 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
     if (this != &other) {
         ReleaseGpu();
         vertices = other.vertices;
+        baseVertices = other.baseVertices;
         indices = other.indices;
+        morphTargets = other.morphTargets;
+        morphDirty = other.morphDirty;
         boundingBox = other.boundingBox;
         materialIndex = other.materialIndex;
         indexFormat = other.indexFormat;
@@ -51,7 +57,10 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
 
 MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
     : vertices{std::move(other.vertices)},
+      baseVertices{std::move(other.baseVertices)},
       indices{std::move(other.indices)},
+      morphTargets{std::move(other.morphTargets)},
+      morphDirty{other.morphDirty},
       boundingBox{other.boundingBox},
       materialIndex{other.materialIndex},
       indexFormat{other.indexFormat},
@@ -69,13 +78,17 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
     other.gpuUniformBuffer = nullptr;
     other.gpuBindGroup = nullptr;
     other.gpuShadowBindGroup = nullptr;
+    other.morphDirty = false;
 }
 
 MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
     if (this != &other) {
         ReleaseGpu();
         vertices = std::move(other.vertices);
+        baseVertices = std::move(other.baseVertices);
         indices = std::move(other.indices);
+        morphTargets = std::move(other.morphTargets);
+        morphDirty = other.morphDirty;
         boundingBox = other.boundingBox;
         materialIndex = other.materialIndex;
         indexFormat = other.indexFormat;
@@ -93,6 +106,7 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         other.gpuUniformBuffer = nullptr;
         other.gpuBindGroup = nullptr;
         other.gpuShadowBindGroup = nullptr;
+        other.morphDirty = false;
     }
     return *this;
 }
@@ -214,6 +228,60 @@ void MeshPrimitive::ComputeTangents() {
 #endif
 }
 
+void MeshPrimitive::ApplyMorphTargets(std::span<const float> weights) {
+    if (morphTargets.empty() || baseVertices.empty() || vertices.size() != baseVertices.size()) {
+        return;
+    }
+    vertices = baseVertices;
+    boundingBox = core::AABB{};
+
+    const size_t numTargets = std::min(morphTargets.size(), weights.size());
+    for (size_t t = 0; t < numTargets; ++t) {
+        const float w = weights[t];
+        if (std::abs(w) < 1e-6f) continue;
+        const auto& target = morphTargets[t];
+
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            if (i < target.positionDeltas.size()) {
+                vertices[i].position += w * target.positionDeltas[i];
+            }
+            if (i < target.normalDeltas.size()) {
+                vertices[i].normal += w * target.normalDeltas[i];
+            }
+            if (i < target.tangentDeltas.size()) {
+                vertices[i].tangent.x += w * target.tangentDeltas[i].x;
+                vertices[i].tangent.y += w * target.tangentDeltas[i].y;
+                vertices[i].tangent.z += w * target.tangentDeltas[i].z;
+            }
+        }
+    }
+
+    for (auto& v : vertices) {
+        const float len = glm::length(v.normal);
+        if (len > 1e-6f) {
+            v.normal /= len;
+        }
+        boundingBox.Expand(v.position);
+    }
+    morphDirty = true;
+}
+
+void SceneNode::UpdateLocalTransform() noexcept {
+    const glm::mat4 tMat = glm::translate(glm::mat4(1.0f), translation);
+    const glm::mat4 rMat = glm::mat4_cast(rotation);
+    const glm::mat4 sMat = glm::scale(glm::mat4(1.0f), scale);
+    localTransform = tMat * rMat * sMat;
+}
+
+void SceneNode::ApplyMorphWeights() {
+    if (morphWeights.empty()) return;
+    for (auto& prim : GetPrimitives()) {
+        if (!prim.morphTargets.empty()) {
+            const_cast<MeshPrimitive&>(prim).ApplyMorphTargets(morphWeights);
+        }
+    }
+}
+
 void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
     worldTransform = parentTransform * localTransform;
     worldAABB = core::AABB{};
@@ -252,6 +320,87 @@ void Scene::Update() {
             node->UpdateTransforms();
             sceneAABB.Expand(node->worldAABB);
         }
+    }
+}
+
+void Scene::UpdateAnimation(float deltaTime) {
+    if (activeAnimationIndex < 0 || static_cast<size_t>(activeAnimationIndex) >= animations.size()) {
+        return;
+    }
+    const auto& anim = animations[activeAnimationIndex];
+    if (anim.duration <= 0.0f) {
+        return;
+    }
+
+    if (animationPlaying) {
+        animationTime += deltaTime;
+        if (animationTime > anim.duration) {
+            animationTime = std::fmod(animationTime, anim.duration);
+        }
+    }
+    EvaluateAnimation(static_cast<size_t>(activeAnimationIndex), animationTime);
+}
+
+void Scene::EvaluateAnimation(size_t animIndex, float time) {
+    if (animIndex >= animations.size()) return;
+    const auto& anim = animations[animIndex];
+
+    for (const auto& channel : anim.channels) {
+        if (channel.samplerIndex >= anim.samplers.size()) continue;
+        const auto& sampler = anim.samplers[channel.samplerIndex];
+        if (channel.targetNodeIndex < 0 || static_cast<size_t>(channel.targetNodeIndex) >= allNodes.size()) continue;
+        auto targetNode = allNodes[channel.targetNodeIndex];
+        if (!targetNode) continue;
+
+        switch (channel.path) {
+            case AnimationPath::Translation: {
+                std::array<float, 3> val{};
+                sampler.Sample(time, 3, channel.path, val);
+                targetNode->translation = glm::vec3(val[0], val[1], val[2]);
+                break;
+            }
+            case AnimationPath::Rotation: {
+                std::array<float, 4> val{};
+                sampler.Sample(time, 4, channel.path, val);
+                targetNode->rotation = glm::quat(val[3], val[0], val[1], val[2]);
+                break;
+            }
+            case AnimationPath::Scale: {
+                std::array<float, 3> val{};
+                sampler.Sample(time, 3, channel.path, val);
+                targetNode->scale = glm::vec3(val[0], val[1], val[2]);
+                break;
+            }
+            case AnimationPath::Weights: {
+                size_t count = targetNode->morphWeights.size();
+                if (count == 0 && targetNode->mesh && !targetNode->mesh->primitives.empty()) {
+                    count = targetNode->mesh->primitives[0].morphTargets.size();
+                    targetNode->morphWeights.resize(count, 0.0f);
+                }
+                if (count > 0) {
+                    if (targetNode->morphWeights.size() < count) {
+                        targetNode->morphWeights.resize(count, 0.0f);
+                    }
+                    sampler.Sample(time, count, channel.path, targetNode->morphWeights);
+                    targetNode->ApplyMorphWeights();
+                }
+                break;
+            }
+        }
+        targetNode->UpdateLocalTransform();
+    }
+
+    Update();
+}
+
+void Scene::SetAnimation(int index) noexcept {
+    if (index >= 0 && static_cast<size_t>(index) < animations.size()) {
+        activeAnimationIndex = index;
+        animationTime = 0.0f;
+        animationPlaying = true;
+        EvaluateAnimation(static_cast<size_t>(activeAnimationIndex), 0.0f);
+    } else {
+        activeAnimationIndex = -1;
     }
 }
 

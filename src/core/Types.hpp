@@ -202,7 +202,7 @@ struct Frustum {
 
 /**
  * @struct alignas(16) Vertex
- * @brief 3D PBR standard vertex layout aligned to 64 bytes (cache-line friendly).
+ * @brief 3D PBR standard vertex layout aligned to 96 bytes (including JOINTS_0 and WEIGHTS_0 for glTF 2.0 skinning).
  */
 struct alignas(16) Vertex {
     glm::vec3 position{0.0f};
@@ -212,8 +212,10 @@ struct alignas(16) Vertex {
     glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     glm::vec2 uv{0.0f};
     glm::vec2 _pad2{0.0f};
+    glm::uvec4 joints{0u, 0u, 0u, 0u};
+    glm::vec4 weights{1.0f, 0.0f, 0.0f, 0.0f};
 };
-static_assert(sizeof(Vertex) == 64, "Vertex struct must be exactly 64 bytes (cache-line aligned)");
+static_assert(sizeof(Vertex) == 96, "Vertex struct must be exactly 96 bytes (16-byte aligned)");
 
 /**
  * @struct alignas(16) GlobalUniforms

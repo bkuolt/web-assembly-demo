@@ -167,7 +167,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device,
     entries[0].binding = 0;
     entries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     entries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    entries[0].buffer.minBindingSize = 384;
+    entries[0].buffer.minBindingSize = sizeof(ShadowUniforms);
 
     entries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     entries[1].binding = 1;
@@ -193,7 +193,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device,
     plDesc.label = ToWgpuStringView("Shadow_PipelineLayout");
     WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
 
-    std::array<WGPUVertexAttribute, 4> shadowAttrs{};
+    std::array<WGPUVertexAttribute, 6> shadowAttrs{};
     shadowAttrs[0].format = WGPUVertexFormat_Float32x3;
     shadowAttrs[0].offset = offsetof(core::Vertex, position);
     shadowAttrs[0].shaderLocation = 0;
@@ -209,6 +209,14 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device,
     shadowAttrs[3].format = WGPUVertexFormat_Float32x2;
     shadowAttrs[3].offset = offsetof(core::Vertex, uv);
     shadowAttrs[3].shaderLocation = 3;
+
+    shadowAttrs[4].format = WGPUVertexFormat_Uint32x4;
+    shadowAttrs[4].offset = offsetof(core::Vertex, joints);
+    shadowAttrs[4].shaderLocation = 4;
+
+    shadowAttrs[5].format = WGPUVertexFormat_Float32x4;
+    shadowAttrs[5].offset = offsetof(core::Vertex, weights);
+    shadowAttrs[5].shaderLocation = 5;
 
     WGPUVertexBufferLayout vbLayout{};
     vbLayout.arrayStride = sizeof(core::Vertex);
@@ -326,6 +334,11 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
         for (auto& prim : node.GetPrimitives()) {
             if (!prim.gpuVertexBuffer || !prim.gpuUniformBuffer) continue;
 
+            if (prim.morphDirty) {
+                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), prim.vertices.size() * sizeof(core::Vertex));
+                prim.morphDirty = false;
+            }
+
             ShadowUniforms uniforms{};
             uniforms.model = worldMat;
             uniforms.lightViewProj = lightViewProj_;
@@ -338,6 +351,33 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
                     uniforms.flags |= (1u << 0);
                 }
             }
+
+            if (node.skinIndex >= 0 && static_cast<size_t>(node.skinIndex) < scene.skins.size()) {
+                const auto& skin = scene.skins[static_cast<size_t>(node.skinIndex)];
+                const uint32_t count = std::min(static_cast<uint32_t>(skin.joints.size()), 128u);
+                uniforms.jointCount = count;
+                const glm::mat4 invWorld = glm::inverse(worldMat);
+                for (uint32_t j = 0; j < count; ++j) {
+                    const int jointNodeIdx = skin.joints[j];
+                    glm::mat4 jointWorld{1.0f};
+                    if (jointNodeIdx >= 0 && static_cast<size_t>(jointNodeIdx) < scene.allNodes.size()) {
+                        if (const auto& jointNode = scene.allNodes[static_cast<size_t>(jointNodeIdx)]) {
+                            jointWorld = jointNode->worldTransform;
+                        }
+                    }
+                    const glm::mat4 ibm = (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
+                    uniforms.jointMatrices[j] = invWorld * jointWorld * ibm;
+                }
+            }
+
+            if (!node.morphWeights.empty()) {
+                const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 8u);
+                uniforms.morphTargetCount = count;
+                for (uint32_t m = 0; m < count; ++m) {
+                    uniforms.morphWeights[m] = node.morphWeights[m];
+                }
+            }
+
             wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
 
             if (!prim.gpuShadowBindGroup) {
@@ -353,7 +393,7 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
                 bgEntries[0].binding = 0;
                 bgEntries[0].buffer = prim.gpuUniformBuffer;
                 bgEntries[0].offset = 0;
-                bgEntries[0].size = 384;
+                bgEntries[0].size = sizeof(ShadowUniforms);
 
                 bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
                 bgEntries[1].binding = 1;

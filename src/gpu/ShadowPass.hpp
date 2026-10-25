@@ -43,9 +43,16 @@ struct alignas(16) ShadowUniforms {
     float transmissionRoughness{0.0f};
     float paddingVol1{0.0f};
     glm::vec4 attenuationColor{1.0f};
+
+    uint32_t jointCount{0};
+    uint32_t morphTargetCount{0};
+    float padAnim1{0.0f};
+    float padAnim2{0.0f};
+    glm::vec4 morphWeights{0.0f};
+    glm::mat4 jointMatrices[128]{};
 };
 
-static_assert(sizeof(ShadowUniforms) == 384, "ShadowUniforms must be 384 bytes");
+static_assert(sizeof(ShadowUniforms) == 8608, "ShadowUniforms must be 8608 bytes");
 
 class ShadowPass {
 public:

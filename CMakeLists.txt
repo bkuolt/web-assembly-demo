@@ -8,7 +8,6 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 set(CMAKE_INSTALL_RPATH
     "$ORIGIN"
-    "$ORIGIN/../lib"
     "$ORIGIN/../../third_party/wgpu-native/lib"
     "$ORIGIN/third_party/wgpu-native/lib"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib"
@@ -48,6 +47,7 @@ configure_file(
 add_library(bgl_common_settings INTERFACE)
 
 target_compile_features(bgl_common_settings INTERFACE cxx_std_23)
+target_compile_definitions(bgl_common_settings INTERFACE GLM_ENABLE_EXPERIMENTAL)
 set_target_properties(bgl_common_settings PROPERTIES
     INTERFACE_POSITION_INDEPENDENT_CODE ON
 )
@@ -139,8 +139,6 @@ if(NOT EMSCRIPTEN)
     add_library(wgpu_native SHARED IMPORTED GLOBAL)
     set_target_properties(wgpu_native PROPERTIES
         IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
-        IMPORTED_LOCATION_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
-        IMPORTED_LOCATION_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include"
     )
 endif()
@@ -248,6 +246,7 @@ target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
 # ==============================================================================
 add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/Scene.cpp
+    src/scene/Animation.cpp
     src/scene/TextureDecoder.cpp
     src/scene/AssetManager.cpp
     src/scene/FastGltfLoader.cpp
@@ -346,6 +345,7 @@ if(BGL_BUILD_TESTING)
         tests/test_command_line.cpp
         tests/test_rendering_features.cpp
         tests/test_golden_image.cpp
+        tests/test_animation.cpp
     )
 
     if(TARGET GTest::gtest)

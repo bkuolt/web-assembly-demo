@@ -163,19 +163,29 @@ TEST(TypesMathTest, FrustumIntersectsAABBAllCases) {
 }
 
 TEST(TypesMathTest, VertexLayoutAndCacheLineAlignment) {
-    EXPECT_EQ(sizeof(Vertex), 64);
+    EXPECT_EQ(sizeof(Vertex), 96);
     EXPECT_EQ(alignof(Vertex), 16);
+    EXPECT_EQ(offsetof(Vertex, position), 0);
+    EXPECT_EQ(offsetof(Vertex, normal), 16);
+    EXPECT_EQ(offsetof(Vertex, tangent), 32);
+    EXPECT_EQ(offsetof(Vertex, uv), 48);
+    EXPECT_EQ(offsetof(Vertex, joints), 64);
+    EXPECT_EQ(offsetof(Vertex, weights), 80);
 
     Vertex v;
     v.position = glm::vec3(1.0f, 2.0f, 3.0f);
     v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
     v.tangent = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
     v.uv = glm::vec2(0.5f, 0.5f);
+    v.joints = glm::uvec4(1, 2, 3, 4);
+    v.weights = glm::vec4(0.7f, 0.2f, 0.1f, 0.0f);
 
     EXPECT_FLOAT_EQ(v.position.x, 1.0f);
     EXPECT_FLOAT_EQ(v.normal.y, 1.0f);
     EXPECT_FLOAT_EQ(v.tangent.w, 1.0f);
     EXPECT_FLOAT_EQ(v.uv.x, 0.5f);
+    EXPECT_EQ(v.joints.y, 2u);
+    EXPECT_FLOAT_EQ(v.weights.x, 0.7f);
 }
 
 TEST(TypesMathTest, MeshPrimitiveComputeTangentsOrthogonalityAndHandedness) {

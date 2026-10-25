@@ -57,6 +57,8 @@ namespace MaterialFlags {
     constexpr uint32_t EnableAmbientOcclusion  = 1u << 14;
     constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
     constexpr uint32_t HasThicknessTex         = 1u << 16;
+    constexpr uint32_t HasSkinning             = 1u << 17;
+    constexpr uint32_t HasMorphTargets         = 1u << 18;
 }
 
 struct alignas(16) PrimitiveUniforms {
@@ -105,8 +107,20 @@ struct alignas(16) PrimitiveUniforms {
     float transmissionRoughness{0.0f};
     float paddingVol1{0.0f};
     glm::vec4 attenuationColor{1.0f, 1.0f, 1.0f, 1.0f};
+
+    // 384..399: Animation & Skinning counts
+    uint32_t jointCount{0};
+    uint32_t morphTargetCount{0};
+    float padAnim1{0.0f};
+    float padAnim2{0.0f};
+
+    // 400..415: Morph Weights (first 4 channels)
+    glm::vec4 morphWeights{0.0f};
+
+    // 416..8607: Joint Matrices for Skeletal Animation (up to 128 joints)
+    glm::mat4 jointMatrices[128]{};
 };
-static_assert(sizeof(PrimitiveUniforms) == 384, "PrimitiveUniforms must be exactly 384 bytes (16-byte aligned)");
+static_assert(sizeof(PrimitiveUniforms) == 8608, "PrimitiveUniforms must be exactly 8608 bytes (16-byte aligned)");
 
 struct alignas(16) GpuPunctualLight {
     glm::vec4 posOrDir{0.0f};  // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
@@ -423,7 +437,7 @@ private:
     void BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces, uint32_t faceSize);
     void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH, float zNear, float zFar);
 
-    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline);
+    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim, const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos, bool wireframe, WGPURenderPipeline& currentBoundPipeline, const scene::SceneNode* node = nullptr);
     void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj, const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
     void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& parentTransform);
 

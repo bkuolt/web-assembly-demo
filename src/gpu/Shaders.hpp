@@ -505,6 +505,12 @@ struct Uniforms {
     transmissionRoughness : f32,
     paddingVol1 : f32,
     attenuationColor : vec4<f32>,
+    jointCount : u32,
+    morphTargetCount : u32,
+    padAnim1 : f32,
+    padAnim2 : f32,
+    morphWeights : vec4<f32>,
+    jointMatrices : array<mat4x4<f32>, 128>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -516,6 +522,8 @@ struct VertexInput {
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
     @location(3) uv : vec2<f32>,
+    @location(4) joints : vec4<u32>,
+    @location(5) weights : vec4<f32>,
 };
 
 struct VertexOutput {
@@ -526,7 +534,21 @@ struct VertexOutput {
 @vertex
 fn vs_shadow(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
-    let worldPos = ubo.model * vec4<f32>(in.position, 1.0);
+    var localPos = in.position;
+
+    if (ubo.jointCount > 0u) {
+        let i0 = in.joints.x;
+        let i1 = in.joints.y;
+        let i2 = in.joints.z;
+        let i3 = in.joints.w;
+        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
+                      in.weights.y * ubo.jointMatrices[i1] +
+                      in.weights.z * ubo.jointMatrices[i2] +
+                      in.weights.w * ubo.jointMatrices[i3];
+        localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
+    }
+
+    let worldPos = ubo.model * vec4<f32>(localPos, 1.0);
     out.clipPos = ubo.lightViewProj * worldPos;
     out.uv = in.uv;
     return out;
@@ -592,6 +614,12 @@ struct Uniforms {
     transmissionRoughness : f32,
     paddingVol1 : f32,
     attenuationColor : vec4<f32>,
+    jointCount : u32,
+    morphTargetCount : u32,
+    padAnim1 : f32,
+    padAnim2 : f32,
+    morphWeights : vec4<f32>,
+    jointMatrices : array<mat4x4<f32>, 128>,
 };
 
 struct GpuPunctualLight {
@@ -632,6 +660,8 @@ struct VertexInput {
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
     @location(3) uv : vec2<f32>,
+    @location(4) joints : vec4<u32>,
+    @location(5) weights : vec4<f32>,
 };
 
 struct VertexOutput {
@@ -692,7 +722,26 @@ fn getClusterLightMask(fragCoord : vec4<f32>, worldPos : vec3<f32>) -> u32 {
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
-    let world = ubo.model * vec4<f32>(in.position, 1.0);
+    var localPos = in.position;
+    var localNorm = in.normal;
+    var localTan = in.tangent.xyz;
+
+    if (ubo.jointCount > 0u) {
+        let i0 = in.joints.x;
+        let i1 = in.joints.y;
+        let i2 = in.joints.z;
+        let i3 = in.joints.w;
+        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
+                      in.weights.y * ubo.jointMatrices[i1] +
+                      in.weights.z * ubo.jointMatrices[i2] +
+                      in.weights.w * ubo.jointMatrices[i3];
+
+        localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
+        localNorm = (skinMat * vec4<f32>(localNorm, 0.0)).xyz;
+        localTan = (skinMat * vec4<f32>(localTan, 0.0)).xyz;
+    }
+
+    let world = ubo.model * vec4<f32>(localPos, 1.0);
     out.worldPos = world.xyz;
     out.clipPos = ubo.viewProj * world;
 
@@ -703,13 +752,13 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     let adj1 = cross(m2, m0);
     let adj2 = cross(m0, m1);
     let det = dot(m0, adj0);
-    let rawNorm = select((ubo.model * vec4<f32>(in.normal, 0.0)).xyz,
-                         adj0 * in.normal.x + adj1 * in.normal.y + adj2 * in.normal.z,
+    let rawNorm = select((ubo.model * vec4<f32>(localNorm, 0.0)).xyz,
+                         adj0 * localNorm.x + adj1 * localNorm.y + adj2 * localNorm.z,
                          abs(det) > 1e-12);
     let normLen = length(rawNorm);
     out.normal = select(vec3<f32>(0.0, 1.0, 0.0), rawNorm / normLen, normLen > 1e-8);
 
-    let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
+    let worldTan = (ubo.model * vec4<f32>(localTan, 0.0)).xyz;
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     let detSign = select(1.0, -1.0, det < 0.0);
@@ -1344,6 +1393,12 @@ struct Uniforms {
     transmissionRoughness : f32,
     paddingVol1 : f32,
     attenuationColor : vec4<f32>,
+    jointCount : u32,
+    morphTargetCount : u32,
+    padAnim1 : f32,
+    padAnim2 : f32,
+    morphWeights : vec4<f32>,
+    jointMatrices : array<mat4x4<f32>, 128>,
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;

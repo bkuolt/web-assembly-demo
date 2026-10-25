@@ -556,6 +556,68 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(
                             });
                         }
 
+                        // JOINTS_0 accessor (Skeletal Animation)
+                        auto jointsIt = prim.findAttribute("JOINTS_0");
+                        if (jointsIt != prim.attributes.end()) {
+                            const auto& jAccessor = asset.accessors[jointsIt->second];
+                            fastgltf::iterateAccessorWithIndex<glm::uvec4>(asset, jAccessor, [&](glm::uvec4 j, size_t idx) {
+                                if (idx < meshPrim.vertices.size()) {
+                                    meshPrim.vertices[idx].joints = j;
+                                }
+                            });
+                        }
+
+                        // WEIGHTS_0 accessor (Skeletal Animation)
+                        auto weightsIt = prim.findAttribute("WEIGHTS_0");
+                        if (weightsIt != prim.attributes.end()) {
+                            const auto& wAccessor = asset.accessors[weightsIt->second];
+                            fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, wAccessor, [&](glm::vec4 w, size_t idx) {
+                                if (idx < meshPrim.vertices.size()) {
+                                    const float sum = w.x + w.y + w.z + w.w;
+                                    if (sum > 1e-6f) {
+                                        w /= sum;
+                                    }
+                                    meshPrim.vertices[idx].weights = w;
+                                }
+                            });
+                        }
+
+                        // Morph Targets (primitive.targets)
+                        if (!prim.targets.empty()) {
+                            meshPrim.morphTargets.resize(prim.targets.size());
+                            for (size_t tIdx = 0; tIdx < prim.targets.size(); ++tIdx) {
+                                auto& mt = meshPrim.morphTargets[tIdx];
+                                mt.positionDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
+                                mt.normalDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
+                                mt.tangentDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
+
+                                auto posDeltaIt = prim.findTargetAttribute(tIdx, "POSITION");
+                                if (posDeltaIt != prim.targets[tIdx].cend()) {
+                                    const auto& acc = asset.accessors[posDeltaIt->second];
+                                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
+                                        if (idx < mt.positionDeltas.size()) mt.positionDeltas[idx] = d;
+                                    });
+                                }
+
+                                auto normDeltaIt = prim.findTargetAttribute(tIdx, "NORMAL");
+                                if (normDeltaIt != prim.targets[tIdx].cend()) {
+                                    const auto& acc = asset.accessors[normDeltaIt->second];
+                                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
+                                        if (idx < mt.normalDeltas.size()) mt.normalDeltas[idx] = d;
+                                    });
+                                }
+
+                                auto tanDeltaIt = prim.findTargetAttribute(tIdx, "TANGENT");
+                                if (tanDeltaIt != prim.targets[tIdx].cend()) {
+                                    const auto& acc = asset.accessors[tanDeltaIt->second];
+                                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
+                                        if (idx < mt.tangentDeltas.size()) mt.tangentDeltas[idx] = d;
+                                    });
+                                }
+                            }
+                            meshPrim.baseVertices = meshPrim.vertices;
+                        }
+
                         // Indices accessor (with bounds clamping for GPU memory safety)
                         if (prim.indicesAccessor.has_value()) {
                             const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
@@ -646,19 +708,34 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(
                         node->cameraIndex = static_cast<int>(*gltfNode.cameraIndex);
                     }
 
+                    if (gltfNode.skinIndex.has_value() && *gltfNode.skinIndex < asset.skins.size()) {
+                        node->skinIndex = static_cast<int>(*gltfNode.skinIndex);
+                    }
+
                     if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
                         const auto& trs = std::get<fastgltf::TRS>(gltfNode.transform);
-                        glm::vec3 translation(trs.translation[0], trs.translation[1], trs.translation[2]);
-                        glm::quat rotation(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
-                        glm::vec3 scale(trs.scale[0], trs.scale[1], trs.scale[2]);
-
-                        glm::mat4 tMat = glm::translate(glm::mat4(1.0f), translation);
-                        glm::mat4 rMat = glm::mat4_cast(rotation);
-                        glm::mat4 sMat = glm::scale(glm::mat4(1.0f), scale);
-                        node->localTransform = tMat * rMat * sMat;
+                        node->translation = glm::vec3(trs.translation[0], trs.translation[1], trs.translation[2]);
+                        node->rotation = glm::quat(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
+                        node->scale = glm::vec3(trs.scale[0], trs.scale[1], trs.scale[2]);
                     } else if (std::holds_alternative<fastgltf::Node::TransformMatrix>(gltfNode.transform)) {
                         const auto& mat = std::get<fastgltf::Node::TransformMatrix>(gltfNode.transform);
-                        node->localTransform = glm::make_mat4(mat.data());
+                        glm::mat4 m = glm::make_mat4(mat.data());
+                        node->translation = glm::vec3(m[3]);
+                        node->scale = glm::vec3(glm::length(glm::vec3(m[0])), glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2])));
+                        glm::mat3 rotM(
+                            node->scale.x > 1e-6f ? glm::vec3(m[0]) / node->scale.x : glm::vec3(1, 0, 0),
+                            node->scale.y > 1e-6f ? glm::vec3(m[1]) / node->scale.y : glm::vec3(0, 1, 0),
+                            node->scale.z > 1e-6f ? glm::vec3(m[2]) / node->scale.z : glm::vec3(0, 0, 1)
+                        );
+                        node->rotation = glm::quat_cast(rotM);
+                    }
+                    node->UpdateLocalTransform();
+
+                    if (!gltfNode.weights.empty()) {
+                        node->morphWeights.assign(gltfNode.weights.begin(), gltfNode.weights.end());
+                    } else if (gltfNode.meshIndex.has_value() && *gltfNode.meshIndex < asset.meshes.size() && !asset.meshes[*gltfNode.meshIndex].weights.empty()) {
+                        const auto& mw = asset.meshes[*gltfNode.meshIndex].weights;
+                        node->morphWeights.assign(mw.begin(), mw.end());
                     }
 
         if (gltfNode.meshIndex.has_value() && *gltfNode.meshIndex < parsedMeshes.size()) {
@@ -736,6 +813,110 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(
     }
     if (!scene->cameras.empty()) {
         BGL_LOG_INFO("[glTF Loader] Successfully parsed {} glTF camera(s)", scene->cameras.size());
+    }
+
+    // 8c. Parse glTF Skins (Skeletal Animation)
+    scene->skins.reserve(asset.skins.size());
+    for (size_t sIdx = 0; sIdx < asset.skins.size(); ++sIdx) {
+        const auto& gltfSkin = asset.skins[sIdx];
+        Skin skin{};
+        skin.name = gltfSkin.name.empty() ? ("Skin_" + std::to_string(sIdx)) : std::string(gltfSkin.name);
+        skin.skeletonRootNodeIndex = gltfSkin.skeleton.has_value() ? static_cast<int>(*gltfSkin.skeleton) : -1;
+        skin.joints.reserve(gltfSkin.joints.size());
+        for (size_t jIdx : gltfSkin.joints) {
+            skin.joints.push_back(static_cast<int>(jIdx));
+        }
+
+        if (gltfSkin.inverseBindMatrices.has_value() && *gltfSkin.inverseBindMatrices < asset.accessors.size()) {
+            const auto& ibmAccessor = asset.accessors[*gltfSkin.inverseBindMatrices];
+            skin.inverseBindMatrices.reserve(ibmAccessor.count);
+            fastgltf::iterateAccessor<glm::mat4>(asset, ibmAccessor, [&](glm::mat4 ibm) {
+                skin.inverseBindMatrices.push_back(ibm);
+            });
+        }
+        if (skin.inverseBindMatrices.size() < skin.joints.size()) {
+            skin.inverseBindMatrices.resize(skin.joints.size(), glm::mat4(1.0f));
+        }
+
+        scene->skins.push_back(std::move(skin));
+    }
+    if (!scene->skins.empty()) {
+        BGL_LOG_INFO("[glTF Loader] Successfully parsed {} glTF skin(s)", scene->skins.size());
+    }
+
+    // 8d. Parse glTF Animations
+    scene->animations.reserve(asset.animations.size());
+    for (size_t aIdx = 0; aIdx < asset.animations.size(); ++aIdx) {
+        const auto& gltfAnim = asset.animations[aIdx];
+        Animation anim{};
+        anim.name = gltfAnim.name.empty() ? ("Animation_" + std::to_string(aIdx)) : std::string(gltfAnim.name);
+
+        anim.samplers.reserve(gltfAnim.samplers.size());
+        for (const auto& gltfSampler : gltfAnim.samplers) {
+            AnimationSampler sampler{};
+            switch (gltfSampler.interpolation) {
+                case fastgltf::AnimationInterpolation::Step:
+                    sampler.interpolation = AnimationInterpolation::Step;
+                    break;
+                case fastgltf::AnimationInterpolation::CubicSpline:
+                    sampler.interpolation = AnimationInterpolation::CubicSpline;
+                    break;
+                case fastgltf::AnimationInterpolation::Linear:
+                default:
+                    sampler.interpolation = AnimationInterpolation::Linear;
+                    break;
+            }
+
+            if (gltfSampler.inputAccessor < asset.accessors.size()) {
+                const auto& inputAcc = asset.accessors[gltfSampler.inputAccessor];
+                sampler.timestamps.reserve(inputAcc.count);
+                fastgltf::iterateAccessor<float>(asset, inputAcc, [&](float t) {
+                    sampler.timestamps.push_back(t);
+                });
+            }
+
+            if (gltfSampler.outputAccessor < asset.accessors.size()) {
+                const auto& outputAcc = asset.accessors[gltfSampler.outputAccessor];
+                fastgltf::iterateAccessor<float>(asset, outputAcc, [&](float v) {
+                    sampler.keyframeValues.push_back(v);
+                });
+            }
+
+            anim.samplers.push_back(std::move(sampler));
+        }
+
+        anim.channels.reserve(gltfAnim.channels.size());
+        for (const auto& gltfChannel : gltfAnim.channels) {
+            AnimationChannel channel{};
+            channel.samplerIndex = gltfChannel.samplerIndex;
+            channel.targetNodeIndex = gltfChannel.nodeIndex.has_value() ? static_cast<int>(*gltfChannel.nodeIndex) : -1;
+
+            switch (gltfChannel.path) {
+                case fastgltf::AnimationPath::Translation:
+                    channel.path = AnimationPath::Translation;
+                    break;
+                case fastgltf::AnimationPath::Rotation:
+                    channel.path = AnimationPath::Rotation;
+                    break;
+                case fastgltf::AnimationPath::Scale:
+                    channel.path = AnimationPath::Scale;
+                    break;
+                case fastgltf::AnimationPath::Weights:
+                    channel.path = AnimationPath::Weights;
+                    break;
+            }
+            anim.channels.push_back(channel);
+        }
+
+        anim.CalculateDuration();
+        scene->animations.push_back(std::move(anim));
+    }
+    if (!scene->animations.empty()) {
+        scene->activeAnimationIndex = 0;
+        scene->animationPlaying = true;
+        scene->animationTime = 0.0f;
+        BGL_LOG_INFO("[glTF Loader] Successfully parsed {} glTF animation(s) (Active: '{}', Duration: {:.2f}s)",
+                     scene->animations.size(), scene->animations[0].name, scene->animations[0].duration);
     }
 
     // 9. Display ASCII Hierarchy Tree Diagram & Telemetry
