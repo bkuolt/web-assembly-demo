@@ -1006,10 +1006,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     let V = viewDir;
     let NdotV = max(dot(N, V), 0.001);
-    let envRot = sceneLighting.envParams.x;
 
     // 1. Primary Sun Light (Rotated with Environment) + Shadow Map
-    let sunL = rotateY(normalize(ubo.lightDir.xyz), -envRot);
     var shadowFactor = 1.0;
     if ((ubo.flags & 4096u) != 0u) {
         shadowFactor = computePCFShadow(in.worldPos, geomN, sunL);

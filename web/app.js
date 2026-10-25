@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.8.9 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.0 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -223,10 +223,15 @@
     isSkyboxActive: true,
     isHudActive: true,
     isBumpActive: true,
+    isPomActive: true,
     isMipmapsActive: true,
     isShadowsActive: true,
     isReflectionsActive: true,
     isAOActive: true,
+    isFlareActive: true,
+    aoIntensity: 1.0,
+    pomScale: 0.035,
+    flareIntensity: 0.75,
   };
 
   // ============================================================================
@@ -245,10 +250,12 @@
     btnSkybox: document.getElementById('btn-skybox'),
     btnHud: document.getElementById('btn-hud'),
     btnBump: document.getElementById('btn-bump'),
+    btnPom: document.getElementById('btn-pom'),
     btnMipmaps: document.getElementById('btn-mipmaps'),
     btnShadows: document.getElementById('btn-shadows'),
     btnReflections: document.getElementById('btn-reflections'),
     btnAO: document.getElementById('btn-ao'),
+    btnFlare: document.getElementById('btn-flare'),
 
     btnToyCar: document.getElementById('btn-load-toycar'),
     btnSponza: document.getElementById('btn-load-sponza'),
@@ -1124,8 +1131,9 @@
             detail: 'WebGPU API is present, but no compatible hardware GPU adapter could be acquired. Verify browser hardware acceleration settings and GPU driver installation.'
           });
         } else {
-          // Log GPU adapter metadata
+          // Store and log GPU adapter metadata
           if (adapter.info) {
+            window.cachedGpuInfo = adapter.info;
             BglLogger.log('WebGPU', `Acquired GPU Adapter: ${adapter.info.vendor || 'Unknown'} - ${adapter.info.architecture || ''} (${adapter.info.description || ''})`);
           } else {
             BglLogger.log('WebGPU', 'Acquired compatible WebGPU hardware adapter.');
@@ -1143,6 +1151,13 @@
       showCompatibilityWarning(issues, warnings);
       return false;
     }
+
+    // Clear and prominent startup capability check notification
+    const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? `(${window.cachedGpuInfo.vendor})` : '';
+    BglNotifier.success(
+      'WebGPU & WebAssembly Operational',
+      `System verified: Native WebAssembly SIMD runtime and WebGPU graphics pipeline active ${vendorStr}.`
+    );
     return true;
   }
 
@@ -1239,6 +1254,69 @@
   }
   window.toggleAO = toggleAO;
 
+  function togglePOM() {
+    BglState.isPomActive = !BglState.isPomActive;
+    if (BglUI.btnPom) BglUI.btnPom.style.background = BglState.isPomActive ? '#0284c7' : '#334155';
+    BglLogger.log('Engine', `Toggle Parallax Occlusion Mapping (POM): ${BglState.isPomActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_pom) {
+      BglState.wasmExports.bgl_toggle_pom();
+    }
+  }
+  window.togglePOM = togglePOM;
+
+  function toggleLensFlare() {
+    BglState.isFlareActive = !BglState.isFlareActive;
+    if (BglUI.btnFlare) BglUI.btnFlare.style.background = BglState.isFlareActive ? '#0284c7' : '#334155';
+    BglLogger.log('Engine', `Toggle Sun Lens Flares: ${BglState.isFlareActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_lens_flare) {
+      BglState.wasmExports.bgl_toggle_lens_flare();
+    }
+  }
+  window.toggleLensFlare = toggleLensFlare;
+
+  function onAoSlider(val) {
+    const num = Number(val);
+    BglState.aoIntensity = num;
+    const label = document.getElementById('val-ao-intensity');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_ao_intensity) {
+      BglState.wasmExports.bgl_set_ao_intensity(num);
+    }
+  }
+  window.onAoSlider = onAoSlider;
+
+  function onPomSlider(val) {
+    const num = Number(val);
+    BglState.pomScale = num;
+    const label = document.getElementById('val-pom-scale');
+    if (label) label.textContent = num.toFixed(3);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_parallax_scale) {
+      BglState.wasmExports.bgl_set_parallax_scale(num);
+    }
+  }
+  window.onPomSlider = onPomSlider;
+
+  function onFlareSlider(val) {
+    const num = Number(val);
+    BglState.flareIntensity = num;
+    const label = document.getElementById('val-flare-intensity');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_lens_flare_intensity) {
+      BglState.wasmExports.bgl_set_lens_flare_intensity(num);
+    }
+  }
+  window.onFlareSlider = onFlareSlider;
+
+  function toggleTuningSection() {
+    const container = document.getElementById('tuning-sliders-container');
+    const chevron = document.getElementById('tuning-chevron');
+    if (!container) return;
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'flex' : 'none';
+    if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
+  }
+  window.toggleTuningSection = toggleTuningSection;
+
   function toggleTreePanel() {
     if (!BglUI.treePanel || !BglUI.treePill) return;
     const isHidden = BglUI.treePanel.style.display === 'none';
@@ -1289,11 +1367,25 @@
   // Global Event Listeners (Keyboard, Drag & Drop, Error Handlers)
   // ============================================================================
   function registerEventListeners() {
-    // Keyboard Hotkeys
+    // Continuous WASD & Arrow Key Navigation
+    const activeNavKeys = new Set();
+    const navKeyCodes = new Set([
+      'KeyW', 'KeyS', 'KeyA', 'KeyD',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract'
+    ]);
+
     window.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
 
+      if (navKeyCodes.has(e.code)) {
+        activeNavKeys.add(e.code);
+        if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+          e.preventDefault();
+        }
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toUpperCase();
       switch (key) {
         case 'B': toggleBBox(); break;
@@ -1303,14 +1395,61 @@
         case 'F3': toggleHUD(); break;
         case 'N': toggleTreePanel(); break;
         case 'V': toggleBump(); break;
+        case 'P': togglePOM(); break;
+        case 'J': toggleLensFlare(); break;
         case 'L': toggleMipmaps(); break;
         case 'M': toggleShadows(); break;
         case 'R': toggleReflections(); break;
         case 'U': toggleAO(); break;
+        case '+':
+        case '=':
+          if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);
+          break;
+        case '-':
+        case '_':
+          if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(-0.8);
+          break;
         case 'ESCAPE': dismissCompatWarning(); break;
         default: break;
       }
     });
+
+    window.addEventListener('keyup', (e) => {
+      if (navKeyCodes.has(e.code)) {
+        activeNavKeys.delete(e.code);
+      }
+    });
+
+    // High frequency smooth keyboard navigation loop (WASD & Arrows & Zoom)
+    let lastNavTime = performance.now();
+    function navLoop(now) {
+      const dt = Math.min((now - lastNavTime) / 1000, 0.1);
+      lastNavTime = now;
+
+      if (activeNavKeys.size > 0 && BglState.wasmExports) {
+        const moveSpeed = 4.0 * dt;
+        let fwd = 0;
+        let right = 0;
+        let zoom = 0;
+
+        if (activeNavKeys.has('KeyW') || activeNavKeys.has('ArrowUp')) fwd += moveSpeed;
+        if (activeNavKeys.has('KeyS') || activeNavKeys.has('ArrowDown')) fwd -= moveSpeed;
+        if (activeNavKeys.has('KeyD') || activeNavKeys.has('ArrowRight')) right += moveSpeed;
+        if (activeNavKeys.has('KeyA') || activeNavKeys.has('ArrowLeft')) right -= moveSpeed;
+
+        if (activeNavKeys.has('Equal') || activeNavKeys.has('NumpadAdd')) zoom += 3.5 * dt;
+        if (activeNavKeys.has('Minus') || activeNavKeys.has('NumpadSubtract')) zoom -= 3.5 * dt;
+
+        if ((fwd !== 0 || right !== 0) && BglState.wasmExports.bgl_camera_move) {
+          BglState.wasmExports.bgl_camera_move(fwd, right, 0);
+        }
+        if (zoom !== 0 && BglState.wasmExports.bgl_camera_zoom) {
+          BglState.wasmExports.bgl_camera_zoom(zoom);
+        }
+      }
+      requestAnimationFrame(navLoop);
+    }
+    requestAnimationFrame(navLoop);
 
     // Viewport Resize
     window.addEventListener('resize', () => {

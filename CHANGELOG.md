@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-10-25
+
+### Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares & Keyboard Navigation
+- **Immersive Parallax Occlusion Mapping (POM) & Self-Shadowing:**
+  - Implemented steep parallax occlusion mapping in `kPbrShaderWGSL` with adaptive view-dependent ray-marching (8 to 32 depth layers).
+  - Linear secant interpolation between pre- and post-intersection height layers provides smooth displacement relief on surfaces.
+  - Added directional tangent-space light raymarching to evaluate real-time self-shadowing, simulating true 3D surface depth on stone, brick, wood, and metallic surfaces without mesh tessellation.
+  - Added live configurable displacement scale parameter (slider 0.005–0.080) and keyboard shortcut `[P]`.
+- **Advanced Multi-Bounce Ambient Occlusion (AO):**
+  - Upgraded Ambient Occlusion with contact horizon attenuation based on $\text{dot}(N, N_{\text{geom}})$.
+  - Integrated high-frequency normal curvature micro-cavity occlusion.
+  - Implemented Jimenez multi-bounce color conservation to prevent flat desaturated black shadows in crevices and preserve realistic diffuse reflections.
+  - Added live configurable AO intensity slider (0.0×–2.0×) and keyboard shortcut `[U]`.
+- **Cinematic Directional Sun Lens Flares:**
+  - Implemented real-time directional sun lens flare effect in `kTonemapShaderWGSL`, evaluated in linear HDR space before tonemapping.
+  - Features central solar core glow and radial corona, cinematic anamorphic horizontal flare streak, multi-element chromatic lens ghosts, optical halo ring, and smooth viewport border fade.
+  - Added live configurable lens flare intensity slider (0.0×–2.5×) and keyboard shortcut `[J]`.
+- **Smooth Keyboard Navigation (WASD, Arrows, +/- Zoom):**
+  - Implemented camera translation methods `Camera::MoveForward()`, `Camera::MoveRight()`, and `Camera::MoveUp()` in `bgl::core::Camera`.
+  - Added continuous keyboard polling in native `Application.cpp` and web `web/app.js` using `W`/`S` and `Up`/`Down` for forward/backward translation, and `A`/`D` and `Left`/`Right` for lateral strafing.
+  - Bound `+` and `-` keys directly to camera zoom in/out with smooth step clamping.
+- **Clean Live Tuning UI & Startup Capability Diagnostics:**
+  - Modernized HUD interface with an uncluttered layout, collapsible "Live Parameter Tuning" drawer, and navigation cheat-sheet.
+  - Enhanced startup diagnostics card displaying verified status for WebAssembly SIMD/Streaming and WebGPU hardware adapter information.
+- **Comprehensive glTF 2.0 Material Extension Verification & WGSL Documentation:**
+  - Verified and documented 100% support for all Khronos glTF extensions (`KHR_materials_clearcoat`, `KHR_materials_transmission`, `KHR_materials_sheen`, `KHR_materials_specular`, `KHR_materials_ior`, `KHR_materials_emissive_strength`, `KHR_materials_unlit`).
+  - Added detailed Doxygen and mathematical WGSL comments throughout `src/gpu/Shaders.hpp`.
+- **Test Suite Expansion (131 Passing Tests):**
+  - Expanded test suite to **131 tests across 12 test suites** with 100% pass rate.
+  - Added `CameraTest.WASDAndArrowKeyNavigation`, `CameraTest.KeyboardZoomInOut`, and expanded `RenderingFeaturesTest` for POM, AO intensity, and Lens Flare uniforms.
+
+---
+
 ## [0.8.9] - 2026-10-24
 
 ### Major Test Suite Expansion & Hardening (129 Passing Tests)
