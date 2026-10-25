@@ -212,9 +212,11 @@
   // Application State
   // ============================================================================
   const BglState = {
+    backend: 'webgpu',
     wasmExports: null,
     wasmMemory: null,
     currentGltf: null,
+    currentModelBuffer: null,
     currentModelName: "ToyCar.glb",
     selectedNodeIndex: null,
 
@@ -1356,6 +1358,12 @@
         this.initEvents();
         this.startLoop();
         BglLogger.log('WebGL', 'WebGL 2 fallback pipeline initialized successfully.');
+
+        if (BglState.currentGltf && BglState.currentModelBuffer) {
+          BglLogger.log('WebGL', `Immediately loading pre-parsed model '${BglState.currentModelName}' into WebGL 2.`);
+          this.loadModel(BglState.currentGltf, BglState.currentModelBuffer, BglState.currentModelName);
+        }
+
         return true;
       } catch (err) {
         BglLogger.error('WebGL', 'Exception initializing WebGL 2:', err);
@@ -1526,6 +1534,64 @@ void main() {
         const factor = e.deltaY > 0 ? 1.1 : 0.9;
         this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
       }, { passive: false });
+
+      // Mobile touch controls (Samsung S22, smartphones, tablets)
+      let touchLastPos = { x: 0, y: 0 };
+      let touchStartDist = 0;
+      let touchLastMid = { x: 0, y: 0 };
+
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.touches.length === 2) {
+          touchStartDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          touchLastMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+          const dx = e.touches[0].clientX - touchLastPos.x;
+          const dy = e.touches[0].clientY - touchLastPos.y;
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          this.camera.yaw += dx * 0.006;
+          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
+        } else if (e.touches.length === 2) {
+          const curDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const deltaDist = curDist - touchStartDist;
+          touchStartDist = curDist;
+          if (Math.abs(deltaDist) > 0.5) {
+            const factor = deltaDist > 0 ? 0.96 : 1.04;
+            this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
+          }
+
+          const curMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+          const dMidX = curMid.x - touchLastMid.x;
+          const dMidY = curMid.y - touchLastMid.y;
+          touchLastMid = curMid;
+          if (Math.abs(dMidX) > 0.5 || Math.abs(dMidY) > 0.5) {
+            const factor = this.camera.distance * 0.002;
+            const cosY = Math.cos(this.camera.yaw);
+            const sinY = Math.sin(this.camera.yaw);
+            this.camera.target[0] -= (cosY * dMidX) * factor;
+            this.camera.target[1] += dMidY * factor;
+            this.camera.target[2] -= (sinY * dMidX) * factor;
+          }
+        }
+      }, { passive: false });
     },
 
     loadModel(gltf, arrayBuffer, modelName) {
@@ -1576,12 +1642,84 @@ void main() {
         return new TypedArray(bvData, byteOffset, acc.count * numComp);
       };
 
+      // Compute world transforms for scene graph nodes
+      const meshNodeMatrices = new Map();
+      if (gltf.nodes) {
+        const computeNodeMatrix = (nodeIdx, parentMat) => {
+          const node = gltf.nodes[nodeIdx];
+          if (!node) return;
+          let localMat = this.mat4.create();
+          if (node.matrix) {
+            for (let i = 0; i < 16; ++i) localMat[i] = node.matrix[i];
+          } else {
+            const t = node.translation || [0, 0, 0];
+            const r = node.rotation || [0, 0, 0, 1];
+            const s = node.scale || [1, 1, 1];
+            const x2 = r[0] + r[0], y2 = r[1] + r[1], z2 = r[2] + r[2];
+            const xx = r[0] * x2, xy = r[0] * y2, xz = r[0] * z2;
+            const yy = r[1] * y2, yz = r[1] * z2, zz = r[2] * z2;
+            const wx = r[3] * x2, wy = r[3] * y2, wz = r[3] * z2;
+
+            localMat[0] = (1 - (yy + zz)) * s[0];
+            localMat[1] = (xy + wz) * s[0];
+            localMat[2] = (xz - wy) * s[0];
+            localMat[3] = 0;
+
+            localMat[4] = (xy - wz) * s[1];
+            localMat[5] = (1 - (xx + zz)) * s[1];
+            localMat[6] = (yz + wx) * s[1];
+            localMat[7] = 0;
+
+            localMat[8] = (xz + wy) * s[2];
+            localMat[9] = (yz - wx) * s[2];
+            localMat[10] = (1 - (xx + yy)) * s[2];
+            localMat[11] = 0;
+
+            localMat[12] = t[0];
+            localMat[13] = t[1];
+            localMat[14] = t[2];
+            localMat[15] = 1;
+          }
+
+          let worldMat = this.mat4.create();
+          if (parentMat) {
+            this.mat4.multiply(worldMat, parentMat, localMat);
+          } else {
+            worldMat = localMat;
+          }
+
+          if (node.mesh !== undefined) {
+            if (!meshNodeMatrices.has(node.mesh)) {
+              meshNodeMatrices.set(node.mesh, []);
+            }
+            meshNodeMatrices.get(node.mesh).push(worldMat);
+          }
+
+          if (node.children) {
+            for (const childIdx of node.children) {
+              computeNodeMatrix(childIdx, worldMat);
+            }
+          }
+        };
+
+        const sceneIdx = gltf.scene || 0;
+        const rootNodes = (gltf.scenes && gltf.scenes[sceneIdx] && gltf.scenes[sceneIdx].nodes)
+          ? gltf.scenes[sceneIdx].nodes
+          : gltf.nodes.map((_, i) => i);
+
+        for (const rootIdx of rootNodes) {
+          computeNodeMatrix(rootIdx, null);
+        }
+      }
+
       let minBound = [Infinity, Infinity, Infinity];
       let maxBound = [-Infinity, -Infinity, -Infinity];
 
       if (gltf.meshes) {
-        for (const mesh of gltf.meshes) {
-          if (!mesh.primitives) continue;
+        gltf.meshes.forEach((mesh, meshIdx) => {
+          if (!mesh.primitives) return;
+          const nodeMats = meshNodeMatrices.get(meshIdx) || [this.mat4.create()];
+
           for (const prim of mesh.primitives) {
             if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
 
@@ -1592,15 +1730,20 @@ void main() {
             const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
             const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
 
-            for (let i = 0; i < posData.length; i += 3) {
-              const x = posData[i], y = posData[i + 1], z = posData[i + 2];
-              minBound[0] = Math.min(minBound[0], x); maxBound[0] = Math.max(maxBound[0], x);
-              minBound[1] = Math.min(minBound[1], y); maxBound[1] = Math.max(maxBound[1], y);
-              minBound[2] = Math.min(minBound[2], z); maxBound[2] = Math.max(maxBound[2], z);
+            for (const worldMatrix of nodeMats) {
+              for (let i = 0; i < posData.length; i += 3) {
+                const lx = posData[i], ly = posData[i + 1], lz = posData[i + 2];
+                const wx = worldMatrix[0] * lx + worldMatrix[4] * ly + worldMatrix[8] * lz + worldMatrix[12];
+                const wy = worldMatrix[1] * lx + worldMatrix[5] * ly + worldMatrix[9] * lz + worldMatrix[13];
+                const wz = worldMatrix[2] * lx + worldMatrix[6] * ly + worldMatrix[10] * lz + worldMatrix[14];
+                minBound[0] = Math.min(minBound[0], wx); maxBound[0] = Math.max(maxBound[0], wx);
+                minBound[1] = Math.min(minBound[1], wy); maxBound[1] = Math.max(maxBound[1], wy);
+                minBound[2] = Math.min(minBound[2], wz); maxBound[2] = Math.max(maxBound[2], wz);
+              }
             }
 
             const vao = gl.createVertexArray();
-            gl.glBindVertexArray(vao);
+            gl.bindVertexArray(vao);
 
             const pBuf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, pBuf);
@@ -1634,7 +1777,7 @@ void main() {
               indexType = (indexData instanceof Uint32Array) ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
             }
 
-            gl.glBindVertexArray(null);
+            gl.bindVertexArray(null);
 
             let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
             let texture = null;
@@ -1660,7 +1803,9 @@ void main() {
                           gl.generateMipmap(gl.TEXTURE_2D);
                           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
                           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                          primRecord.texture = t;
+                          for (const pr of nodeMats) {
+                            pr._texRef = t;
+                          }
                         }).catch(() => {});
                       }
                     }
@@ -1669,19 +1814,22 @@ void main() {
               }
             }
 
-            const primRecord = {
-              vao,
-              indexCount,
-              indexType,
-              vertexCount: posData.length / 3,
-              hasIndices: !!indexData,
-              baseColorFactor,
-              texture,
-              modelMatrix: this.mat4.create(),
-            };
-            this.primitives.push(primRecord);
+            for (const worldMatrix of nodeMats) {
+              const primRecord = {
+                vao,
+                indexCount,
+                indexType,
+                vertexCount: posData.length / 3,
+                hasIndices: !!indexData,
+                baseColorFactor,
+                texture,
+                modelMatrix: worldMatrix,
+                get currentTexture() { return this._texRef || this.texture; }
+              };
+              this.primitives.push(primRecord);
+            }
           }
-        }
+        });
       }
 
       if (minBound[0] <= maxBound[0]) {
@@ -1723,8 +1871,9 @@ void main() {
       const gl = this.gl;
       if (!gl || !this.program) return;
 
-      const w = this.canvas.clientWidth || window.innerWidth;
-      const h = this.canvas.clientHeight || window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.round((this.canvas.clientWidth || window.innerWidth) * dpr);
+      const h = Math.round((this.canvas.clientHeight || window.innerHeight) * dpr);
       if (this.canvas.width !== w || this.canvas.height !== h) {
         this.canvas.width = w;
         this.canvas.height = h;
@@ -1777,9 +1926,10 @@ void main() {
 
         gl.uniform4fv(this.uniforms.uBaseColorFactor, prim.baseColorFactor);
 
-        if (prim.texture) {
+        const activeTex = prim.currentTexture || prim.texture;
+        if (activeTex) {
           gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, prim.texture);
+          gl.bindTexture(gl.TEXTURE_2D, activeTex);
           gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
           gl.uniform1i(this.uniforms.uHasBaseColorTexture, 1);
         } else {
@@ -1789,14 +1939,14 @@ void main() {
           gl.uniform1i(this.uniforms.uHasBaseColorTexture, 0);
         }
 
-        gl.glBindVertexArray(prim.vao);
+        gl.bindVertexArray(prim.vao);
         if (prim.hasIndices) {
           gl.drawElements(this.wireframe ? gl.LINES : gl.TRIANGLES, prim.indexCount, prim.indexType, 0);
         } else {
           gl.drawArrays(this.wireframe ? gl.LINES : gl.TRIANGLES, 0, prim.vertexCount);
         }
       }
-      gl.glBindVertexArray(null);
+      gl.bindVertexArray(null);
     }
   };
 
@@ -1840,6 +1990,7 @@ void main() {
     try {
       const gltf = BglGltf.extractJson(arrayBuffer);
       BglState.currentGltf = gltf;
+      BglState.currentModelBuffer = arrayBuffer;
       BglState.currentModelName = name;
 
       const modelLabel = document.getElementById('model-name-label');
@@ -2118,35 +2269,65 @@ void main() {
     }
 
     // 3. WebGPU Support Check with Automatic WebGL 2 Fallback
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceWebGl = urlParams.has('webgl') || urlParams.get('backend') === 'webgl' || urlParams.get('backend') === 'webgl2';
+    const forceWebGpu = urlParams.get('backend') === 'webgpu';
+
     const hasGpuApi = Boolean(navigator && ('gpu' in navigator) && navigator.gpu);
     let gpuOperational = false;
-    if (hasGpuApi) {
+
+    if (hasGpuApi && !forceWebGl) {
       try {
+        // Test WebGPU canvas context creation on isolated test canvas without locking the main canvas
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = 1;
+        testCanvas.height = 1;
+        const testCtx = testCanvas.getContext('webgpu');
+        if (!testCtx) {
+          throw new Error('canvas.getContext("webgpu") returned null');
+        }
+
         const adapter = await navigator.gpu.requestAdapter();
-        if (adapter) {
-          gpuOperational = true;
-          if (adapter.info) {
-            window.cachedGpuInfo = adapter.info;
-            BglLogger.log('WebGPU', `Acquired GPU Adapter: ${adapter.info.vendor || 'Unknown'} - ${adapter.info.architecture || ''} (${adapter.info.description || ''})`);
-          } else {
-            BglLogger.log('WebGPU', 'Acquired compatible WebGPU hardware adapter.');
-          }
+        if (!adapter) {
+          throw new Error('navigator.gpu.requestAdapter() returned null');
+        }
+
+        // Test actual device creation (often fails on mobile GPUs like Samsung S22 Exynos/Adreno)
+        const device = await adapter.requestDevice();
+        if (!device) {
+          throw new Error('adapter.requestDevice() returned null');
+        }
+
+        gpuOperational = true;
+        if (adapter.info) {
+          window.cachedGpuInfo = adapter.info;
+          BglLogger.log('WebGPU', `Acquired GPU Adapter: ${adapter.info.vendor || 'Unknown'} - ${adapter.info.architecture || ''} (${adapter.info.description || ''})`);
+        } else {
+          BglLogger.log('WebGPU', 'Acquired compatible WebGPU hardware adapter.');
+        }
+
+        if (device.destroy) {
+          device.destroy();
         }
       } catch (e) {
-        BglLogger.warn('WebGPU', 'requestAdapter exception, attempting fallback:', e);
+        BglLogger.warn('WebGPU', 'Hardware WebGPU validation failed, activating WebGL 2 fallback:', e.message || e);
+        gpuOperational = false;
       }
+    } else if (forceWebGl) {
+      BglLogger.log('Engine', 'WebGL 2 forced via query parameter (?webgl or ?backend=webgl).');
+      gpuOperational = false;
     }
 
     if (!gpuOperational) {
-      BglLogger.log('Engine', 'WebGPU unavailable. Initializing WebGL 2 fallback pipeline...');
+      BglLogger.log('Engine', 'Initializing high-compatibility WebGL 2 fallback pipeline...');
       const webglOk = BglWebGlRenderer.init();
       if (webglOk) {
         BglState.backend = 'webgl2';
         const sub = document.querySelector('.hud-subtitle');
         if (sub) sub.textContent = 'WebGL 2 & Wasm (Compatibility Mode)';
         BglNotifier.info(
-          'WebGL 2 Fallback Active',
-          'WebGPU is not available in this browser. The engine is running in WebGL 2 compatibility mode.'
+          'WebGL 2 Active',
+          'Running in high-compatibility WebGL 2 mode for mobile and legacy hardware.'
         );
         return true;
       }
@@ -3012,13 +3193,24 @@ void main() {
     // Initialize Cache Storage UI status
     BglModelCache.updateCacheStatusUI().catch(e => BglLogger.warn('Cache', 'Initial cache check failed:', e));
 
-    // Launch Wasm initialization and model loading concurrently for fastest startup
-    const wasmPromise = BglWasmBridge.init();
-    const modelPromise = loadDefaultModel();
+    // 1. Verify graphics capabilities and select backend (WebGPU vs WebGL 2)
+    const isCompat = await checkBrowserCompatibility();
 
-    await Promise.all([wasmPromise, modelPromise]);
+    // 2. If WebGPU is confirmed, initialize WebAssembly runtime
+    if (BglState.backend === 'webgpu') {
+      try {
+        await BglWasmBridge.init();
+      } catch (wasmErr) {
+        BglLogger.warn('Wasm', 'WebGPU Wasm runtime failed to start, falling back to WebGL 2:', wasmErr);
+        BglState.backend = 'webgl2';
+        BglWebGlRenderer.init();
+      }
+    }
+
+    // 3. Ingest default 3D model into the active pipeline
+    await loadDefaultModel();
     await BglModelCache.updateCacheStatusUI().catch(() => {});
-    BglLogger.log('Engine', 'Bootstrap completed successfully.');
+    BglLogger.log('Engine', `Bootstrap completed successfully (Backend: ${BglState.backend}).`);
   }
 
   // Run on DOM ready
