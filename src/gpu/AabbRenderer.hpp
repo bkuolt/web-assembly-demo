@@ -44,7 +44,7 @@ public:
     AabbRenderer& operator=(AabbRenderer&& other) noexcept = default;
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
-                                  uint32_t sampleCount);
+                                  uint32_t sampleCount, WGPUTextureFormat depthFormat = WGPUTextureFormat_Depth24Plus);
     void Shutdown() noexcept;
 
     void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);

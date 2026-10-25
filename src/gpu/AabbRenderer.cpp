@@ -37,7 +37,7 @@ void AabbRenderer::Shutdown() noexcept {
 }
 
 core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
-                                            uint32_t sampleCount) {
+                                            uint32_t sampleCount, WGPUTextureFormat depthFormat) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize AabbRenderer with null WebGPU device or queue");
     }
@@ -117,7 +117,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbFragState.targets = &aabbColorTarget;
 
     WGPUDepthStencilState aabbDepthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-    aabbDepthStencil.format = WGPUTextureFormat_Depth32Float;
+    aabbDepthStencil.format = depthFormat;
     aabbDepthStencil.depthWriteEnabled = WGPUOptionalBool_False; // Wireframes don't overwrite depth
     aabbDepthStencil.depthCompare = WGPUCompareFunction_LessEqual;
 

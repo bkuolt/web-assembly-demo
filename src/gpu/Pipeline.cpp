@@ -1559,7 +1559,8 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     initialized_ = (opaquePipeline_ != nullptr && tonemapPipeline_ != nullptr);
 
     // Initialize modular passes and compute engines
-    if (auto res = aabbRenderer_.Initialize(device_, queue_, surfaceFormat_, sampleCount_); !res) {
+    if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
+        !res) {
         BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());
     }
     if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
