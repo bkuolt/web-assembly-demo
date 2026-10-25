@@ -373,6 +373,14 @@ if(BGL_BUILD_TESTING)
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp"
     )
+
+    find_program(NODE_EXECUTABLE node)
+    if(NODE_EXECUTABLE)
+        add_test(NAME WebGLPipelineTest COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_webgl_path.js")
+        set_tests_properties(WebGLPipelineTest PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+    endif()
 endif()
 
 # ==============================================================================

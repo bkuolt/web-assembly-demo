@@ -1780,15 +1780,36 @@ void main() {
             gl.bindVertexArray(null);
 
             let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
-            let texture = null;
             if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
               const mat = gltf.materials[prim.material];
-              if (mat.pbrMetallicRoughness) {
-                if (mat.pbrMetallicRoughness.baseColorFactor) {
-                  baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
-                }
+              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorFactor) {
+                baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
+              }
+            }
+
+            const currentPrimRecords = [];
+            for (const worldMatrix of nodeMats) {
+              const primRecord = {
+                vao,
+                indexCount,
+                indexType,
+                vertexCount: posData.length / 3,
+                hasIndices: !!indexData,
+                baseColorFactor,
+                texture: null,
+                _texRef: null,
+                modelMatrix: worldMatrix,
+                get currentTexture() { return this._texRef || this.texture; }
+              };
+              currentPrimRecords.push(primRecord);
+              this.primitives.push(primRecord);
+            }
+
+            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
+              const mat = gltf.materials[prim.material];
+              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture) {
                 const texInfo = mat.pbrMetallicRoughness.baseColorTexture;
-                if (texInfo && gltf.textures && gltf.textures[texInfo.index]) {
+                if (gltf.textures && gltf.textures[texInfo.index]) {
                   const texObj = gltf.textures[texInfo.index];
                   if (texObj.source !== undefined && gltf.images && gltf.images[texObj.source]) {
                     const imgObj = gltf.images[texObj.source];
@@ -1803,30 +1824,30 @@ void main() {
                           gl.generateMipmap(gl.TEXTURE_2D);
                           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
                           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                          for (const pr of nodeMats) {
+                          for (const pr of currentPrimRecords) {
                             pr._texRef = t;
                           }
                         }).catch(() => {});
                       }
+                    } else if (imgObj.uri) {
+                      const img = new Image();
+                      img.crossOrigin = 'anonymous';
+                      img.onload = () => {
+                        const t = gl.createTexture();
+                        gl.bindTexture(gl.TEXTURE_2D, t);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+                        gl.generateMipmap(gl.TEXTURE_2D);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                        for (const pr of currentPrimRecords) {
+                          pr._texRef = t;
+                        }
+                      };
+                      img.src = imgObj.uri;
                     }
                   }
                 }
               }
-            }
-
-            for (const worldMatrix of nodeMats) {
-              const primRecord = {
-                vao,
-                indexCount,
-                indexType,
-                vertexCount: posData.length / 3,
-                hasIndices: !!indexData,
-                baseColorFactor,
-                texture,
-                modelMatrix: worldMatrix,
-                get currentTexture() { return this._texRef || this.texture; }
-              };
-              this.primitives.push(primRecord);
             }
           }
         });
