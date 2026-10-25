@@ -160,6 +160,51 @@ public:
         skybox_.SetRotation(newRot);
     }
 
+    /** @brief Toggles turntable autorotation around active camera target. */
+    void ToggleTurntable() noexcept { turntableActive_ = !turntableActive_; }
+    void SetTurntable(bool active) noexcept { turntableActive_ = active; }
+    [[nodiscard]] bool IsTurntableActive() const noexcept { return turntableActive_; }
+    void SetTurntableSpeed(float speed) noexcept { turntableSpeed_ = speed; }
+    [[nodiscard]] float GetTurntableSpeed() const noexcept { return turntableSpeed_; }
+
+    /** @brief Toggles between Orbit and First-Person Fly camera modes. */
+    void ToggleCameraMode() noexcept { camera_.ToggleMode(); }
+
+    /** @brief Focuses camera target and distance onto current selection or scene. */
+    void FocusSelection() noexcept;
+
+    /** @brief Frames entire scene AABB. */
+    void FrameAll() noexcept;
+
+    /** @brief Selects scene node by index (-1 clears selection). */
+    void SelectNodeByIndex(int index) noexcept;
+    void SelectNode(std::shared_ptr<scene::SceneNode> node, int index = -1) noexcept;
+    void ClearSelection() noexcept { selectedNode_ = nullptr; selectedNodeIndex_ = -1; }
+    [[nodiscard]] std::shared_ptr<scene::SceneNode> GetSelectedNode() const noexcept { return selectedNode_; }
+    [[nodiscard]] int GetSelectedNodeIndex() const noexcept { return selectedNodeIndex_; }
+
+    /**
+     * @brief Ray-pick object under screen coordinate and select it.
+     * @return Selected nodeIndex, or -1 if no node was hit.
+     */
+    int PickNodeAt(float screenX, float screenY, float screenWidth, float screenHeight);
+
+    /** @brief Switches to a glTF camera by index (-1 for default interactive camera). */
+    void SelectCamera(int cameraIndex) noexcept;
+    void CycleCamera() noexcept;
+    [[nodiscard]] int GetCameraCount() const noexcept;
+    [[nodiscard]] std::string_view GetCameraName(int index) const noexcept;
+    [[nodiscard]] int GetActiveCameraIndex() const noexcept { return activeCameraIndex_; }
+
+    /** @brief Sun position and diurnal cycle live controls. */
+    void SetTimeOfDay(float hour) noexcept;
+    [[nodiscard]] float GetTimeOfDay() const noexcept { return timeOfDay_; }
+    void SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept;
+    [[nodiscard]] float GetSunAzimuth() const noexcept { return sunAzimuth_; }
+    [[nodiscard]] float GetSunElevation() const noexcept { return sunElevation_; }
+    [[nodiscard]] glm::vec3 GetSunDirection() const noexcept { return sunDir_; }
+    void UpdateSunDirection() noexcept;
+
     [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
     [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
     [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
@@ -222,6 +267,21 @@ private:
     std::unique_ptr<scene::FastGltfLoader> gltfLoader_{nullptr};
     std::shared_ptr<scene::Scene> activeScene_{nullptr};
     std::unique_ptr<scene::Quadtree> quadtree_{nullptr};
+
+    // Selection & Interactivity
+    std::shared_ptr<scene::SceneNode> selectedNode_{nullptr};
+    int selectedNodeIndex_{-1};
+
+    // Camera Navigation & Turntable
+    bool turntableActive_{false};
+    float turntableSpeed_{0.35f}; // rad/s
+    int activeCameraIndex_{-1};
+
+    // Sun & Time-of-Day
+    float timeOfDay_{14.0f}; // 14:00 (2 PM)
+    float sunAzimuth_{0.8f};
+    float sunElevation_{0.95f};
+    glm::vec3 sunDir_{0.35f, 1.0f, 0.25f};
 
     std::string currentModelName_{"None"};
     size_t totalPrimitives_{0};

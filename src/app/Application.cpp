@@ -189,8 +189,24 @@ void Application::Update(float deltaTime) {
                     pipelineManager_.ToggleSSAO();
                     BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}", pipelineManager_.IsSsaoEnabled());
                 } else if (event.key.keysym.sym == SDLK_f) {
-                    pipelineManager_.ToggleBloom();
-                    BGL_LOG_INFO("Toggled Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
+                    FocusSelection();
+                    BGL_LOG_INFO("Framed camera on selection / scene bounds");
+                } else if (event.key.keysym.sym == SDLK_c) {
+                    ToggleCameraMode();
+                    BGL_LOG_INFO("Switched camera mode: {}", camera_.GetMode() == core::CameraMode::Fly ? "First-Person Fly" : "Orbit");
+                } else if (event.key.keysym.sym == SDLK_t) {
+                    ToggleTurntable();
+                    BGL_LOG_INFO("Turntable autorotation: {}", turntableActive_ ? "ON" : "OFF");
+                } else if (event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_9) {
+                    const size_t slot = static_cast<size_t>(event.key.keysym.sym - SDLK_1);
+                    if (event.key.keysym.mod & KMOD_CTRL) {
+                        camera_.SaveBookmark(slot);
+                        BGL_LOG_INFO("Saved camera bookmark to slot #{}", slot + 1);
+                    } else {
+                        if (camera_.RestoreBookmark(slot)) {
+                            BGL_LOG_INFO("Restored camera bookmark from slot #{}", slot + 1);
+                        }
+                    }
                 } else if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS || event.key.keysym.sym == SDLK_EQUALS) {
                     if (event.key.keysym.mod & KMOD_SHIFT) {
                         AdjustExposure(0.15f);
@@ -215,25 +231,10 @@ void Application::Update(float deltaTime) {
             } else if (event.type == SDL_MOUSEBUTTONDOWN &&
                        (event.button.button == SDL_BUTTON_MIDDLE ||
                         (event.button.button == SDL_BUTTON_LEFT && event.button.clicks == 2))) {
-                if (activeScene_ && gpuContext_.GetWidth() > 0 && gpuContext_.GetHeight() > 0) {
-                    const float ndcX{(2.0f * static_cast<float>(event.button.x)) / static_cast<float>(gpuContext_.GetWidth()) - 1.0f};
-                    const float ndcY{1.0f - (2.0f * static_cast<float>(event.button.y)) / static_cast<float>(gpuContext_.GetHeight())};
-                    const glm::mat4 invVP{glm::inverse(camera_.GetViewProjectionMatrix())};
-                    const glm::vec4 nearPt{invVP * glm::vec4{ndcX, ndcY, 0.0f, 1.0f}};
-                    const glm::vec4 farPt{invVP * glm::vec4{ndcX, ndcY, 1.0f, 1.0f}};
-                    const glm::vec3 worldNear{ glm::vec3{nearPt} / nearPt.w };
-                    const glm::vec3 worldFar{ glm::vec3{farPt} / farPt.w };
-                    const core::Ray pickRay{
-                        .origin = camera_.GetPosition(),
-                        .direction = glm::normalize(worldFar - worldNear)
-                    };
-                    if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
-                        BGL_LOG_INFO("[RayPicker] Picked Node '{}' (Triangle #{}) at distance {:.3f}m, worldPos=[{:.3f}, {:.3f}, {:.3f}]",
-                                     hit->hitNode ? hit->hitNode->name : "Unnamed",
-                                     hit->triangleIndex, hit->distance,
-                                     hit->hitPoint.x, hit->hitPoint.y, hit->hitPoint.z);
-                    }
-                }
+                PickNodeAt(static_cast<float>(event.button.x),
+                           static_cast<float>(event.button.y),
+                           static_cast<float>(gpuContext_.GetWidth()),
+                           static_cast<float>(gpuContext_.GetHeight()));
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
                 camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
             } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
@@ -278,9 +279,21 @@ void Application::Update(float deltaTime) {
     const auto& gp = gamepad_.GetState();
 
     if (gp.connected) {
-        camera_.Pan(gp.leftStick.x * deltaTime * camera_.GetDistance(), gp.leftStick.y * deltaTime * camera_.GetDistance());
+        if (camera_.GetMode() == core::CameraMode::Fly) {
+            camera_.MoveForward(-gp.leftStick.y * deltaTime * 5.0f);
+            camera_.MoveRight(gp.leftStick.x * deltaTime * 5.0f);
+        } else {
+            camera_.Pan(gp.leftStick.x * deltaTime * camera_.GetDistance(), gp.leftStick.y * deltaTime * camera_.GetDistance());
+        }
         camera_.Orbit(gp.rightStick.x * deltaTime * 2.0f, gp.rightStick.y * deltaTime * 2.0f);
         camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance());
+        if (gp.buttonY) {
+            ToggleBoundingBoxes();
+        }
+    }
+
+    if (turntableActive_) {
+        camera_.Orbit(turntableSpeed_ * deltaTime, 0.0f);
     }
 
     float aspect = static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
@@ -327,7 +340,7 @@ void Application::Render() {
 
     glm::mat4 vp = camera_.GetViewProjectionMatrix();
     glm::vec3 camPos = camera_.GetPosition();
-    glm::vec3 sunDir = glm::normalize(glm::vec3(0.35f, 1.0f, 0.25f));
+    glm::vec3 sunDir = sunDir_;
 
     // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
     if (activeScene_) {
@@ -367,7 +380,11 @@ void Application::Render() {
         if (showQuadtreeBounds_ && quadtree_) {
             pipelineManager_.BatchQuadtreeBounds(*quadtree_);
         }
-        if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_)) {
+        if (selectedNode_ && selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
+            // Highlight selected node with a vibrant gold bounding outline
+            pipelineManager_.AppendAABBLines(selectedNode_->worldAABB, glm::vec4{1.0f, 0.72f, 0.05f, 1.0f});
+        }
+        if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_) || selectedNode_) {
             pipelineManager_.FlushAABBLines(hdrPass, vp);
         }
     }
@@ -513,6 +530,121 @@ void Application::CacheSceneMetrics() {
     }
     BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices",
                  currentModelName_, totalPrimitives_, totalVertices_, totalIndices_);
+}
+
+void Application::FocusSelection() noexcept {
+    if (selectedNode_ && selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
+        camera_.FocusOnBounds(selectedNode_->worldAABB);
+    } else if (activeScene_) {
+        camera_.FocusOnBounds(activeScene_->sceneAABB);
+    }
+}
+
+void Application::FrameAll() noexcept {
+    if (activeScene_) {
+        camera_.FocusOnBounds(activeScene_->sceneAABB);
+    }
+}
+
+void Application::SelectNodeByIndex(int index) noexcept {
+    if (!activeScene_ || index < 0 || static_cast<size_t>(index) >= activeScene_->allNodes.size()) {
+        ClearSelection();
+        return;
+    }
+    SelectNode(activeScene_->allNodes[index], index);
+}
+
+void Application::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) noexcept {
+    selectedNode_ = node;
+    selectedNodeIndex_ = index;
+    if (index < 0 && node && activeScene_) {
+        for (size_t i = 0; i < activeScene_->allNodes.size(); ++i) {
+            if (activeScene_->allNodes[i] == node) {
+                selectedNodeIndex_ = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    if (selectedNode_) {
+        BGL_LOG_INFO("Selected Node #{} '{}' (AABB min=[{:.2f}, {:.2f}, {:.2f}], max=[{:.2f}, {:.2f}, {:.2f}])",
+                     selectedNodeIndex_, selectedNode_->name,
+                     selectedNode_->worldAABB.minBound.x, selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
+                     selectedNode_->worldAABB.maxBound.x, selectedNode_->worldAABB.maxBound.y, selectedNode_->worldAABB.maxBound.z);
+    }
+}
+
+int Application::PickNodeAt(float screenX, float screenY, float screenWidth, float screenHeight) {
+    if (!activeScene_ || screenWidth <= 0.0f || screenHeight <= 0.0f) {
+        return -1;
+    }
+    const core::Ray pickRay = camera_.ScreenPointToRay(screenX, screenY, screenWidth, screenHeight);
+    if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
+        if (hit->hitNode) {
+            SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
+            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)",
+                         hit->hitNode->name, hit->hitNode->nodeIndex, hit->distance);
+            return hit->hitNode->nodeIndex;
+        }
+    }
+    ClearSelection();
+    return -1;
+}
+
+void Application::SelectCamera(int cameraIndex) noexcept {
+    if (!activeScene_ || cameraIndex < 0 || static_cast<size_t>(cameraIndex) >= activeScene_->cameras.size()) {
+        activeCameraIndex_ = -1;
+        BGL_LOG_INFO("Switched to default interactive orbit/fly camera");
+        return;
+    }
+    activeCameraIndex_ = cameraIndex;
+    const auto& sc = activeScene_->cameras[cameraIndex];
+    camera_.SetFromTransform(sc.worldTransform, sc.yfov, sc.znear, sc.zfar);
+    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})",
+                 cameraIndex, sc.name, glm::degrees(sc.yfov), sc.znear, sc.zfar);
+}
+
+void Application::CycleCamera() noexcept {
+    if (!activeScene_ || activeScene_->cameras.empty()) return;
+    int next = activeCameraIndex_ + 1;
+    if (static_cast<size_t>(next) >= activeScene_->cameras.size()) {
+        next = -1;
+    }
+    SelectCamera(next);
+}
+
+int Application::GetCameraCount() const noexcept {
+    return activeScene_ ? static_cast<int>(activeScene_->cameras.size()) : 0;
+}
+
+std::string_view Application::GetCameraName(int index) const noexcept {
+    if (!activeScene_ || index < 0 || static_cast<size_t>(index) >= activeScene_->cameras.size()) {
+        return "";
+    }
+    return activeScene_->cameras[index].name;
+}
+
+void Application::SetTimeOfDay(float hour) noexcept {
+    timeOfDay_ = std::clamp(hour, 0.0f, 24.0f);
+    // Diurnal cycle: sunrise ~6:00, noon 12:00 (peak elevation), sunset ~18:00
+    const float dayFraction = (timeOfDay_ - 6.0f) / 12.0f;
+    const float elevation = std::sin(dayFraction * std::numbers::pi_v<float>);
+    const float azimuth = (timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>;
+    SetSunAzimuthElevation(azimuth, std::max(elevation, 0.05f));
+}
+
+void Application::SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept {
+    sunAzimuth_ = azimuthRad;
+    sunElevation_ = std::clamp(elevationRad, 0.02f, 1.57f);
+    UpdateSunDirection();
+}
+
+void Application::UpdateSunDirection() noexcept {
+    const float cosEl = std::cos(sunElevation_);
+    sunDir_ = glm::normalize(glm::vec3{
+        cosEl * std::sin(sunAzimuth_),
+        std::sin(sunElevation_),
+        cosEl * std::cos(sunAzimuth_)
+    });
 }
 
 } // namespace bgl::app

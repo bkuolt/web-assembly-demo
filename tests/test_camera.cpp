@@ -268,3 +268,84 @@ TEST(CameraTest, ExtremeDistanceDynamicClippingPlanes) {
     EXPECT_GT(camFar.GetFarPlane(), camFar.GetNearPlane());
 }
 
+TEST(CameraTest, FlyModeFreeNavigation) {
+    Camera camera(glm::vec3(0.0f, 1.5f, 0.0f), 5.0f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_EQ(camera.GetMode(), CameraMode::Orbit);
+
+    camera.SetMode(CameraMode::Fly);
+    EXPECT_EQ(camera.GetMode(), CameraMode::Fly);
+
+    const glm::vec3 initialEye = camera.GetPosition();
+    camera.MoveForward(3.0f);
+    camera.Update(16.0f / 9.0f);
+
+    // In fly mode, MoveForward directly translates the camera eye position
+    EXPECT_NE(camera.GetPosition(), initialEye);
+    camera.MoveForward(-3.0f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), initialEye), 0.0f, 1e-3f);
+}
+
+TEST(CameraTest, FocusOnBoundsFraming) {
+    Camera camera(glm::vec3(100.0f), 2.0f);
+    camera.Update(16.0f / 9.0f);
+
+    AABB box{};
+    box.minBound = glm::vec3{-2.0f, -1.0f, -3.0f};
+    box.maxBound = glm::vec3{2.0f, 3.0f, 1.0f};
+
+    camera.FocusOnBounds(box, 1.25f);
+    EXPECT_NEAR(camera.GetTarget().x, 0.0f, 1e-3f);
+    EXPECT_NEAR(camera.GetTarget().y, 1.0f, 1e-3f);
+    EXPECT_NEAR(camera.GetTarget().z, -1.0f, 1e-3f);
+
+    // Distance must comfortably encompass bounding radius (> extents length)
+    const float radius = glm::length(box.Extents());
+    EXPECT_GT(camera.GetDistance(), radius);
+}
+
+TEST(CameraTest, CameraBookmarksSaveAndRecall) {
+    Camera camera(glm::vec3(0.0f, 0.0f, 0.0f), 10.0f);
+    camera.Orbit(0.5f, 0.2f);
+    camera.Update(16.0f / 9.0f);
+
+    // Save slot 0 (Key '1')
+    EXPECT_TRUE(camera.SaveBookmark(0));
+    EXPECT_TRUE(camera.HasBookmark(0));
+    EXPECT_FALSE(camera.HasBookmark(1));
+
+    const glm::vec3 savedPos = camera.GetPosition();
+    const glm::vec3 savedTarget = camera.GetTarget();
+
+    // Mutate camera position drastically
+    camera.Pan(15.0f, 20.0f);
+    camera.Zoom(6.0f);
+    camera.Orbit(1.0f, -0.4f);
+    camera.Update(16.0f / 9.0f);
+    EXPECT_NE(camera.GetPosition(), savedPos);
+
+    // Restore slot 0
+    EXPECT_TRUE(camera.RestoreBookmark(0));
+    EXPECT_NEAR(glm::distance(camera.GetPosition(), savedPos), 0.0f, 1e-3f);
+    EXPECT_NEAR(glm::distance(camera.GetTarget(), savedTarget), 0.0f, 1e-3f);
+
+    // Out of range slot fails safely
+    EXPECT_FALSE(camera.SaveBookmark(9));
+    EXPECT_FALSE(camera.RestoreBookmark(9));
+}
+
+TEST(CameraTest, glTFCameraTransformIngestion) {
+    Camera camera{};
+    // Construct a view matrix positioned at (5, 2, 8) looking along -Z
+    glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 2.0f, 8.0f));
+
+    camera.SetFromTransform(transform, glm::radians(60.0f), 0.2f, 500.0f);
+    EXPECT_NEAR(camera.GetPosition().x, 5.0f, 1e-3f);
+    EXPECT_NEAR(camera.GetPosition().y, 2.0f, 1e-3f);
+    EXPECT_NEAR(camera.GetPosition().z, 8.0f, 1e-3f);
+    EXPECT_FLOAT_EQ(camera.GetFieldOfView(), glm::radians(60.0f));
+    EXPECT_EQ(camera.GetMode(), CameraMode::Fly);
+}
+
+

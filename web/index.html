@@ -44,7 +44,7 @@
 
   <!-- Top-Left In-Engine Telemetry HUD -->
   <div id="ui-hud">
-    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.9.1</span></h1>
+    <h1>WebAssembly and WebGPU Demo <span class="badge">v0.9.2</span></h1>
     <p>Professional WebGPU 3D Runtime with Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares, 4× MSAA, 16× Anisotropic Mipmapping, PCF Shadows, and Cubemap IBL.</p>
     <div id="status-text" style="font-size: 0.8rem; color: #cbd5e1;">Initializing WebAssembly runtime...</div>
     <div class="progress-bar-container">
@@ -55,12 +55,31 @@
       <button class="pill-btn" id="btn-load-toycar" onclick="loadPresetModel('ToyCar.glb')" title="Fast lightweight glTF model (~5.1 MB)">ToyCar (5 MB)</button>
       <button class="pill-btn" id="btn-load-sponza" onclick="loadPresetModel('Sponza.glb')" title="Architectural benchmark glTF (~52.6 MB)">Sponza (52 MB)</button>
     </div>
-    <div class="hud-grid">
+    <div class="model-quick-bar" style="margin-top: 4px;">
+      <span class="quick-label">Camera:</span>
+      <select id="camera-select" class="camera-select" onchange="onCameraSelect(this.value)">
+        <option value="-1">Default Interactive Camera</option>
+      </select>
+    </div>
+    <div class="bookmark-bar">
+      <span class="quick-label">Bookmarks:</span>
+      <button class="bookmark-btn" onclick="saveBookmark(0)" title="Save Slot 1 (Ctrl+1)">+1</button>
+      <button class="bookmark-btn" onclick="restoreBookmark(0)" title="Recall Slot 1 (1)">1</button>
+      <button class="bookmark-btn" onclick="saveBookmark(1)" title="Save Slot 2 (Ctrl+2)">+2</button>
+      <button class="bookmark-btn" onclick="restoreBookmark(1)" title="Recall Slot 2 (2)">2</button>
+      <button class="bookmark-btn" onclick="saveBookmark(2)" title="Save Slot 3 (Ctrl+3)">+3</button>
+      <button class="bookmark-btn" onclick="restoreBookmark(2)" title="Recall Slot 3 (3)">3</button>
+    </div>
+    <div class="hud-grid" style="margin-top: 8px;">
+      <button class="btn" id="btn-focus" onclick="focusSelection()" style="background: #0284c7;">Focus [F]</button>
+      <button class="btn" id="btn-frame-all" onclick="frameAll()" style="background: #0284c7;">Frame All</button>
+      <button class="btn" id="btn-cam-mode" onclick="toggleCameraMode()" style="background: #0284c7;">Mode: Orbit [C]</button>
+      <button class="btn" id="btn-turntable" onclick="toggleTurntable()" style="background: #475569;">Turntable [T]</button>
       <button class="btn" id="btn-bump" onclick="toggleBump()" style="background: #0284c7;">Bump [V]</button>
       <button class="btn" id="btn-pom" onclick="togglePOM()" style="background: #0284c7;">Parallax POM [P]</button>
       <button class="btn" id="btn-ao" onclick="toggleAO()" style="background: #0284c7;">Material AO [U]</button>
       <button class="btn" id="btn-ssao" onclick="toggleSSAO()" style="background: #0284c7;">SSAO [G]</button>
-      <button class="btn" id="btn-bloom" onclick="toggleBloom()" style="background: #0284c7;">Bloom [F]</button>
+      <button class="btn" id="btn-bloom" onclick="toggleBloom()" style="background: #0284c7;">Bloom [B]</button>
       <button class="btn" id="btn-flare" onclick="toggleLensFlare()" style="background: #0284c7;">Lens Flares [J]</button>
       <button class="btn" id="btn-mipmaps" onclick="toggleMipmaps()" style="background: #0284c7;">Mipmaps [L]</button>
       <button class="btn" id="btn-shadows" onclick="toggleShadows()" style="background: #0284c7;">Shadows [M]</button>
@@ -78,6 +97,22 @@
         <span id="tuning-chevron">▾</span>
       </div>
       <div id="tuning-sliders-container" class="slider-group">
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Time of Day (Sun Position)</span>
+            <span class="slider-value" id="val-time-of-day">14:00</span>
+          </div>
+          <input type="range" class="slider-input" id="slider-time-of-day" min="0" max="24" step="0.25" value="14" oninput="onTimeOfDaySlider(this.value)">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Turntable Speed</span>
+            <span class="slider-value" id="val-turntable-speed">0.35 rad/s</span>
+          </div>
+          <input type="range" class="slider-input" id="slider-turntable-speed" min="0.05" max="2.0" step="0.05" value="0.35" oninput="onTurntableSpeedSlider(this.value)">
+        </div>
+
         <div class="slider-row">
           <div class="slider-header">
             <span>AO Intensity</span>
@@ -122,7 +157,7 @@
 
     <!-- Navigation & Controls Hint Card -->
     <div class="keyboard-hint-row">
-      <strong>Navigation:</strong> <span class="key-pill">W</span><span class="key-pill">A</span><span class="key-pill">S</span><span class="key-pill">D</span> or <span class="key-pill">Arrows</span> to fly, <span class="key-pill">+</span> / <span class="key-pill">-</span> to zoom. Mouse drag to orbit &amp; pan.
+      <strong>Controls:</strong> Click object to Pick &amp; Highlight. <span class="key-pill">F</span> Focus selection, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">1</span>–<span class="key-pill">9</span> Bookmarks (<span class="key-pill">Ctrl</span> to save), <span class="key-pill">W</span><span class="key-pill">A</span><span class="key-pill">S</span><span class="key-pill">D</span> to move. Touch pinch-zoom &amp; Gamepad active.
     </div>
 
     <!-- Live Scene AABB & Spatial Bounds Telemetry Card -->

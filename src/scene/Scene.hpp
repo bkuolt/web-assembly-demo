@@ -64,6 +64,22 @@ enum class AlphaMode : uint32_t {
     Blend = 2
 };
 
+/**
+ * @struct SceneCamera
+ * @brief Camera parameters parsed from glTF asset (perspective / orthographic).
+ */
+struct SceneCamera {
+    std::string name{};
+    bool isPerspective{true};
+    float yfov{0.785398f};
+    float znear{0.1f};
+    float zfar{1000.0f};
+    float xmag{1.0f};
+    float ymag{1.0f};
+    glm::mat4 worldTransform{1.0f};
+    int nodeIndex{-1};
+};
+
 struct Material {
     std::string name{};
 
@@ -159,10 +175,12 @@ struct MeshPrimitive {
 class SceneNode {
 public:
     std::string name{};
+    int nodeIndex{-1};
+    int cameraIndex{-1};
+    int lightIndex{-1}; ///< Optional index into Scene::lights (KHR_lights_punctual)
     glm::mat4 localTransform{1.0f};
     glm::mat4 worldTransform{1.0f};
     core::AABB worldAABB{};
-    int lightIndex{-1}; ///< Optional index into Scene::lights (KHR_lights_punctual)
     std::vector<MeshPrimitive> primitives{};
     std::vector<std::shared_ptr<SceneNode>> children{};
 
@@ -171,12 +189,14 @@ public:
 
 /**
  * @struct Scene
- * @brief Root scene representation containing node hierarchy, materials, lights, and textures.
+ * @brief Root scene representation containing node hierarchy, materials, lights, cameras, and textures.
  */
 struct Scene {
     std::vector<std::shared_ptr<SceneNode>> rootNodes{};
+    std::vector<std::shared_ptr<SceneNode>> allNodes{};
     std::vector<Material> materials{};
     std::vector<PunctualLight> lights{};
+    std::vector<SceneCamera> cameras{};
     std::vector<CpuImage> cpuImages{};
     std::vector<TextureGpuResource> gpuTextures{};
     core::AABB sceneAABB{};

@@ -685,12 +685,17 @@
             badges.appendChild(matBadge);
           }
         }
+        row.setAttribute('data-node-idx', String(nodeIdx));
         row.appendChild(badges);
 
         row.addEventListener('click', (e) => {
           e.stopPropagation();
           document.querySelectorAll('.tree-node-row').forEach(r => r.classList.remove('selected'));
           row.classList.add('selected');
+          BglState.selectedNodeIndex = nodeIdx;
+          if (BglState.wasmExports && BglState.wasmExports.bgl_select_node) {
+            BglState.wasmExports.bgl_select_node(nodeIdx);
+          }
           this.showNodeDetails(nodeIdx, node, gltf);
         });
 
@@ -936,6 +941,32 @@
   // ============================================================================
   // Model Ingestion Coordinator
   // ============================================================================
+  function updateCameraDropdown(gltf) {
+    const select = document.getElementById('camera-select');
+    if (!select) return;
+    select.innerHTML = '<option value="-1">Default Interactive Camera</option>';
+    if (BglState.wasmExports && BglState.wasmExports.bgl_get_camera_count) {
+      const count = BglState.wasmExports.bgl_get_camera_count();
+      for (let i = 0; i < count; ++i) {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        let name = `glTF Camera #${i}`;
+        if (gltf && gltf.cameras && gltf.cameras[i] && gltf.cameras[i].name) {
+          name = gltf.cameras[i].name;
+        }
+        opt.textContent = name;
+        select.appendChild(opt);
+      }
+    } else if (gltf && gltf.cameras && gltf.cameras.length > 0) {
+      gltf.cameras.forEach((cam, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = cam.name || `glTF Camera #${i}`;
+        select.appendChild(opt);
+      });
+    }
+  }
+
   async function ingestModel(name, arrayBuffer) {
     BglLogger.timeStart('Model-Ingest');
     BglLogger.log('glTF', `Ingesting 3D model '${name}' (${arrayBuffer.byteLength.toLocaleString()} bytes)...`);
@@ -959,6 +990,7 @@
       BglGltf.renderJsonInspector(gltf);
       BglGltf.updateTelemetry(gltf);
       BglUI.setActiveModelButton(name);
+      updateCameraDropdown(gltf);
 
       BglLogger.timeEnd('glTF', 'Model-Ingest', `Model '${name}' loaded and inspected`);
       BglNotifier.success(
@@ -1355,6 +1387,116 @@
   }
   window.onFlareSlider = onFlareSlider;
 
+  function focusSelection() {
+    BglLogger.log('Engine', 'Focusing camera on selection / scene bounds');
+    if (BglState.wasmExports && BglState.wasmExports.bgl_camera_focus_selection) {
+      BglState.wasmExports.bgl_camera_focus_selection();
+    }
+  }
+  window.focusSelection = focusSelection;
+
+  function frameAll() {
+    BglLogger.log('Engine', 'Framing all scene geometry');
+    if (BglState.wasmExports && BglState.wasmExports.bgl_camera_frame_all) {
+      BglState.wasmExports.bgl_camera_frame_all();
+    }
+  }
+  window.frameAll = frameAll;
+
+  function toggleCameraMode() {
+    BglState.isFlyMode = !BglState.isFlyMode;
+    const btn = document.getElementById('btn-cam-mode');
+    if (btn) btn.textContent = BglState.isFlyMode ? 'Mode: Fly [C]' : 'Mode: Orbit [C]';
+    BglLogger.log('Engine', `Camera Navigation Mode: ${BglState.isFlyMode ? 'FLY' : 'ORBIT'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_camera_mode) {
+      BglState.wasmExports.bgl_toggle_camera_mode();
+    }
+  }
+  window.toggleCameraMode = toggleCameraMode;
+
+  function toggleTurntable() {
+    BglState.isTurntableActive = !BglState.isTurntableActive;
+    const btn = document.getElementById('btn-turntable');
+    if (btn) btn.style.background = BglState.isTurntableActive ? '#0284c7' : '#475569';
+    BglLogger.log('Engine', `Turntable Autorotation: ${BglState.isTurntableActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_turntable) {
+      BglState.wasmExports.bgl_toggle_turntable();
+    }
+  }
+  window.toggleTurntable = toggleTurntable;
+
+  function onTurntableSpeedSlider(val) {
+    const num = Number(val);
+    const label = document.getElementById('val-turntable-speed');
+    if (label) label.textContent = `${num.toFixed(2)} rad/s`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_turntable_speed) {
+      BglState.wasmExports.bgl_set_turntable_speed(num);
+    }
+  }
+  window.onTurntableSpeedSlider = onTurntableSpeedSlider;
+
+  function onTimeOfDaySlider(val) {
+    const num = Number(val);
+    const hrs = Math.floor(num);
+    const mins = Math.round((num - hrs) * 60);
+    const label = document.getElementById('val-time-of-day');
+    if (label) label.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_time_of_day) {
+      BglState.wasmExports.bgl_set_time_of_day(num);
+    }
+  }
+  window.onTimeOfDaySlider = onTimeOfDaySlider;
+
+  function saveBookmark(slot) {
+    if (BglState.wasmExports && BglState.wasmExports.bgl_camera_save_bookmark) {
+      BglState.wasmExports.bgl_camera_save_bookmark(slot);
+      BglNotifier.show({
+        type: 'success',
+        title: 'Bookmark Saved',
+        message: `Saved viewpoint to slot #${slot + 1}`
+      });
+    }
+  }
+  window.saveBookmark = saveBookmark;
+
+  function restoreBookmark(slot) {
+    if (BglState.wasmExports && BglState.wasmExports.bgl_camera_restore_bookmark) {
+      BglState.wasmExports.bgl_camera_restore_bookmark(slot);
+      BglLogger.log('Engine', `Restored viewpoint bookmark #${slot + 1}`);
+    }
+  }
+  window.restoreBookmark = restoreBookmark;
+
+  function onCameraSelect(val) {
+    const idx = parseInt(val, 10);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_select_camera) {
+      BglState.wasmExports.bgl_select_camera(idx);
+      BglLogger.log('Engine', `Selected camera index: ${idx}`);
+    }
+  }
+  window.onCameraSelect = onCameraSelect;
+
+  function selectTreeNodeByIndex(idx) {
+    if (idx < 0) return;
+    const row = document.querySelector(`.tree-node-row[data-node-idx="${idx}"]`);
+    if (row) {
+      document.querySelectorAll('.tree-node-row').forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+      let parent = row.closest('.tree-children');
+      while (parent) {
+        parent.style.display = 'block';
+        const caret = parent.parentElement ? parent.parentElement.querySelector('.tree-caret') : null;
+        if (caret) caret.classList.add('open');
+        parent = parent.parentElement ? parent.parentElement.closest('.tree-children') : null;
+      }
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (BglState.currentGltf && BglState.currentGltf.nodes && BglState.currentGltf.nodes[idx]) {
+        BglTreeViewer.showNodeDetails(idx, BglState.currentGltf.nodes[idx], BglState.currentGltf);
+      }
+    }
+  }
+  window.selectTreeNodeByIndex = selectTreeNodeByIndex;
+
   function toggleTuningSection() {
     const container = document.getElementById('tuning-sliders-container');
     const chevron = document.getElementById('tuning-chevron');
@@ -1426,6 +1568,17 @@
     window.addEventListener('keydown', (e) => {
       if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
 
+      if (e.key >= '1' && e.key <= '9') {
+        const slot = parseInt(e.key, 10) - 1;
+        if (e.ctrlKey) {
+          e.preventDefault();
+          saveBookmark(slot);
+        } else {
+          restoreBookmark(slot);
+        }
+        return;
+      }
+
       if (navKeyCodes.has(e.code)) {
         activeNavKeys.add(e.code);
         if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
@@ -1436,7 +1589,11 @@
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toUpperCase();
       switch (key) {
-        case 'B': toggleBBox(); break;
+        case 'F': focusSelection(); break;
+        case 'HOME': frameAll(); break;
+        case 'C': toggleCameraMode(); break;
+        case 'T': toggleTurntable(); break;
+        case 'B': toggleBloom(); break;
         case 'Q': toggleQuadtree(); break;
         case 'K': toggleSkybox(); break;
         case 'O':
@@ -1450,7 +1607,6 @@
         case 'R': toggleReflections(); break;
         case 'U': toggleAO(); break;
         case 'G': toggleSSAO(); break;
-        case 'F': toggleBloom(); break;
         case '+':
         case '=':
           if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);
@@ -1500,6 +1656,132 @@
       requestAnimationFrame(navLoop);
     }
     requestAnimationFrame(navLoop);
+
+    // 3D Canvas Click-Picking and Touch Gestures
+    const canvas = document.getElementById('canvas');
+    if (canvas) {
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = false;
+        startX = e.clientX;
+        startY = e.clientY;
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 6) {
+          isDragging = true;
+        }
+      });
+
+      canvas.addEventListener('click', (e) => {
+        if (isDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        if (BglState.wasmExports && BglState.wasmExports.bgl_pick_node) {
+          const hitIdx = BglState.wasmExports.bgl_pick_node(x, y, rect.width, rect.height);
+          if (hitIdx >= 0) {
+            BglState.selectedNodeIndex = hitIdx;
+            selectTreeNodeByIndex(hitIdx);
+            BglNotifier.show({
+              type: 'info',
+              title: 'Object Selected',
+              message: `Picked node #${hitIdx} in 3D scene`
+            });
+          } else {
+            BglState.selectedNodeIndex = -1;
+            if (BglState.wasmExports.bgl_clear_selection) {
+              BglState.wasmExports.bgl_clear_selection();
+            }
+            document.querySelectorAll('.tree-node-row').forEach(r => r.classList.remove('selected'));
+          }
+        }
+      });
+
+      // Touch Controls (Pinch-to-zoom & Two-finger Pan)
+      let touchLastPos = { x: 0, y: 0 };
+      let touchStartDist = 0;
+      let touchLastMid = { x: 0, y: 0 };
+
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.touches.length === 2) {
+          touchStartDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          touchLastMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && BglState.wasmExports) {
+          const dx = e.touches[0].clientX - touchLastPos.x;
+          const dy = e.touches[0].clientY - touchLastPos.y;
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          if (BglState.wasmExports.bgl_camera_orbit) {
+            BglState.wasmExports.bgl_camera_orbit(dx * 0.005, -dy * 0.005);
+          }
+        } else if (e.touches.length === 2 && BglState.wasmExports) {
+          const curDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const deltaDist = curDist - touchStartDist;
+          touchStartDist = curDist;
+          if (Math.abs(deltaDist) > 0.5 && BglState.wasmExports.bgl_camera_zoom) {
+            BglState.wasmExports.bgl_camera_zoom(deltaDist * 0.04);
+          }
+
+          const curMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+          const dMidX = curMid.x - touchLastMid.x;
+          const dMidY = curMid.y - touchLastMid.y;
+          touchLastMid = curMid;
+          if ((Math.abs(dMidX) > 0.5 || Math.abs(dMidY) > 0.5) && BglState.wasmExports.bgl_camera_pan) {
+            BglState.wasmExports.bgl_camera_pan(-dMidX * 0.005, dMidY * 0.005);
+          }
+        }
+      }, { passive: false });
+    }
+
+    // Web Gamepad API Polling Loop
+    function pollGamepad() {
+      if (navigator.getGamepads) {
+        const gamepads = navigator.getGamepads();
+        for (const gp of gamepads) {
+          if (gp && gp.connected && BglState.wasmExports) {
+            const lx = Math.abs(gp.axes[0]) > 0.12 ? gp.axes[0] : 0;
+            const ly = Math.abs(gp.axes[1]) > 0.12 ? gp.axes[1] : 0;
+            const rx = Math.abs(gp.axes[2]) > 0.12 ? gp.axes[2] : 0;
+            const ry = Math.abs(gp.axes[3]) > 0.12 ? gp.axes[3] : 0;
+            const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+            const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+            const btnA = gp.buttons[0] && gp.buttons[0].pressed ? 1 : 0;
+            const btnB = gp.buttons[1] && gp.buttons[1].pressed ? 1 : 0;
+            const btnX = gp.buttons[2] && gp.buttons[2].pressed ? 1 : 0;
+            const btnY = gp.buttons[3] && gp.buttons[3].pressed ? 1 : 0;
+
+            if (BglState.wasmExports.bgl_gamepad_state) {
+              BglState.wasmExports.bgl_gamepad_state(lx, ly, rx, ry, lt, rt, btnA, btnB, btnX, btnY);
+            }
+            break;
+          }
+        }
+      }
+      requestAnimationFrame(pollGamepad);
+    }
+    requestAnimationFrame(pollGamepad);
 
     // Viewport Resize
     window.addEventListener('resize', () => {

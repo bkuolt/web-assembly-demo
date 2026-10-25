@@ -119,6 +119,125 @@ void bgl_camera_move(float forward, float right, float up) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_camera_orbit(float deltaYaw, float deltaPitch) {
+    if (g_pApp) g_pApp->GetCamera().Orbit(deltaYaw, deltaPitch);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_pan(float deltaX, float deltaY) {
+    if (g_pApp) g_pApp->GetCamera().Pan(deltaX, deltaY);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_focus_selection() {
+    if (g_pApp) g_pApp->FocusSelection();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_frame_all() {
+    if (g_pApp) g_pApp->FrameAll();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_camera_mode() {
+    if (g_pApp) g_pApp->ToggleCameraMode();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_save_bookmark(int slot) {
+    if (g_pApp && slot >= 0) g_pApp->GetCamera().SaveBookmark(static_cast<size_t>(slot));
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_camera_restore_bookmark(int slot) {
+    if (g_pApp && slot >= 0) g_pApp->GetCamera().RestoreBookmark(static_cast<size_t>(slot));
+}
+
+EMSCRIPTEN_KEEPALIVE
+int bgl_pick_node(float screenX, float screenY, float screenWidth, float screenHeight) {
+    if (g_pApp) return g_pApp->PickNodeAt(screenX, screenY, screenWidth, screenHeight);
+    return -1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_select_node(int nodeIndex) {
+    if (g_pApp) g_pApp->SelectNodeByIndex(nodeIndex);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_clear_selection() {
+    if (g_pApp) g_pApp->ClearSelection();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_turntable() {
+    if (g_pApp) g_pApp->ToggleTurntable();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_turntable(int enabled) {
+    if (g_pApp) g_pApp->SetTurntable(enabled != 0);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_turntable_speed(float speed) {
+    if (g_pApp) g_pApp->SetTurntableSpeed(speed);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int bgl_get_camera_count() {
+    if (g_pApp) return g_pApp->GetCameraCount();
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* bgl_get_camera_name(int index) {
+    static std::string s_camName;
+    if (g_pApp) {
+        s_camName = std::string(g_pApp->GetCameraName(index));
+        return s_camName.c_str();
+    }
+    return "";
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_select_camera(int index) {
+    if (g_pApp) g_pApp->SelectCamera(index);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_cycle_camera() {
+    if (g_pApp) g_pApp->CycleCamera();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_time_of_day(float hour) {
+    if (g_pApp) g_pApp->SetTimeOfDay(hour);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_sun_angle(float azimuthRad, float elevationRad) {
+    if (g_pApp) g_pApp->SetSunAzimuthElevation(azimuthRad, elevationRad);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_gamepad_state(float lx, float ly, float rx, float ry, float lt, float rt, int btnA, int btnB, int btnX, int btnY) {
+    if (g_pApp) {
+        bgl::core::GamepadState raw{};
+        raw.connected = true;
+        raw.leftStick = glm::vec2{lx, ly};
+        raw.rightStick = glm::vec2{rx, ry};
+        raw.leftTrigger = lt;
+        raw.rightTrigger = rt;
+        raw.buttonA = btnA != 0;
+        raw.buttonB = btnB != 0;
+        raw.buttonX = btnX != 0;
+        raw.buttonY = btnY != 0;
+        g_pApp->GetGamepad().SetRawState(raw);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_camera_zoom(float deltaZoom) {
     if (g_pApp) g_pApp->GetCamera().Zoom(deltaZoom);
 }

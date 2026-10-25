@@ -647,9 +647,13 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
 
                     const auto& gltfNode = asset.nodes[nodeIdx];
                     auto node = std::make_shared<SceneNode>();
+                    node->nodeIndex = static_cast<int>(nodeIdx);
                     node->name = gltfNode.name.empty() ? ("Node_" + std::to_string(nodeIdx)) : std::string(gltfNode.name);
                     if (gltfNode.lightIndex.has_value() && *gltfNode.lightIndex < asset.lights.size()) {
                         node->lightIndex = static_cast<int>(*gltfNode.lightIndex);
+                    }
+                    if (gltfNode.cameraIndex.has_value() && *gltfNode.cameraIndex < asset.cameras.size()) {
+                        node->cameraIndex = static_cast<int>(*gltfNode.cameraIndex);
                     }
 
                     if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
@@ -714,7 +718,43 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<co
         }
     }
 
+    scene->allNodes = loadedNodes;
     scene->Update();
+
+    // 8b. Parse glTF Cameras and extract world transforms
+    scene->cameras.reserve(asset.cameras.size());
+    for (size_t cIdx = 0; cIdx < asset.cameras.size(); ++cIdx) {
+        const auto& cam = asset.cameras[cIdx];
+        SceneCamera sc{};
+        sc.name = cam.name.empty() ? ("Camera_" + std::to_string(cIdx)) : std::string(cam.name);
+        if (std::holds_alternative<fastgltf::Camera::Perspective>(cam.camera)) {
+            const auto& persp = std::get<fastgltf::Camera::Perspective>(cam.camera);
+            sc.isPerspective = true;
+            sc.yfov = static_cast<float>(persp.yfov);
+            sc.znear = static_cast<float>(persp.znear);
+            sc.zfar = persp.zfar.has_value() ? static_cast<float>(*persp.zfar) : 1000.0f;
+        } else if (std::holds_alternative<fastgltf::Camera::Orthographic>(cam.camera)) {
+            const auto& ortho = std::get<fastgltf::Camera::Orthographic>(cam.camera);
+            sc.isPerspective = false;
+            sc.xmag = static_cast<float>(ortho.xmag);
+            sc.ymag = static_cast<float>(ortho.ymag);
+            sc.znear = static_cast<float>(ortho.znear);
+            sc.zfar = static_cast<float>(ortho.zfar);
+        }
+
+        // Find which node instantiates this camera to capture world transform
+        for (size_t nIdx = 0; nIdx < loadedNodes.size(); ++nIdx) {
+            if (loadedNodes[nIdx] && loadedNodes[nIdx]->cameraIndex == static_cast<int>(cIdx)) {
+                sc.nodeIndex = static_cast<int>(nIdx);
+                sc.worldTransform = loadedNodes[nIdx]->worldTransform;
+                break;
+            }
+        }
+        scene->cameras.push_back(std::move(sc));
+    }
+    if (!scene->cameras.empty()) {
+        BGL_LOG_INFO("[glTF Loader] Successfully parsed {} glTF camera(s)", scene->cameras.size());
+    }
 
     // 9. Display ASCII Hierarchy Tree Diagram & Telemetry
     BGL_LOG_INFO("--------------------------------------------------------------------------------");

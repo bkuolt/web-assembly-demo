@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.2] - 2026-10-25
+
+### Click-Picking & Outline, Focus [F], Fly/WASD Camera, glTF Cameras, Touch, Gamepad & Diurnal Sun
+- **Interactive Click-Picking with RayPicker & Outline Highlighting:**
+  - Implemented precise Möller-Trumbore ray unprojection from screen coordinates (`bgl_pick_node`).
+  - Added vibrant gold/amber selection outline and bounding box rendering in WebGPU render pass (`pipelineManager_.AppendAABBLines(selectedNode_->worldAABB, gold)`).
+  - Bidirectionally synchronized with the Scene Hierarchy tree (`#node-tree-panel`): picking an object in the 3D canvas expands and highlights its row in the tree, while clicking any tree row selects and frames the node in 3D.
+- **Selection Focus ("F"), "Frame All" & 9 Camera Bookmarks:**
+  - Added `FocusSelection()` triggered by key `[F]`: smoothly frames camera target and distance onto the selected node bounds (or active scene if none selected).
+  - Added `FrameAll()` triggered by `[Home]` / UI button: frames the entire scene AABB.
+  - Implemented 9 camera viewpoint bookmark slots: save current viewpoint with `Ctrl + 1..9` (or UI `+1`..`+3` buttons), recall with `1..9` (or UI `1`..`3` buttons).
+  - Added unit tests `CameraTest.FocusOnBoundsFraming` and `CameraTest.CameraBookmarksSaveAndRecall`.
+- **First-Person Fly / WASD Camera & Turntable Autorotation:**
+  - Added dual camera navigation modes: `CameraMode::Orbit` and `CameraMode::Fly` (`[C]` key / UI button).
+  - In Fly mode, WASD keys and left stick smoothly translate the camera eye through scene interiors (ideal for exploring the interior of Sponza).
+  - Added continuous Turntable autorotation (`[T]` key / UI button) with live speed slider `[0.05–2.0 rad/s]`.
+  - Added unit test `CameraTest.FlyModeFreeNavigation`.
+- **glTF Camera Ingestion & Switching (`fastgltf::Camera`):**
+  - Integrated complete parsing of perspective and orthographic cameras from glTF files.
+  - Automatically binds cameras to their parent node world transforms in `SceneNode`.
+  - Added camera selector dropdown in web HUD and cycling support (`CycleCamera()`, `SelectCamera(idx)`).
+  - Added unit tests `CameraTest.glTFCameraTransformIngestion` and `RenderingFeaturesTest.SceneNodeHierarchyAndCameraData`.
+- **Touch Controls for Mobile & Tablet Browsers:**
+  - Added touch event listeners on the 3D WebGPU canvas with gesture isolation (`passive: false`).
+  - 1-finger drag enables smooth camera orbit.
+  - 2-finger pinch gesture smoothly controls camera zoom.
+  - 2-finger midpoint drag performs view-space panning.
+- **Dual Gamepad Support (Native SDL_GameController & HTML5 Web Gamepad API):**
+  - Native desktop `SDL_GameController` polling with normalized radial deadzone filtering ($0.12$).
+  - HTML5 Web Gamepad API in browser (`navigator.getGamepads()`) integrated into continuous animation loop.
+  - Left stick translates/pans, right stick orbits/looks, triggers zoom in/out, and face buttons toggle bounds and ray-pick.
+  - Added unit test `RenderingFeaturesTest.GamepadRadialDeadzoneRemapping`.
+- **Diurnal Time-of-Day & Sun Angle Live Slider:**
+  - Added live time-of-day slider `[0.0h–24.0h]` calculating continuous solar elevation and azimuth angles.
+  - Atmospheric skybox, directional PCF shadows, lens flares, and specular cubemap reflections update live in real time.
+  - Added unit test `RenderingFeaturesTest.DiurnalSunTrajectoryCalculation`.
+- **Test Suite Expansion (149 Passing Tests):**
+  - Expanded test suite to **149 unit tests across 12 test suites** with 100% pass rate.
+
+---
+
 ## [0.9.1] - 2026-10-25
 
 ### Alpha-Tested Shadows, SSAO, Emissive Bloom, True Transmission & Native Compressed Textures

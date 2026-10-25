@@ -1148,6 +1148,71 @@ TEST(RenderingFeaturesTest, ScreenSpaceAmbientOcclusionHorizonFactor) {
     EXPECT_FLOAT_EQ(farOcclusion, 1.0f);
 }
 
+TEST(RenderingFeaturesTest, DiurnalSunTrajectoryCalculation) {
+    auto computeSunDir = [](float hour) -> glm::vec3 {
+        const float time = std::clamp(hour, 0.0f, 24.0f);
+        const float dayFraction = (time - 6.0f) / 12.0f;
+        const float el = std::max(std::sin(dayFraction * std::numbers::pi_v<float>), 0.05f);
+        const float az = (time / 24.0f) * 2.0f * std::numbers::pi_v<float>;
+        const float cosEl = std::cos(el);
+        return glm::normalize(glm::vec3{cosEl * std::sin(az), std::sin(el), cosEl * std::cos(az)});
+    };
+
+    // 1. Solar noon (12:00) has peak upward elevation
+    const glm::vec3 noonSun = computeSunDir(12.0f);
+    EXPECT_GT(noonSun.y, 0.7f);
+    EXPECT_NEAR(glm::length(noonSun), 1.0f, 1e-4f);
+
+    // 2. Sunset (~18:00) has low elevation near horizon
+    const glm::vec3 sunsetSun = computeSunDir(18.0f);
+    EXPECT_LT(sunsetSun.y, noonSun.y);
+    EXPECT_NEAR(glm::length(sunsetSun), 1.0f, 1e-4f);
+}
+
+TEST(RenderingFeaturesTest, GamepadRadialDeadzoneRemapping) {
+    // 1. Sub-deadzone values filtered completely to zero
+    const glm::vec2 slightDrift(0.05f, -0.06f);
+    const glm::vec2 filtered = core::Gamepad::ApplyDeadzone(slightDrift);
+    EXPECT_FLOAT_EQ(filtered.x, 0.0f);
+    EXPECT_FLOAT_EQ(filtered.y, 0.0f);
+
+    // 2. Full deflection returns unit magnitude
+    const glm::vec2 fullRight(1.0f, 0.0f);
+    const glm::vec2 remapped = core::Gamepad::ApplyDeadzone(fullRight);
+    EXPECT_NEAR(remapped.x, 1.0f, 1e-3f);
+    EXPECT_FLOAT_EQ(remapped.y, 0.0f);
+}
+
+TEST(RenderingFeaturesTest, SceneNodeHierarchyAndCameraData) {
+    scene::Scene scene{};
+    auto root = std::make_shared<scene::SceneNode>();
+    root->name = "RootNode";
+    root->nodeIndex = 0;
+
+    auto child = std::make_shared<scene::SceneNode>();
+    child->name = "CameraMount";
+    child->nodeIndex = 1;
+    child->cameraIndex = 0;
+    root->children.push_back(child);
+
+    scene.rootNodes.push_back(root);
+    scene.allNodes.push_back(root);
+    scene.allNodes.push_back(child);
+
+    scene::SceneCamera cam{};
+    cam.name = "TestPerspCamera";
+    cam.isPerspective = true;
+    cam.yfov = glm::radians(60.0f);
+    cam.nodeIndex = 1;
+    scene.cameras.push_back(cam);
+
+    EXPECT_EQ(scene.allNodes.size(), 2u);
+    EXPECT_EQ(scene.cameras.size(), 1u);
+    EXPECT_EQ(scene.cameras[0].nodeIndex, 1);
+    EXPECT_EQ(scene.allNodes[1]->cameraIndex, 0);
+}
+
+
 
 
 
