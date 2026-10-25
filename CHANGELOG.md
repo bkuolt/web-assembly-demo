@@ -7,31 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.10] - 2026-10-25
+## [0.9.11] - 2026-10-25
 
-### WebGL 2 Fallback Pipeline, Shadow Map PCF Binding Fix & HUD Modernization
+### Production Readiness, Full Link Audit, Verified WebGL 2 Fallback & English Language Harmonization
+- **Strict English Language Harmonization:**
+  - Standardized all codebase documentation, HUD text, changelogs, and user-facing notifications to English.
+- **Link Integrity & Offline Preview Audit:**
+  - Audited and verified all external model and documentation links across `README.md`, `web/index.html`, and `web/app.js`.
+  - Replaced dead GitHub Pages link with verified, instant GitHack preview on `main` branch.
+- **WebGL 2 (GLES 3.0) Browser Fallback Pipeline:**
+  - Automated high-compatibility WebGL 2 fallback pipeline in `web/app.js` when `navigator.gpu` is unavailable.
+  - Interactive orbit camera, turntable autorotation, bounding box wireframes, and glTF 2.0 / GLB mesh parsing.
 - **Directional PCF Shadow Map Synchronization:**
-  - Resolved regression where `@binding(11)` in PBR material bind groups was bound to an unrendered `shadowDepthView_` instead of `shadowPass_.GetShadowMapView()`.
-  - Fixed double rotation bug in `Shaders.hpp` where `sunL` was rotated by `-envRot` both on CPU and in WGSL shader.
-  - Dynamically scaled normal offset bias `clamp(ubo.shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL)` to prevent shadow acne and peter-panning.
-- **Full WebGL 2 (GLES 3.0) Browser Fallback Engine:**
-  - Implemented automatic high-performance WebGL 2 fallback pipeline in `web/app.js` when WebGPU (`navigator.gpu`) is unavailable (e.g. mobile Safari, Firefox default, legacy hardware).
-  - Integrated full GLSL ES 300 PBR lighting, orbit camera controls, turntable autorotation, bounding box wireframes, and glTF 2.0 / GLB mesh parsing.
-  - Dynamic HUD status update: `WebGL 2 & Wasm (Compatibility Mode)`.
+  - Synchronized material bind group `@binding(11)` with `shadowPass_.GetShadowMapView()`.
+  - Fixed sun light double-rotation in WGSL fragment shader (`sunL`).
+  - Added adaptive normal-offset bias scaling to eliminate shadow acne and peter-panning.
 - **HUD Usability & Compact Design Polish:**
-  - Implemented smooth auto-collapse of download progress bar upon completion (`.progress-bar-container.ready`).
-  - Added responsive layout breakpoints (`@media (max-width: 640px)`) for mobile and narrow screens.
-  - Categorized micro-chips for render features into Lighting, Materials, and Scene groups.
-- **glTF-Sample-Assets Integration & Offline Caching:**
-  - Added model selection dropdown populated with verified Khronos models.
-  - Added `CacheStorage` browser offline caching with live cache badges and purge button.
-  - Added dedicated modal streaming loading screen with cancel support.
+  - Auto-collapsing download progress bar (`.progress-bar-container.ready`).
+  - Mobile & adaptive layout breakpoints (`@media (max-width: 640px)`).
 
 ---
 
+## [0.9.10] - 2026-10-25
 
+### glTF-Sample-Assets Dropdown Integration & Browser CacheStorage
+- Added official Khronos glTF-Sample-Assets model dropdown with 15 verified models.
+- Integrated `CacheStorage` browser offline storage (`bgl-gltf-models-v1`) with instant cache reloads and live badges.
+- Dedicated modal streaming download screen with real-time transfer speed, byte counts, and cancel support.
 
-### Independent Code Review & Modernized UI, RAII Safety & Telemetry Polish
+---
+
+## [0.9.9] - 2026-10-25
 - **Modernized & Compact Glassmorphism UI:**
   - Modernized HUD overlay with 3-state cycling (`Full` -> `Minimal` -> `Hidden` -> `Full`) via `[O]` / `[F3]`.
   - Added real-time FPS pills, RAM & VRAM telemetry indicators, and structured camera metrics.
