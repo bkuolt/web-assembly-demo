@@ -1661,142 +1661,154 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
     WGPUSampler activeSampler{mipmappingEnabled_ ? defaultSampler_.Get() : noMipSampler_.Get()};
 
-    auto rebuildNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (auto& prim : node.primitives) {
-            if (!prim.gpuUniformBuffer) continue;
-            if (prim.gpuBindGroup) {
-                wgpuBindGroupRelease(prim.gpuBindGroup);
-                prim.gpuBindGroup = nullptr;
-            }
-
-            int baseColorTexIdx{-1};
-            int mrTexIdx{-1};
-            int normalTexIdx{-1};
-            int emissiveTexIdx{-1};
-            int occlusionTexIdx{-1};
-            int clearcoatTexIdx{-1};
-            int transmissionTexIdx{-1};
-            int sheenTexIdx{-1};
-
-            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                const auto& mat = scene.materials[prim.materialIndex];
-                baseColorTexIdx = mat.baseColorTextureIndex;
-                mrTexIdx = mat.metallicRoughnessTextureIndex;
-                normalTexIdx = mat.normalTextureIndex;
-                emissiveTexIdx = mat.emissiveTextureIndex;
-                occlusionTexIdx = mat.occlusionTextureIndex;
-                clearcoatTexIdx = mat.clearcoatTextureIndex;
-                transmissionTexIdx = mat.transmissionTextureIndex;
-                sheenTexIdx = mat.sheenColorTextureIndex;
-            }
-
-            std::array<WGPUBindGroupEntry, 16> bgEntries{};
-            bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[0].binding = 0;
-            bgEntries[0].buffer = prim.gpuUniformBuffer;
-            bgEntries[0].offset = 0;
-            bgEntries[0].size = sizeof(PrimitiveUniforms);
-
-            bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[1].binding = 1;
-            bgEntries[1].sampler = activeSampler;
-
-            bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[2].binding = 2;
-            bgEntries[2].textureView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[3].binding = 3;
-            bgEntries[3].textureView = getTexView(mrTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[4].binding = 4;
-            bgEntries[4].textureView = getTexView(normalTexIdx, defaultNormalTextureView_);
-
-            bgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[5].binding = 5;
-            bgEntries[5].textureView = getTexView(emissiveTexIdx, defaultBlackTextureView_);
-
-            bgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[6].binding = 6;
-            bgEntries[6].textureView = getTexView(occlusionTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[7] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[7].binding = 7;
-            bgEntries[7].textureView = getTexView(clearcoatTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[8] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[8].binding = 8;
-            bgEntries[8].textureView = getTexView(transmissionTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[9] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[9].binding = 9;
-            bgEntries[9].textureView = getTexView(sheenTexIdx, defaultWhiteTextureView_);
-
-            bgEntries[10] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[10].binding = 10;
-            bgEntries[10].textureView = envCubemapView_;
-
-            bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[11].binding = 11;
-            bgEntries[11].textureView = shadowDepthView_;
-
-            bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[12].binding = 12;
-            bgEntries[12].sampler = shadowSampler_;
-
-            bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[13].binding = 13;
-            bgEntries[13].textureView = brdfLutView_ ? brdfLutView_.Get() : defaultWhiteTextureView_.Get();
-
-            bgEntries[14] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[14].binding = 14;
-            bgEntries[14].buffer = sceneLightingBuffer_;
-            bgEntries[14].offset = 0;
-            bgEntries[14].size = sizeof(SceneLightingUniforms);
-
-            bgEntries[15] = WGPU_BIND_GROUP_ENTRY_INIT;
-            bgEntries[15].binding = 15;
-            bgEntries[15].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
-
-            WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-            bgDesc.layout = bindGroupLayout_;
-            bgDesc.entryCount = bgEntries.size();
-            bgDesc.entries = bgEntries.data();
-            prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
-
-            if (prim.gpuShadowBindGroup) {
-                wgpuBindGroupRelease(prim.gpuShadowBindGroup);
-                prim.gpuShadowBindGroup = nullptr;
-            }
-            if (shadowBindGroupLayout_) {
-                WGPUTextureView baseView = defaultWhiteTextureView_.Get();
-                if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
-                    baseView = scene.gpuTextures[baseColorTexIdx].view;
-                }
-                std::array<WGPUBindGroupEntry, 3> shadowEntries{};
-                shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[0].binding = 0;
-                shadowEntries[0].buffer = prim.gpuUniformBuffer;
-                shadowEntries[0].offset = 0;
-                shadowEntries[0].size = sizeof(PrimitiveUniforms);
-
-                shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[1].binding = 1;
-                shadowEntries[1].sampler = defaultSampler_.Get();
-
-                shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-                shadowEntries[2].binding = 2;
-                shadowEntries[2].textureView = baseView;
-
-                WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-                shadowBgDesc.layout = shadowBindGroupLayout_;
-                shadowBgDesc.entryCount = shadowEntries.size();
-                shadowBgDesc.entries = shadowEntries.data();
-                prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
-            }
+    auto rebuildPrimitive = [&](scene::MeshPrimitive& prim) -> void {
+        if (!prim.gpuUniformBuffer) return;
+        if (prim.gpuBindGroup) {
+            wgpuBindGroupRelease(prim.gpuBindGroup);
+            prim.gpuBindGroup = nullptr;
         }
 
+        int baseColorTexIdx{-1};
+        int mrTexIdx{-1};
+        int normalTexIdx{-1};
+        int emissiveTexIdx{-1};
+        int occlusionTexIdx{-1};
+        int clearcoatTexIdx{-1};
+        int transmissionTexIdx{-1};
+        int sheenTexIdx{-1};
+
+        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
+            const auto& mat = scene.materials[prim.materialIndex];
+            baseColorTexIdx = mat.baseColorTextureIndex;
+            mrTexIdx = mat.metallicRoughnessTextureIndex;
+            normalTexIdx = mat.normalTextureIndex;
+            emissiveTexIdx = mat.emissiveTextureIndex;
+            occlusionTexIdx = mat.occlusionTextureIndex;
+            clearcoatTexIdx = mat.clearcoatTextureIndex;
+            transmissionTexIdx = mat.transmissionTextureIndex;
+            sheenTexIdx = mat.sheenColorTextureIndex;
+        }
+
+        std::array<WGPUBindGroupEntry, 16> bgEntries{};
+        bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[0].binding = 0;
+        bgEntries[0].buffer = prim.gpuUniformBuffer;
+        bgEntries[0].offset = 0;
+        bgEntries[0].size = sizeof(PrimitiveUniforms);
+
+        bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[1].binding = 1;
+        bgEntries[1].sampler = activeSampler;
+
+        bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[2].binding = 2;
+        bgEntries[2].textureView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[3].binding = 3;
+        bgEntries[3].textureView = getTexView(mrTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[4].binding = 4;
+        bgEntries[4].textureView = getTexView(normalTexIdx, defaultNormalTextureView_);
+
+        bgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[5].binding = 5;
+        bgEntries[5].textureView = getTexView(emissiveTexIdx, defaultBlackTextureView_);
+
+        bgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[6].binding = 6;
+        bgEntries[6].textureView = getTexView(occlusionTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[7] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[7].binding = 7;
+        bgEntries[7].textureView = getTexView(clearcoatTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[8] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[8].binding = 8;
+        bgEntries[8].textureView = getTexView(transmissionTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[9] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[9].binding = 9;
+        bgEntries[9].textureView = getTexView(sheenTexIdx, defaultWhiteTextureView_);
+
+        bgEntries[10] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[10].binding = 10;
+        bgEntries[10].textureView = envCubemapView_;
+
+        bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[11].binding = 11;
+        bgEntries[11].textureView = shadowDepthView_;
+
+        bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[12].binding = 12;
+        bgEntries[12].sampler = shadowSampler_;
+
+        bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[13].binding = 13;
+        bgEntries[13].textureView = brdfLutView_ ? brdfLutView_.Get() : defaultWhiteTextureView_.Get();
+
+        bgEntries[14] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[14].binding = 14;
+        bgEntries[14].buffer = sceneLightingBuffer_;
+        bgEntries[14].offset = 0;
+        bgEntries[14].size = sizeof(SceneLightingUniforms);
+
+        bgEntries[15] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[15].binding = 15;
+        bgEntries[15].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
+
+        WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        bgDesc.layout = bindGroupLayout_;
+        bgDesc.entryCount = bgEntries.size();
+        bgDesc.entries = bgEntries.data();
+        prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+
+        if (prim.gpuShadowBindGroup) {
+            wgpuBindGroupRelease(prim.gpuShadowBindGroup);
+            prim.gpuShadowBindGroup = nullptr;
+        }
+        if (shadowBindGroupLayout_) {
+            WGPUTextureView baseView = defaultWhiteTextureView_.Get();
+            if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() && scene.gpuTextures[baseColorTexIdx].view) {
+                baseView = scene.gpuTextures[baseColorTexIdx].view;
+            }
+            std::array<WGPUBindGroupEntry, 3> shadowEntries{};
+            shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[0].binding = 0;
+            shadowEntries[0].buffer = prim.gpuUniformBuffer;
+            shadowEntries[0].offset = 0;
+            shadowEntries[0].size = sizeof(PrimitiveUniforms);
+
+            shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[1].binding = 1;
+            shadowEntries[1].sampler = defaultSampler_.Get();
+
+            shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+            shadowEntries[2].binding = 2;
+            shadowEntries[2].textureView = baseView;
+
+            WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+            shadowBgDesc.layout = shadowBindGroupLayout_;
+            shadowBgDesc.entryCount = shadowEntries.size();
+            shadowBgDesc.entries = shadowEntries.data();
+            prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+        }
+    };
+
+    // Rebuild for all shared meshes
+    for (auto& mesh : scene.meshes) {
+        if (mesh) {
+            for (auto& prim : mesh->primitives) {
+                rebuildPrimitive(prim);
+            }
+        }
+    }
+
+    auto rebuildNode = [&](auto& self, scene::SceneNode& node) -> void {
+        for (auto& prim : node.GetPrimitives()) {
+            rebuildPrimitive(prim);
+        }
         for (auto& child : node.children) {
             if (child) self(self, *child);
         }
@@ -2187,7 +2199,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
     }
     auto cacheNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
         const glm::mat4 worldMat{parentTransform * node.localTransform};
-        for (const auto& prim : node.primitives) {
+        for (const auto& prim : node.GetPrimitives()) {
             if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
                 AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
             }
@@ -2513,9 +2525,10 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
         return;
     }
 
-    lastVisiblePrimitiveCount_ += node.primitives.size();
-    for (auto& prim : node.primitives) {
-        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline);
+    const auto prims = node.GetPrimitives();
+    lastVisiblePrimitiveCount_ += prims.size();
+    for (auto& prim : prims) {
+        RenderPrimitive(pass, scene, const_cast<scene::MeshPrimitive&>(prim), worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline);
     }
 
     for (const auto& child : node.children) {
@@ -2689,7 +2702,7 @@ void PipelineManager::BatchSceneAABBs(const scene::Scene& scene, bool showSceneA
     if (showPrimitiveAABBs) {
         auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
             const glm::mat4 worldMat{parentTransform * node.localTransform};
-            for (const auto& prim : node.primitives) {
+            for (const auto& prim : node.GetPrimitives()) {
                 if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
                     AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
                 }

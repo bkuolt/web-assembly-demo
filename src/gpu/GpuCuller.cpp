@@ -278,8 +278,9 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     cpuBounds_.clear();
     auto collectBounds = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentMat) -> void {
         const glm::mat4 worldMat = parentMat * node.localTransform;
-        for (size_t pIdx = 0; pIdx < node.primitives.size(); ++pIdx) {
-            const auto& prim = node.primitives[pIdx];
+        auto prims = node.GetPrimitives();
+        for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
+            const auto& prim = prims[pIdx];
             if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
                 const auto worldBox = prim.boundingBox.Transformed(worldMat);
                 GpuBoundingBox box{};

@@ -326,7 +326,7 @@ void AabbRenderer::BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB
     if (showPrimitiveAABBs) {
         auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
             const glm::mat4 worldMat{parentTransform * node.localTransform};
-            for (const auto& prim : node.primitives) {
+            for (const auto& prim : node.GetPrimitives()) {
                 if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
                     AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
                 }

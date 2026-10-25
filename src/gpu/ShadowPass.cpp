@@ -323,7 +323,7 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
 
     auto renderNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
         const glm::mat4 worldMat{parentMat * node.localTransform};
-        for (auto& prim : node.primitives) {
+        for (auto& prim : node.GetPrimitives()) {
             if (!prim.gpuVertexBuffer || !prim.gpuUniformBuffer) continue;
 
             ShadowUniforms uniforms{};
@@ -375,7 +375,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder,
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
 
             if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0, prim.indices.size() * sizeof(uint32_t));
+                const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0, prim.indices.size() * indexSize);
                 wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
             } else {
                 wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);

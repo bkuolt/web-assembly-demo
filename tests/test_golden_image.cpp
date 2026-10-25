@@ -90,3 +90,25 @@ TEST(GoldenImageTest, Fnv1aDeterministicContentHashing) {
     EXPECT_EQ(h1, h2);
     EXPECT_NE(h1, 0u);
 }
+
+TEST(GoldenImageTest, SceneNodeGetPrimitivesReturnsSharedMeshPrimitives) {
+    scene::AssetManager assetMgr;
+    scene::FastGltfLoader loader(assetMgr);
+
+    auto sceneRes = loader.LoadFromFile("assets/ToyCar.glb");
+    ASSERT_TRUE(sceneRes.has_value()) << "ToyCar.glb should load successfully";
+    auto scene = *sceneRes;
+    ASSERT_NE(scene, nullptr);
+
+    size_t nodePrimitivesCount = 0;
+    for (const auto& node : scene->allNodes) {
+        if (!node) continue;
+        auto prims = node->GetPrimitives();
+        nodePrimitivesCount += prims.size();
+        for (const auto& prim : prims) {
+            EXPECT_GT(prim.vertices.size(), 0u);
+            EXPECT_LE(prim.boundingBox.minBound.x, prim.boundingBox.maxBound.x);
+        }
+    }
+    EXPECT_GT(nodePrimitivesCount, 0u);
+}

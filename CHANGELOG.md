@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.8] - 2026-10-25
+
+### Shared Mesh Primitive Access Synchronization & Shadow Pass Uint16 Index Format
+- **Zero-Copy Mesh Primitive Synchronization Across All Render Passes:**
+  - Resolved regression where geometry was omitted from main render pass, shadow depth pass, and GPU culling because nodes were reading empty `node.primitives` instead of `node.GetPrimitives()`.
+  - Rebuilt material bind groups for shared meshes (`scene.meshes`) and nodes, ensuring all primitives receive valid WebGPU bind groups.
+  - Aligned `AabbRenderer`, `GpuCuller`, `ShadowPass`, and `Pipeline` to use `node.GetPrimitives()`.
+- **Shadow Pass Uint16 Dynamic Index Format Support:**
+  - Fixed hardcoded `WGPUIndexFormat_Uint32` in `ShadowPass.cpp:378` which caused validation overflow on models with `WGPUIndexFormat_Uint16` (e.g. `ToyCar.glb`).
+- **Expanded Test Coverage (158 Passing Tests):**
+  - Added `SceneNodeGetPrimitivesReturnsSharedMeshPrimitives` in `tests/test_golden_image.cpp`.
+  - 158/158 unit tests passing across all 13 test suites.
+
+---
+
 ## [0.9.7] - 2026-10-25
 
 ### ThreadPool Re-entrancy, Work-Stealing Wait & WebGPU Index Buffer 4-Byte Alignment
