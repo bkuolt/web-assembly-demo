@@ -1,6 +1,6 @@
 # WebAssembly and WebGPU Demo (bgl-Engine v0.9.9)
 
-# 🎮 **[👉 HIER DIREKT ZUR LIVE DEMO (GitHub Pages) 👈](https://bkuolt.github.io/web-assembly-demo/web/index.html)**
+# 🎮 **[👉 RUN LIVE DEMO IN BROWSER (GitHub Pages) 👈](https://bkuolt.github.io/web-assembly-demo/web/index.html)**
 
 [![Live Demo - GitHub Pages](https://img.shields.io/badge/Live_Demo-GitHub_Pages-0284c7?style=for-the-badge&logo=github)](https://bkuolt.github.io/web-assembly-demo/web/index.html)
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Preview-raw.githack.com-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
