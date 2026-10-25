@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.5] - 2026-10-25
+
+### Documentation Synchronization, Master Architecture Specifications & Release Hardening
+- **Master Architecture Alignment:**
+  - Synchronized `AGENT_INSTRUCTIONS.md` to engine release `v0.9.5` reflecting thread-safe worker pools, mesh sharing, zero-copy span accessors, and dynamic index buffers.
+  - Aligned project documentation and runtime version tags across all build targets.
+- **Verification and Release:**
+  - Automated CMake configuration generation with synchronized `Version.hpp`.
+  - 157/157 tests passing across all test suites.
+
+---
+
 ## [0.9.4] - 2026-10-25
 
 ### Thread Pool, Mesh Sharing, Front-to-Back Sorting, Content Hashing, Golden Image Tests & Emscripten CI
