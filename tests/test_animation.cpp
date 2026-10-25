@@ -276,19 +276,25 @@ TEST(AnimationTest, SkinJointMatrixComputation) {
 
     skin.inverseBindMatrices = {ibm0, ibm1};
 
+    // Node 0: joint 0 moved to (5, 0, 0)
+    auto node0 = std::make_shared<SceneNode>();
+    node0->worldTransform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f));
+
+    // Node 1: joint 1 moved to (5, 3, 0)
+    auto node1 = std::make_shared<SceneNode>();
+    node1->worldTransform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 3.0f, 0.0f));
+
+    std::vector<std::shared_ptr<SceneNode>> allNodes = {node0, node1};
+
     // Mesh node at origin
     glm::mat4 meshWorld = glm::mat4(1.0f);
-    glm::mat4 invMeshWorld = glm::inverse(meshWorld);
-
-    // Joint 0 moved to (5, 0, 0)
-    glm::mat4 joint0World = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f));
-
-    // Joint 1 moved to (5, 3, 0)
-    glm::mat4 joint1World = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 3.0f, 0.0f));
+    std::array<glm::mat4, 4> computedJoints{};
+    uint32_t count = skin.ComputeJointMatrices(meshWorld, allNodes, computedJoints);
+    EXPECT_EQ(count, 2u);
 
     // Expected joint matrices: invMeshWorld * jointWorld * ibm
-    glm::mat4 jMat0 = invMeshWorld * joint0World * ibm0;
-    glm::mat4 jMat1 = invMeshWorld * joint1World * ibm1;
+    const glm::mat4& jMat0 = computedJoints[0];
+    const glm::mat4& jMat1 = computedJoints[1];
 
     // Test a vertex bound to joint 0 with weight 1.0:
     glm::vec4 pos0(0.0f, 0.0f, 0.0f, 1.0f);

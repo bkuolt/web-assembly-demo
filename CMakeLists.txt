@@ -93,6 +93,13 @@ endif()
 # ==============================================================================
 # Find External Dependencies (Conan 2.x & System Packages)
 # ==============================================================================
+list(PREPEND CMAKE_PREFIX_PATH
+    "${CMAKE_BINARY_DIR}"
+    "${CMAKE_BINARY_DIR}/generators"
+    "${CMAKE_BINARY_DIR}/Release/generators"
+    "${CMAKE_BINARY_DIR}/Debug/generators"
+)
+
 find_package(fastgltf REQUIRED CONFIG)
 find_package(glm REQUIRED CONFIG)
 find_package(spdlog REQUIRED CONFIG)
@@ -273,7 +280,11 @@ if(BGL_ENABLE_JPEG)
 endif()
 if(BGL_ENABLE_WEBP)
     target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_WEBP)
-    target_link_libraries(bgl_scene PUBLIC libwebp::libwebp)
+    if(TARGET libwebp::libwebp)
+        target_link_libraries(bgl_scene PUBLIC libwebp::libwebp)
+    elseif(TARGET WebP::webp)
+        target_link_libraries(bgl_scene PUBLIC WebP::webp)
+    endif()
 endif()
 if(BGL_ENABLE_KTX)
     target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_KTX)

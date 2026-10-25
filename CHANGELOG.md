@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Synchronized material bind group `@binding(11)` with `shadowPass_.GetShadowMapView()`.
   - Fixed sun light double-rotation in WGSL fragment shader (`sunL`).
   - Added adaptive normal-offset bias scaling to eliminate shadow acne and peter-panning.
+- **Centralized Skinning Matrix Computation & Code Refactoring:**
+  - Implemented `Skin::ComputeJointMatrices` in `scene::Skin`, eliminating 45 lines of duplicated joint matrix loops across `Pipeline.cpp` (forward and depth passes) and `ShadowPass.cpp`.
+  - Converted glTF loader string mappers (`AccessorTypeToString`, `ComponentTypeToString`) to `[[nodiscard]] constexpr std::string_view ... noexcept`.
+- **CMake & Conan 2.x Build Resilience:**
+  - Automatically prepended Conan generator directories to `CMAKE_PREFIX_PATH` in `CMakeLists.txt`, resolving target collisions with system CMake configs.
+  - Added dual target fallback for `libwebp::libwebp` and `WebP::webp`.
+  - Added `required_conan_version = ">=2.0"` to `conanfile.py` and validated dependency locks via `conan lock create`.
 - **HUD Usability & Compact Design Polish:**
   - Auto-collapsing download progress bar (`.progress-bar-container.ready`).
   - Mobile & adaptive layout breakpoints (`@media (max-width: 640px)`).

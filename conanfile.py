@@ -5,6 +5,7 @@ class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
     version = "0.9.11"
     package_type = "application"
+    required_conan_version = ">=2.0"
     settings = "os", "arch", "compiler", "build_type"
 
     options = {

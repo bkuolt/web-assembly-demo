@@ -372,4 +372,24 @@ void Scene::SetAnimation(int index) noexcept {
     }
 }
 
+uint32_t Skin::ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,
+                                    std::span<const std::shared_ptr<SceneNode>> allNodes,
+                                    std::span<glm::mat4> outJointMatrices) const noexcept {
+    const uint32_t count = std::min(static_cast<uint32_t>(joints.size()),
+                                    static_cast<uint32_t>(outJointMatrices.size()));
+    const glm::mat4 invWorld = glm::inverse(meshNodeWorldTransform);
+    for (uint32_t j = 0; j < count; ++j) {
+        const int jointNodeIdx = joints[j];
+        glm::mat4 jointWorld{1.0f};
+        if (jointNodeIdx >= 0 && static_cast<size_t>(jointNodeIdx) < allNodes.size()) {
+            if (const auto& jointNode = allNodes[static_cast<size_t>(jointNodeIdx)]) {
+                jointWorld = jointNode->worldTransform;
+            }
+        }
+        const glm::mat4 ibm = (j < inverseBindMatrices.size()) ? inverseBindMatrices[j] : glm::mat4{1.0f};
+        outJointMatrices[j] = invWorld * jointWorld * ibm;
+    }
+    return count;
+}
+
 } // namespace bgl::scene

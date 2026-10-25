@@ -343,25 +343,11 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
 
             if (node.skinIndex >= 0 && static_cast<size_t>(node.skinIndex) < scene.skins.size()) {
                 const auto& skin = scene.skins[static_cast<size_t>(node.skinIndex)];
-                const uint32_t count = std::min(static_cast<uint32_t>(skin.joints.size()), 128u);
-                uniforms.jointCount = count;
-                const glm::mat4 invWorld = glm::inverse(worldMat);
-                for (uint32_t j = 0; j < count; ++j) {
-                    const int jointNodeIdx = skin.joints[j];
-                    glm::mat4 jointWorld{1.0f};
-                    if (jointNodeIdx >= 0 && static_cast<size_t>(jointNodeIdx) < scene.allNodes.size()) {
-                        if (const auto& jointNode = scene.allNodes[static_cast<size_t>(jointNodeIdx)]) {
-                            jointWorld = jointNode->worldTransform;
-                        }
-                    }
-                    const glm::mat4 ibm =
-                        (j < skin.inverseBindMatrices.size()) ? skin.inverseBindMatrices[j] : glm::mat4{1.0f};
-                    uniforms.jointMatrices[j] = invWorld * jointWorld * ibm;
-                }
+                uniforms.jointCount = skin.ComputeJointMatrices(worldMat, scene.allNodes, uniforms.jointMatrices);
             }
 
             if (!node.morphWeights.empty()) {
-                const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 8u);
+                const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 4u);
                 uniforms.morphTargetCount = count;
                 for (uint32_t m = 0; m < count; ++m) {
                     uniforms.morphWeights[m] = node.morphWeights[m];

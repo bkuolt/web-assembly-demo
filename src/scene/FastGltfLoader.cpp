@@ -16,7 +16,7 @@
 
 namespace bgl::scene {
 
-static const char* AccessorTypeToString(fastgltf::AccessorType type) {
+[[nodiscard]] constexpr std::string_view AccessorTypeToString(fastgltf::AccessorType type) noexcept {
     switch (type) {
     case fastgltf::AccessorType::Scalar:
         return "Scalar";
@@ -37,7 +37,7 @@ static const char* AccessorTypeToString(fastgltf::AccessorType type) {
     }
 }
 
-static const char* ComponentTypeToString(fastgltf::ComponentType comp) {
+[[nodiscard]] constexpr std::string_view ComponentTypeToString(fastgltf::ComponentType comp) noexcept {
     switch (comp) {
     case fastgltf::ComponentType::Byte:
         return "Byte (i8)";

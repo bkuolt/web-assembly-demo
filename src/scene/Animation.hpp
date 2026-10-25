@@ -92,6 +92,18 @@ struct Skin {
     std::vector<glm::mat4> inverseBindMatrices{};
     int skeletonRootNodeIndex{-1};
     std::vector<int> joints{};
+
+    /**
+     * @brief Computes skinning joint matrices for a mesh instance:
+     *        jointMatrix[i] = inverse(meshNodeWorldTransform) * jointNodeWorldTransform[i] * inverseBindMatrix[i]
+     * @param meshNodeWorldTransform World transform matrix of the node referencing this skin.
+     * @param allNodes Global scene node list to lookup joint node transforms.
+     * @param outJointMatrices Destination span of matrices (typically 128 elements).
+     * @return Number of joint matrices written.
+     */
+    [[nodiscard]] uint32_t ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,
+                                                std::span<const std::shared_ptr<SceneNode>> allNodes,
+                                                std::span<glm::mat4> outJointMatrices) const noexcept;
 };
 
 /**
