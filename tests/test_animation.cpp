@@ -241,8 +241,8 @@ TEST(AnimationTest, SceneTimelinePlaybackAndLooping) {
 
     AnimationSampler sampler;
     sampler.interpolation = AnimationInterpolation::Linear;
-    sampler.inputs = {0.0f, 2.0f};
-    sampler.outputs = {0.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f};
+    sampler.timestamps = {0.0f, 2.0f};
+    sampler.keyframeValues = {0.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f};
     anim.samplers.push_back(sampler);
 
     AnimationChannel channel;

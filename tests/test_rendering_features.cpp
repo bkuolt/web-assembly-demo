@@ -312,8 +312,8 @@ TEST(RenderingFeaturesTest, EnvCubemapSkyVsGroundAndRoughnessFiltering) {
 }
 
 TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
-    // Verify 384-byte UBO alignment and distinct feature bitflags
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 384u);
+    // Verify 8608-byte UBO alignment and distinct feature bitflags
+    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 8608u);
     EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
     EXPECT_NE(gpu::MaterialFlags::EnableBumpMapping & gpu::MaterialFlags::EnableShadows, gpu::MaterialFlags::EnableBumpMapping);
     EXPECT_NE(gpu::MaterialFlags::EnableShadows & gpu::MaterialFlags::EnableReflections, gpu::MaterialFlags::EnableShadows);
@@ -766,8 +766,11 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
 
 TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     // 1. Struct sizes must strictly match WebGPU WGSL std140 / uniform layout contracts
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 384u);
+    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 8608u);
     EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
+
+    EXPECT_EQ(sizeof(gpu::ShadowUniforms), 8608u);
+    EXPECT_EQ(alignof(gpu::ShadowUniforms), 16u);
 
     EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5360u);
     EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
