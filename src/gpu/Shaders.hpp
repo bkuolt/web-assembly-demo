@@ -813,7 +813,7 @@ fn fresnelSchlickRoughness(cosTheta : f32, F0 : vec3<f32>, roughness : f32) -> v
 
 fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
     let NdotL = max(dot(N, L), 0.0);
-    let normalOffset = N * 0.015 * (1.0 - NdotL);
+    let normalOffset = N * clamp(ubo.shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL);
     let lightClip = ubo.lightViewProj * vec4<f32>(worldPos + normalOffset, 1.0);
     let projCoords = lightClip.xyz / lightClip.w;
 
@@ -1032,7 +1032,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     );
 
     let envRot = sceneLighting.envParams.x;
-    let sunL = rotateY(normalize(ubo.lightDir.xyz), -envRot);
+    // Primary sun direction is already world-space oriented to match the rotated environment
+    let sunL = normalize(ubo.lightDir.xyz);
 
     // Parallax Occlusion Mapping (POM) if flag bit 15 is active and bump mapping is enabled
     var uv = in.uv;

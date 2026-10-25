@@ -485,13 +485,22 @@ body {
   border-radius: 2px;
   overflow: hidden;
   margin-top: 6px;
+  transition: opacity 0.35s ease, height 0.35s ease, margin 0.35s ease;
+}
+
+.progress-bar-container.ready {
+  opacity: 0;
+  height: 0;
+  margin-top: 0;
+  pointer-events: none;
 }
 
 .progress-bar {
   width: 0%;
   height: 100%;
-  background: var(--accent-cyan);
-  transition: width 0.2s ease;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  transition: width 0.15s ease-out;
 }
 
 /* Standard Buttons */
@@ -1615,6 +1624,37 @@ body {
   background: rgba(244, 63, 94, 0.3);
   border-color: #fb7185;
   color: #fff;
+}
+
+/* ==============================================================================
+   Mobile & Small Screen Adaptive Layout
+   ============================================================================== */
+@media (max-width: 640px) {
+  #ui-hud {
+    top: 8px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+
+  .hud-chip-grid,
+  .chip-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .loading-card {
+    padding: 18px 14px;
+    width: 100%;
+  }
+
+  #node-tree-panel {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+  }
 }
 
 

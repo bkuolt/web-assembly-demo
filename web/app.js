@@ -274,7 +274,16 @@
 
     setProgress(percent, msg) {
       if (this.pBar) {
-        this.pBar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+        const p = Math.min(100, Math.max(0, percent));
+        this.pBar.style.width = `${p}%`;
+        const container = this.pBar.parentElement;
+        if (container) {
+          if (p >= 100) {
+            setTimeout(() => { container.classList.add('ready'); }, 500);
+          } else {
+            container.classList.remove('ready');
+          }
+        }
       }
       if (this.sText && msg) {
         this.sText.textContent = msg;
@@ -1212,6 +1221,586 @@
   };
 
   // ============================================================================
+  // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer
+  // ============================================================================
+  const BglWebGlRenderer = {
+    gl: null,
+    canvas: null,
+    program: null,
+    isActive: false,
+    primitives: [],
+    defaultTexture: null,
+
+    camera: {
+      target: [0.0, 0.0, 0.0],
+      distance: 3.5,
+      yaw: 0.45,
+      pitch: 0.35,
+      fov: (45 * Math.PI) / 180,
+      near: 0.05,
+      far: 500.0,
+      minDistance: 0.2,
+      maxDistance: 100.0,
+    },
+
+    isDragging: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    dragButton: 0,
+    wireframe: false,
+    turntable: false,
+    turntableSpeed: 0.35,
+    lastFrameTime: performance.now(),
+    modelBounds: null,
+    uniforms: {},
+
+    mat4: {
+      create() {
+        const out = new Float32Array(16);
+        out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
+        return out;
+      },
+      perspective(out, fovy, aspect, near, far) {
+        const f = 1.0 / Math.tan(fovy / 2);
+        const nf = 1.0 / (near - far);
+        out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+        out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+        out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
+        out[12] = 0; out[13] = 0; out[14] = (2 * far * near) * nf; out[15] = 0;
+        return out;
+      },
+      lookAt(out, eye, target, up) {
+        let z0 = eye[0] - target[0], z1 = eye[1] - target[1], z2 = eye[2] - target[2];
+        let len = 1 / Math.hypot(z0, z1, z2);
+        z0 *= len; z1 *= len; z2 *= len;
+
+        let x0 = up[1] * z2 - up[2] * z1, x1 = up[2] * z0 - up[0] * z2, x2 = up[0] * z1 - up[1] * z0;
+        len = Math.hypot(x0, x1, x2);
+        if (len > 0.00001) { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
+
+        let y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
+
+        out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+        out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+        out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+        out[12] = -(x0 * eye[0] + x1 * eye[1] + x2 * eye[2]);
+        out[13] = -(y0 * eye[0] + y1 * eye[1] + y2 * eye[2]);
+        out[14] = -(z0 * eye[0] + z1 * eye[1] + z2 * eye[2]);
+        out[15] = 1;
+        return out;
+      },
+      multiply(out, a, b) {
+        const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+        const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+        const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+        const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+        let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+        out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+        out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+        out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+        out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+        return out;
+      },
+      normalMatrix(out, m4) {
+        out[0] = m4[0]; out[1] = m4[1]; out[2] = m4[2];
+        out[3] = m4[4]; out[4] = m4[5]; out[5] = m4[6];
+        out[6] = m4[8]; out[7] = m4[9]; out[8] = m4[10];
+        return out;
+      }
+    },
+
+    init() {
+      this.canvas = document.getElementById('canvas');
+      if (!this.canvas) return false;
+
+      try {
+        const gl = this.canvas.getContext('webgl2', {
+          antialias: true,
+          alpha: false,
+          depth: true,
+          stencil: false,
+          powerPreference: 'high-performance'
+        });
+        if (!gl) {
+          BglLogger.warn('WebGL', 'WebGL 2 context creation returned null.');
+          return false;
+        }
+
+        this.gl = gl;
+        this.isActive = true;
+
+        if (!this.initShaders()) {
+          this.isActive = false;
+          return false;
+        }
+
+        this.initEvents();
+        this.startLoop();
+        BglLogger.log('WebGL', 'WebGL 2 fallback pipeline initialized successfully.');
+        return true;
+      } catch (err) {
+        BglLogger.error('WebGL', 'Exception initializing WebGL 2:', err);
+        return false;
+      }
+    },
+
+    initShaders() {
+      const gl = this.gl;
+      const vsSrc = `#version 300 es
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aUv;
+
+uniform mat4 uModel;
+uniform mat4 uViewProj;
+uniform mat3 uNormalMatrix;
+
+out vec3 vWorldPos;
+out vec3 vNormal;
+out vec2 vUv;
+
+void main() {
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    vWorldPos = worldPos.xyz;
+    vNormal = normalize(uNormalMatrix * aNormal);
+    vUv = aUv;
+    gl_Position = uViewProj * worldPos;
+}
+`;
+
+      const fsSrc = `#version 300 es
+precision highp float;
+
+in vec3 vWorldPos;
+in vec3 vNormal;
+in vec2 vUv;
+
+uniform vec3 uCameraPos;
+uniform vec3 uLightDir;
+uniform vec4 uBaseColorFactor;
+uniform sampler2D uBaseColorTexture;
+uniform bool uHasBaseColorTexture;
+uniform bool uWireframe;
+
+out vec4 fragColor;
+
+void main() {
+    if (uWireframe) {
+        fragColor = vec4(0.22, 0.74, 0.97, 1.0);
+        return;
+    }
+
+    vec4 baseColor = uBaseColorFactor;
+    if (uHasBaseColorTexture) {
+        baseColor *= texture(uBaseColorTexture, vUv);
+    }
+    if (baseColor.a < 0.1) discard;
+
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    vec3 H = normalize(L + V);
+
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
+    float spec = pow(NdotH, 32.0) * 0.35;
+
+    vec3 ambient = vec3(0.18, 0.20, 0.25) * baseColor.rgb;
+    vec3 diffuse = baseColor.rgb * vec3(1.0, 0.98, 0.94) * NdotL;
+    vec3 specular = vec3(1.0) * spec * (NdotL > 0.0 ? 1.0 : 0.0);
+
+    vec3 color = ambient + diffuse + specular;
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
+
+    fragColor = vec4(color, baseColor.a);
+}
+`;
+
+      const compile = (type, src) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          const log = gl.getShaderInfoLog(s);
+          gl.deleteShader(s);
+          throw new Error(log);
+        }
+        return s;
+      };
+
+      try {
+        const vs = compile(gl.VERTEX_SHADER, vsSrc);
+        const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          const log = gl.getProgramInfoLog(prog);
+          gl.deleteProgram(prog);
+          throw new Error(log);
+        }
+
+        this.program = prog;
+        this.uniforms = {
+          uModel: gl.getUniformLocation(prog, 'uModel'),
+          uViewProj: gl.getUniformLocation(prog, 'uViewProj'),
+          uNormalMatrix: gl.getUniformLocation(prog, 'uNormalMatrix'),
+          uCameraPos: gl.getUniformLocation(prog, 'uCameraPos'),
+          uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
+          uBaseColorFactor: gl.getUniformLocation(prog, 'uBaseColorFactor'),
+          uBaseColorTexture: gl.getUniformLocation(prog, 'uBaseColorTexture'),
+          uHasBaseColorTexture: gl.getUniformLocation(prog, 'uHasBaseColorTexture'),
+          uWireframe: gl.getUniformLocation(prog, 'uWireframe'),
+        };
+
+        const defaultTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, defaultTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+        this.defaultTexture = defaultTex;
+
+        return true;
+      } catch (err) {
+        BglLogger.error('WebGL', 'Shader compilation error:', err);
+        return false;
+      }
+    },
+
+    initEvents() {
+      const canvas = this.canvas;
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      canvas.addEventListener('mousedown', (e) => {
+        this.isDragging = true;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+        this.dragButton = e.button;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!this.isDragging) return;
+        const dx = e.clientX - this.lastMouseX;
+        const dy = e.clientY - this.lastMouseY;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+
+        if (this.dragButton === 0) {
+          this.camera.yaw += dx * 0.006;
+          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
+        } else if (this.dragButton === 2) {
+          const factor = this.camera.distance * 0.0015;
+          const cosY = Math.cos(this.camera.yaw);
+          const sinY = Math.sin(this.camera.yaw);
+          this.camera.target[0] -= (cosY * dx) * factor;
+          this.camera.target[1] += dy * factor;
+          this.camera.target[2] -= (sinY * dx) * factor;
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        this.isDragging = false;
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.1 : 0.9;
+        this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
+      }, { passive: false });
+    },
+
+    loadModel(gltf, arrayBuffer, modelName) {
+      if (!this.gl || !gltf) return;
+      const gl = this.gl;
+
+      for (const p of this.primitives) {
+        if (p.vao) gl.deleteVertexArray(p.vao);
+      }
+      this.primitives = [];
+
+      let binBuffer = null;
+      const dataView = new DataView(arrayBuffer);
+      if (dataView.getUint32(0, true) === 0x46546C67) {
+        const jsonChunkLen = dataView.getUint32(12, true);
+        const binHeaderOffset = 20 + jsonChunkLen;
+        if (binHeaderOffset + 8 <= arrayBuffer.byteLength) {
+          const binLen = dataView.getUint32(binHeaderOffset, true);
+          binBuffer = arrayBuffer.slice(binHeaderOffset + 8, binHeaderOffset + 8 + binLen);
+        }
+      }
+
+      const getBufferViewData = (viewIdx) => {
+        if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
+        const bv = gltf.bufferViews[viewIdx];
+        const offset = bv.byteOffset || 0;
+        const length = bv.byteLength;
+        const src = binBuffer || arrayBuffer;
+        return src.slice(offset, offset + length);
+      };
+
+      const getAccessorData = (accIdx) => {
+        if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
+        const acc = gltf.accessors[accIdx];
+        if (acc.bufferView === undefined) return null;
+        const bvData = getBufferViewData(acc.bufferView);
+        if (!bvData) return null;
+        const byteOffset = acc.byteOffset || 0;
+
+        let TypedArray = Float32Array;
+        if (acc.componentType === 5126) TypedArray = Float32Array;
+        else if (acc.componentType === 5123) TypedArray = Uint16Array;
+        else if (acc.componentType === 5125) TypedArray = Uint32Array;
+        else if (acc.componentType === 5121) TypedArray = Uint8Array;
+        else if (acc.componentType === 5122) TypedArray = Int16Array;
+
+        const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
+        return new TypedArray(bvData, byteOffset, acc.count * numComp);
+      };
+
+      let minBound = [Infinity, Infinity, Infinity];
+      let maxBound = [-Infinity, -Infinity, -Infinity];
+
+      if (gltf.meshes) {
+        for (const mesh of gltf.meshes) {
+          if (!mesh.primitives) continue;
+          for (const prim of mesh.primitives) {
+            if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
+
+            const posData = getAccessorData(prim.attributes.POSITION);
+            if (!posData) continue;
+
+            const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
+            const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
+            const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
+
+            for (let i = 0; i < posData.length; i += 3) {
+              const x = posData[i], y = posData[i + 1], z = posData[i + 2];
+              minBound[0] = Math.min(minBound[0], x); maxBound[0] = Math.max(maxBound[0], x);
+              minBound[1] = Math.min(minBound[1], y); maxBound[1] = Math.max(maxBound[1], y);
+              minBound[2] = Math.min(minBound[2], z); maxBound[2] = Math.max(maxBound[2], z);
+            }
+
+            const vao = gl.createVertexArray();
+            gl.glBindVertexArray(vao);
+
+            const pBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, pBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+            if (normData) {
+              const nBuf = gl.createBuffer();
+              gl.bindBuffer(gl.ARRAY_BUFFER, nBuf);
+              gl.bufferData(gl.ARRAY_BUFFER, normData, gl.STATIC_DRAW);
+              gl.enableVertexAttribArray(1);
+              gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+            }
+
+            if (uvData) {
+              const uBuf = gl.createBuffer();
+              gl.bindBuffer(gl.ARRAY_BUFFER, uBuf);
+              gl.bufferData(gl.ARRAY_BUFFER, uvData, gl.STATIC_DRAW);
+              gl.enableVertexAttribArray(2);
+              gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
+            }
+
+            let indexType = gl.UNSIGNED_SHORT;
+            let indexCount = 0;
+            if (indexData) {
+              const iBuf = gl.createBuffer();
+              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iBuf);
+              gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
+              indexCount = indexData.length;
+              indexType = (indexData instanceof Uint32Array) ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+            }
+
+            gl.glBindVertexArray(null);
+
+            let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
+            let texture = null;
+            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
+              const mat = gltf.materials[prim.material];
+              if (mat.pbrMetallicRoughness) {
+                if (mat.pbrMetallicRoughness.baseColorFactor) {
+                  baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
+                }
+                const texInfo = mat.pbrMetallicRoughness.baseColorTexture;
+                if (texInfo && gltf.textures && gltf.textures[texInfo.index]) {
+                  const texObj = gltf.textures[texInfo.index];
+                  if (texObj.source !== undefined && gltf.images && gltf.images[texObj.source]) {
+                    const imgObj = gltf.images[texObj.source];
+                    if (imgObj.bufferView !== undefined) {
+                      const imgBytes = getBufferViewData(imgObj.bufferView);
+                      if (imgBytes) {
+                        const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
+                        createImageBitmap(blob).then((bmp) => {
+                          const t = gl.createTexture();
+                          gl.bindTexture(gl.TEXTURE_2D, t);
+                          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+                          gl.generateMipmap(gl.TEXTURE_2D);
+                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                          primRecord.texture = t;
+                        }).catch(() => {});
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            const primRecord = {
+              vao,
+              indexCount,
+              indexType,
+              vertexCount: posData.length / 3,
+              hasIndices: !!indexData,
+              baseColorFactor,
+              texture,
+              modelMatrix: this.mat4.create(),
+            };
+            this.primitives.push(primRecord);
+          }
+        }
+      }
+
+      if (minBound[0] <= maxBound[0]) {
+        const cx = (minBound[0] + maxBound[0]) * 0.5;
+        const cy = (minBound[1] + maxBound[1]) * 0.5;
+        const cz = (minBound[2] + maxBound[2]) * 0.5;
+        const dx = maxBound[0] - minBound[0];
+        const dy = maxBound[1] - minBound[1];
+        const dz = maxBound[2] - minBound[2];
+        const radius = Math.max(Math.hypot(dx, dy, dz) * 0.5, 0.5);
+
+        this.camera.target = [cx, cy, cz];
+        this.camera.distance = radius * 2.2;
+        this.camera.near = Math.max(0.01, radius * 0.02);
+        this.camera.far = Math.max(100.0, radius * 30.0);
+        this.modelBounds = { center: [cx, cy, cz], radius };
+      }
+
+      BglLogger.log('WebGL', `Loaded '${modelName}' into WebGL 2 fallback pipeline (${this.primitives.length} primitives).`);
+    },
+
+    startLoop() {
+      const render = (time) => {
+        if (!this.isActive || !this.gl) return;
+        const dt = (time - this.lastFrameTime) * 0.001;
+        this.lastFrameTime = time;
+
+        if (this.turntable) {
+          this.camera.yaw += this.turntableSpeed * dt;
+        }
+
+        this.draw();
+        requestAnimationFrame(render);
+      };
+      requestAnimationFrame(render);
+    },
+
+    draw() {
+      const gl = this.gl;
+      if (!gl || !this.program) return;
+
+      const w = this.canvas.clientWidth || window.innerWidth;
+      const h = this.canvas.clientHeight || window.innerHeight;
+      if (this.canvas.width !== w || this.canvas.height !== h) {
+        this.canvas.width = w;
+        this.canvas.height = h;
+      }
+
+      gl.viewport(0, 0, w, h);
+      gl.enable(gl.DEPTH_TEST);
+      gl.enable(gl.CULL_FACE);
+      gl.cullFace(gl.BACK);
+
+      gl.clearColor(0.04, 0.06, 0.10, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      gl.useProgram(this.program);
+
+      const cy = Math.cos(this.camera.yaw);
+      const sy = Math.sin(this.camera.yaw);
+      const cp = Math.cos(this.camera.pitch);
+      const sp = Math.sin(this.camera.pitch);
+
+      const eye = [
+        this.camera.target[0] + this.camera.distance * cp * sy,
+        this.camera.target[1] + this.camera.distance * sp,
+        this.camera.target[2] + this.camera.distance * cp * cy,
+      ];
+
+      const proj = this.mat4.create();
+      this.mat4.perspective(proj, this.camera.fov, w / Math.max(1, h), this.camera.near, this.camera.far);
+
+      const view = this.mat4.create();
+      this.mat4.lookAt(view, eye, this.camera.target, [0, 1, 0]);
+
+      const viewProj = this.mat4.create();
+      this.mat4.multiply(viewProj, proj, view);
+
+      gl.uniformMatrix4fv(this.uniforms.uViewProj, false, viewProj);
+      gl.uniform3fv(this.uniforms.uCameraPos, eye);
+
+      const tod = BglState.timeOfDay || 14.0;
+      const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
+      const lightDir = [Math.cos(sunAngle) * 0.7, Math.sin(sunAngle), 0.35];
+      gl.uniform3fv(this.uniforms.uLightDir, lightDir);
+      gl.uniform1i(this.uniforms.uWireframe, this.wireframe ? 1 : 0);
+
+      const normalMat = new Float32Array(9);
+      for (const prim of this.primitives) {
+        gl.uniformMatrix4fv(this.uniforms.uModel, false, prim.modelMatrix);
+        this.mat4.normalMatrix(normalMat, prim.modelMatrix);
+        gl.uniformMatrix3fv(this.uniforms.uNormalMatrix, false, normalMat);
+
+        gl.uniform4fv(this.uniforms.uBaseColorFactor, prim.baseColorFactor);
+
+        if (prim.texture) {
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, prim.texture);
+          gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
+          gl.uniform1i(this.uniforms.uHasBaseColorTexture, 1);
+        } else {
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
+          gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
+          gl.uniform1i(this.uniforms.uHasBaseColorTexture, 0);
+        }
+
+        gl.glBindVertexArray(prim.vao);
+        if (prim.hasIndices) {
+          gl.drawElements(this.wireframe ? gl.LINES : gl.TRIANGLES, prim.indexCount, prim.indexType, 0);
+        } else {
+          gl.drawArrays(this.wireframe ? gl.LINES : gl.TRIANGLES, 0, prim.vertexCount);
+        }
+      }
+      gl.glBindVertexArray(null);
+    }
+  };
+
+  // ============================================================================
   // Model Ingestion Coordinator
   // ============================================================================
   function updateCameraDropdown(gltf) {
@@ -1264,6 +1853,11 @@
       BglGltf.updateTelemetry(gltf);
       BglUI.setActiveModelButton(name);
       updateCameraDropdown(gltf);
+
+      // Forward to WebGL 2 renderer if running in compatibility mode
+      if (BglWebGlRenderer.isActive) {
+        BglWebGlRenderer.loadModel(gltf, arrayBuffer, name);
+      }
 
       BglLogger.timeEnd('glTF', 'Model-Ingest', `Model '${name}' loaded and inspected`);
       BglNotifier.success(
@@ -1523,23 +2117,14 @@
       });
     }
 
-    // 3. WebGPU Support Check
+    // 3. WebGPU Support Check with Automatic WebGL 2 Fallback
     const hasGpuApi = Boolean(navigator && ('gpu' in navigator) && navigator.gpu);
-    if (!hasGpuApi) {
-      issues.push({
-        feature: 'WebGPU',
-        detail: 'The WebGPU API (navigator.gpu) is not available or disabled in this browser. Please use Chrome 113+, Edge 113+, or Firefox Nightly.'
-      });
-    } else {
+    let gpuOperational = false;
+    if (hasGpuApi) {
       try {
         const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-          issues.push({
-            feature: 'WebGPU Graphics Adapter',
-            detail: 'WebGPU API is present, but no compatible hardware GPU adapter could be acquired. Verify browser hardware acceleration settings and GPU driver installation.'
-          });
-        } else {
-          // Store and log GPU adapter metadata
+        if (adapter) {
+          gpuOperational = true;
           if (adapter.info) {
             window.cachedGpuInfo = adapter.info;
             BglLogger.log('WebGPU', `Acquired GPU Adapter: ${adapter.info.vendor || 'Unknown'} - ${adapter.info.architecture || ''} (${adapter.info.description || ''})`);
@@ -1548,11 +2133,27 @@
           }
         }
       } catch (e) {
-        issues.push({
-          feature: 'WebGPU Adapter Error',
-          detail: `An error occurred while requesting the WebGPU adapter: ${e && e.message ? e.message : e}`
-        });
+        BglLogger.warn('WebGPU', 'requestAdapter exception, attempting fallback:', e);
       }
+    }
+
+    if (!gpuOperational) {
+      BglLogger.log('Engine', 'WebGPU unavailable. Initializing WebGL 2 fallback pipeline...');
+      const webglOk = BglWebGlRenderer.init();
+      if (webglOk) {
+        BglState.backend = 'webgl2';
+        const sub = document.querySelector('.hud-subtitle');
+        if (sub) sub.textContent = 'WebGL 2 & Wasm (Compatibility Mode)';
+        BglNotifier.info(
+          'WebGL 2 Fallback Active',
+          'WebGPU is not available in this browser. The engine is running in WebGL 2 compatibility mode.'
+        );
+        return true;
+      }
+      issues.push({
+        feature: '3D Graphics Acceleration (WebGPU / WebGL 2)',
+        detail: 'Neither WebGPU nor WebGL 2 could be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
+      });
     }
 
     if (issues.length > 0 || warnings.length > 0) {
@@ -1577,6 +2178,9 @@
     if (BglUI.btnBbox) {
       BglUI.btnBbox.classList.toggle('active', BglState.isBboxActive);
       BglUI.btnBbox.style.background = BglState.isBboxActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    if (BglWebGlRenderer.isActive) {
+      BglWebGlRenderer.wireframe = BglState.isBboxActive;
     }
     BglLogger.log('Engine', `Toggle Bounding Boxes: ${BglState.isBboxActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bbox) {
@@ -1798,6 +2402,10 @@
 
   function focusSelection() {
     BglLogger.log('Engine', 'Focusing camera on selection / scene bounds');
+    if (BglWebGlRenderer.isActive && BglWebGlRenderer.modelBounds) {
+      BglWebGlRenderer.camera.target = [...BglWebGlRenderer.modelBounds.center];
+      BglWebGlRenderer.camera.distance = BglWebGlRenderer.modelBounds.radius * 2.2;
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_focus_selection) {
       BglState.wasmExports.bgl_camera_focus_selection();
     }
@@ -1806,6 +2414,10 @@
 
   function frameAll() {
     BglLogger.log('Engine', 'Framing all scene geometry');
+    if (BglWebGlRenderer.isActive && BglWebGlRenderer.modelBounds) {
+      BglWebGlRenderer.camera.target = [...BglWebGlRenderer.modelBounds.center];
+      BglWebGlRenderer.camera.distance = BglWebGlRenderer.modelBounds.radius * 2.2;
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_frame_all) {
       BglState.wasmExports.bgl_camera_frame_all();
     }
@@ -1827,6 +2439,9 @@
     BglState.isTurntableActive = !BglState.isTurntableActive;
     const btn = document.getElementById('btn-turntable');
     if (btn) btn.style.background = BglState.isTurntableActive ? '#0284c7' : '#475569';
+    if (BglWebGlRenderer.isActive) {
+      BglWebGlRenderer.turntable = BglState.isTurntableActive;
+    }
     BglLogger.log('Engine', `Turntable Autorotation: ${BglState.isTurntableActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_turntable) {
       BglState.wasmExports.bgl_toggle_turntable();
@@ -1838,6 +2453,9 @@
     const num = Number(val);
     const label = document.getElementById('val-turntable-speed');
     if (label) label.textContent = `${num.toFixed(2)} rad/s`;
+    if (BglWebGlRenderer.isActive) {
+      BglWebGlRenderer.turntableSpeed = num;
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_turntable_speed) {
       BglState.wasmExports.bgl_set_turntable_speed(num);
     }
@@ -1850,6 +2468,9 @@
     const mins = Math.round((num - hrs) * 60);
     const label = document.getElementById('val-time-of-day');
     if (label) label.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    if (BglWebGlRenderer.isActive) {
+      BglState.timeOfDay = num;
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_time_of_day) {
       BglState.wasmExports.bgl_set_time_of_day(num);
     }

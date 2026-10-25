@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.9] - 2026-10-25
+## [0.9.10] - 2026-10-25
+
+### WebGL 2 Fallback Pipeline, Shadow Map PCF Binding Fix & HUD Modernization
+- **Directional PCF Shadow Map Synchronization:**
+  - Resolved regression where `@binding(11)` in PBR material bind groups was bound to an unrendered `shadowDepthView_` instead of `shadowPass_.GetShadowMapView()`.
+  - Fixed double rotation bug in `Shaders.hpp` where `sunL` was rotated by `-envRot` both on CPU and in WGSL shader.
+  - Dynamically scaled normal offset bias `clamp(ubo.shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL)` to prevent shadow acne and peter-panning.
+- **Full WebGL 2 (GLES 3.0) Browser Fallback Engine:**
+  - Implemented automatic high-performance WebGL 2 fallback pipeline in `web/app.js` when WebGPU (`navigator.gpu`) is unavailable (e.g. mobile Safari, Firefox default, legacy hardware).
+  - Integrated full GLSL ES 300 PBR lighting, orbit camera controls, turntable autorotation, bounding box wireframes, and glTF 2.0 / GLB mesh parsing.
+  - Dynamic HUD status update: `WebGL 2 & Wasm (Compatibility Mode)`.
+- **HUD Usability & Compact Design Polish:**
+  - Implemented smooth auto-collapse of download progress bar upon completion (`.progress-bar-container.ready`).
+  - Added responsive layout breakpoints (`@media (max-width: 640px)`) for mobile and narrow screens.
+  - Categorized micro-chips for render features into Lighting, Materials, and Scene groups.
+- **glTF-Sample-Assets Integration & Offline Caching:**
+  - Added model selection dropdown populated with verified Khronos models.
+  - Added `CacheStorage` browser offline caching with live cache badges and purge button.
+  - Added dedicated modal streaming loading screen with cancel support.
+
+---
+
+
 
 ### Independent Code Review & Modernized UI, RAII Safety & Telemetry Polish
 - **Modernized & Compact Glassmorphism UI:**

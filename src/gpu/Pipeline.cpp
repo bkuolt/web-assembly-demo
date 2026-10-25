@@ -1684,11 +1684,13 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
         bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[11].binding = 11;
-        bgEntries[11].textureView = shadowDepthView_;
+        bgEntries[11].textureView =
+            shadowPass_.IsInitialized() ? shadowPass_.GetShadowMapView() : shadowDepthView_.Get();
 
         bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[12].binding = 12;
-        bgEntries[12].sampler = shadowSampler_;
+        bgEntries[12].sampler =
+            shadowPass_.IsInitialized() ? shadowPass_.GetShadowSampler() : shadowSampler_.Get();
 
         bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[13].binding = 13;
