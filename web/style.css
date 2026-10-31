@@ -35,12 +35,13 @@ body {
   height: 100vh;
 }
 
-/* 3D WebGPU Canvas */
+/* 3D WebGPU / WebGL 2 Canvas */
 #canvas {
   display: block;
   width: 100%;
   height: 100%;
   outline: none;
+  touch-action: none;
 }
 
 /* Drag & Drop Overlay */

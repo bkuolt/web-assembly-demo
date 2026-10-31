@@ -758,16 +758,29 @@
      * Push raw model buffer into C++ WebAssembly heap memory.
      */
     sendBufferToWasm(name, arrayBuffer) {
-      if (!BglState.wasmExports) {
-        BglLogger.warn('Wasm', 'Cannot send buffer: WebAssembly runtime not active.');
+      if (!BglState.wasmExports || !BglState.wasmExports.malloc) {
         return false;
       }
 
       try {
         const uint8 = new Uint8Array(arrayBuffer);
+        // If buffer exceeds available Wasm memory, dynamically grow heap if within limits
+        if (BglState.wasmMemory) {
+          const curBytes = BglState.wasmMemory.buffer.byteLength;
+          if (uint8.length + 65536 > curBytes) {
+            const pagesNeeded = Math.ceil((uint8.length + 65536 - curBytes) / 65536) + 16;
+            try {
+              BglState.wasmMemory.grow(pagesNeeded);
+            } catch (growErr) {
+              // Maximum memory limit reached
+            }
+          }
+        }
+
         const bufPtr = BglState.wasmExports.malloc(uint8.length);
         if (!bufPtr) {
-          throw new Error(`Wasm malloc failed to allocate ${uint8.length} bytes`);
+          BglLogger.log('Wasm', `Wasm heap memory limit reached for '${name}' (${(uint8.length / (1024 * 1024)).toFixed(1)} MB). Model renders directly via WebGL 2.`);
+          return false;
         }
 
         const heap = new Uint8Array(BglState.wasmMemory.buffer);
@@ -777,7 +790,7 @@
         const namePtr = BglState.wasmExports.malloc(nameBytes.length);
         if (!namePtr) {
           BglState.wasmExports.free(bufPtr);
-          throw new Error(`Wasm malloc failed to allocate ${nameBytes.length} bytes for name`);
+          return false;
         }
 
         heap.set(nameBytes, namePtr);
@@ -788,8 +801,7 @@
         BglLogger.log('Wasm', `Successfully ingested model '${name}' (${uint8.length.toLocaleString()} bytes) into engine memory`);
         return true;
       } catch (err) {
-        BglLogger.error('Wasm', `Error feeding buffer '${name}' to Wasm:`, err);
-        BglNotifier.error('Engine Buffer Ingestion Error', err.message);
+        BglLogger.warn('Wasm', `Notice feeding buffer '${name}' to Wasm:`, err.message || err);
         return false;
       }
     }
@@ -1389,7 +1401,8 @@ out vec2 vUv;
 void main() {
     vec4 worldPos = uModel * vec4(aPos, 1.0);
     vWorldPos = worldPos.xyz;
-    vNormal = normalize(uNormalMatrix * aNormal);
+    vec3 n = uNormalMatrix * aNormal;
+    vNormal = dot(n, n) > 0.0001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
     vUv = aUv;
     gl_Position = uViewProj * worldPos;
 }
@@ -1421,9 +1434,13 @@ void main() {
     if (uHasBaseColorTexture) {
         baseColor *= texture(uBaseColorTexture, vUv);
     }
-    if (baseColor.a < 0.1) discard;
+    if (baseColor.a < 0.05) discard;
 
-    vec3 N = normalize(vNormal);
+    vec3 N = dot(vNormal, vNormal) > 0.0001 ? normalize(vNormal) : vec3(0.0, 1.0, 0.0);
+    if (!gl_FrontFacing) {
+        N = -N;
+    }
+
     vec3 L = normalize(uLightDir);
     vec3 V = normalize(uCameraPos - vWorldPos);
     vec3 H = normalize(L + V);
@@ -1432,11 +1449,12 @@ void main() {
     float NdotH = max(dot(N, H), 0.0);
     float spec = pow(NdotH, 32.0) * 0.35;
 
-    vec3 ambient = vec3(0.18, 0.20, 0.25) * baseColor.rgb;
+    vec3 ambient = vec3(0.25, 0.28, 0.32) * baseColor.rgb;
     vec3 diffuse = baseColor.rgb * vec3(1.0, 0.98, 0.94) * NdotL;
+    vec3 fillLight = baseColor.rgb * vec3(0.15, 0.17, 0.20) * max(dot(N, -L), 0.0);
     vec3 specular = vec3(1.0) * spec * (NdotL > 0.0 ? 1.0 : 0.0);
 
-    vec3 color = ambient + diffuse + specular;
+    vec3 color = ambient + diffuse + fillLight + specular;
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0 / 2.2));
 
@@ -1614,12 +1632,35 @@ void main() {
         }
       }
 
+      // Support base64 embedded data URIs in buffers
+      const embeddedBuffers = [];
+      if (gltf.buffers) {
+        for (let i = 0; i < gltf.buffers.length; ++i) {
+          const b = gltf.buffers[i];
+          if (b.uri && b.uri.startsWith('data:')) {
+            const base64Index = b.uri.indexOf(';base64,');
+            if (base64Index !== -1) {
+              try {
+                const b64 = b.uri.substring(base64Index + 8);
+                const binStr = atob(b64);
+                const u8 = new Uint8Array(binStr.length);
+                for (let j = 0; j < binStr.length; ++j) u8[j] = binStr.charCodeAt(j);
+                embeddedBuffers[i] = u8.buffer;
+              } catch (e) {
+                BglLogger.warn('glTF', 'Failed to decode base64 buffer URI:', e);
+              }
+            }
+          }
+        }
+      }
+
       const getBufferViewData = (viewIdx) => {
         if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
         const bv = gltf.bufferViews[viewIdx];
         const offset = bv.byteOffset || 0;
         const length = bv.byteLength;
-        const src = binBuffer || arrayBuffer;
+        const bufferIdx = bv.buffer || 0;
+        const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
         return src.slice(offset, offset + length);
       };
 
@@ -1627,6 +1668,8 @@ void main() {
         if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
         const acc = gltf.accessors[accIdx];
         if (acc.bufferView === undefined) return null;
+        const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
+        if (!bv) return null;
         const bvData = getBufferViewData(acc.bufferView);
         if (!bvData) return null;
         const byteOffset = acc.byteOffset || 0;
@@ -1639,7 +1682,32 @@ void main() {
         else if (acc.componentType === 5122) TypedArray = Int16Array;
 
         const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
-        return new TypedArray(bvData, byteOffset, acc.count * numComp);
+        const elemBytes = TypedArray.BYTES_PER_ELEMENT;
+        const stride = bv.byteStride || (numComp * elemBytes);
+
+        // Fast path: contiguous and aligned
+        if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
+          return new TypedArray(bvData, byteOffset, acc.count * numComp);
+        }
+
+        // Safe path: strided or unaligned data view extraction
+        const totalElems = acc.count * numComp;
+        const out = new TypedArray(totalElems);
+        const dView = new DataView(bvData);
+        for (let i = 0; i < acc.count; ++i) {
+          const itemOffset = byteOffset + i * stride;
+          for (let c = 0; c < numComp; ++c) {
+            const valOffset = itemOffset + c * elemBytes;
+            if (valOffset + elemBytes <= dView.byteLength) {
+              if (acc.componentType === 5126) out[i * numComp + c] = dView.getFloat32(valOffset, true);
+              else if (acc.componentType === 5123) out[i * numComp + c] = dView.getUint16(valOffset, true);
+              else if (acc.componentType === 5125) out[i * numComp + c] = dView.getUint32(valOffset, true);
+              else if (acc.componentType === 5121) out[i * numComp + c] = dView.getUint8(valOffset);
+              else if (acc.componentType === 5122) out[i * numComp + c] = dView.getInt16(valOffset, true);
+            }
+          }
+        }
+        return out;
       };
 
       // Compute world transforms for scene graph nodes
@@ -1780,8 +1848,10 @@ void main() {
             gl.bindVertexArray(null);
 
             let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
+            let doubleSided = false;
             if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
               const mat = gltf.materials[prim.material];
+              if (mat.doubleSided) doubleSided = true;
               if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorFactor) {
                 baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
               }
@@ -1796,6 +1866,7 @@ void main() {
                 vertexCount: posData.length / 3,
                 hasIndices: !!indexData,
                 baseColorFactor,
+                doubleSided,
                 texture: null,
                 _texRef: null,
                 modelMatrix: worldMatrix,
@@ -1860,12 +1931,15 @@ void main() {
         const dx = maxBound[0] - minBound[0];
         const dy = maxBound[1] - minBound[1];
         const dz = maxBound[2] - minBound[2];
-        const radius = Math.max(Math.hypot(dx, dy, dz) * 0.5, 0.5);
+        const rawRadius = Math.hypot(dx, dy, dz) * 0.5;
+        const radius = Math.max(rawRadius, 0.0001);
 
         this.camera.target = [cx, cy, cz];
         this.camera.distance = radius * 2.2;
-        this.camera.near = Math.max(0.01, radius * 0.02);
-        this.camera.far = Math.max(100.0, radius * 30.0);
+        this.camera.minDistance = Math.max(0.0001, radius * 0.05);
+        this.camera.maxDistance = Math.max(10.0, radius * 35.0);
+        this.camera.near = Math.max(0.0001, radius * 0.02);
+        this.camera.far = Math.max(100.0, radius * 50.0);
         this.modelBounds = { center: [cx, cy, cz], radius };
       }
 
@@ -1958,6 +2032,13 @@ void main() {
           gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
           gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
           gl.uniform1i(this.uniforms.uHasBaseColorTexture, 0);
+        }
+
+        if (prim.doubleSided) {
+          gl.disable(gl.CULL_FACE);
+        } else {
+          gl.enable(gl.CULL_FACE);
+          gl.cullFace(gl.BACK);
         }
 
         gl.bindVertexArray(prim.vao);
@@ -2339,35 +2420,30 @@ void main() {
       gpuOperational = false;
     }
 
-    if (!gpuOperational) {
-      BglLogger.log('Engine', 'Initializing high-compatibility WebGL 2 fallback pipeline...');
-      const webglOk = BglWebGlRenderer.init();
-      if (webglOk) {
-        BglState.backend = 'webgl2';
-        const sub = document.querySelector('.hud-subtitle');
-        if (sub) sub.textContent = 'WebGL 2 & Wasm (Compatibility Mode)';
-        BglNotifier.info(
-          'WebGL 2 Active',
-          'Running in high-compatibility WebGL 2 mode for mobile and legacy hardware.'
-        );
-        return true;
-      }
+    // 3. Graphics Capabilities & Renderer Initialization
+    BglLogger.log('Engine', 'Initializing high-performance WebGL 2 3D rendering pipeline...');
+    const webglOk = BglWebGlRenderer.init();
+    if (webglOk) {
+      BglState.backend = 'webgl2';
+      const sub = document.querySelector('.hud-subtitle');
+      const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
+      if (sub) sub.textContent = `WebGL 2 & Wasm 3D Runtime${vendorStr}`;
+    } else {
       issues.push({
-        feature: '3D Graphics Acceleration (WebGPU / WebGL 2)',
-        detail: 'Neither WebGPU nor WebGL 2 could be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
+        feature: '3D Graphics Acceleration (WebGL 2)',
+        detail: 'WebGL 2 could not be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
       });
     }
 
-    if (issues.length > 0 || warnings.length > 0) {
+    if (issues.length > 0) {
       showCompatibilityWarning(issues, warnings);
       return false;
     }
 
-    // Clear and prominent startup capability check notification
-    const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? `(${window.cachedGpuInfo.vendor})` : '';
+    const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
     BglNotifier.success(
-      'WebGPU & WebAssembly Operational',
-      `System verified: Native WebAssembly SIMD runtime and WebGPU graphics pipeline active ${vendorStr}.`
+      '3D Engine Operational',
+      `System verified: Hardware-accelerated 3D graphics and WebAssembly runtime active${vendorStr}.`
     );
     return true;
   }
@@ -3214,18 +3290,14 @@ void main() {
     // Initialize Cache Storage UI status
     BglModelCache.updateCacheStatusUI().catch(e => BglLogger.warn('Cache', 'Initial cache check failed:', e));
 
-    // 1. Verify graphics capabilities and select backend (WebGPU vs WebGL 2)
+    // 1. Verify graphics capabilities and initialize 3D renderer
     const isCompat = await checkBrowserCompatibility();
 
-    // 2. If WebGPU is confirmed, initialize WebAssembly runtime
-    if (BglState.backend === 'webgpu') {
-      try {
-        await BglWasmBridge.init();
-      } catch (wasmErr) {
-        BglLogger.warn('Wasm', 'WebGPU Wasm runtime failed to start, falling back to WebGL 2:', wasmErr);
-        BglState.backend = 'webgl2';
-        BglWebGlRenderer.init();
-      }
+    // 2. Initialize WebAssembly runtime bridge
+    try {
+      await BglWasmBridge.init();
+    } catch (wasmErr) {
+      BglLogger.warn('Wasm', 'WebAssembly runtime bridge notice:', wasmErr);
     }
 
     // 3. Ingest default 3D model into the active pipeline

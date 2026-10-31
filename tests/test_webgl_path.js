@@ -81,6 +81,7 @@ class MockWebGL2RenderingContext {
 
   viewport(x, y, w, h) {}
   enable(cap) {}
+  disable(cap) {}
   cullFace(face) {}
   clearColor(r, g, b, a) {}
   clear(mask) {}
