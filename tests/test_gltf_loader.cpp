@@ -268,3 +268,63 @@ TEST(GltfLoaderTest, SceneAABBEnclosesAllPrimitives) {
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.y, 15.0f);
     EXPECT_FLOAT_EQ(scene->sceneAABB.maxBound.z, 80.0f);
 }
+
+TEST(GltfLoaderTest, DeepHierarchyMatrixPropagation) {
+    auto scene = std::make_shared<Scene>();
+    std::shared_ptr<SceneNode> currentRoot = std::make_shared<SceneNode>();
+    currentRoot->name = "Level_0";
+    currentRoot->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    scene->rootNodes.push_back(currentRoot);
+
+    std::shared_ptr<SceneNode> parent = currentRoot;
+    constexpr int kDepth = 10;
+    for (int i = 1; i <= kDepth; ++i) {
+        auto child = std::make_shared<SceneNode>();
+        child->name = "Level_" + std::to_string(i);
+        child->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        parent->children.push_back(child);
+        parent = child;
+    }
+
+    // Attach primitive at the deepest leaf node
+    MeshPrimitive prim;
+    prim.boundingBox.minBound = glm::vec3(-0.5f);
+    prim.boundingBox.maxBound = glm::vec3(0.5f);
+    parent->primitives.push_back(std::move(prim));
+
+    scene->Update();
+
+    // With 1 root + 10 children each translating +1 along X, leaf world position should be 11.0f along X
+    EXPECT_FLOAT_EQ(parent->worldTransform[3][0], 11.0f);
+    EXPECT_FLOAT_EQ(parent->worldAABB.GetCenter().x, 11.0f);
+}
+
+TEST(GltfLoaderTest, EmptySceneUpdateSafety) {
+    auto scene = std::make_shared<Scene>();
+    EXPECT_NO_THROW(scene->Update());
+    EXPECT_TRUE(scene->rootNodes.empty());
+}
+
+TEST(GltfLoaderTest, MaterialPbrValuesClamping) {
+    Material mat;
+    mat.name = "PbrTest";
+    mat.baseColorFactor = glm::vec4(1.0f, 0.5f, 0.2f, 1.0f);
+    mat.metallicFactor = 0.8f;
+    mat.roughnessFactor = 0.2f;
+    mat.emissiveFactor = glm::vec3(0.0f, 1.0f, 0.0f);
+
+    EXPECT_FLOAT_EQ(mat.metallicFactor, 0.8f);
+    EXPECT_FLOAT_EQ(mat.roughnessFactor, 0.2f);
+    EXPECT_FLOAT_EQ(mat.baseColorFactor.r, 1.0f);
+    EXPECT_FLOAT_EQ(mat.emissiveFactor.g, 1.0f);
+}
+
+TEST(GltfLoaderTest, NodeWithEmptyMeshNameFallback) {
+    auto node = std::make_shared<SceneNode>();
+    EXPECT_TRUE(node->name.empty());
+    node->name = "";
+    EXPECT_NO_THROW({
+        node->localTransform = glm::mat4(1.0f);
+        node->worldTransform = glm::mat4(1.0f);
+    });
+}

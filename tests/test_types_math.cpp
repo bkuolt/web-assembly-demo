@@ -490,3 +490,109 @@ TEST(TypesMathTest, TransformMatrixPropertiesAndInversion) {
         }
     }
 }
+
+TEST(TypesMathTest, RayBoxParallelRayAxisAlignedZeroComponent) {
+    AABB box;
+    box.Expand(glm::vec3(-2.0f, -2.0f, -2.0f));
+    box.Expand(glm::vec3(2.0f, 2.0f, 2.0f));
+
+    float tMin = 0.0f;
+    float tMax = 0.0f;
+
+    // Ray perfectly parallel to Z-axis (dx=0, dy=0, dz=-1) hitting box
+    Ray parallelHit{glm::vec3(0.5f, 0.5f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    EXPECT_TRUE(box.Intersects(parallelHit, tMin, tMax));
+    EXPECT_NEAR(tMin, 8.0f, 1e-3f);
+    EXPECT_NEAR(tMax, 12.0f, 1e-3f);
+
+    // Ray perfectly parallel to Z-axis (dx=0, dy=0, dz=-1) missing box
+    Ray parallelMiss{glm::vec3(3.0f, 0.5f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    EXPECT_FALSE(box.Intersects(parallelMiss, tMin, tMax));
+}
+
+TEST(TypesMathTest, AABBExtentsCenterAndSurfaceArea) {
+    AABB box;
+    box.Expand(glm::vec3(-3.0f, 1.0f, 2.0f));
+    box.Expand(glm::vec3(5.0f, 7.0f, 8.0f));
+
+    const glm::vec3 center = box.GetCenter();
+    EXPECT_FLOAT_EQ(center.x, 1.0f);
+    EXPECT_FLOAT_EQ(center.y, 4.0f);
+    EXPECT_FLOAT_EQ(center.z, 5.0f);
+
+    const glm::vec3 size = box.GetSize();
+    EXPECT_FLOAT_EQ(size.x, 8.0f);
+    EXPECT_FLOAT_EQ(size.y, 6.0f);
+    EXPECT_FLOAT_EQ(size.z, 6.0f);
+
+    const glm::vec3 extents = box.GetExtents();
+    EXPECT_FLOAT_EQ(extents.x, 4.0f);
+    EXPECT_FLOAT_EQ(extents.y, 3.0f);
+    EXPECT_FLOAT_EQ(extents.z, 3.0f);
+}
+
+TEST(TypesMathTest, RayStartingInsideAABB) {
+    AABB box;
+    box.Expand(glm::vec3(-5.0f, -5.0f, -5.0f));
+    box.Expand(glm::vec3(5.0f, 5.0f, 5.0f));
+
+    float tMin = 0.0f;
+    float tMax = 0.0f;
+
+    // Ray origin is inside at (0, 0, 0)
+    Ray insideRay{glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
+    EXPECT_TRUE(box.Intersects(insideRay, tMin, tMax));
+    // Ray origin is inside at (0, 0, 0), intersection starts at origin (tMin = 0) and exits at Y = +5
+    EXPECT_NEAR(tMin, 0.0f, 1e-3f);
+    EXPECT_NEAR(tMax, 5.0f, 1e-3f);
+}
+
+TEST(TypesMathTest, PlanePointSignedDistanceClassification) {
+    // Plane facing +Y, passing through Y = 3.0
+    Plane plane{glm::vec3(0.0f, 1.0f, 0.0f), -3.0f};
+
+    // Point in front of plane
+    EXPECT_GT(plane.Distance(glm::vec3(0.0f, 5.0f, 0.0f)), 0.0f);
+    EXPECT_FLOAT_EQ(plane.Distance(glm::vec3(0.0f, 5.0f, 0.0f)), 2.0f);
+
+    // Point behind plane
+    EXPECT_LT(plane.Distance(glm::vec3(0.0f, 1.0f, 0.0f)), 0.0f);
+    EXPECT_FLOAT_EQ(plane.Distance(glm::vec3(0.0f, 1.0f, 0.0f)), -2.0f);
+
+    // Point exactly on plane
+    EXPECT_NEAR(plane.Distance(glm::vec3(10.0f, 3.0f, -4.0f)), 0.0f, 1e-5f);
+}
+
+TEST(TypesMathTest, QuatCollinearAndAntipodalSlerp) {
+    glm::quat q1(1.0f, 0.0f, 0.0f, 0.0f); // Identity
+    glm::quat q2(1.0f, 0.0f, 0.0f, 0.0f); // Same
+
+    glm::quat mid = glm::slerp(q1, q2, 0.5f);
+    EXPECT_FLOAT_EQ(mid.w, 1.0f);
+    EXPECT_FLOAT_EQ(mid.x, 0.0f);
+    EXPECT_FLOAT_EQ(mid.y, 0.0f);
+    EXPECT_FLOAT_EQ(mid.z, 0.0f);
+
+    // 90 degree rotation around Z
+    glm::quat qRot = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::quat halfRot = glm::slerp(q1, qRot, 0.5f);
+    float angle = glm::degrees(glm::angle(halfRot));
+    EXPECT_NEAR(angle, 45.0f, 1e-3f);
+}
+
+TEST(TypesMathTest, DegeneratePointAndZeroVolumeAABB) {
+    AABB box;
+    box.Expand(glm::vec3(4.0f, 5.0f, 6.0f));
+
+    EXPECT_FLOAT_EQ(box.GetSize().x, 0.0f);
+    EXPECT_FLOAT_EQ(box.GetSize().y, 0.0f);
+    EXPECT_FLOAT_EQ(box.GetSize().z, 0.0f);
+    EXPECT_FLOAT_EQ(box.GetCenter().x, 4.0f);
+    EXPECT_FLOAT_EQ(box.GetCenter().y, 5.0f);
+    EXPECT_FLOAT_EQ(box.GetCenter().z, 6.0f);
+
+    // Intersection with identical point box
+    AABB samePoint;
+    samePoint.Expand(glm::vec3(4.0f, 5.0f, 6.0f));
+    EXPECT_TRUE(box.Intersects(samePoint));
+}

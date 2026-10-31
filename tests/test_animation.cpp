@@ -310,3 +310,89 @@ TEST(AnimationTest, SkinJointMatrixComputation) {
     EXPECT_NEAR(skinnedPos1.y, 3.0f, 1e-5f);
     EXPECT_NEAR(skinnedPos1.z, 0.0f, 1e-5f);
 }
+
+TEST(AnimationTest, EmptySamplerSamplingSafety) {
+    AnimationSampler sampler;
+    sampler.interpolation = AnimationInterpolation::Linear;
+    sampler.timestamps = {};
+    sampler.keyframeValues = {};
+
+    std::array<float, 3> result{1.0f, 2.0f, 3.0f};
+    EXPECT_NO_THROW(sampler.Sample(0.5f, 3, AnimationPath::Translation, result));
+}
+
+TEST(AnimationTest, SingleKeyframeSampling) {
+    AnimationSampler sampler;
+    sampler.interpolation = AnimationInterpolation::Linear;
+    sampler.timestamps = {1.0f};
+    sampler.keyframeValues = {5.0f, 10.0f, 15.0f};
+
+    std::array<float, 3> result{};
+
+    // Before time
+    sampler.Sample(0.0f, 3, AnimationPath::Translation, result);
+    EXPECT_FLOAT_EQ(result[0], 5.0f);
+    EXPECT_FLOAT_EQ(result[1], 10.0f);
+    EXPECT_FLOAT_EQ(result[2], 15.0f);
+
+    // Exact time
+    sampler.Sample(1.0f, 3, AnimationPath::Translation, result);
+    EXPECT_FLOAT_EQ(result[0], 5.0f);
+    EXPECT_FLOAT_EQ(result[1], 10.0f);
+    EXPECT_FLOAT_EQ(result[2], 15.0f);
+
+    // After time
+    sampler.Sample(10.0f, 3, AnimationPath::Translation, result);
+    EXPECT_FLOAT_EQ(result[0], 5.0f);
+    EXPECT_FLOAT_EQ(result[1], 10.0f);
+    EXPECT_FLOAT_EQ(result[2], 15.0f);
+}
+
+TEST(AnimationTest, ZeroDurationAnimationEvaluation) {
+    auto scene = std::make_shared<Scene>();
+    auto node = std::make_shared<SceneNode>();
+    node->name = "Target";
+    scene->allNodes.push_back(node);
+    scene->rootNodes.push_back(node);
+
+    Animation anim;
+    anim.name = "ZeroDuration";
+    anim.duration = 0.0f;
+
+    AnimationChannel channel;
+    channel.samplerIndex = 0;
+    channel.targetNodeIndex = 0;
+    channel.path = AnimationPath::Translation;
+    anim.channels.push_back(channel);
+
+    AnimationSampler sampler;
+    sampler.interpolation = AnimationInterpolation::Step;
+    sampler.timestamps = {0.0f};
+    sampler.keyframeValues = {1.0f, 2.0f, 3.0f};
+    anim.samplers.push_back(sampler);
+
+    scene->animations.push_back(std::move(anim));
+
+    EXPECT_NO_THROW(scene->EvaluateAnimation(0, 0.0f));
+    EXPECT_FLOAT_EQ(node->translation.x, 1.0f);
+    EXPECT_FLOAT_EQ(node->translation.y, 2.0f);
+    EXPECT_FLOAT_EQ(node->translation.z, 3.0f);
+}
+
+TEST(AnimationTest, AnimationCalculateDuration) {
+    Animation anim;
+    anim.name = "MultiChannelDuration";
+
+    AnimationSampler s1;
+    s1.timestamps = {0.0f, 1.5f, 3.0f};
+    s1.keyframeValues = {0, 0, 0, 1, 1, 1, 2, 2, 2};
+    anim.samplers.push_back(s1);
+
+    AnimationSampler s2;
+    s2.timestamps = {0.5f, 2.0f, 4.5f};
+    s2.keyframeValues = {0, 0, 0, 1, 1, 1, 2, 2, 2};
+    anim.samplers.push_back(s2);
+
+    anim.CalculateDuration();
+    EXPECT_FLOAT_EQ(anim.duration, 4.5f);
+}

@@ -274,3 +274,64 @@ TEST(MemoryPoolTest, ScratchArenaRepeatedResetUnderPMRVectors) {
     }
     EXPECT_EQ(arena.Capacity(), 1024 * 128);
 }
+
+TEST(MemoryPoolTest, NullptrDeallocateSafety) {
+    bgl::core::MemoryPool<TestStruct, 8> pool;
+    EXPECT_NO_THROW(pool.Deallocate(nullptr));
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+}
+
+TEST(MemoryPoolTest, RapidLIFOReuse) {
+    bgl::core::MemoryPool<TestStruct, 4> pool;
+    TestStruct* p1 = pool.Allocate(1, 1.0f);
+    ASSERT_NE(p1, nullptr);
+    const uintptr_t addr1 = reinterpret_cast<uintptr_t>(p1);
+
+    pool.Deallocate(p1);
+    EXPECT_EQ(pool.AllocatedCount(), 0);
+
+    // Free list must return the recently deallocated slot (LIFO)
+    TestStruct* p2 = pool.Allocate(2, 2.0f);
+    ASSERT_NE(p2, nullptr);
+    const uintptr_t addr2 = reinterpret_cast<uintptr_t>(p2);
+
+    EXPECT_EQ(addr1, addr2);
+    pool.Deallocate(p2);
+}
+
+TEST(MemoryPoolTest, ScratchArenaMultipleConcurrentPmrVectors) {
+    bgl::core::ScratchArena arena(1024 * 64);
+    auto* mr = arena.GetResource();
+
+    std::pmr::vector<int> ints(mr);
+    std::pmr::vector<float> floats(mr);
+    std::pmr::vector<char> chars(mr);
+
+    for (int i = 0; i < 100; ++i) {
+        ints.push_back(i);
+        floats.push_back(static_cast<float>(i) * 0.5f);
+        chars.push_back(static_cast<char>('A' + (i % 26)));
+    }
+
+    EXPECT_EQ(ints.size(), 100u);
+    EXPECT_EQ(floats.size(), 100u);
+    EXPECT_EQ(chars.size(), 100u);
+
+    arena.Reset();
+}
+
+TEST(MemoryPoolTest, ZeroInitializationVerification) {
+    struct PodType {
+        int x{0};
+        int y{0};
+        int z{0};
+    };
+
+    bgl::core::MemoryPool<PodType, 4> podPool;
+    PodType* pod = podPool.Allocate();
+    ASSERT_NE(pod, nullptr);
+    EXPECT_EQ(pod->x, 0);
+    EXPECT_EQ(pod->y, 0);
+    EXPECT_EQ(pod->z, 0);
+    podPool.Deallocate(pod);
+}

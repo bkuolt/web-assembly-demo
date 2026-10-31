@@ -176,3 +176,60 @@ TEST(CommandLineTest, FullFeatureFlagToggleRoundtrips) {
     EXPECT_TRUE(optEnabled.enableDebugOverlay);
     EXPECT_TRUE(optEnabled.enableBoundingBoxes);
 }
+
+TEST(CommandLineTest, PositionalAssetPathOnly) {
+    const std::array<const char*, 2> args{"bgl_viewer", "assets/Sponza.glb"};
+    auto opt = CliOptions::Parse(std::span<const char* const>{args});
+    EXPECT_EQ(opt.assetPath, "assets/Sponza.glb");
+}
+
+TEST(CommandLineTest, MissingValueAtEndOfArguments) {
+    // Flag expecting value given as trailing argument
+    const std::array<const char*, 2> argsW{"bgl_viewer", "-w"};
+    EXPECT_NO_THROW({
+        auto opt = CliOptions::Parse(std::span<const char* const>{argsW});
+        EXPECT_EQ(opt.width, 1280u); // Preserves default
+    });
+
+    const std::array<const char*, 2> argsH{"bgl_viewer", "-H"};
+    EXPECT_NO_THROW({
+        auto opt = CliOptions::Parse(std::span<const char* const>{argsH});
+        EXPECT_EQ(opt.height, 720u); // Preserves default
+    });
+
+    const std::array<const char*, 2> argsAsset{"bgl_viewer", "-a"};
+    EXPECT_NO_THROW({
+        auto opt = CliOptions::Parse(std::span<const char* const>{argsAsset});
+        EXPECT_TRUE(opt.assetPath.empty());
+    });
+}
+
+TEST(CommandLineTest, WindowSizeBoundaryValues) {
+    const std::array<const char*, 5> args4K{"bgl_viewer", "-w", "3840", "-H", "2160"};
+    auto opt4K = CliOptions::Parse(std::span<const char* const>{args4K});
+    EXPECT_EQ(opt4K.width, 3840u);
+    EXPECT_EQ(opt4K.height, 2160u);
+
+    const std::array<const char*, 5> argsSmall{"bgl_viewer", "-w", "320", "-H", "240"};
+    auto optSmall = CliOptions::Parse(std::span<const char* const>{argsSmall});
+    EXPECT_EQ(optSmall.width, 320u);
+    EXPECT_EQ(optSmall.height, 240u);
+}
+
+TEST(CommandLineTest, ConflictingOptionsOrderPrecedence) {
+    // --bounds then --no-bounds -> should be false
+    const std::array<const char*, 3> argsFalse{"bgl_viewer", "--bounds", "--no-bounds"};
+    auto optFalse = CliOptions::Parse(std::span<const char* const>{argsFalse});
+    EXPECT_FALSE(optFalse.enableBoundingBoxes);
+
+    // --no-bounds then --bounds -> should be true
+    const std::array<const char*, 3> argsTrue{"bgl_viewer", "--no-bounds", "--bounds"};
+    auto optTrue = CliOptions::Parse(std::span<const char* const>{argsTrue});
+    EXPECT_TRUE(optTrue.enableBoundingBoxes);
+}
+
+TEST(CommandLineTest, PrintHelpAndVersionExecution) {
+    EXPECT_NO_THROW(CliOptions::PrintHelp("bgl_viewer"));
+    EXPECT_NO_THROW(CliOptions::PrintVersion());
+    EXPECT_NO_THROW(CliOptions::PrintFormats());
+}

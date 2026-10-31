@@ -258,3 +258,4 @@ Controls real instances of **Google Chrome** (via Chrome DevTools Protocol) and 
 python3 tests/test_browsers_e2e.py
 ```
 - Tests: Real canvas frame rendering, WebGPU device initialization, WebGL 2 fallback, glTF model parsing, and zero JavaScript runtime errors.
+

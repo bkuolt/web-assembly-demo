@@ -226,3 +226,129 @@ TEST(RayPickerTest, EmptyScenePickReturnsNoHit) {
     auto hit = bgl::scene::RayPicker::Pick(ray, emptyScene);
     EXPECT_FALSE(hit.has_value());
 }
+
+TEST(RayPickerTest, TriangleBehindRayOriginRejected) {
+    // Triangle is at Z = +10
+    glm::vec3 v0(-1.0f, -1.0f, 10.0f);
+    glm::vec3 v1(1.0f, -1.0f, 10.0f);
+    glm::vec3 v2(0.0f, 1.0f, 10.0f);
+
+    // Ray origin is at Z = 5 looking in negative Z direction (away from triangle)
+    bgl::core::Ray ray{glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    float dist = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    bool hit = bgl::scene::RayPicker::IntersectTriangle(ray, v0, v1, v2, dist, hitPoint, normal);
+    EXPECT_FALSE(hit);
+}
+
+TEST(RayPickerTest, RayExactVertexHit) {
+    glm::vec3 v0(-2.0f, 0.0f, 0.0f);
+    glm::vec3 v1(2.0f, 0.0f, 0.0f);
+    glm::vec3 v2(0.0f, 3.0f, 0.0f);
+
+    // Ray directed at vertex v2 (0, 3, 0)
+    bgl::core::Ray ray{glm::vec3(0.0f, 3.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    float dist = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    bool hit = bgl::scene::RayPicker::IntersectTriangle(ray, v0, v1, v2, dist, hitPoint, normal);
+    EXPECT_TRUE(hit);
+    EXPECT_NEAR(dist, 10.0f, 1e-3f);
+    EXPECT_NEAR(hitPoint.x, 0.0f, 1e-3f);
+    EXPECT_NEAR(hitPoint.y, 3.0f, 1e-3f);
+}
+
+TEST(RayPickerTest, RayExactEdgeHit) {
+    glm::vec3 v0(-2.0f, 0.0f, 0.0f);
+    glm::vec3 v1(2.0f, 0.0f, 0.0f);
+    glm::vec3 v2(0.0f, 4.0f, 0.0f);
+
+    // Ray directed at midpoint of edge v0-v1: (0, 0, 0)
+    bgl::core::Ray ray{glm::vec3(0.0f, 0.0f, 8.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    float dist = 0.0f;
+    glm::vec3 hitPoint{0.0f};
+    glm::vec3 normal{0.0f};
+
+    bool hit = bgl::scene::RayPicker::IntersectTriangle(ray, v0, v1, v2, dist, hitPoint, normal);
+    EXPECT_TRUE(hit);
+    EXPECT_NEAR(dist, 8.0f, 1e-3f);
+    EXPECT_NEAR(hitPoint.z, 0.0f, 1e-3f);
+}
+
+TEST(RayPickerTest, ClosestTriangleDepthSorting) {
+    bgl::scene::Scene scene;
+
+    auto makeNode = [](std::string_view name, float zPos) {
+        auto node = std::make_shared<bgl::scene::SceneNode>();
+        node->name = name;
+        node->localTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, zPos));
+
+        bgl::scene::MeshPrimitive prim;
+        bgl::core::Vertex v0, v1, v2;
+        v0.position = glm::vec3(-1.0f, -1.0f, 0.0f);
+        v1.position = glm::vec3(1.0f, -1.0f, 0.0f);
+        v2.position = glm::vec3(0.0f, 1.0f, 0.0f);
+        prim.vertices = {v0, v1, v2};
+        prim.indices = {0, 1, 2};
+        prim.boundingBox.Expand(v0.position);
+        prim.boundingBox.Expand(v1.position);
+        prim.boundingBox.Expand(v2.position);
+        node->primitives.push_back(std::move(prim));
+        return node;
+    };
+
+    // Three layers along Z: Z=0 (closest to origin Z=10), Z=-5 (middle), Z=-10 (furthest)
+    scene.rootNodes.push_back(makeNode("Furthest", -10.0f));
+    scene.rootNodes.push_back(makeNode("Closest", 0.0f));
+    scene.rootNodes.push_back(makeNode("Middle", -5.0f));
+    scene.Update();
+
+    bgl::core::Ray ray{glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    auto hit = bgl::scene::RayPicker::Pick(ray, scene);
+
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->hitNode->name, "Closest");
+    EXPECT_NEAR(hit->distance, 10.0f, 1e-3f);
+}
+
+TEST(RayPickerTest, MultipleRootNodesPicking) {
+    bgl::scene::Scene scene;
+
+    auto makeQuadNode = [](std::string_view name, glm::vec3 center) {
+        auto node = std::make_shared<bgl::scene::SceneNode>();
+        node->name = name;
+        node->localTransform = glm::translate(glm::mat4(1.0f), center);
+
+        bgl::scene::MeshPrimitive prim;
+        bgl::core::Vertex v0, v1, v2;
+        v0.position = glm::vec3(-0.5f, -0.5f, 0.0f);
+        v1.position = glm::vec3(0.5f, -0.5f, 0.0f);
+        v2.position = glm::vec3(0.0f, 0.5f, 0.0f);
+        prim.vertices = {v0, v1, v2};
+        prim.indices = {0, 1, 2};
+        prim.boundingBox.Expand(v0.position);
+        prim.boundingBox.Expand(v1.position);
+        prim.boundingBox.Expand(v2.position);
+        node->primitives.push_back(std::move(prim));
+        return node;
+    };
+
+    scene.rootNodes.push_back(makeQuadNode("NodeLeft", glm::vec3(-5.0f, 0.0f, 0.0f)));
+    scene.rootNodes.push_back(makeQuadNode("NodeCenter", glm::vec3(0.0f, 0.0f, 0.0f)));
+    scene.rootNodes.push_back(makeQuadNode("NodeRight", glm::vec3(5.0f, 0.0f, 0.0f)));
+    scene.Update();
+
+    // Pick right node specifically
+    bgl::core::Ray rayRight{glm::vec3(5.0f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    auto hitRight = bgl::scene::RayPicker::Pick(rayRight, scene);
+    ASSERT_TRUE(hitRight.has_value());
+    EXPECT_EQ(hitRight->hitNode->name, "NodeRight");
+
+    // Pick empty space in between
+    bgl::core::Ray rayVoid{glm::vec3(2.5f, 0.0f, 10.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+    auto hitVoid = bgl::scene::RayPicker::Pick(rayVoid, scene);
+    EXPECT_FALSE(hitVoid.has_value());
+}

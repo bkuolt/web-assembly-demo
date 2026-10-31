@@ -360,6 +360,8 @@ if(BGL_BUILD_TESTING)
         tests/test_rendering_features.cpp
         tests/test_golden_image.cpp
         tests/test_animation.cpp
+        tests/test_thread_pool.cpp
+        tests/test_audio_engine.cpp
     )
 
     if(TARGET GTest::gtest)

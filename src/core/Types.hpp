@@ -55,6 +55,14 @@ struct AABB {
 
     [[nodiscard]] constexpr glm::vec3 Extents() const noexcept { return (maxBound - minBound) * 0.5f; }
 
+    [[nodiscard]] constexpr glm::vec3 Size() const noexcept { return maxBound - minBound; }
+
+    [[nodiscard]] constexpr glm::vec3 GetCenter() const noexcept { return Center(); }
+
+    [[nodiscard]] constexpr glm::vec3 GetExtents() const noexcept { return Extents(); }
+
+    [[nodiscard]] constexpr glm::vec3 GetSize() const noexcept { return Size(); }
+
     /**
      * @brief Transforms the Axis-Aligned Bounding Box by an affine 4x4 matrix using Arvo's algorithm.
      * Computes the new center and transformed extents via scalar absolute dot products:
@@ -135,6 +143,7 @@ struct Plane {
     }
 
     [[nodiscard]] float DistanceToPoint(const glm::vec3& p) const noexcept { return glm::dot(normal, p) + distance; }
+    [[nodiscard]] float Distance(const glm::vec3& p) const noexcept { return DistanceToPoint(p); }
 };
 
 /**

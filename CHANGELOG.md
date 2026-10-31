@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conan 2.x & Dependency Lock Optimization:**
   - Updated `conanfile.py` to `required_conan_version = ">=2.28"` and recipe version `0.9.13`, optimizing transitive dependency graph computation.
   - Re-locked all 17 direct and transitive Conan dependencies in `conan.lock` for fully deterministic, reproducible builds.
+- **Significant Unit Test Suite Expansion (168 → 210 Tests, +25%):**
+  - Added new dedicated test suite `tests/test_thread_pool.cpp` covering multi-worker task queuing, `ParallelFor` chunk partitioning, atomic accumulators, re-entrancy starvation guards, and exception propagation through `std::future`.
+  - Added new dedicated test suite `tests/test_audio_engine.cpp` verifying miniaudio 3D spatial `SoundEngine` lifecycle, listener orientation, non-existent file error handling, and emitter tracking.
+  - Expanded `tests/test_types_math.cpp` with zero-component axis-aligned ray intersection, AABB extents/size/center math, internal ray origins, plane signed distance, and quaternion slerp edge cases.
+  - Expanded `tests/test_ray_picker.cpp` with behind-ray rejection, exact vertex and edge hits, closest triangle depth sorting, and multi-node picking.
+  - Expanded `tests/test_command_line.cpp` with positional asset parsing, trailing flag robustness, 4K/8K resolutions, and option precedence.
+  - Expanded `tests/test_gltf_loader.cpp`, `tests/test_memory_pool.cpp`, and `tests/test_animation.cpp` with deep hierarchy evaluation, rapid LIFO memory reuse, zero-duration animation handling, and material clamping.
 - **Automated End-to-End Multi-Browser Test Suite (`BrowserE2ETest`):**
   - Integrated `tests/test_browsers_e2e.py` into CMake and CTest test runner.
   - Simultaneously tests real instances of Google Chrome and Mozilla Firefox over local HTTP servers, validating WebGPU pipeline execution, WebGL 2 fallback, glTF model ingestion, and draw execution with a 100% test pass rate across all 4 test suites.
