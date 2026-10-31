@@ -88,7 +88,7 @@
     <div class="hud-header">
       <div class="hud-brand">
         <span class="hud-logo-icon">◈</span>
-        <h2>bgl Engine <span class="badge">v0.9.11</span></h2>
+        <h2>bgl Engine <span class="badge">v0.9.12</span></h2>
       </div>
       <div class="hud-header-actions">
         <button id="btn-minimize-hud" class="hud-icon-btn" onclick="toggleHudMinimize()" title="Minimize / Expand HUD (O)">―</button>
@@ -98,6 +98,7 @@
     <!-- Subtitle & Live Performance Telemetry Strip -->
     <div class="hud-meta-row">
       <span class="hud-subtitle">WebGPU &amp; Wasm 3D Runtime</span>
+      <span id="hud-backend-pill" class="badge badge-webgpu" title="Active rendering pipeline">WebGPU</span>
       <span id="hud-fps-pill" class="hud-fps-pill">60.0 FPS</span>
     </div>
 
@@ -153,6 +154,7 @@
 
         <div class="cache-status-strip">
           <span id="cache-indicator-pill" class="cache-indicator-pill">⚡ Browser Storage Ready</span>
+          <button id="btn-toggle-backend" class="cache-clear-btn" onclick="toggleBackend()" title="Switch rendering backend between WebGPU and WebGL 2">Switch Backend</button>
           <button id="btn-clear-cache" class="cache-clear-btn" onclick="clearModelCache()" title="Purge locally cached glTF models">Clear Cache</button>
         </div>
 

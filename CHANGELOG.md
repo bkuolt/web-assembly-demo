@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.12] - 2026-10-31
+
+### Native WebGPU Browser Implementation & Dual-Backend Architecture
+- **Full Native WebGPU 3D Browser Rendering (`BglWebGpuRenderer`):**
+  - Implemented genuine browser WebGPU rendering pipeline using standard W3C WebGPU APIs (`navigator.gpu`, `canvas.getContext('webgpu')`, `GPUDevice`, `GPUQueue`, and `GPUCommandEncoder`).
+  - Added native WGSL shader pipeline with `@vertex` and `@fragment` stages supporting directional sun lighting, Blinn-Phong specular highlights, ambient shading, multi-angle fill lighting, and gamma 2.2 tonemapping.
+  - Interleaved vertex attributes (`position`, `normal`, `uv`) into cache-coherent 32-byte GPU buffers with automatic `(0, 1, 0)` normal and `(0, 0)` UV fallbacks.
+  - Implemented 256-byte aligned uniform buffers for view-projection, world, and 4x4 inverse-transpose normal matrices.
+  - Added asynchronous texture ingestion via `createImageBitmap` and `device.queue.copyExternalImageToTexture` with dynamic GPU bind group generation.
+  - Added dual render pipelines for backface-culled and double-sided (`cullMode: 'none'`) glTF materials.
+- **Robust Automatic Dual-Backend Architecture (`WebGPU` / `WebGL 2`):**
+  - Automatic hardware priority: prioritizes native WebGPU on modern Chrome/Edge browsers; seamlessly falls back to WebGL 2 on mobile devices (e.g., Samsung Galaxy S22) or unsupported environments.
+  - Clean canvas node isolation preventing `HTMLCanvasElement` context collision locks between WebGPU and WebGL 2.
+  - Added backend status badge in HUD (`WebGPU` in green, `WebGL 2` in amber) and a one-click backend switcher button (`Switch Backend` / `?backend=webgl`).
+- **Comprehensive Automated Web Testing Suite (`WebGPUPipelineTest`):**
+  - Added standalone `tests/test_webgpu_path.js` mock test suite verifying WebGPU device initialization, WGSL shader compiling, GPU buffer allocation, draw command encoding on `ToyCar.glb` and `Sponza.glb`, turntable rotation, and touch controls.
+  - Integrated `WebGPUPipelineTest` into `CMakeLists.txt` alongside `WebGLPipelineTest` with 100% test pass rate in CTest.
+
+---
+
 ## [0.9.11] - 2026-10-31
 
 ### Production Readiness, Universal Cross-Platform Web Rendering, Link Audit & Engine Polish

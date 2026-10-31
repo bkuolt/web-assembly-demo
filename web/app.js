@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.11 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.12 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -1235,6 +1235,1039 @@
   };
 
   // ============================================================================
+  // Native WebGPU 3D Renderer (WGSL Shaders & Hardware Acceleration)
+  // ============================================================================
+  const BglWebGpuRenderer = {
+    adapter: null,
+    device: null,
+    context: null,
+    canvas: null,
+    format: null,
+    pipeline: null,
+    pipelineDoubleSided: null,
+    depthTexture: null,
+    depthTextureView: null,
+    defaultTexture: null,
+    defaultTextureView: null,
+    defaultSampler: null,
+    bindGroupLayout: null,
+    pipelineLayout: null,
+    isActive: false,
+    primitives: [],
+
+    camera: {
+      target: [0.0, 0.0, 0.0],
+      distance: 3.5,
+      yaw: 0.45,
+      pitch: 0.35,
+      fov: (45 * Math.PI) / 180,
+      near: 0.05,
+      far: 500.0,
+      minDistance: 0.0001,
+      maxDistance: 1000.0,
+    },
+
+    isDragging: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    dragButton: 0,
+    wireframe: false,
+    turntable: false,
+    turntableSpeed: 0.35,
+    lastFrameTime: performance.now(),
+    modelBounds: null,
+
+    mat4: {
+      create() {
+        const out = new Float32Array(16);
+        out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
+        return out;
+      },
+      perspective(out, fovy, aspect, near, far) {
+        const f = 1.0 / Math.tan(fovy / 2);
+        const nf = 1.0 / (near - far);
+        out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+        out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+        out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
+        out[12] = 0; out[13] = 0; out[14] = (2 * far * near) * nf; out[15] = 0;
+        return out;
+      },
+      lookAt(out, eye, target, up) {
+        let z0 = eye[0] - target[0], z1 = eye[1] - target[1], z2 = eye[2] - target[2];
+        let len = 1 / Math.hypot(z0, z1, z2);
+        z0 *= len; z1 *= len; z2 *= len;
+
+        let x0 = up[1] * z2 - up[2] * z1, x1 = up[2] * z0 - up[0] * z2, x2 = up[0] * z1 - up[1] * z0;
+        len = Math.hypot(x0, x1, x2);
+        if (len > 0.00001) { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
+
+        let y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
+
+        out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+        out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+        out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+        out[12] = -(x0 * eye[0] + x1 * eye[1] + x2 * eye[2]);
+        out[13] = -(y0 * eye[0] + y1 * eye[1] + y2 * eye[2]);
+        out[14] = -(z0 * eye[0] + z1 * eye[1] + z2 * eye[2]);
+        out[15] = 1;
+        return out;
+      },
+      multiply(out, a, b) {
+        const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+        const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+        const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+        const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+        let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+        out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+        out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+        out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+        b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+        out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+        out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+        out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+        out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+        return out;
+      },
+      normalMatrix4(out, m) {
+        const a00 = m[0], a01 = m[1], a02 = m[2];
+        const a10 = m[4], a11 = m[5], a12 = m[6];
+        const a20 = m[8], a21 = m[9], a22 = m[10];
+
+        const b01 = a22 * a11 - a12 * a21;
+        const b11 = -a22 * a10 + a12 * a20;
+        const b21 = a21 * a10 - a11 * a20;
+
+        let det = a00 * b01 + a01 * b11 + a02 * b21;
+        if (!det) {
+          out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
+          out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
+          out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
+          out[12] = 0; out[13] = 0; out[14] = 0; out[15] = 1;
+          return out;
+        }
+        det = 1.0 / det;
+
+        out[0] = b01 * det;
+        out[1] = (-a22 * a01 + a02 * a21) * det;
+        out[2] = (a12 * a01 - a02 * a11) * det;
+        out[3] = 0;
+
+        out[4] = b11 * det;
+        out[5] = (a22 * a00 - a02 * a20) * det;
+        out[6] = (-a12 * a00 + a02 * a10) * det;
+        out[7] = 0;
+
+        out[8] = b21 * det;
+        out[9] = (-a21 * a00 + a01 * a20) * det;
+        out[10] = (a11 * a00 - a01 * a10) * det;
+        out[11] = 0;
+
+        out[12] = 0;
+        out[13] = 0;
+        out[14] = 0;
+        out[15] = 1;
+        return out;
+      }
+    },
+
+    getShaderWgsl() {
+      return `
+struct Uniforms {
+    viewProj : mat4x4<f32>,
+    model : mat4x4<f32>,
+    normalMatrix : mat4x4<f32>,
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    baseColorFactor : vec4<f32>,
+    flags : vec4<u32>,
+};
+
+@group(0) @binding(0) var<uniform> ubo : Uniforms;
+@group(0) @binding(1) var defaultSampler : sampler;
+@group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
+
+struct VertexInput {
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clipPos : vec4<f32>,
+    @location(0) worldPos : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_main(in : VertexInput) -> VertexOutput {
+    var out : VertexOutput;
+    let worldPos4 = ubo.model * vec4<f32>(in.position, 1.0);
+    out.worldPos = worldPos4.xyz;
+    let n = (ubo.normalMatrix * vec4<f32>(in.normal, 0.0)).xyz;
+    out.normal = select(vec3<f32>(0.0, 1.0, 0.0), normalize(n), dot(n, n) > 0.0001);
+    out.uv = in.uv;
+    out.clipPos = ubo.viewProj * worldPos4;
+    return out;
+}
+
+@fragment
+fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @location(0) vec4<f32> {
+    if (ubo.flags.y != 0u) {
+        return vec4<f32>(0.22, 0.74, 0.97, 1.0);
+    }
+
+    var baseColor = ubo.baseColorFactor;
+    if (ubo.flags.x != 0u) {
+        let texColor = textureSample(baseColorTexture, defaultSampler, in.uv);
+        baseColor = baseColor * texColor;
+    }
+
+    if (baseColor.a < 0.05) {
+        discard;
+    }
+
+    var N = select(vec3<f32>(0.0, 1.0, 0.0), normalize(in.normal), dot(in.normal, in.normal) > 0.0001);
+    if (!frontFacing) {
+        N = -N;
+    }
+
+    let L = normalize(ubo.lightDir.xyz);
+    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
+    let H = normalize(L + V);
+
+    let NdotL = max(dot(N, L), 0.0);
+    let NdotH = max(dot(N, H), 0.0);
+    let spec = pow(NdotH, 32.0) * 0.35;
+
+    let ambient = vec3<f32>(0.25, 0.28, 0.32) * baseColor.rgb;
+    let diffuse = baseColor.rgb * vec3<f32>(1.0, 0.98, 0.94) * NdotL;
+    let fillLight = baseColor.rgb * vec3<f32>(0.15, 0.17, 0.20) * max(dot(N, -L), 0.0);
+    let specular = vec3<f32>(1.0, 1.0, 1.0) * spec * select(0.0, 1.0, NdotL > 0.0);
+
+    var color = ambient + diffuse + fillLight + specular;
+    color = color / (color + vec3<f32>(1.0, 1.0, 1.0));
+    color = pow(color, vec3<f32>(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+
+    return vec4<f32>(color, baseColor.a);
+}
+`;
+    },
+
+    async init() {
+      this.canvas = document.getElementById('canvas');
+      if (!this.canvas) return false;
+
+      if (!navigator.gpu) {
+        BglLogger.warn('WebGPU', 'navigator.gpu is unavailable in this environment.');
+        return false;
+      }
+
+      try {
+        this.adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        if (!this.adapter) {
+          BglLogger.warn('WebGPU', 'navigator.gpu.requestAdapter() returned null.');
+          return false;
+        }
+
+        this.device = await this.adapter.requestDevice();
+        if (!this.device) {
+          BglLogger.warn('WebGPU', 'adapter.requestDevice() returned null.');
+          return false;
+        }
+
+        if (this.device.lost) {
+          this.device.lost.then((info) => {
+            BglLogger.error('WebGPU', `Device lost: ${info.reason || 'Unknown'} - ${info.message || ''}`);
+            this.isActive = false;
+          });
+        }
+
+        if (this.adapter.info) {
+          window.cachedGpuInfo = this.adapter.info;
+          BglLogger.log('WebGPU', `Acquired GPU Adapter: ${this.adapter.info.vendor || 'Unknown'} - ${this.adapter.info.architecture || ''} (${this.adapter.info.description || ''})`);
+        } else {
+          BglLogger.log('WebGPU', 'Acquired compatible WebGPU hardware adapter.');
+        }
+
+        this.context = this.canvas.getContext('webgpu');
+        if (!this.context) {
+          BglLogger.warn('WebGPU', 'canvas.getContext("webgpu") returned null.');
+          return false;
+        }
+
+        this.format = navigator.gpu.getPreferredCanvasFormat();
+        this.context.configure({
+          device: this.device,
+          format: this.format,
+          alphaMode: 'opaque'
+        });
+
+        // 1x1 default white texture
+        this.defaultTexture = this.device.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        });
+        this.device.queue.writeTexture(
+          { texture: this.defaultTexture },
+          new Uint8Array([255, 255, 255, 255]),
+          { bytesPerRow: 4, rowsPerImage: 1 },
+          [1, 1, 1]
+        );
+        this.defaultTextureView = this.defaultTexture.createView();
+
+        // Default linear sampler
+        this.defaultSampler = this.device.createSampler({
+          magFilter: 'linear',
+          minFilter: 'linear',
+          mipmapFilter: 'linear'
+        });
+
+        // Bind group layout
+        this.bindGroupLayout = this.device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              buffer: { type: 'uniform' }
+            },
+            {
+              binding: 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: { type: 'filtering' }
+            },
+            {
+              binding: 2,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            }
+          ]
+        });
+
+        this.pipelineLayout = this.device.createPipelineLayout({
+          bindGroupLayouts: [this.bindGroupLayout]
+        });
+
+        const shaderModule = this.device.createShaderModule({
+          code: this.getShaderWgsl()
+        });
+
+        const vertexBufferLayout = {
+          arrayStride: 32,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
+            { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+            { shaderLocation: 2, offset: 24, format: 'float32x2' }  // uv
+          ]
+        };
+
+        this.pipeline = this.device.createRenderPipeline({
+          layout: this.pipelineLayout,
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [vertexBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: this.format }]
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: 'back'
+          },
+          depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: true,
+            depthCompare: 'less'
+          }
+        });
+
+        this.pipelineDoubleSided = this.device.createRenderPipeline({
+          layout: this.pipelineLayout,
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [vertexBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: this.format }]
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: 'none'
+          },
+          depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: true,
+            depthCompare: 'less'
+          }
+        });
+
+        this.isActive = true;
+        this.initEvents();
+        this.startLoop();
+        BglLogger.log('WebGPU', 'Native WebGPU rendering pipeline initialized successfully.');
+
+        if (BglState.currentGltf && BglState.currentModelBuffer) {
+          BglLogger.log('WebGPU', `Immediately loading pre-parsed model '${BglState.currentModelName}' into WebGPU.`);
+          this.loadModel(BglState.currentGltf, BglState.currentModelBuffer, BglState.currentModelName);
+        }
+
+        return true;
+      } catch (err) {
+        BglLogger.warn('WebGPU', 'Failed to initialize WebGPU renderer:', err);
+        this.isActive = false;
+        return false;
+      }
+    },
+
+    initEvents() {
+      const canvas = this.canvas;
+      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      canvas.addEventListener('mousedown', (e) => {
+        if (!this.isActive) return;
+        this.isDragging = true;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+        this.dragButton = e.button;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!this.isActive || !this.isDragging) return;
+        const dx = e.clientX - this.lastMouseX;
+        const dy = e.clientY - this.lastMouseY;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+
+        if (this.dragButton === 0) {
+          this.camera.yaw += dx * 0.006;
+          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
+        } else if (this.dragButton === 2) {
+          const factor = this.camera.distance * 0.0015;
+          const cosY = Math.cos(this.camera.yaw);
+          const sinY = Math.sin(this.camera.yaw);
+          this.camera.target[0] -= (cosY * dx) * factor;
+          this.camera.target[1] += dy * factor;
+          this.camera.target[2] -= (sinY * dx) * factor;
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (this.isActive) this.isDragging = false;
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        if (!this.isActive) return;
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.1 : 0.9;
+        this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
+      }, { passive: false });
+
+      // Mobile touch controls (pinch-zoom, multi-touch pan, 1-finger orbit)
+      let touchLastPos = { x: 0, y: 0 };
+      let touchStartDist = 0;
+      let touchLastMid = { x: 0, y: 0 };
+
+      canvas.addEventListener('touchstart', (e) => {
+        if (!this.isActive) return;
+        if (e.touches.length === 1) {
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.touches.length === 2) {
+          touchStartDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          touchLastMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        if (!this.isActive) return;
+        e.preventDefault();
+        if (e.touches.length === 1) {
+          const dx = e.touches[0].clientX - touchLastPos.x;
+          const dy = e.touches[0].clientY - touchLastPos.y;
+          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          this.camera.yaw += dx * 0.006;
+          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
+        } else if (e.touches.length === 2) {
+          const curDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const deltaDist = curDist - touchStartDist;
+          touchStartDist = curDist;
+          if (Math.abs(deltaDist) > 0.5) {
+            const factor = deltaDist > 0 ? 0.96 : 1.04;
+            this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
+          }
+
+          const curMid = {
+            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
+            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
+          };
+          const dMidX = curMid.x - touchLastMid.x;
+          const dMidY = curMid.y - touchLastMid.y;
+          touchLastMid = curMid;
+
+          const factor = this.camera.distance * 0.0015;
+          const cosY = Math.cos(this.camera.yaw);
+          const sinY = Math.sin(this.camera.yaw);
+          this.camera.target[0] -= (cosY * dMidX) * factor;
+          this.camera.target[1] += dMidY * factor;
+          this.camera.target[2] -= (sinY * dMidX) * factor;
+        }
+      }, { passive: false });
+    },
+
+    loadModel(gltf, arrayBuffer, modelName) {
+      if (!this.isActive || !this.device) return;
+
+      this.primitives = [];
+
+      let binBuffer = null;
+      if (arrayBuffer && arrayBuffer.byteLength >= 12) {
+        const dv = new DataView(arrayBuffer, 0, 12);
+        const magic = dv.getUint32(0, true);
+        if (magic === 0x46546C67) {
+          let byteOffset = 12;
+          while (byteOffset + 8 <= arrayBuffer.byteLength) {
+            const chunkDv = new DataView(arrayBuffer, byteOffset, 8);
+            const chunkLen = chunkDv.getUint32(0, true);
+            const chunkType = chunkDv.getUint32(4, true);
+            if (chunkType === 0x004E4942) {
+              binBuffer = arrayBuffer.slice(byteOffset + 8, byteOffset + 8 + chunkLen);
+              break;
+            }
+            byteOffset += 8 + chunkLen;
+          }
+        }
+      }
+
+      const embeddedBuffers = [];
+      if (gltf.buffers) {
+        for (let i = 0; i < gltf.buffers.length; ++i) {
+          const buf = gltf.buffers[i];
+          if (buf.uri && buf.uri.startsWith('data:')) {
+            const commaIdx = buf.uri.indexOf(',');
+            if (commaIdx !== -1) {
+              const base64Str = buf.uri.slice(commaIdx + 1);
+              try {
+                const binStr = atob(base64Str);
+                const bytes = new Uint8Array(binStr.length);
+                for (let b = 0; b < binStr.length; ++b) {
+                  bytes[b] = binStr.charCodeAt(b);
+                }
+                embeddedBuffers[i] = bytes.buffer;
+              } catch (e) {
+                BglLogger.warn('glTF', 'Failed to decode base64 buffer URI:', e);
+              }
+            }
+          }
+        }
+      }
+
+      const getBufferViewData = (viewIdx) => {
+        if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
+        const bv = gltf.bufferViews[viewIdx];
+        const offset = bv.byteOffset || 0;
+        const length = bv.byteLength;
+        const bufferIdx = bv.buffer || 0;
+        const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
+        return src.slice(offset, offset + length);
+      };
+
+      const getAccessorData = (accIdx) => {
+        if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
+        const acc = gltf.accessors[accIdx];
+        if (acc.bufferView === undefined) return null;
+        const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
+        if (!bv) return null;
+        const bvData = getBufferViewData(acc.bufferView);
+        if (!bvData) return null;
+        const byteOffset = acc.byteOffset || 0;
+
+        let TypedArray = Float32Array;
+        if (acc.componentType === 5126) TypedArray = Float32Array;
+        else if (acc.componentType === 5123) TypedArray = Uint16Array;
+        else if (acc.componentType === 5125) TypedArray = Uint32Array;
+        else if (acc.componentType === 5121) TypedArray = Uint8Array;
+        else if (acc.componentType === 5122) TypedArray = Int16Array;
+
+        const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
+        const elemBytes = TypedArray.BYTES_PER_ELEMENT;
+        const stride = bv.byteStride || (numComp * elemBytes);
+
+        if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
+          return new TypedArray(bvData, byteOffset, acc.count * numComp);
+        }
+
+        const totalElems = acc.count * numComp;
+        const out = new TypedArray(totalElems);
+        const dView = new DataView(bvData);
+        for (let i = 0; i < acc.count; ++i) {
+          const itemOffset = byteOffset + i * stride;
+          for (let c = 0; c < numComp; ++c) {
+            const valOffset = itemOffset + c * elemBytes;
+            if (valOffset + elemBytes <= dView.byteLength) {
+              if (acc.componentType === 5126) out[i * numComp + c] = dView.getFloat32(valOffset, true);
+              else if (acc.componentType === 5123) out[i * numComp + c] = dView.getUint16(valOffset, true);
+              else if (acc.componentType === 5125) out[i * numComp + c] = dView.getUint32(valOffset, true);
+              else if (acc.componentType === 5121) out[i * numComp + c] = dView.getUint8(valOffset);
+              else if (acc.componentType === 5122) out[i * numComp + c] = dView.getInt16(valOffset, true);
+            }
+          }
+        }
+        return out;
+      };
+
+      const meshNodeMatrices = new Map();
+      if (gltf.nodes) {
+        const computeNodeMatrix = (nodeIdx, parentMat) => {
+          const node = gltf.nodes[nodeIdx];
+          if (!node) return;
+          let localMat = this.mat4.create();
+          if (node.matrix) {
+            for (let i = 0; i < 16; ++i) localMat[i] = node.matrix[i];
+          } else {
+            const t = node.translation || [0, 0, 0];
+            const r = node.rotation || [0, 0, 0, 1];
+            const s = node.scale || [1, 1, 1];
+            const x2 = r[0] + r[0], y2 = r[1] + r[1], z2 = r[2] + r[2];
+            const xx = r[0] * x2, xy = r[0] * y2, xz = r[0] * z2;
+            const yy = r[1] * y2, yz = r[1] * z2, zz = r[2] * z2;
+            const wx = r[3] * x2, wy = r[3] * y2, wz = r[3] * z2;
+
+            localMat[0] = (1 - (yy + zz)) * s[0];
+            localMat[1] = (xy + wz) * s[0];
+            localMat[2] = (xz - wy) * s[0];
+            localMat[3] = 0;
+
+            localMat[4] = (xy - wz) * s[1];
+            localMat[5] = (1 - (xx + zz)) * s[1];
+            localMat[6] = (yz + wx) * s[1];
+            localMat[7] = 0;
+
+            localMat[8] = (xz + wy) * s[2];
+            localMat[9] = (yz - wx) * s[2];
+            localMat[10] = (1 - (xx + yy)) * s[2];
+            localMat[11] = 0;
+
+            localMat[12] = t[0];
+            localMat[13] = t[1];
+            localMat[14] = t[2];
+            localMat[15] = 1;
+          }
+
+          let worldMat = this.mat4.create();
+          if (parentMat) {
+            this.mat4.multiply(worldMat, parentMat, localMat);
+          } else {
+            worldMat.set(localMat);
+          }
+
+          if (node.mesh !== undefined) {
+            if (!meshNodeMatrices.has(node.mesh)) {
+              meshNodeMatrices.set(node.mesh, []);
+            }
+            meshNodeMatrices.get(node.mesh).push(worldMat);
+          }
+
+          if (node.children) {
+            for (const childIdx of node.children) {
+              computeNodeMatrix(childIdx, worldMat);
+            }
+          }
+        };
+
+        const sceneIdx = gltf.scene || 0;
+        const rootNodes = (gltf.scenes && gltf.scenes[sceneIdx] && gltf.scenes[sceneIdx].nodes)
+          ? gltf.scenes[sceneIdx].nodes
+          : gltf.nodes.map((_, i) => i);
+
+        for (const rootIdx of rootNodes) {
+          computeNodeMatrix(rootIdx, null);
+        }
+      }
+
+      let minBound = [Infinity, Infinity, Infinity];
+      let maxBound = [-Infinity, -Infinity, -Infinity];
+
+      if (gltf.meshes) {
+        gltf.meshes.forEach((mesh, meshIdx) => {
+          if (!mesh.primitives) return;
+          const nodeMats = meshNodeMatrices.get(meshIdx) || [this.mat4.create()];
+
+          for (const prim of mesh.primitives) {
+            if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
+
+            const posData = getAccessorData(prim.attributes.POSITION);
+            if (!posData) continue;
+
+            const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
+            const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
+            const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
+
+            for (const worldMatrix of nodeMats) {
+              for (let i = 0; i < posData.length; i += 3) {
+                const lx = posData[i], ly = posData[i + 1], lz = posData[i + 2];
+                const wx = worldMatrix[0] * lx + worldMatrix[4] * ly + worldMatrix[8] * lz + worldMatrix[12];
+                const wy = worldMatrix[1] * lx + worldMatrix[5] * ly + worldMatrix[9] * lz + worldMatrix[13];
+                const wz = worldMatrix[2] * lx + worldMatrix[6] * ly + worldMatrix[10] * lz + worldMatrix[14];
+                minBound[0] = Math.min(minBound[0], wx); maxBound[0] = Math.max(maxBound[0], wx);
+                minBound[1] = Math.min(minBound[1], wy); maxBound[1] = Math.max(maxBound[1], wy);
+                minBound[2] = Math.min(minBound[2], wz); maxBound[2] = Math.max(maxBound[2], wz);
+              }
+            }
+
+            const vertexCount = posData.length / 3;
+            const interleaved = new Float32Array(vertexCount * 8);
+            for (let i = 0; i < vertexCount; ++i) {
+              const base = i * 8;
+              const pIdx = i * 3;
+              interleaved[base + 0] = posData[pIdx + 0];
+              interleaved[base + 1] = posData[pIdx + 1];
+              interleaved[base + 2] = posData[pIdx + 2];
+
+              if (normData) {
+                interleaved[base + 3] = normData[pIdx + 0];
+                interleaved[base + 4] = normData[pIdx + 1];
+                interleaved[base + 5] = normData[pIdx + 2];
+              } else {
+                interleaved[base + 3] = 0.0;
+                interleaved[base + 4] = 1.0;
+                interleaved[base + 5] = 0.0;
+              }
+
+              if (uvData) {
+                const uIdx = i * 2;
+                interleaved[base + 6] = uvData[uIdx + 0];
+                interleaved[base + 7] = uvData[uIdx + 1];
+              } else {
+                interleaved[base + 6] = 0.0;
+                interleaved[base + 7] = 0.0;
+              }
+            }
+
+            const vertexBuffer = this.device.createBuffer({
+              size: Math.max(32, interleaved.byteLength),
+              usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+            });
+            this.device.queue.writeBuffer(vertexBuffer, 0, interleaved);
+
+            let indexBuffer = null;
+            let indexFormat = 'uint16';
+            let indexCount = 0;
+            if (indexData) {
+              let gpuIndexData = indexData;
+              if (indexData instanceof Uint8Array) {
+                gpuIndexData = new Uint16Array(indexData);
+                indexFormat = 'uint16';
+              } else if (indexData instanceof Uint32Array) {
+                indexFormat = 'uint32';
+              } else {
+                indexFormat = 'uint16';
+              }
+              indexCount = gpuIndexData.length;
+              const bufSize = Math.max(4, Math.ceil(gpuIndexData.byteLength / 4) * 4);
+              indexBuffer = this.device.createBuffer({
+                size: bufSize,
+                usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+              });
+              this.device.queue.writeBuffer(indexBuffer, 0, gpuIndexData);
+            }
+
+            let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
+            let doubleSided = false;
+            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
+              const mat = gltf.materials[prim.material];
+              if (mat.doubleSided) doubleSided = true;
+              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorFactor) {
+                baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
+              }
+            }
+
+            const currentPrimRecords = [];
+            for (const worldMatrix of nodeMats) {
+              const uniformBuffer = this.device.createBuffer({
+                size: 256,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+              });
+
+              const bindGroup = this.device.createBindGroup({
+                layout: this.bindGroupLayout,
+                entries: [
+                  { binding: 0, resource: { buffer: uniformBuffer } },
+                  { binding: 1, resource: this.defaultSampler },
+                  { binding: 2, resource: this.defaultTextureView }
+                ]
+              });
+
+              const primRecord = {
+                vertexBuffer,
+                indexBuffer,
+                indexCount,
+                indexFormat,
+                vertexCount,
+                hasIndices: !!indexData,
+                uniformBuffer,
+                bindGroup,
+                baseColorFactor,
+                doubleSided,
+                hasTexture: false,
+                texture: null,
+                modelMatrix: worldMatrix,
+              };
+              currentPrimRecords.push(primRecord);
+              this.primitives.push(primRecord);
+            }
+
+            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
+              const mat = gltf.materials[prim.material];
+              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture) {
+                const texInfo = mat.pbrMetallicRoughness.baseColorTexture;
+                if (gltf.textures && gltf.textures[texInfo.index]) {
+                  const texObj = gltf.textures[texInfo.index];
+                  if (texObj.source !== undefined && gltf.images && gltf.images[texObj.source]) {
+                    const imgObj = gltf.images[texObj.source];
+
+                    const onImageReady = (bmp) => {
+                      try {
+                        const gpuTex = this.device.createTexture({
+                          size: [bmp.width, bmp.height, 1],
+                          format: 'rgba8unorm',
+                          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+                        });
+                        this.device.queue.copyExternalImageToTexture(
+                          { source: bmp },
+                          { texture: gpuTex },
+                          [bmp.width, bmp.height]
+                        );
+                        const gpuView = gpuTex.createView();
+                        for (const pr of currentPrimRecords) {
+                          pr.texture = gpuTex;
+                          pr.hasTexture = true;
+                          pr.bindGroup = this.device.createBindGroup({
+                            layout: this.bindGroupLayout,
+                            entries: [
+                              { binding: 0, resource: { buffer: pr.uniformBuffer } },
+                              { binding: 1, resource: this.defaultSampler },
+                              { binding: 2, resource: gpuView }
+                            ]
+                          });
+                        }
+                      } catch (texErr) {
+                        BglLogger.warn('WebGPU', 'Failed to upload texture to WebGPU:', texErr);
+                      }
+                    };
+
+                    if (imgObj.bufferView !== undefined) {
+                      const imgBytes = getBufferViewData(imgObj.bufferView);
+                      if (imgBytes) {
+                        const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
+                        createImageBitmap(blob).then(onImageReady).catch(() => {});
+                      }
+                    } else if (imgObj.uri) {
+                      const img = new Image();
+                      img.crossOrigin = 'anonymous';
+                      img.onload = () => {
+                        createImageBitmap(img).then(onImageReady).catch(() => {});
+                      };
+                      img.src = imgObj.uri;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
+
+      if (minBound[0] <= maxBound[0]) {
+        const cx = (minBound[0] + maxBound[0]) * 0.5;
+        const cy = (minBound[1] + maxBound[1]) * 0.5;
+        const cz = (minBound[2] + maxBound[2]) * 0.5;
+        const dx = maxBound[0] - minBound[0];
+        const dy = maxBound[1] - minBound[1];
+        const dz = maxBound[2] - minBound[2];
+        const rawRadius = Math.hypot(dx, dy, dz) * 0.5;
+        const radius = Math.max(rawRadius, 0.0001);
+
+        this.camera.target = [cx, cy, cz];
+        this.camera.distance = radius * 2.2;
+        this.camera.minDistance = Math.max(0.0001, radius * 0.05);
+        this.camera.maxDistance = Math.max(10.0, radius * 35.0);
+        this.camera.near = Math.max(0.0001, radius * 0.02);
+        this.camera.far = Math.max(100.0, radius * 50.0);
+        this.modelBounds = { center: [cx, cy, cz], radius };
+      }
+
+      BglLogger.log('WebGPU', `Loaded '${modelName}' into WebGPU rendering pipeline (${this.primitives.length} primitives).`);
+    },
+
+    startLoop() {
+      const render = (time) => {
+        if (!this.isActive || !this.device || !this.context) return;
+        const dt = (time - this.lastFrameTime) * 0.001;
+        this.lastFrameTime = time;
+
+        if (this.turntable) {
+          this.camera.yaw += this.turntableSpeed * dt;
+        }
+
+        this.draw();
+        requestAnimationFrame(render);
+      };
+      requestAnimationFrame(render);
+    },
+
+    draw() {
+      if (!this.isActive || !this.device || !this.context) return;
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.round((this.canvas.clientWidth || window.innerWidth) * dpr));
+      const h = Math.max(1, Math.round((this.canvas.clientHeight || window.innerHeight) * dpr));
+
+      if (this.canvas.width !== w || this.canvas.height !== h || !this.depthTexture) {
+        this.canvas.width = w;
+        this.canvas.height = h;
+
+        if (this.depthTexture) {
+          this.depthTexture.destroy();
+        }
+        this.depthTexture = this.device.createTexture({
+          size: [w, h, 1],
+          format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT
+        });
+        this.depthTextureView = this.depthTexture.createView();
+
+        this.context.configure({
+          device: this.device,
+          format: this.format,
+          alphaMode: 'opaque'
+        });
+      }
+
+      let currentTexture;
+      try {
+        currentTexture = this.context.getCurrentTexture();
+      } catch (texErr) {
+        return;
+      }
+
+      const commandEncoder = this.device.createCommandEncoder();
+      const renderPassDesc = {
+        colorAttachments: [
+          {
+            view: currentTexture.createView(),
+            clearValue: { r: 0.04, g: 0.06, b: 0.10, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }
+        ],
+        depthStencilAttachment: {
+          view: this.depthTextureView,
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store'
+        }
+      };
+
+      const pass = commandEncoder.beginRenderPass(renderPassDesc);
+
+      const cy = Math.cos(this.camera.yaw);
+      const sy = Math.sin(this.camera.yaw);
+      const cp = Math.cos(this.camera.pitch);
+      const sp = Math.sin(this.camera.pitch);
+
+      const eye = [
+        this.camera.target[0] + this.camera.distance * cp * sy,
+        this.camera.target[1] + this.camera.distance * sp,
+        this.camera.target[2] + this.camera.distance * cp * cy,
+      ];
+
+      const proj = this.mat4.create();
+      this.mat4.perspective(proj, this.camera.fov, w / Math.max(1, h), this.camera.near, this.camera.far);
+
+      const view = this.mat4.create();
+      this.mat4.lookAt(view, eye, this.camera.target, [0, 1, 0]);
+
+      const viewProj = this.mat4.create();
+      this.mat4.multiply(viewProj, proj, view);
+
+      const tod = BglState.timeOfDay || 14.0;
+      const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
+      const lightDir = [Math.cos(sunAngle) * 0.7, Math.sin(sunAngle), 0.35];
+
+      const normalMat = new Float32Array(16);
+      const uboBuffer = new ArrayBuffer(256);
+      const uboF32 = new Float32Array(uboBuffer, 0, 60);
+      const uboU32 = new Uint32Array(uboBuffer, 240, 4);
+
+      for (const prim of this.primitives) {
+        this.mat4.normalMatrix4(normalMat, prim.modelMatrix);
+
+        uboF32.set(viewProj, 0);
+        uboF32.set(prim.modelMatrix, 16);
+        uboF32.set(normalMat, 32);
+        uboF32[48] = eye[0]; uboF32[49] = eye[1]; uboF32[50] = eye[2]; uboF32[51] = 1.0;
+        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = 0.0;
+        uboF32[56] = prim.baseColorFactor[0];
+        uboF32[57] = prim.baseColorFactor[1];
+        uboF32[58] = prim.baseColorFactor[2];
+        uboF32[59] = prim.baseColorFactor[3];
+
+        uboU32[0] = prim.hasTexture ? 1 : 0;
+        uboU32[1] = this.wireframe ? 1 : 0;
+        uboU32[2] = prim.doubleSided ? 1 : 0;
+        uboU32[3] = 0;
+
+        this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
+
+        const pipeline = prim.doubleSided ? this.pipelineDoubleSided : this.pipeline;
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, prim.bindGroup);
+        pass.setVertexBuffer(0, prim.vertexBuffer);
+
+        if (prim.hasIndices) {
+          pass.setIndexBuffer(prim.indexBuffer, prim.indexFormat);
+          pass.drawIndexed(prim.indexCount);
+        } else {
+          pass.draw(prim.vertexCount);
+        }
+      }
+
+      pass.end();
+      this.device.queue.submit([commandEncoder.finish()]);
+    }
+  };
+
+  // ============================================================================
   // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer
   // ============================================================================
   const BglWebGlRenderer = {
@@ -2107,8 +3140,10 @@ void main() {
       BglUI.setActiveModelButton(name);
       updateCameraDropdown(gltf);
 
-      // Forward to WebGL 2 renderer if running in compatibility mode
-      if (BglWebGlRenderer.isActive) {
+      // Forward to active 3D renderer (WebGPU or WebGL 2)
+      if (BglWebGpuRenderer.isActive) {
+        BglWebGpuRenderer.loadModel(gltf, arrayBuffer, name);
+      } else if (BglWebGlRenderer.isActive) {
         BglWebGlRenderer.loadModel(gltf, arrayBuffer, name);
       }
 
@@ -2378,60 +3413,87 @@ void main() {
     const hasGpuApi = Boolean(navigator && ('gpu' in navigator) && navigator.gpu);
     let gpuOperational = false;
 
+    const resetCanvasElement = () => {
+      const oldCanvas = document.getElementById('canvas');
+      if (oldCanvas) {
+        const newCanvas = oldCanvas.cloneNode(false);
+        oldCanvas.replaceWith(newCanvas);
+        return newCanvas;
+      }
+      return null;
+    };
+
+    const updateBackendUI = (backend) => {
+      const sub = document.querySelector('.hud-subtitle');
+      const pill = document.getElementById('hud-backend-pill');
+      const btn = document.getElementById('btn-toggle-backend');
+      const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
+
+      if (backend === 'webgpu') {
+        if (sub) sub.textContent = `WebGPU & Wasm 3D Runtime${vendorStr}`;
+        if (pill) {
+          pill.textContent = 'WebGPU';
+          pill.className = 'badge badge-webgpu';
+          pill.title = 'Hardware-accelerated native WebGPU pipeline with WGSL shaders';
+        }
+        if (btn) {
+          btn.textContent = 'Switch to WebGL 2';
+          btn.title = 'Switch active renderer to WebGL 2 fallback pipeline';
+        }
+      } else {
+        if (sub) sub.textContent = `WebGL 2 & Wasm 3D Runtime${vendorStr}`;
+        if (pill) {
+          pill.textContent = 'WebGL 2';
+          pill.className = 'badge badge-webgl';
+          pill.title = 'Hardware-accelerated WebGL 2 (OpenGL ES 3.0) fallback pipeline';
+        }
+        if (btn) {
+          btn.textContent = 'Switch to WebGPU';
+          btn.title = 'Switch active renderer to native WebGPU pipeline';
+        }
+      }
+    };
+
     if (hasGpuApi && !forceWebGl) {
+      BglLogger.log('Engine', 'Attempting native WebGPU 3D pipeline initialization...');
       try {
-        // Test WebGPU canvas context creation on isolated test canvas without locking the main canvas
-        const testCanvas = document.createElement('canvas');
-        testCanvas.width = 1;
-        testCanvas.height = 1;
-        const testCtx = testCanvas.getContext('webgpu');
-        if (!testCtx) {
-          throw new Error('canvas.getContext("webgpu") returned null');
-        }
-
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-          throw new Error('navigator.gpu.requestAdapter() returned null');
-        }
-
-        // Test actual device creation (often fails on mobile GPUs like Samsung S22 Exynos/Adreno)
-        const device = await adapter.requestDevice();
-        if (!device) {
-          throw new Error('adapter.requestDevice() returned null');
-        }
-
-        gpuOperational = true;
-        if (adapter.info) {
-          window.cachedGpuInfo = adapter.info;
-          BglLogger.log('WebGPU', `Acquired GPU Adapter: ${adapter.info.vendor || 'Unknown'} - ${adapter.info.architecture || ''} (${adapter.info.description || ''})`);
-        } else {
-          BglLogger.log('WebGPU', 'Acquired compatible WebGPU hardware adapter.');
-        }
-
-        if (device.destroy) {
-          device.destroy();
-        }
+        gpuOperational = await BglWebGpuRenderer.init();
       } catch (e) {
-        BglLogger.warn('WebGPU', 'Hardware WebGPU validation failed, activating WebGL 2 fallback:', e.message || e);
+        BglLogger.warn('WebGPU', 'Exception during WebGPU initialization:', e.message || e);
         gpuOperational = false;
       }
     } else if (forceWebGl) {
-      BglLogger.log('Engine', 'WebGL 2 forced via query parameter (?webgl or ?backend=webgl).');
-      gpuOperational = false;
+      BglLogger.log('Engine', 'WebGL 2 forced via URL parameter (?backend=webgl or ?webgl).');
     }
 
-    // 3. Graphics Capabilities & Renderer Initialization
+    if (gpuOperational) {
+      BglState.backend = 'webgpu';
+      updateBackendUI('webgpu');
+      const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
+      BglNotifier.success(
+        'WebGPU Engine Operational',
+        `Native hardware WebGPU 3D pipeline and WebAssembly runtime active${vendorStr}.`
+      );
+      return true;
+    }
+
+    // WebGL 2 Fallback path
     BglLogger.log('Engine', 'Initializing high-performance WebGL 2 3D rendering pipeline...');
+    resetCanvasElement();
     const webglOk = BglWebGlRenderer.init();
     if (webglOk) {
       BglState.backend = 'webgl2';
-      const sub = document.querySelector('.hud-subtitle');
+      updateBackendUI('webgl2');
       const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
-      if (sub) sub.textContent = `WebGL 2 & Wasm 3D Runtime${vendorStr}`;
+      BglNotifier.success(
+        'WebGL 2 Engine Operational',
+        `Hardware-accelerated WebGL 2 fallback pipeline and WebAssembly runtime active${vendorStr}.`
+      );
+      return true;
     } else {
       issues.push({
-        feature: '3D Graphics Acceleration (WebGL 2)',
-        detail: 'WebGL 2 could not be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
+        feature: '3D Graphics Acceleration (WebGPU / WebGL 2)',
+        detail: 'Neither WebGPU nor WebGL 2 could be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
       });
     }
 
@@ -2440,13 +3502,23 @@ void main() {
       return false;
     }
 
-    const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
-    BglNotifier.success(
-      '3D Engine Operational',
-      `System verified: Hardware-accelerated 3D graphics and WebAssembly runtime active${vendorStr}.`
-    );
     return true;
   }
+
+  function getActiveRenderer() {
+    if (BglWebGpuRenderer && BglWebGpuRenderer.isActive) return BglWebGpuRenderer;
+    if (BglWebGlRenderer && BglWebGlRenderer.isActive) return BglWebGlRenderer;
+    return null;
+  }
+
+  function toggleBackend() {
+    const target = BglState.backend === 'webgpu' ? 'webgl' : 'webgpu';
+    const url = new URL(window.location.href);
+    url.searchParams.set('backend', target);
+    if (target === 'webgpu') url.searchParams.delete('webgl');
+    window.location.href = url.toString();
+  }
+  window.toggleBackend = toggleBackend;
 
   // ============================================================================
   // Engine Control Toggles (Exposed to HTML onclick handlers)
@@ -2457,8 +3529,9 @@ void main() {
       BglUI.btnBbox.classList.toggle('active', BglState.isBboxActive);
       BglUI.btnBbox.style.background = BglState.isBboxActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
     }
-    if (BglWebGlRenderer.isActive) {
-      BglWebGlRenderer.wireframe = BglState.isBboxActive;
+    const activeRenderer = getActiveRenderer();
+    if (activeRenderer) {
+      activeRenderer.wireframe = BglState.isBboxActive;
     }
     BglLogger.log('Engine', `Toggle Bounding Boxes: ${BglState.isBboxActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_bbox) {
@@ -2680,9 +3753,10 @@ void main() {
 
   function focusSelection() {
     BglLogger.log('Engine', 'Focusing camera on selection / scene bounds');
-    if (BglWebGlRenderer.isActive && BglWebGlRenderer.modelBounds) {
-      BglWebGlRenderer.camera.target = [...BglWebGlRenderer.modelBounds.center];
-      BglWebGlRenderer.camera.distance = BglWebGlRenderer.modelBounds.radius * 2.2;
+    const activeRenderer = getActiveRenderer();
+    if (activeRenderer && activeRenderer.modelBounds) {
+      activeRenderer.camera.target = [...activeRenderer.modelBounds.center];
+      activeRenderer.camera.distance = activeRenderer.modelBounds.radius * 2.2;
     }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_focus_selection) {
       BglState.wasmExports.bgl_camera_focus_selection();
@@ -2692,9 +3766,10 @@ void main() {
 
   function frameAll() {
     BglLogger.log('Engine', 'Framing all scene geometry');
-    if (BglWebGlRenderer.isActive && BglWebGlRenderer.modelBounds) {
-      BglWebGlRenderer.camera.target = [...BglWebGlRenderer.modelBounds.center];
-      BglWebGlRenderer.camera.distance = BglWebGlRenderer.modelBounds.radius * 2.2;
+    const activeRenderer = getActiveRenderer();
+    if (activeRenderer && activeRenderer.modelBounds) {
+      activeRenderer.camera.target = [...activeRenderer.modelBounds.center];
+      activeRenderer.camera.distance = activeRenderer.modelBounds.radius * 2.2;
     }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_frame_all) {
       BglState.wasmExports.bgl_camera_frame_all();
@@ -2717,8 +3792,9 @@ void main() {
     BglState.isTurntableActive = !BglState.isTurntableActive;
     const btn = document.getElementById('btn-turntable');
     if (btn) btn.style.background = BglState.isTurntableActive ? '#0284c7' : '#475569';
-    if (BglWebGlRenderer.isActive) {
-      BglWebGlRenderer.turntable = BglState.isTurntableActive;
+    const activeRenderer = getActiveRenderer();
+    if (activeRenderer) {
+      activeRenderer.turntable = BglState.isTurntableActive;
     }
     BglLogger.log('Engine', `Turntable Autorotation: ${BglState.isTurntableActive ? 'ENABLED' : 'DISABLED'}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_turntable) {
@@ -2731,8 +3807,9 @@ void main() {
     const num = Number(val);
     const label = document.getElementById('val-turntable-speed');
     if (label) label.textContent = `${num.toFixed(2)} rad/s`;
-    if (BglWebGlRenderer.isActive) {
-      BglWebGlRenderer.turntableSpeed = num;
+    const activeRenderer = getActiveRenderer();
+    if (activeRenderer) {
+      activeRenderer.turntableSpeed = num;
     }
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_turntable_speed) {
       BglState.wasmExports.bgl_set_turntable_speed(num);
@@ -2746,9 +3823,7 @@ void main() {
     const mins = Math.round((num - hrs) * 60);
     const label = document.getElementById('val-time-of-day');
     if (label) label.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-    if (BglWebGlRenderer.isActive) {
-      BglState.timeOfDay = num;
-    }
+    BglState.timeOfDay = num;
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_time_of_day) {
       BglState.wasmExports.bgl_set_time_of_day(num);
     }
@@ -3303,6 +4378,13 @@ void main() {
     // 3. Ingest default 3D model into the active pipeline
     await loadDefaultModel();
     await BglModelCache.updateCacheStatusUI().catch(() => {});
+
+    // Expose engine handles for telemetry, testing, and debugging
+    window.BglState = BglState;
+    window.BglWebGpuRenderer = BglWebGpuRenderer;
+    window.BglWebGlRenderer = BglWebGlRenderer;
+    window.getActiveRenderer = getActiveRenderer;
+
     BglLogger.log('Engine', `Bootstrap completed successfully (Backend: ${BglState.backend}).`);
   }
 

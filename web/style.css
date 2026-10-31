@@ -225,6 +225,22 @@ body {
   font-weight: 600;
 }
 
+.badge-webgpu {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+.badge-webgl {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+}
+
 .badge-version {
   letter-spacing: 0.02em;
 }

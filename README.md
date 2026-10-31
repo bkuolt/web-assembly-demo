@@ -1,11 +1,11 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.9.11)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.9.12)
 
 # 🎮 **[👉 RUN LIVE DEMO IN BROWSER (Instant GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-168_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.11-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.12-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -23,7 +23,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
 | **glTF 2.0 Animations & Skinning** | Full skeletal animation (128 joints with inverse bind matrices), morph target delta blending, decoupled TRS local transforms, and keyframe interpolation (`LINEAR`, `STEP`, `CUBICSPLINE` Hermite) | Automatic / glTF Animations |
-| **WebGL 2 (GLES 3.0) 3D Engine** | Universal, high-compatibility browser 3D engine in `web/app.js` with GLSL ES 300 shaders, PBR diffuse/specular lighting, two-sided shading, Reinhard tonemapping, touch controls, and orbit camera across Desktop, Laptop, and Mobile | Universal Browser Support |
+| **Dual WebGPU & WebGL 2 Engine** | True dual-backend browser engine with native WebGPU (`BglWebGpuRenderer`, WGSL shaders, GPU pipelines) on modern Chrome/Edge, and automatic hardware-accelerated WebGL 2 fallback (`BglWebGlRenderer`, GLSL ES 300) on mobile devices (e.g. Samsung S22) | Automatic / Switch Backend |
 | **GPU Compute Offloading** | Parallel view-frustum culling (`GpuCuller`) and parallel ray-bounding picking (`GpuRayPicker`) using WebGPU compute shaders and atomic operations | Automatic / Live GPU compute |
 | **RAM & VRAM Telemetry** | Real-time resident set size (RAM in MB) from OS kernel and atomic WebGPU VRAM buffer/texture tracking displayed on in-engine HUD | In-Engine HUD (`[O]` / `[F3]`) |
 | **PS5 DualSense Feel** | Native DualSense recognition (`0x054c`), exponential aim response curve ($mag^{2.1}$), pitch dampening ($0.70$), smooth look damping, and rumble | Auto-detected / HUD Badge |

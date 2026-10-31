@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.11 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.12 LANGUAGES C CXX)
 
 # ==============================================================================
 # RPATH Configuration for Native Desktop Execution
@@ -378,6 +378,11 @@ if(BGL_BUILD_TESTING)
     if(NODE_EXECUTABLE)
         add_test(NAME WebGLPipelineTest COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_webgl_path.js")
         set_tests_properties(WebGLPipelineTest PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+
+        add_test(NAME WebGPUPipelineTest COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_webgpu_path.js")
+        set_tests_properties(WebGPUPipelineTest PROPERTIES
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         )
     endif()
