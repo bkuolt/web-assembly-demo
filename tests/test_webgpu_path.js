@@ -23,7 +23,7 @@ class MockGPUDevice {
       id: Math.random(),
       size: desc.size,
       usage: desc.usage,
-      destroy: () => {}
+      destroy: () => { this.destroyedBuffers = (this.destroyedBuffers || 0) + 1; }
     };
   }
 
@@ -218,6 +218,12 @@ global.createImageBitmap = async () => ({ width: 64, height: 64 });
 
 // Load app.js and isolate BglWebGpuRenderer definition
 const appCode = fs.readFileSync('web/app.js', 'utf8');
+
+// Isolate BglGltf definition
+const gltfStart = appCode.indexOf('const BglGltf = {');
+const gltfEnd = appCode.indexOf('  // ============================================================================\n  // Native WebGPU 3D Renderer');
+eval(appCode.slice(gltfStart, gltfEnd).replace('const BglGltf =', 'global.BglGltf ='));
+
 const startIdx = appCode.indexOf('const BglWebGpuRenderer = {');
 const endIdx = appCode.indexOf('  // ============================================================================\n  // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer');
 assert(startIdx !== -1, 'BglWebGpuRenderer must be defined in app.js');
@@ -320,6 +326,48 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   });
   assert(BglWebGpuRenderer.camera.distance !== distBefore, '2-finger pinch must change camera distance');
   console.log('✓ 2-finger pinch gesture successfully zooms camera');
+
+  console.log('--- Step 6: Testing WebGPU Resource Cleanup & VRAM Safety ---');
+  const prevDestroyed = mockGpuDevice.destroyedBuffers || 0;
+  BglWebGpuRenderer.loadModel(gltf, toyCarBuf.buffer, 'ToyCar.glb');
+  assert((mockGpuDevice.destroyedBuffers || 0) > prevDestroyed, 'Prior WebGPU buffers must be destroyed upon loading a new model');
+  console.log(`✓ WebGPU GPUBuffer cleanup verified (${mockGpuDevice.destroyedBuffers} buffers destroyed)`);
+
+  console.log('--- Step 7: Testing Zero-Allocation WebGPU Render Loop ---');
+  const refProj = BglWebGpuRenderer._scratchProj;
+  const refView = BglWebGpuRenderer._scratchView;
+  const refViewProj = BglWebGpuRenderer._scratchViewProj;
+  const refUboBuf = BglWebGpuRenderer._scratchUboBuffer;
+  BglWebGpuRenderer.draw();
+  BglWebGpuRenderer.draw();
+  assert.strictEqual(BglWebGpuRenderer._scratchProj, refProj, 'Scratch projection matrix must be reused across frames');
+  assert.strictEqual(BglWebGpuRenderer._scratchView, refView, 'Scratch view matrix must be reused across frames');
+  assert.strictEqual(BglWebGpuRenderer._scratchViewProj, refViewProj, 'Scratch viewProj matrix must be reused across frames');
+  assert.strictEqual(BglWebGpuRenderer._scratchUboBuffer, refUboBuf, 'Scratch UBO buffer must be reused across frames');
+  console.log('✓ WebGPU scratch buffers reused with 0 heap buffer allocations per frame');
+
+  console.log('--- Step 8: Testing Malformed / Truncated GLB Robustness ---');
+  assert.throws(() => {
+    BglGltf.extractJson(new ArrayBuffer(3));
+  }, /too short/i, 'Truncated buffer (<4 bytes) must throw descriptive error');
+
+  const truncatedHeader = new ArrayBuffer(16);
+  new DataView(truncatedHeader).setUint32(0, 0x46546C67, true);
+  assert.throws(() => {
+    BglGltf.extractJson(truncatedHeader);
+  }, /Truncated GLB container/i, 'Truncated GLB header (<20 bytes) must throw descriptive error');
+
+  const corruptChunkLen = new ArrayBuffer(28);
+  const cdv = new DataView(corruptChunkLen);
+  cdv.setUint32(0, 0x46546C67, true);
+  cdv.setUint32(4, 2, true);
+  cdv.setUint32(8, 28, true);
+  cdv.setUint32(12, 1000, true);
+  cdv.setUint32(16, 0x4E4F534A, true);
+  assert.throws(() => {
+    BglGltf.extractJson(corruptChunkLen);
+  }, /Truncated GLB chunk/i, 'Oversized chunk length must throw descriptive error');
+  console.log('✓ Corrupt/truncated GLB files safely rejected without crashing');
 
   console.log('--- ALL WEBGPU PIPELINE TESTS PASSED (100%) ---');
   process.exit(0);

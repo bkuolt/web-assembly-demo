@@ -11,6 +11,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 > **🚀 Live Web Application (Run Directly in Browser):**
 > - **Direct Live Preview (GitHack, Instant):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+> - **Web Architecture & Client Documentation:** [📖 Read `web/README.md`](web/README.md) for complete dual-backend WebGPU/WebGL 2 specifications, zero-allocation rendering, and gesture guides.
 
 ---
 

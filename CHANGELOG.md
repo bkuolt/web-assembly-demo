@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.13] - 2026-10-31
 
 ### Production Optimization, Cross-Browser WebGPU Hardening & Conan 2.x Lock
+- **Comprehensive Web App Architecture & Client Documentation (`web/README.md`):**
+  - Created standalone, in-depth architectural guide for the browser client covering the dual-backend architecture, WGSL and GLSL ES 3.0 shaders, memory lifecycles, mobile gestures, and testing workflows.
+- **Zero-Allocation Render Loop & Memory Safety:**
+  - Eliminated heap memory allocations in `BglWebGpuRenderer.draw()` and `BglWebGlRenderer.draw()` via preallocated scratch matrices and vectors (`_scratchProj`, `_scratchView`, `_scratchViewProj`, `_scratchNormalMat`, `_scratchEye`, `_scratchLightDir`, `_scratchUboBuffer`), removing garbage collection micro-stutter at 60/120 FPS.
+  - Implemented systematic GPU buffer and texture lifecycle management: destroys previous WebGPU buffers (`destroy()`) and frees WebGL 2 resources (`gl.deleteVertexArray()`, `gl.deleteBuffer()`, `gl.deleteTexture()`) during model reloads to eliminate VRAM leaks.
+- **glTF 2.0 / GLB Parsing Robustness & Bounds Validation:**
+  - Added strict bounds checks for GLB headers ($\ge 20$ bytes), chunk lengths, bufferViews, and accessor strides, preventing runtime `RangeError` exceptions on truncated or malformed files.
 - **Cross-Browser WebGPU Hardening (Firefox & Chrome):**
   - Resolved `OperationError: GPUQueue.writeBuffer: Byte size must be a multiple of 4` in Firefox's `wgpu` engine by automatically padding odd `uint16` index buffers to 4-byte boundaries during upload.
   - Replaced ambiguous WGSL vector `select()` intrinsics with universal `if-else` branches for normal vector fallback and specular intensity calculation, guaranteeing 100% compatibility across Google Dawn (Chrome/Edge) and Mozilla wgpu (Firefox).

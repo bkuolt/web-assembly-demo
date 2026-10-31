@@ -812,7 +812,11 @@
   // ============================================================================
   const BglGltf = {
     /**
-     * Extract JSON text from GLB binary container or plain text glTF.
+     * Safely extract JSON text and scene descriptor from a GLB binary container or plain text glTF.
+     * Validates GLB headers, chunk boundaries, and handles truncated/corrupted input gracefully.
+     * @param {ArrayBuffer} arrayBuffer - Raw glTF/GLB file buffer
+     * @returns {Object} Parsed glTF JSON object
+     * @throws {Error} If the buffer is empty, truncated, or invalid glTF/GLB format
      */
     extractJson(arrayBuffer) {
       if (!arrayBuffer || arrayBuffer.byteLength < 4) {
@@ -824,6 +828,9 @@
 
       // Binary GLB check: magic 0x46546C67 ("glTF")
       if (magic === 0x46546C67) {
+        if (arrayBuffer.byteLength < 20) {
+          throw new Error(`Truncated GLB container: Header is only ${arrayBuffer.byteLength} bytes (minimum 20 required).`);
+        }
         const version = dataView.getUint32(4, true);
         const totalLength = dataView.getUint32(8, true);
         BglLogger.log('glTF', `GLB container detected: Version ${version}, Total Length: ${totalLength.toLocaleString()} bytes`);
@@ -832,17 +839,21 @@
         const chunkType = dataView.getUint32(16, true);
 
         // Chunk 0 must be JSON (0x4E4F534A -> "JSON")
-        if (chunkType === 0x4E4F534A) {
-          const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);
-          const jsonStr = new TextDecoder().decode(jsonBytes);
-          return JSON.parse(jsonStr);
-        } else {
+        if (chunkType !== 0x4E4F534A) {
           throw new Error(`Invalid GLB: First chunk type 0x${chunkType.toString(16)} is not JSON (0x4E4F534A).`);
         }
+
+        if (20 + chunkLength > arrayBuffer.byteLength) {
+          throw new Error(`Truncated GLB chunk: JSON chunk claims ${chunkLength} bytes, but file has only ${arrayBuffer.byteLength - 20} payload bytes remaining.`);
+        }
+
+        const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);
+        const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(jsonBytes);
+        return JSON.parse(jsonStr);
       }
 
       // Plain JSON glTF text
-      const jsonStr = new TextDecoder().decode(new Uint8Array(arrayBuffer));
+      const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(arrayBuffer));
       return JSON.parse(jsonStr);
     },
 
@@ -1237,6 +1248,28 @@
   // ============================================================================
   // Native WebGPU 3D Renderer (WGSL Shaders & Hardware Acceleration)
   // ============================================================================
+  /**
+   * @typedef {Object} WebGpuPrimitiveRecord
+   * @property {GPUBuffer} vertexBuffer - Interleaved vertex buffer [pos(3), norm(3), uv(2)]
+   * @property {GPUBuffer|null} indexBuffer - 4-byte aligned index buffer (uint16/uint32)
+   * @property {number} indexCount - Number of indices to draw
+   * @property {'uint16'|'uint32'} indexFormat - WebGPU index buffer format
+   * @property {number} vertexCount - Number of vertices (if unindexed)
+   * @property {boolean} hasIndices - Whether primitive uses indexed draw call
+   * @property {GPUBuffer} uniformBuffer - 256-byte aligned per-primitive UBO
+   * @property {GPUBindGroup} bindGroup - Bind group containing UBO, sampler, and texture view
+   * @property {number[]} baseColorFactor - RGBA base color multiplier [r, g, b, a]
+   * @property {boolean} doubleSided - Whether primitive requires backface culling disabled
+   * @property {boolean} hasTexture - Whether diffuse texture is bound
+   * @property {GPUTexture|null} texture - Associated diffuse GPUTexture
+   * @property {Float32Array} modelMatrix - 4x4 world transform matrix
+   */
+
+  /**
+   * Hardware-accelerated native WebGPU 3D renderer.
+   * Utilizes WGSL shaders, dynamic depth textures, zero-copy buffer uploads,
+   * 4-byte index buffer alignment, and zero-allocation frame rendering.
+   */
   const BglWebGpuRenderer = {
     adapter: null,
     device: null,
@@ -1254,6 +1287,17 @@
     pipelineLayout: null,
     isActive: false,
     primitives: [],
+
+    // Preallocated scratch objects for zero-allocation 60/120 FPS rendering
+    _scratchEye: new Float32Array(3),
+    _scratchLightDir: new Float32Array(3),
+    _scratchProj: null,
+    _scratchView: null,
+    _scratchViewProj: null,
+    _scratchNormalMat: new Float32Array(16),
+    _scratchUboBuffer: new ArrayBuffer(256),
+    _scratchUboF32: null,
+    _scratchUboU32: null,
 
     camera: {
       target: [0.0, 0.0, 0.0],
@@ -1635,6 +1679,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           }
         });
 
+        // Initialize reusable scratch buffers for zero-allocation rendering
+        this._scratchProj = this.mat4.create();
+        this._scratchView = this.mat4.create();
+        this._scratchViewProj = this.mat4.create();
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 60);
+        this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 240, 4);
+
         this.isActive = true;
         this.initEvents();
         this.startLoop();
@@ -1759,6 +1810,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     loadModel(gltf, arrayBuffer, modelName) {
       if (!this.isActive || !this.device) return;
 
+      // Release previous GPU resources to prevent VRAM memory leak
+      for (const prim of this.primitives) {
+        if (prim.vertexBuffer && prim.vertexBuffer.destroy) prim.vertexBuffer.destroy();
+        if (prim.indexBuffer && prim.indexBuffer.destroy) prim.indexBuffer.destroy();
+        if (prim.uniformBuffer && prim.uniformBuffer.destroy) prim.uniformBuffer.destroy();
+        if (prim.texture && prim.texture !== this.defaultTexture && prim.texture.destroy) prim.texture.destroy();
+      }
       this.primitives = [];
 
       let binBuffer = null;
@@ -1807,15 +1865,20 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
         const bv = gltf.bufferViews[viewIdx];
         const offset = bv.byteOffset || 0;
-        const length = bv.byteLength;
+        const length = bv.byteLength || 0;
         const bufferIdx = bv.buffer || 0;
         const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
+        if (!src || offset + length > src.byteLength) {
+          BglLogger.warn('glTF', `BufferView ${viewIdx} out of bounds: offset ${offset} + length ${length} > ${src ? src.byteLength : 0}`);
+          return null;
+        }
         return src.slice(offset, offset + length);
       };
 
       const getAccessorData = (accIdx) => {
         if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
         const acc = gltf.accessors[accIdx];
+        if (!acc.count) return null;
         if (acc.bufferView === undefined) return null;
         const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
         if (!bv) return null;
@@ -1833,6 +1896,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
         const elemBytes = TypedArray.BYTES_PER_ELEMENT;
         const stride = bv.byteStride || (numComp * elemBytes);
+
+        if (byteOffset + (acc.count - 1) * stride + (numComp * elemBytes) > bvData.byteLength) {
+          BglLogger.warn('glTF', `Accessor ${accIdx} exceeds buffer view byte length.`);
+          return null;
+        }
 
         if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
           return new TypedArray(bvData, byteOffset, acc.count * numComp);
@@ -2227,29 +2295,31 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       const cp = Math.cos(this.camera.pitch);
       const sp = Math.sin(this.camera.pitch);
 
-      const eye = [
-        this.camera.target[0] + this.camera.distance * cp * sy,
-        this.camera.target[1] + this.camera.distance * sp,
-        this.camera.target[2] + this.camera.distance * cp * cy,
-      ];
+      const eye = this._scratchEye;
+      eye[0] = this.camera.target[0] + this.camera.distance * cp * sy;
+      eye[1] = this.camera.target[1] + this.camera.distance * sp;
+      eye[2] = this.camera.target[2] + this.camera.distance * cp * cy;
 
-      const proj = this.mat4.create();
+      const proj = this._scratchProj;
       this.mat4.perspective(proj, this.camera.fov, w / Math.max(1, h), this.camera.near, this.camera.far);
 
-      const view = this.mat4.create();
+      const view = this._scratchView;
       this.mat4.lookAt(view, eye, this.camera.target, [0, 1, 0]);
 
-      const viewProj = this.mat4.create();
+      const viewProj = this._scratchViewProj;
       this.mat4.multiply(viewProj, proj, view);
 
       const tod = BglState.timeOfDay || 14.0;
       const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
-      const lightDir = [Math.cos(sunAngle) * 0.7, Math.sin(sunAngle), 0.35];
+      const lightDir = this._scratchLightDir;
+      lightDir[0] = Math.cos(sunAngle) * 0.7;
+      lightDir[1] = Math.sin(sunAngle);
+      lightDir[2] = 0.35;
 
-      const normalMat = new Float32Array(16);
-      const uboBuffer = new ArrayBuffer(256);
-      const uboF32 = new Float32Array(uboBuffer, 0, 60);
-      const uboU32 = new Uint32Array(uboBuffer, 240, 4);
+      const normalMat = this._scratchNormalMat;
+      const uboBuffer = this._scratchUboBuffer;
+      const uboF32 = this._scratchUboF32;
+      const uboU32 = this._scratchUboU32;
 
       for (const prim of this.primitives) {
         this.mat4.normalMatrix4(normalMat, prim.modelMatrix);
@@ -2292,12 +2362,40 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   // ============================================================================
   // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer
   // ============================================================================
+  /**
+   * @typedef {Object} WebGlPrimitiveRecord
+   * @property {WebGLVertexArrayObject} vao - Configured Vertex Array Object
+   * @property {WebGLBuffer[]} buffers - Associated VBOs and IBOs for memory cleanup
+   * @property {number} indexCount - Number of indices (if indexed)
+   * @property {number} indexType - WebGL index type (UNSIGNED_SHORT or UNSIGNED_INT)
+   * @property {number} vertexCount - Number of vertices (if unindexed)
+   * @property {boolean} hasIndices - Whether primitive uses indexed draw call
+   * @property {number[]} baseColorFactor - RGBA base color multiplier [r, g, b, a]
+   * @property {boolean} doubleSided - Whether primitive requires backface culling disabled
+   * @property {WebGLTexture|null} texture - Associated diffuse WebGLTexture
+   * @property {Float32Array} modelMatrix - 4x4 world transform matrix
+   * @property {WebGLTexture|null} currentTexture - Getter returning the active texture
+   */
+
+  /**
+   * High-performance WebGL 2 (OpenGL ES 3.0) fallback 3D renderer.
+   * Utilizes GLSL 3.00 ES shaders, Vertex Array Objects (VAOs),
+   * zero-allocation render loop, and multi-touch mobile gesture handlers.
+   */
   const BglWebGlRenderer = {
     gl: null,
     canvas: null,
     program: null,
     isActive: false,
     primitives: [],
+
+    // Preallocated scratch objects for zero-allocation 60/120 FPS rendering
+    _scratchEye: new Float32Array(3),
+    _scratchLightDir: new Float32Array(3),
+    _scratchProj: null,
+    _scratchView: null,
+    _scratchViewProj: null,
+    _scratchNormalMat: new Float32Array(9),
     defaultTexture: null,
 
     camera: {
@@ -2415,6 +2513,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         }
 
         this.gl = gl;
+        // Initialize reusable scratch buffers for zero-allocation rendering
+        this._scratchProj = this.mat4.create();
+        this._scratchView = this.mat4.create();
+        this._scratchViewProj = this.mat4.create();
+
         this.isActive = true;
 
         if (!this.initShaders()) {
@@ -2672,7 +2775,14 @@ void main() {
       const gl = this.gl;
 
       for (const p of this.primitives) {
-        if (p.vao) gl.deleteVertexArray(p.vao);
+        if (p.vao && gl.deleteVertexArray) gl.deleteVertexArray(p.vao);
+        if (p.buffers && gl.deleteBuffer) {
+          for (const b of p.buffers) gl.deleteBuffer(b);
+        }
+        const tex = p._texRef || p.texture;
+        if (tex && tex !== this.defaultTexture && gl.deleteTexture) {
+          gl.deleteTexture(tex);
+        }
       }
       this.primitives = [];
 
@@ -2713,15 +2823,20 @@ void main() {
         if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
         const bv = gltf.bufferViews[viewIdx];
         const offset = bv.byteOffset || 0;
-        const length = bv.byteLength;
+        const length = bv.byteLength || 0;
         const bufferIdx = bv.buffer || 0;
         const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
+        if (!src || offset + length > src.byteLength) {
+          BglLogger.warn('glTF', `BufferView ${viewIdx} out of bounds: offset ${offset} + length ${length} > ${src ? src.byteLength : 0}`);
+          return null;
+        }
         return src.slice(offset, offset + length);
       };
 
       const getAccessorData = (accIdx) => {
         if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
         const acc = gltf.accessors[accIdx];
+        if (!acc.count) return null;
         if (acc.bufferView === undefined) return null;
         const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
         if (!bv) return null;
@@ -2739,6 +2854,11 @@ void main() {
         const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
         const elemBytes = TypedArray.BYTES_PER_ELEMENT;
         const stride = bv.byteStride || (numComp * elemBytes);
+
+        if (byteOffset + (acc.count - 1) * stride + (numComp * elemBytes) > bvData.byteLength) {
+          BglLogger.warn('glTF', `Accessor ${accIdx} exceeds buffer view byte length.`);
+          return null;
+        }
 
         // Fast path: contiguous and aligned
         if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
@@ -2874,16 +2994,18 @@ void main() {
             gl.enableVertexAttribArray(0);
             gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
+            let nBuf = null;
             if (normData) {
-              const nBuf = gl.createBuffer();
+              nBuf = gl.createBuffer();
               gl.bindBuffer(gl.ARRAY_BUFFER, nBuf);
               gl.bufferData(gl.ARRAY_BUFFER, normData, gl.STATIC_DRAW);
               gl.enableVertexAttribArray(1);
               gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
             }
 
+            let uBuf = null;
             if (uvData) {
-              const uBuf = gl.createBuffer();
+              uBuf = gl.createBuffer();
               gl.bindBuffer(gl.ARRAY_BUFFER, uBuf);
               gl.bufferData(gl.ARRAY_BUFFER, uvData, gl.STATIC_DRAW);
               gl.enableVertexAttribArray(2);
@@ -2892,8 +3014,9 @@ void main() {
 
             let indexType = gl.UNSIGNED_SHORT;
             let indexCount = 0;
+            let iBuf = null;
             if (indexData) {
-              const iBuf = gl.createBuffer();
+              iBuf = gl.createBuffer();
               gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iBuf);
               gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
               indexCount = indexData.length;
@@ -2912,10 +3035,12 @@ void main() {
               }
             }
 
+            const primBuffers = [pBuf, normData ? nBuf : null, uvData ? uBuf : null, indexData ? iBuf : null].filter(Boolean);
             const currentPrimRecords = [];
             for (const worldMatrix of nodeMats) {
               const primRecord = {
                 vao,
+                buffers: primBuffers,
                 indexCount,
                 indexType,
                 vertexCount: posData.length / 3,
@@ -3044,19 +3169,18 @@ void main() {
       const cp = Math.cos(this.camera.pitch);
       const sp = Math.sin(this.camera.pitch);
 
-      const eye = [
-        this.camera.target[0] + this.camera.distance * cp * sy,
-        this.camera.target[1] + this.camera.distance * sp,
-        this.camera.target[2] + this.camera.distance * cp * cy,
-      ];
+      const eye = this._scratchEye;
+      eye[0] = this.camera.target[0] + this.camera.distance * cp * sy;
+      eye[1] = this.camera.target[1] + this.camera.distance * sp;
+      eye[2] = this.camera.target[2] + this.camera.distance * cp * cy;
 
-      const proj = this.mat4.create();
+      const proj = this._scratchProj;
       this.mat4.perspective(proj, this.camera.fov, w / Math.max(1, h), this.camera.near, this.camera.far);
 
-      const view = this.mat4.create();
+      const view = this._scratchView;
       this.mat4.lookAt(view, eye, this.camera.target, [0, 1, 0]);
 
-      const viewProj = this.mat4.create();
+      const viewProj = this._scratchViewProj;
       this.mat4.multiply(viewProj, proj, view);
 
       gl.uniformMatrix4fv(this.uniforms.uViewProj, false, viewProj);
@@ -3064,11 +3188,14 @@ void main() {
 
       const tod = BglState.timeOfDay || 14.0;
       const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
-      const lightDir = [Math.cos(sunAngle) * 0.7, Math.sin(sunAngle), 0.35];
+      const lightDir = this._scratchLightDir;
+      lightDir[0] = Math.cos(sunAngle) * 0.7;
+      lightDir[1] = Math.sin(sunAngle);
+      lightDir[2] = 0.35;
       gl.uniform3fv(this.uniforms.uLightDir, lightDir);
       gl.uniform1i(this.uniforms.uWireframe, this.wireframe ? 1 : 0);
 
-      const normalMat = new Float32Array(9);
+      const normalMat = this._scratchNormalMat;
       for (const prim of this.primitives) {
         gl.uniformMatrix4fv(this.uniforms.uModel, false, prim.modelMatrix);
         this.mat4.normalMatrix(normalMat, prim.modelMatrix);

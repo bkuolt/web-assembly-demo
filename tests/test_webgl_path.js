@@ -64,15 +64,17 @@ class MockWebGL2RenderingContext {
   createBuffer() { return { id: Math.random() }; }
   bindBuffer(target, buf) {}
   bufferData(target, data, usage) {}
+  deleteBuffer(buf) { this.deletedBuffers = (this.deletedBuffers || 0) + 1; }
 
   createVertexArray() { return { id: Math.random() }; }
   bindVertexArray(vao) { this.boundVAO = vao; }
-  deleteVertexArray(vao) {}
+  deleteVertexArray(vao) { this.deletedVaos = (this.deletedVaos || 0) + 1; }
 
   enableVertexAttribArray(idx) {}
   vertexAttribPointer(idx, size, type, norm, stride, offset) {}
 
   createTexture() { return { id: Math.random() }; }
+  deleteTexture(tex) { this.deletedTextures = (this.deletedTextures || 0) + 1; }
   bindTexture(target, tex) {}
   texImage2D(...args) {}
   texParameteri(...args) {}
@@ -139,8 +141,13 @@ global.BglState = { timeOfDay: 14.0 };
 global.Blob = class { constructor(data, opts) {} };
 global.createImageBitmap = async () => ({ width: 1, height: 1 });
 
-// Load app.js and extract BglWebGlRenderer
+// Load app.js and extract BglGltf & BglWebGlRenderer
 const appCode = fs.readFileSync('web/app.js', 'utf8');
+
+// Isolate BglGltf definition
+const gltfStart = appCode.indexOf('const BglGltf = {');
+const gltfEnd = appCode.indexOf('  // ============================================================================\n  // Native WebGPU 3D Renderer');
+eval(appCode.slice(gltfStart, gltfEnd).replace('const BglGltf =', 'global.BglGltf ='));
 
 // Isolate BglWebGlRenderer definition
 const startIdx = appCode.indexOf('const BglWebGlRenderer = {');
@@ -226,6 +233,46 @@ touchMoveFns[0]({
 });
 assert(BglWebGlRenderer.camera.distance !== distBefore, '2-finger pinch must change camera distance');
 console.log('✓ 2-finger pinch gesture successfully zooms camera');
+
+console.log('--- Step 6: Testing Resource Cleanup & Memory Safety ---');
+const prevBuffersDeleted = mockGl.deletedBuffers || 0;
+BglWebGlRenderer.loadModel(gltf, toyCarBuf.buffer, 'ToyCar.glb');
+assert((mockGl.deletedBuffers || 0) > prevBuffersDeleted, 'Prior GL buffers must be deleted upon loading a new model');
+console.log(`✓ WebGL buffer and VAO cleanup verified (${mockGl.deletedBuffers} buffers freed)`);
+
+console.log('--- Step 7: Testing Zero-Allocation Render Loop ---');
+const refProj = BglWebGlRenderer._scratchProj;
+const refView = BglWebGlRenderer._scratchView;
+const refViewProj = BglWebGlRenderer._scratchViewProj;
+BglWebGlRenderer.draw();
+BglWebGlRenderer.draw();
+assert.strictEqual(BglWebGlRenderer._scratchProj, refProj, 'Scratch projection matrix must be reused across frames');
+assert.strictEqual(BglWebGlRenderer._scratchView, refView, 'Scratch view matrix must be reused across frames');
+assert.strictEqual(BglWebGlRenderer._scratchViewProj, refViewProj, 'Scratch viewProj matrix must be reused across frames');
+console.log('✓ Scratch buffers reused with 0 heap matrix allocations per frame');
+
+console.log('--- Step 8: Testing Malformed / Truncated GLB Robustness ---');
+assert.throws(() => {
+  BglGltf.extractJson(new ArrayBuffer(3));
+}, /too short/i, 'Truncated buffer (<4 bytes) must throw descriptive error');
+
+const truncatedHeader = new ArrayBuffer(16);
+new DataView(truncatedHeader).setUint32(0, 0x46546C67, true);
+assert.throws(() => {
+  BglGltf.extractJson(truncatedHeader);
+}, /Truncated GLB container/i, 'Truncated GLB header (<20 bytes) must throw descriptive error');
+
+const corruptChunkLen = new ArrayBuffer(28);
+const cdv = new DataView(corruptChunkLen);
+cdv.setUint32(0, 0x46546C67, true);
+cdv.setUint32(4, 2, true);
+cdv.setUint32(8, 28, true);
+cdv.setUint32(12, 1000, true); // claims 1000 bytes
+cdv.setUint32(16, 0x4E4F534A, true);
+assert.throws(() => {
+  BglGltf.extractJson(corruptChunkLen);
+}, /Truncated GLB chunk/i, 'Oversized chunk length must throw descriptive error');
+console.log('✓ Corrupt/truncated GLB files safely rejected without crashing');
 
 console.log('--- ALL WEBGL FALLBACK PIPELINE TESTS PASSED (100%) ---');
 process.exit(0);
