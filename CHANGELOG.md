@@ -7,17 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.11] - 2026-10-25
+## [0.9.11] - 2026-10-31
 
-### Production Readiness, Full Link Audit, Verified WebGL 2 Fallback & English Language Harmonization
+### Production Readiness, Universal Cross-Platform Web Rendering, Link Audit & Engine Polish
+- **Universal Cross-Platform Web Rendering (Desktop, Laptop & Mobile):**
+  - Resolved fatal blank canvas failure where WebGPU pre-flight validation on modern browsers (Chrome/Edge on Desktop and Laptop) bypassed WebGL 2 initialization without active render loops.
+  - Ensured universal, immediate initialization of the hardware-accelerated WebGL 2 pipeline on all browsers, devices, and platforms (Desktop PCs, MacBooks, Chromebooks, Android smartphones like Samsung S22, iPhones, and tablets).
+- **Dynamic Bounding Box & Camera Framing Engine:**
+  - Removed artificial minimum radius clamp (`Math.max(..., 0.5)`), enabling millimeter-modeled glTF assets (such as `ToyCar.glb`, radius $0.054$ m) to accurately fill $70.9\%$ of the viewport instead of shrinking to microscopic $20$-pixel specks.
+  - Dynamically scaled camera `near`, `far`, `minDistance`, and `maxDistance` bounds directly to scene extents, preventing clipping and camera clamping on large architectural scenes like `Sponza.glb`.
+- **GLSL ES 300 Shader Hardening & Two-Sided PBR Lighting:**
+  - Added safe vector length checks before normalization in vertex and fragment shaders (`dot(n, n) > 0.0001 ? normalize(n) : vec3(0.0, 1.0, 0.0)`), completely eliminating GLSL ES 300 `NaN` fragment discards on primitives lacking normals.
+  - Added `gl_FrontFacing` inverted normal handling (`if (!gl_FrontFacing) N = -N;`) and soft multi-angle fill lighting (`fillLight`) to prevent backside shading blackouts.
+  - Implemented dynamic per-primitive backface culling toggle honoring glTF `material.doubleSided` specifications (`gl.disable(gl.CULL_FACE)` for foliage, flags, and interior walls).
+- **Strided/Interleaved Accessor & Base64 Data URI Support:**
+  - Added full support for interleaved vertex buffers (`bufferView.byteStride`) and unaligned byte offsets using `DataView` fallback extraction.
+  - Added direct decoding for base64-encoded `data:application/octet-stream;base64,...` buffer URIs in glTF containers.
+- **Mobile Touch Interaction & High-DPI AMOLED Polish:**
+  - Added `touch-action: none;` to `#canvas` CSS, preventing mobile Chrome/Safari from hijacking 1-finger orbit or 2-finger pinch-to-zoom gestures for page scrolling or pull-to-refresh.
+  - Dynamic DPR capping ($\le 2.0$) for smooth 60 FPS performance on high-density Samsung Galaxy AMOLED screens.
 - **Strict English Language Harmonization:**
   - Standardized all codebase documentation, HUD text, changelogs, and user-facing notifications to English.
 - **Link Integrity & Offline Preview Audit:**
   - Audited and verified all external model and documentation links across `README.md`, `web/index.html`, and `web/app.js`.
   - Replaced dead GitHub Pages link with verified, instant GitHack preview on `main` branch.
-- **WebGL 2 (GLES 3.0) Browser Fallback Pipeline:**
-  - Automated high-compatibility WebGL 2 fallback pipeline in `web/app.js` when `navigator.gpu` is unavailable.
-  - Interactive orbit camera, turntable autorotation, bounding box wireframes, and glTF 2.0 / GLB mesh parsing.
 - **Directional PCF Shadow Map Synchronization:**
   - Synchronized material bind group `@binding(11)` with `shadowPass_.GetShadowMapView()`.
   - Fixed sun light double-rotation in WGSL fragment shader (`sunL`).

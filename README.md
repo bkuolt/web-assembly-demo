@@ -23,7 +23,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
 | **glTF 2.0 Animations & Skinning** | Full skeletal animation (128 joints with inverse bind matrices), morph target delta blending, decoupled TRS local transforms, and keyframe interpolation (`LINEAR`, `STEP`, `CUBICSPLINE` Hermite) | Automatic / glTF Animations |
-| **WebGL 2 (GLES 3.0) Fallback** | Automated browser fallback engine in `web/app.js` using GLSL ES 300 shaders, diffuse/specular lighting, Reinhard tonemapping, and orbit camera when WebGPU is unavailable | Automatic Browser Detection |
+| **WebGL 2 (GLES 3.0) 3D Engine** | Universal, high-compatibility browser 3D engine in `web/app.js` with GLSL ES 300 shaders, PBR diffuse/specular lighting, two-sided shading, Reinhard tonemapping, touch controls, and orbit camera across Desktop, Laptop, and Mobile | Universal Browser Support |
 | **GPU Compute Offloading** | Parallel view-frustum culling (`GpuCuller`) and parallel ray-bounding picking (`GpuRayPicker`) using WebGPU compute shaders and atomic operations | Automatic / Live GPU compute |
 | **RAM & VRAM Telemetry** | Real-time resident set size (RAM in MB) from OS kernel and atomic WebGPU VRAM buffer/texture tracking displayed on in-engine HUD | In-Engine HUD (`[O]` / `[F3]`) |
 | **PS5 DualSense Feel** | Native DualSense recognition (`0x054c`), exponential aim response curve ($mag^{2.1}$), pitch dampening ($0.70$), smooth look damping, and rumble | Auto-detected / HUD Badge |
