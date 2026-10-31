@@ -21,9 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic hardware priority: prioritizes native WebGPU on modern Chrome/Edge browsers; seamlessly falls back to WebGL 2 on mobile devices (e.g., Samsung Galaxy S22) or unsupported environments.
   - Clean canvas node isolation preventing `HTMLCanvasElement` context collision locks between WebGPU and WebGL 2.
   - Added backend status badge in HUD (`WebGPU` in green, `WebGL 2` in amber) and a one-click backend switcher button (`Switch Backend` / `?backend=webgl`).
-- **Comprehensive Automated Web Testing Suite (`WebGPUPipelineTest`):**
+- **Comprehensive Automated Web Testing Suite (`WebGPUPipelineTest` & `BrowserE2ETest`):**
   - Added standalone `tests/test_webgpu_path.js` mock test suite verifying WebGPU device initialization, WGSL shader compiling, GPU buffer allocation, draw command encoding on `ToyCar.glb` and `Sponza.glb`, turntable rotation, and touch controls.
-  - Integrated `WebGPUPipelineTest` into `CMakeLists.txt` alongside `WebGLPipelineTest` with 100% test pass rate in CTest.
+  - Added multi-browser end-to-end suite `tests/test_browsers_e2e.py` controlling real instances of Google Chrome (via CDP) and Mozilla Firefox (via geckodriver) against local HTTP servers.
+  - Integrated `WebGPUPipelineTest` and `BrowserE2ETest` into `CMakeLists.txt` alongside `WebGLPipelineTest` with 100% test pass rate in CTest.
+- **Firefox & Chrome Cross-Browser WebGPU Hardening:**
+  - Resolved `OperationError: GPUQueue.writeBuffer: Byte size must be a multiple of 4` in Firefox's `wgpu` engine by automatically padding odd `uint16` index buffers to 4-byte boundaries during upload.
+  - Replaced ambiguous WGSL vector `select()` intrinsics with universal `if-else` branches for normal vector fallback and specular intensity calculation, guaranteeing 100% compatibility across Google Dawn (Chrome/Edge) and Mozilla wgpu (Firefox).
 
 ---
 

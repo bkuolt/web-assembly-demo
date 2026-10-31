@@ -1420,7 +1420,11 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     let worldPos4 = ubo.model * vec4<f32>(in.position, 1.0);
     out.worldPos = worldPos4.xyz;
     let n = (ubo.normalMatrix * vec4<f32>(in.normal, 0.0)).xyz;
-    out.normal = select(vec3<f32>(0.0, 1.0, 0.0), normalize(n), dot(n, n) > 0.0001);
+    if (dot(n, n) > 0.0001) {
+        out.normal = normalize(n);
+    } else {
+        out.normal = vec3<f32>(0.0, 1.0, 0.0);
+    }
     out.uv = in.uv;
     out.clipPos = ubo.viewProj * worldPos4;
     return out;
@@ -1442,7 +1446,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         discard;
     }
 
-    var N = select(vec3<f32>(0.0, 1.0, 0.0), normalize(in.normal), dot(in.normal, in.normal) > 0.0001);
+    var N = in.normal;
+    if (dot(N, N) > 0.0001) {
+        N = normalize(N);
+    } else {
+        N = vec3<f32>(0.0, 1.0, 0.0);
+    }
     if (!frontFacing) {
         N = -N;
     }
@@ -1458,7 +1467,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     let ambient = vec3<f32>(0.25, 0.28, 0.32) * baseColor.rgb;
     let diffuse = baseColor.rgb * vec3<f32>(1.0, 0.98, 0.94) * NdotL;
     let fillLight = baseColor.rgb * vec3<f32>(0.15, 0.17, 0.20) * max(dot(N, -L), 0.0);
-    let specular = vec3<f32>(1.0, 1.0, 1.0) * spec * select(0.0, 1.0, NdotL > 0.0);
+    var specular = vec3<f32>(0.0, 0.0, 0.0);
+    if (NdotL > 0.0) {
+        specular = vec3<f32>(spec, spec, spec);
+    }
 
     var color = ambient + diffuse + fillLight + specular;
     color = color / (color + vec3<f32>(1.0, 1.0, 1.0));
@@ -1993,12 +2005,22 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 indexFormat = 'uint16';
               }
               indexCount = gpuIndexData.length;
-              const bufSize = Math.max(4, Math.ceil(gpuIndexData.byteLength / 4) * 4);
+
+              // Ensure buffer size and write size are strictly multiples of 4 (W3C WebGPU specification requirement)
+              const rawByteLength = gpuIndexData.byteLength;
+              const alignedByteLength = Math.max(4, Math.ceil(rawByteLength / 4) * 4);
               indexBuffer = this.device.createBuffer({
-                size: bufSize,
+                size: alignedByteLength,
                 usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
               });
-              this.device.queue.writeBuffer(indexBuffer, 0, gpuIndexData);
+
+              if (rawByteLength % 4 === 0) {
+                this.device.queue.writeBuffer(indexBuffer, 0, gpuIndexData);
+              } else {
+                const paddedBytes = new Uint8Array(alignedByteLength);
+                paddedBytes.set(new Uint8Array(gpuIndexData.buffer, gpuIndexData.byteOffset, rawByteLength));
+                this.device.queue.writeBuffer(indexBuffer, 0, paddedBytes);
+              }
             }
 
             let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
