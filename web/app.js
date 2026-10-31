@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.12 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.13 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );

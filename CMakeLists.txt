@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.12 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.13 LANGUAGES C CXX)
 
 # ==============================================================================
 # RPATH Configuration for Native Desktop Execution

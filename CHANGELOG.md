@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.13] - 2026-10-31
+
+### Production Optimization, Cross-Browser WebGPU Hardening & Conan 2.x Lock
+- **Cross-Browser WebGPU Hardening (Firefox & Chrome):**
+  - Resolved `OperationError: GPUQueue.writeBuffer: Byte size must be a multiple of 4` in Firefox's `wgpu` engine by automatically padding odd `uint16` index buffers to 4-byte boundaries during upload.
+  - Replaced ambiguous WGSL vector `select()` intrinsics with universal `if-else` branches for normal vector fallback and specular intensity calculation, guaranteeing 100% compatibility across Google Dawn (Chrome/Edge) and Mozilla wgpu (Firefox).
+  - Enhanced device loss handling (`device.lost`) to automatically recover and fallback to WebGL 2 on runtime driver resets.
+- **Conan 2.x & Dependency Lock Optimization:**
+  - Updated `conanfile.py` to `required_conan_version = ">=2.28"` and recipe version `0.9.13`, optimizing transitive dependency graph computation.
+  - Re-locked all 17 direct and transitive Conan dependencies in `conan.lock` for fully deterministic, reproducible builds.
+- **Automated End-to-End Multi-Browser Test Suite (`BrowserE2ETest`):**
+  - Integrated `tests/test_browsers_e2e.py` into CMake and CTest test runner.
+  - Simultaneously tests real instances of Google Chrome and Mozilla Firefox over local HTTP servers, validating WebGPU pipeline execution, WebGL 2 fallback, glTF model ingestion, and draw execution with a 100% test pass rate across all 4 test suites.
+
+---
+
 ## [0.9.12] - 2026-10-31
 
 ### Native WebGPU Browser Implementation & Dual-Backend Architecture
