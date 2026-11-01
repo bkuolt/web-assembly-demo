@@ -78,6 +78,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetWeatherMode(config.weatherMode);
     pipelineManager_.SetWeatherIntensity(config.weatherIntensity);
     pipelineManager_.SetWindStrength(config.windStrength);
+    dayNightCycleActive_ = config.enableDayNightCycle;
+    SetDayNightSpeed(config.dayNightSpeed);
+    SetTimeOfDay(config.timeOfDay);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(),
                                       gpuContext_.GetSampleCount());
@@ -217,6 +220,27 @@ void Application::Update(float deltaTime) {
                     ToggleSnow();
                     BGL_LOG_INFO("Toggled Snow Shader Effect: {}",
                                  pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
+                } else if (event.key.keysym.sym == SDLK_F6) {
+                    ToggleFog();
+                    BGL_LOG_INFO("Toggled Fog Shader Effect: {}",
+                                 pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
+                } else if (event.key.keysym.sym == SDLK_F7) {
+                    ToggleSmoke();
+                    BGL_LOG_INFO("Toggled Smoke Shader Effect: {}",
+                                 pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
+                } else if (event.key.keysym.sym == SDLK_i || event.key.keysym.sym == SDLK_F8) {
+                    ToggleDayNightCycle();
+                    BGL_LOG_INFO("Toggled Automatic Day/Night Cycle: {} (Time: {:02d}:{:02d})",
+                                 dayNightCycleActive_ ? "ON" : "OFF", static_cast<int>(timeOfDay_),
+                                 static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
+                } else if (event.key.keysym.sym == SDLK_COMMA) {
+                    SetTimeOfDay(timeOfDay_ - 0.5f);
+                    BGL_LOG_INFO("Time of Day stepped back: {:02d}:{:02d}", static_cast<int>(timeOfDay_),
+                                 static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
+                } else if (event.key.keysym.sym == SDLK_PERIOD) {
+                    SetTimeOfDay(timeOfDay_ + 0.5f);
+                    BGL_LOG_INFO("Time of Day stepped forward: {:02d}:{:02d}", static_cast<int>(timeOfDay_),
+                                 static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
                 } else if (event.key.keysym.sym == SDLK_f) {
                     FocusSelection();
                     BGL_LOG_INFO("Framed camera on selection / scene bounds");
@@ -336,6 +360,9 @@ void Application::Update(float deltaTime) {
     }
 
     pipelineManager_.AdvanceWeatherTime(deltaTime);
+    if (dayNightCycleActive_) {
+        SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * deltaTime);
+    }
 
     float aspect =
         static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
@@ -362,6 +389,8 @@ void Application::Update(float deltaTime) {
     stats.ambientOcclusionEnabled = pipelineManager_.IsAmbientOcclusionEnabled();
     stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
     stats.weatherModeName = std::string{pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode())};
+    stats.timeOfDay = timeOfDay_;
+    stats.dayNightCycleEnabled = dayNightCycleActive_;
 
     // Memory and Gamepad telemetry
     auto memTelemetry = core::MemoryTracker::Instance().Query();
@@ -431,7 +460,8 @@ void Application::Render() {
     }
 
     // 2. Procedural Atmospheric Skybox (far-plane depth Z=1.0 test against geometry, zero overdraw)
-    skybox_.Render(hdrPass, vp, camPos, sunDir);
+    skybox_.Render(hdrPass, vp, camPos, sunDir, pipelineManager_.GetSolarElevationFactor(),
+                   static_cast<uint32_t>(pipelineManager_.GetWeatherMode()), pipelineManager_.GetWeatherIntensity());
 
     if (activeScene_) {
         // 3. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
@@ -692,12 +722,19 @@ std::string_view Application::GetCameraName(int index) const noexcept {
 }
 
 void Application::SetTimeOfDay(float hour) noexcept {
-    timeOfDay_ = std::clamp(hour, 0.0f, 24.0f);
-    // Diurnal cycle: sunrise ~6:00, noon 12:00 (peak elevation), sunset ~18:00
-    const float dayFraction = (timeOfDay_ - 6.0f) / 12.0f;
-    const float elevation = std::sin(dayFraction * std::numbers::pi_v<float>);
+    float wrapped = std::fmod(hour, 24.0f);
+    if (wrapped < 0.0f) {
+        wrapped += 24.0f;
+    }
+    timeOfDay_ = wrapped;
+    pipelineManager_.SetTimeOfDay(timeOfDay_);
+
+    // Diurnal cycle: sunrise ~6:00, noon 12:00 (peak elevation), sunset ~18:00, midnight 0:00 (moon peak)
+    const float solarSin = -std::cos((timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    const float activeElev = (solarSin >= 0.0f) ? std::asin(std::clamp(solarSin, 0.0f, 1.0f))
+                                                : std::asin(std::clamp(-solarSin * 0.75f, 0.0f, 1.0f));
     const float azimuth = (timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>;
-    SetSunAzimuthElevation(azimuth, std::max(elevation, 0.05f));
+    SetSunAzimuthElevation(azimuth, std::max(activeElev, 0.06f));
 }
 
 void Application::SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept {

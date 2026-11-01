@@ -1088,6 +1088,127 @@ fn calculateSnowFlakes(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, 
     return flakeColor + winterFogColor;
 }
 
+fn noise3D(p : vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let n000 = hash31(i + vec3<f32>(0.0, 0.0, 0.0));
+    let n100 = hash31(i + vec3<f32>(1.0, 0.0, 0.0));
+    let n010 = hash31(i + vec3<f32>(0.0, 1.0, 0.0));
+    let n110 = hash31(i + vec3<f32>(1.0, 1.0, 0.0));
+    let n001 = hash31(i + vec3<f32>(0.0, 0.0, 1.0));
+    let n101 = hash31(i + vec3<f32>(1.0, 0.0, 1.0));
+    let n011 = hash31(i + vec3<f32>(0.0, 1.0, 1.0));
+    let n111 = hash31(i + vec3<f32>(1.0, 1.0, 1.0));
+    let nx00 = mix(n000, n100, u.x);
+    let nx10 = mix(n010, n110, u.x);
+    let nx01 = mix(n001, n101, u.x);
+    let nx11 = mix(n011, n111, u.x);
+    let nxy0 = mix(nx00, nx10, u.y);
+    let nxy1 = mix(nx01, nx11, u.y);
+    return mix(nxy0, nxy1, u.z);
+}
+
+fn fbm3D(p : vec3<f32>) -> f32 {
+    var val = 0.0;
+    var amp = 0.5;
+    var pos = p;
+    for (var i = 0; i < 4; i = i + 1) {
+        val = val + amp * noise3D(pos);
+        pos = pos * 2.03 + vec3<f32>(13.7, 29.3, 7.1);
+        amp = amp * 0.5;
+    }
+    return val;
+}
+
+fn evaluateDiurnalSunRadiance(solarElev : f32) -> vec3<f32> {
+    let noonSun = vec3<f32>(1.0, 0.98, 0.95) * 3.14159265359;
+    let goldenSun = vec3<f32>(1.0, 0.48, 0.18) * 2.2;
+    let nightMoon = vec3<f32>(0.28, 0.44, 0.78) * 0.55;
+    if (solarElev >= 0.35) {
+        let t = clamp((solarElev - 0.35) / 0.65, 0.0, 1.0);
+        return mix(goldenSun, noonSun, t);
+    } else if (solarElev >= -0.10) {
+        let t = clamp((solarElev + 0.10) / 0.45, 0.0, 1.0);
+        return mix(nightMoon, goldenSun, t);
+    }
+    return nightMoon;
+}
+
+fn evaluateDiurnalAmbientScale(solarElev : f32) -> vec3<f32> {
+    let dayScale = vec3<f32>(1.0, 1.0, 1.0);
+    let duskScale = vec3<f32>(0.82, 0.60, 0.52);
+    let nightScale = vec3<f32>(0.16, 0.22, 0.38);
+    if (solarElev >= 0.25) {
+        let t = clamp((solarElev - 0.25) / 0.75, 0.0, 1.0);
+        return mix(duskScale, dayScale, t);
+    } else if (solarElev >= -0.15) {
+        let t = clamp((solarElev + 0.15) / 0.40, 0.0, 1.0);
+        return mix(nightScale, duskScale, t);
+    }
+    return nightScale;
+}
+
+fn calculateFogEffect(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos : vec3<f32>, sunDir : vec3<f32>, solarElev : f32, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let toFrag = worldPos - cameraPos;
+    let dist = length(toFrag);
+    let viewRay = toFrag / max(dist, 1e-4);
+
+    // Volumetric wind-drifting mist banks + barometric height falloff
+    let windOffset = vec3<f32>(wind * time * 0.6, -time * 0.08, wind * time * 0.3);
+    let mistNoise = fbm3D(worldPos * 0.28 - windOffset);
+    let heightFalloff = exp(-max(worldPos.y + 2.0, 0.0) * 0.12);
+    let density = (0.045 + 0.055 * heightFalloff * (0.65 + 0.7 * mistNoise)) * intensity;
+    let fogFactor = clamp(1.0 - exp(-dist * density), 0.0, 0.96);
+
+    // Anisotropic Mie forward scattering (Tyndall sun/moon glow in fog)
+    let cosTheta = max(dot(viewRay, sunDir), 0.0);
+    let mieScatter = pow(cosTheta, 6.0) * 0.45;
+
+    let dayFogColor = vec3<f32>(0.74, 0.81, 0.89);
+    let duskFogColor = vec3<f32>(0.82, 0.58, 0.46);
+    let nightFogColor = vec3<f32>(0.12, 0.17, 0.28);
+    var baseFogColor = dayFogColor;
+    if (solarElev < 0.25 && solarElev >= -0.15) {
+        baseFogColor = mix(nightFogColor, duskFogColor, clamp((solarElev + 0.15) / 0.40, 0.0, 1.0));
+    } else if (solarElev < -0.15) {
+        baseFogColor = nightFogColor;
+    } else {
+        baseFogColor = mix(duskFogColor, dayFogColor, clamp((solarElev - 0.25) / 0.75, 0.0, 1.0));
+    }
+
+    let scatterTint = select(vec3<f32>(0.35, 0.50, 0.80), vec3<f32>(1.0, 0.82, 0.55), solarElev >= 0.0);
+    let finalFogColor = baseFogColor + scatterTint * mieScatter;
+    return mix(sceneColor, finalFogColor, fogFactor);
+}
+
+fn calculateSmokePlumes(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let dist = length(worldPos - cameraPos);
+    // Rising turbulent thermal updraft + horizontal wind shear
+    let flow = vec3<f32>(wind * time * 1.1, -time * 1.35, wind * time * 0.45);
+    let p1 = worldPos * 0.42 + flow;
+    let warp = vec3<f32>(
+        fbm3D(p1 + vec3<f32>(5.2, 1.3, 2.8)),
+        fbm3D(p1 + vec3<f32>(1.7, 9.2, 4.1)),
+        fbm3D(p1 + vec3<f32>(8.3, 2.8, 6.4))
+    ) * 1.35;
+    let rawTurbulence = fbm3D(p1 + warp);
+
+    // Billowing smoke plume envelope (denser near ground/mid-height, curling upward)
+    let heightEnvelope = exp(-max(worldPos.y + 3.0, 0.0) * 0.08);
+    let distEnvelope = 1.0 - exp(-dist * 0.085);
+    let plumeShape = smoothstep(0.32, 0.78, rawTurbulence);
+    let smokeOpacity = clamp((plumeShape * 0.75 + distEnvelope * 0.35) * heightEnvelope * intensity, 0.0, 0.94);
+
+    // Charcoal soot color with warm subsurface ember glow at low altitude
+    let sootColor = vec3<f32>(0.15, 0.16, 0.18);
+    let ashHighlight = vec3<f32>(0.34, 0.35, 0.38);
+    let emberGlow = vec3<f32>(0.95, 0.38, 0.08) * exp(-max(worldPos.y + 1.5, 0.0) * 0.45) * pow(plumeShape, 2.5) * 0.55 * clamp(intensity, 0.0, 1.5);
+    let smokeColor = mix(sootColor, ashHighlight, rawTurbulence) + emberGlow;
+
+    return mix(sceneColor, smokeColor, smokeOpacity);
+}
+
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let dp1 = dpdx(in.worldPos);
@@ -1214,6 +1335,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             roughness = mix(roughness, 0.70, snowAccum * 0.9);
             metallic = mix(metallic, 0.0, snowAccum * 0.95);
         }
+    } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
+        // Fog moisture condensation sheen
+        roughness = mix(roughness, 0.30, clamp(weatherIntensity * 0.35, 0.0, 0.45));
+    } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
+        // Smoke matte soot deposition
+        roughness = mix(roughness, 0.88, clamp(weatherIntensity * 0.4, 0.0, 0.55));
     }
 
     let ior = max(ubo.ior, 1.0);
@@ -1272,7 +1399,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let V = viewDir;
     let NdotV = max(dot(N, V), 0.001);
 
-    // 1. Primary Sun Light (Rotated with Environment) + Shadow Map
+    // 1. Primary Sun/Moon Light (Diurnal Cycle + Rotated with Environment) + Shadow Map
+    let solarElev = ubo.lightDir.w;
+    let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
     var shadowFactor = 1.0;
     if ((ubo.flags & 4096u) != 0u) {
         shadowFactor = computePCFShadow(in.worldPos, geomN, sunL);
@@ -1280,7 +1409,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     var directLighting = vec3<f32>(0.0);
     if (sceneLighting.envParams.w > 0.5) {
-        let sunRadiance = vec3<f32>(1.0, 0.98, 0.95) * 3.14159265359;
+        let sunRadiance = evaluateDiurnalSunRadiance(solarElev);
         directLighting = evaluateDirectLobe(
             sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
             transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
@@ -1387,6 +1516,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         ambientSpecular = (F_ibl * brdfSample.x + vec3<f32>(brdfSample.y)) * shIrradiance * (1.0 - roughness) * 0.25 * ao;
     }
 
+    ambientDiffuse = ambientDiffuse * diurnalAmbientScale;
+    ambientSpecular = ambientSpecular * diurnalAmbientScale;
+
     var finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
     var outAlpha = baseColor.a;
@@ -1431,6 +1563,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         finalColor = finalColor + calculateRainStreaks(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
         finalColor = finalColor + calculateSnowFlakes(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
+        finalColor = calculateFogEffect(finalColor, in.worldPos, ubo.cameraPos.xyz, sunL, solarElev, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
+        finalColor = calculateSmokePlumes(finalColor, in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     }
 
     return vec4<f32>(finalColor, outAlpha);

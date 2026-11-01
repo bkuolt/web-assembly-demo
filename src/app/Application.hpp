@@ -44,6 +44,9 @@ struct ApplicationConfig {
     gpu::WeatherMode weatherMode{gpu::WeatherMode::None};
     float weatherIntensity{1.0f};
     float windStrength{0.3f};
+    float timeOfDay{14.0f};
+    bool enableDayNightCycle{false};
+    float dayNightSpeed{1.0f};
 };
 
 /**
@@ -179,6 +182,12 @@ public:
     /** @brief Toggles snowfall simulation on/off. */
     void ToggleSnow() noexcept { pipelineManager_.ToggleSnow(); }
 
+    /** @brief Toggles volumetric height/distance fog simulation on/off. */
+    void ToggleFog() noexcept { pipelineManager_.ToggleFog(); }
+
+    /** @brief Toggles volumetric rising smoke plumes simulation on/off. */
+    void ToggleSmoke() noexcept { pipelineManager_.ToggleSmoke(); }
+
     /** @brief Queries current atmospheric weather mode. */
     [[nodiscard]] gpu::WeatherMode GetWeatherMode() const noexcept { return pipelineManager_.GetWeatherMode(); }
 
@@ -256,6 +265,11 @@ public:
     /** @brief Sun position and diurnal cycle live controls. */
     void SetTimeOfDay(float hour) noexcept;
     [[nodiscard]] float GetTimeOfDay() const noexcept { return timeOfDay_; }
+    void ToggleDayNightCycle() noexcept { dayNightCycleActive_ = !dayNightCycleActive_; }
+    void SetDayNightCycle(bool active) noexcept { dayNightCycleActive_ = active; }
+    [[nodiscard]] bool IsDayNightCycleActive() const noexcept { return dayNightCycleActive_; }
+    void SetDayNightSpeed(float hoursPerSec) noexcept { dayNightSpeed_ = std::clamp(hoursPerSec, 0.05f, 12.0f); }
+    [[nodiscard]] float GetDayNightSpeed() const noexcept { return dayNightSpeed_; }
     void SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept;
     [[nodiscard]] float GetSunAzimuth() const noexcept { return sunAzimuth_; }
     [[nodiscard]] float GetSunElevation() const noexcept { return sunElevation_; }
@@ -340,6 +354,8 @@ private:
 
     // Sun & Time-of-Day
     float timeOfDay_{14.0f}; // 14:00 (2 PM)
+    bool dayNightCycleActive_{false};
+    float dayNightSpeed_{1.0f}; // hours per second
     float sunAzimuth_{0.8f};
     float sunElevation_{0.95f};
     glm::vec3 sunDir_{0.35f, 1.0f, 0.25f};

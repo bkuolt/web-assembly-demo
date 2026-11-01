@@ -132,6 +132,8 @@ void bgl_set_weather_mode(int mode) {
     if (g_pApp) {
         const auto m = (mode == 1)   ? bgl::gpu::WeatherMode::Rain
                        : (mode == 2) ? bgl::gpu::WeatherMode::Snow
+                       : (mode == 3) ? bgl::gpu::WeatherMode::Fog
+                       : (mode == 4) ? bgl::gpu::WeatherMode::Smoke
                                      : bgl::gpu::WeatherMode::None;
         g_pApp->SetWeatherMode(m);
     }
@@ -147,6 +149,30 @@ EMSCRIPTEN_KEEPALIVE
 void bgl_toggle_snow() {
     if (g_pApp)
         g_pApp->ToggleSnow();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_fog() {
+    if (g_pApp)
+        g_pApp->ToggleFog();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_smoke() {
+    if (g_pApp)
+        g_pApp->ToggleSmoke();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_day_night_cycle() {
+    if (g_pApp)
+        g_pApp->ToggleDayNightCycle();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_day_night_speed(float hoursPerSec) {
+    if (g_pApp)
+        g_pApp->SetDayNightSpeed(hoursPerSec);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -404,6 +430,9 @@ int main(int argc, char** argv) {
     config.weatherMode = static_cast<bgl::gpu::WeatherMode>(cli.weatherMode);
     config.weatherIntensity = cli.weatherIntensity;
     config.windStrength = cli.windStrength;
+    config.timeOfDay = cli.timeOfDay;
+    config.enableDayNightCycle = cli.enableDayNightCycle;
+    config.dayNightSpeed = cli.dayNightSpeed;
 
     bgl::app::Application app;
     if (auto res = app.Initialize(config); !res) {

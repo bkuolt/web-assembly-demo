@@ -2540,7 +2540,7 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     uniforms.model = worldMat;
     uniforms.lightViewProj = currentLightViewProj_;
     uniforms.cameraPos = glm::vec4{cameraPos, 1.0f};
-    uniforms.lightDir = glm::vec4{currentLightDir_, 0.0f};
+    uniforms.lightDir = glm::vec4{currentLightDir_, solarElevation_};
     uniforms.envMipCount = static_cast<float>(envMipLevels_);
 
     uint32_t flags{0};
@@ -2762,6 +2762,76 @@ float PipelineManager::EvaluateSnowAccumulationFactor(float normalY, float inten
     const float t{std::clamp((normalY - 0.2f) / (0.75f - 0.2f), 0.0f, 1.0f)};
     const float smooth{t * t * (3.0f - 2.0f * t)};
     return smooth * std::clamp(clampedInt, 0.0f, 1.5f);
+}
+
+void PipelineManager::SetTimeOfDay(float hour) noexcept {
+    float wrapped = std::fmod(hour, 24.0f);
+    if (wrapped < 0.0f) {
+        wrapped += 24.0f;
+    }
+    timeOfDay_ = wrapped;
+    solarElevation_ = -std::cos((timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+}
+
+float PipelineManager::EvaluateFogFactor(float distance, float worldY, float intensity) noexcept {
+    const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
+    if (clampedInt <= 0.001f || distance <= 0.0f) {
+        return 0.0f;
+    }
+    const float heightDensity{std::exp(-std::max(worldY + 2.0f, 0.0f) * 0.12f)};
+    const float opticalDepth{distance * (0.045f + 0.055f * heightDensity) * clampedInt};
+    return std::clamp(1.0f - std::exp(-opticalDepth), 0.0f, 0.96f);
+}
+
+float PipelineManager::EvaluateSmokeDensity(float worldY, float intensity) noexcept {
+    const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
+    if (clampedInt <= 0.001f) {
+        return 0.0f;
+    }
+    const float plumeEnvelope{std::exp(-std::max(worldY + 3.0f, 0.0f) * 0.08f)};
+    return std::clamp(plumeEnvelope * clampedInt * 0.75f, 0.0f, 0.95f);
+}
+
+glm::vec3 PipelineManager::EvaluateDiurnalSunRadiance(float timeOfDayHours) noexcept {
+    float wrapped = std::fmod(timeOfDayHours, 24.0f);
+    if (wrapped < 0.0f) {
+        wrapped += 24.0f;
+    }
+    const float solarElev = -std::cos((wrapped / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    const glm::vec3 noonSun{1.0f, 0.98f, 0.95f};
+    const glm::vec3 goldenSun{1.0f, 0.48f, 0.18f};
+    const glm::vec3 nightMoon{0.28f, 0.44f, 0.78f};
+
+    if (solarElev >= 0.35f) {
+        const float t = std::clamp((solarElev - 0.35f) / 0.65f, 0.0f, 1.0f);
+        return glm::mix(goldenSun * 2.2f, noonSun * 3.14159265f, t);
+    } else if (solarElev >= -0.10f) {
+        const float t = std::clamp((solarElev + 0.10f) / 0.45f, 0.0f, 1.0f);
+        return glm::mix(nightMoon * 0.55f, goldenSun * 2.2f, t);
+    } else {
+        return nightMoon * 0.55f;
+    }
+}
+
+glm::vec3 PipelineManager::EvaluateDiurnalAmbientScale(float timeOfDayHours) noexcept {
+    float wrapped = std::fmod(timeOfDayHours, 24.0f);
+    if (wrapped < 0.0f) {
+        wrapped += 24.0f;
+    }
+    const float solarElev = -std::cos((wrapped / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    const glm::vec3 dayScale{1.0f, 1.0f, 1.0f};
+    const glm::vec3 duskScale{0.82f, 0.60f, 0.52f};
+    const glm::vec3 nightScale{0.16f, 0.22f, 0.38f};
+
+    if (solarElev >= 0.25f) {
+        const float t = std::clamp((solarElev - 0.25f) / 0.75f, 0.0f, 1.0f);
+        return glm::mix(duskScale, dayScale, t);
+    } else if (solarElev >= -0.15f) {
+        const float t = std::clamp((solarElev + 0.15f) / 0.40f, 0.0f, 1.0f);
+        return glm::mix(nightScale, duskScale, t);
+    } else {
+        return nightScale;
+    }
 }
 
 } // namespace bgl::gpu

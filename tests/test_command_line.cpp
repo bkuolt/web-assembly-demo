@@ -263,4 +263,24 @@ TEST(CommandLineTest, WeatherEffectFlagsAndParameters) {
 
     const std::array<const char*, 3> wClearArgs{"bgl_viewer", "--weather", "clear"};
     EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wClearArgs}).weatherMode, 0u);
+
+    // 5. --fog and --smoke flags
+    const std::array<const char*, 2> fogArgs{"bgl_viewer", "--fog"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{fogArgs}).weatherMode, 3u);
+
+    const std::array<const char*, 2> smokeArgs{"bgl_viewer", "--smoke"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{smokeArgs}).weatherMode, 4u);
+
+    const std::array<const char*, 3> wFogArgs{"bgl_viewer", "--weather", "fog"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wFogArgs}).weatherMode, 3u);
+
+    const std::array<const char*, 3> wSmokeArgs{"bgl_viewer", "--weather", "smoke"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wSmokeArgs}).weatherMode, 4u);
+
+    // 6. Day/Night cycle flags (--time, --day-night-cycle, --day-night-speed)
+    const std::array<const char*, 6> dnArgs{"bgl_viewer", "--time", "18.5", "--day-night-cycle", "--day-night-speed", "2.4"};
+    const auto optDn = CliOptions::Parse(std::span<const char* const>{dnArgs});
+    EXPECT_NEAR(optDn.timeOfDay, 18.5f, 1e-4f);
+    EXPECT_TRUE(optDn.enableDayNightCycle);
+    EXPECT_NEAR(optDn.dayNightSpeed, 2.4f, 1e-4f);
 }

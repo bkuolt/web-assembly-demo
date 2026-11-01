@@ -184,11 +184,14 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
                     currentStats_.weatherModeName);
     textRenderer_.DrawText(geoToggleText, textX, panelY + 114.0f, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
 
-    // 8. Row 5: PBR Shading & Lighting Status
+    // 8. Row 5: PBR Shading & Diurnal Lighting Status
+    const int hrs = static_cast<int>(currentStats_.timeOfDay) % 24;
+    const int mins = static_cast<int>((currentStats_.timeOfDay - std::floor(currentStats_.timeOfDay)) * 60.0f) % 60;
     std::string pbrToggleText = std::format(
-        "PBR: [V]Bump:{} [M]Shdw:{} [R]Refl:{} [U]AO:{} [L]Mip:{}", currentStats_.bumpMappingEnabled ? "ON" : "OFF",
-        currentStats_.shadowsEnabled ? "ON" : "OFF", currentStats_.reflectionsEnabled ? "ON" : "OFF",
-        currentStats_.ambientOcclusionEnabled ? "ON" : "OFF", currentStats_.mipmappingEnabled ? "ON" : "OFF");
+        "PBR: [V]Bump:{} [M]Shdw:{} [R]Refl:{} [U]AO:{} [I]Time:{:02d}:{:02d}{}",
+        currentStats_.bumpMappingEnabled ? "ON" : "OFF", currentStats_.shadowsEnabled ? "ON" : "OFF",
+        currentStats_.reflectionsEnabled ? "ON" : "OFF", currentStats_.ambientOcclusionEnabled ? "ON" : "OFF", hrs,
+        mins, currentStats_.dayNightCycleEnabled ? "*" : "");
     textRenderer_.DrawText(pbrToggleText, textX, panelY + 136.0f, glm::vec4(0.72f, 0.65f, 0.98f, 1.0f));
 
     // 9. Row 6: Camera Target & Spatial Partitioning

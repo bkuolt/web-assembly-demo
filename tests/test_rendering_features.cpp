@@ -1458,7 +1458,7 @@ TEST(RenderingFeaturesTest, WeatherModeStateTransitionsAndClamping) {
     EXPECT_FLOAT_EQ(pm.GetWindStrength(), 0.3f);
     EXPECT_FLOAT_EQ(pm.GetWeatherTime(), 0.0f);
 
-    // Cycle None -> Rain -> Snow -> None
+    // Cycle None -> Rain -> Snow -> Fog -> Smoke -> None
     pm.CycleWeatherMode();
     EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Rain);
     EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Rain");
@@ -1468,15 +1468,27 @@ TEST(RenderingFeaturesTest, WeatherModeStateTransitionsAndClamping) {
     EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Snow");
 
     pm.CycleWeatherMode();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Fog);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Fog");
+
+    pm.CycleWeatherMode();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Smoke);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Smoke");
+
+    pm.CycleWeatherMode();
     EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::None);
     EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Clear");
 
-    // ToggleRain and ToggleSnow
+    // ToggleRain, ToggleSnow, ToggleFog, ToggleSmoke
     pm.ToggleRain();
     EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Rain);
     pm.ToggleSnow(); // Direct switch from Rain to Snow
     EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Snow);
-    pm.ToggleSnow(); // Toggle off back to None
+    pm.ToggleFog(); // Direct switch from Snow to Fog
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Fog);
+    pm.ToggleSmoke(); // Direct switch from Fog to Smoke
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Smoke);
+    pm.ToggleSmoke(); // Toggle off back to None
     EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::None);
 
     // Intensity and wind clamping
@@ -1541,4 +1553,49 @@ TEST(RenderingFeaturesTest, WgslShaderContainsRainAndSnowEffects) {
     EXPECT_NE(wgsl.find("fn calculateRainRipples"), std::string_view::npos);
     EXPECT_NE(wgsl.find("fn calculateRainStreaks"), std::string_view::npos);
     EXPECT_NE(wgsl.find("fn calculateSnowFlakes"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn calculateFogEffect"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn calculateSmokePlumes"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn evaluateDiurnalSunRadiance"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn evaluateDiurnalAmbientScale"), std::string_view::npos);
+}
+
+TEST(RenderingFeaturesTest, FogSmokeAndDiurnalDayNightPhysics) {
+    // 1. Exponential height and distance fog
+    const float fogNear = gpu::PipelineManager::EvaluateFogFactor(2.0f, 0.0f, 1.0f);
+    const float fogFar = gpu::PipelineManager::EvaluateFogFactor(40.0f, 0.0f, 1.0f);
+    const float fogValley = gpu::PipelineManager::EvaluateFogFactor(15.0f, -2.0f, 1.0f);
+    const float fogMountain = gpu::PipelineManager::EvaluateFogFactor(15.0f, 25.0f, 1.0f);
+
+    EXPECT_GT(fogFar, fogNear);
+    EXPECT_GT(fogValley, fogMountain);
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateFogFactor(20.0f, 0.0f, 0.0f), 0.0f);
+
+    // 2. Smoke plume vertical density profile
+    const float smokeLow = gpu::PipelineManager::EvaluateSmokeDensity(0.0f, 1.0f);
+    const float smokeHigh = gpu::PipelineManager::EvaluateSmokeDensity(25.0f, 1.0f);
+    EXPECT_GT(smokeLow, smokeHigh);
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateSmokeDensity(0.0f, 0.0f), 0.0f);
+
+    // 3. Diurnal Day/Night Cycle sun/moon radiance and ambient scale
+    gpu::PipelineManager pm{};
+    pm.SetTimeOfDay(12.0f); // Noon zenith
+    EXPECT_NEAR(pm.GetSolarElevationFactor(), 1.0f, 1e-4f);
+    pm.SetTimeOfDay(6.0f); // Sunrise horizon
+    EXPECT_NEAR(pm.GetSolarElevationFactor(), 0.0f, 1e-4f);
+    pm.SetTimeOfDay(0.0f); // Midnight nadir
+    EXPECT_NEAR(pm.GetSolarElevationFactor(), -1.0f, 1e-4f);
+
+    const glm::vec3 noonRad = gpu::PipelineManager::EvaluateDiurnalSunRadiance(12.0f);
+    const glm::vec3 sunsetRad = gpu::PipelineManager::EvaluateDiurnalSunRadiance(18.0f);
+    const glm::vec3 nightRad = gpu::PipelineManager::EvaluateDiurnalSunRadiance(0.0f);
+
+    // Noon is brightest; sunset is golden-warm (R > G > B); night is cool lunar blue (B > R)
+    EXPECT_GT(noonRad.g, sunsetRad.g);
+    EXPECT_GT(sunsetRad.r, sunsetRad.b);
+    EXPECT_GT(nightRad.b, nightRad.r);
+
+    const glm::vec3 noonAmb = gpu::PipelineManager::EvaluateDiurnalAmbientScale(12.0f);
+    const glm::vec3 nightAmb = gpu::PipelineManager::EvaluateDiurnalAmbientScale(0.0f);
+    EXPECT_GT(noonAmb.r, nightAmb.r);
+    EXPECT_GT(nightAmb.b, nightAmb.r);
 }

@@ -60,10 +60,14 @@ public:
      * @param pass Active WebGPU render pass encoder.
      * @param viewProj Camera view-projection matrix.
      * @param cameraPos Camera world-space eye position.
-     * @param sunDir Direction vector pointing toward the sun.
+     * @param sunDir Direction vector pointing toward the sun/moon.
+     * @param solarElevation Signed solar elevation factor (-1.0 midnight .. 0.0 horizon .. +1.0 noon).
+     * @param weatherMode Active weather mode (0=Clear, 1=Rain, 2=Snow, 3=Fog, 4=Smoke).
+     * @param weatherIntensity Active weather intensity [0.0, 2.0].
      */
     void Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const glm::vec3& cameraPos,
-                const glm::vec3& sunDir);
+                const glm::vec3& sunDir, float solarElevation = 0.866f, uint32_t weatherMode = 0,
+                float weatherIntensity = 1.0f);
 
     void SetEnabled(bool enabled) noexcept {
         enabled_ = enabled;

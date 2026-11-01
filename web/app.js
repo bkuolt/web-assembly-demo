@@ -242,6 +242,9 @@
     weatherMode: 'none',
     weatherIntensity: 1.0,
     windStrength: 0.30,
+    timeOfDay: 14.0,
+    isDayNightCycleActive: false,
+    dayNightSpeed: 1.0,
   };
 
   // ============================================================================
@@ -268,9 +271,12 @@
     btnSSAO: document.getElementById('btn-ssao'),
     btnBloom: document.getElementById('btn-bloom'),
     btnFlare: document.getElementById('btn-flare'),
+    btnDayNight: document.getElementById('btn-day-night'),
     btnWeatherNone: document.getElementById('btn-weather-none'),
     btnWeatherRain: document.getElementById('btn-weather-rain'),
     btnWeatherSnow: document.getElementById('btn-weather-snow'),
+    btnWeatherFog: document.getElementById('btn-weather-fog'),
+    btnWeatherSmoke: document.getElementById('btn-weather-smoke'),
 
     btnToyCar: document.getElementById('btn-load-toycar'),
     btnSponza: document.getElementById('btn-load-sponza'),
@@ -1728,6 +1734,122 @@ fn calculateSnowFlakes(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, 
     return flakeColor + winterFogColor;
 }
 
+fn noise3D(p : vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let n000 = hash31(i + vec3<f32>(0.0, 0.0, 0.0));
+    let n100 = hash31(i + vec3<f32>(1.0, 0.0, 0.0));
+    let n010 = hash31(i + vec3<f32>(0.0, 1.0, 0.0));
+    let n110 = hash31(i + vec3<f32>(1.0, 1.0, 0.0));
+    let n001 = hash31(i + vec3<f32>(0.0, 0.0, 1.0));
+    let n101 = hash31(i + vec3<f32>(1.0, 0.0, 1.0));
+    let n011 = hash31(i + vec3<f32>(0.0, 1.0, 1.0));
+    let n111 = hash31(i + vec3<f32>(1.0, 1.0, 1.0));
+    let nx00 = mix(n000, n100, u.x);
+    let nx10 = mix(n010, n110, u.x);
+    let nx01 = mix(n001, n101, u.x);
+    let nx11 = mix(n011, n111, u.x);
+    let nxy0 = mix(nx00, nx10, u.y);
+    let nxy1 = mix(nx01, nx11, u.y);
+    return mix(nxy0, nxy1, u.z);
+}
+
+fn fbm3D(p : vec3<f32>) -> f32 {
+    var val = 0.0;
+    var amp = 0.5;
+    var pos = p;
+    for (var i = 0; i < 4; i = i + 1) {
+        val = val + amp * noise3D(pos);
+        pos = pos * 2.03 + vec3<f32>(13.7, 29.3, 7.1);
+        amp = amp * 0.5;
+    }
+    return val;
+}
+
+fn evaluateDiurnalSunRadiance(solarElev : f32) -> vec3<f32> {
+    let noonSun = vec3<f32>(1.0, 0.97, 0.92) * 2.6;
+    let goldenSun = vec3<f32>(1.0, 0.48, 0.18) * 1.9;
+    let nightMoon = vec3<f32>(0.28, 0.44, 0.78) * 0.48;
+    if (solarElev >= 0.35) {
+        let t = clamp((solarElev - 0.35) / 0.65, 0.0, 1.0);
+        return mix(goldenSun, noonSun, t);
+    } else if (solarElev >= -0.10) {
+        let t = clamp((solarElev + 0.10) / 0.45, 0.0, 1.0);
+        return mix(nightMoon, goldenSun, t);
+    }
+    return nightMoon;
+}
+
+fn evaluateDiurnalAmbientScale(solarElev : f32) -> vec3<f32> {
+    let dayScale = vec3<f32>(1.0, 1.0, 1.0);
+    let duskScale = vec3<f32>(0.82, 0.60, 0.52);
+    let nightScale = vec3<f32>(0.16, 0.22, 0.38);
+    if (solarElev >= 0.25) {
+        let t = clamp((solarElev - 0.25) / 0.75, 0.0, 1.0);
+        return mix(duskScale, dayScale, t);
+    } else if (solarElev >= -0.15) {
+        let t = clamp((solarElev + 0.15) / 0.40, 0.0, 1.0);
+        return mix(nightScale, duskScale, t);
+    }
+    return nightScale;
+}
+
+fn calculateFogEffect(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos : vec3<f32>, sunDir : vec3<f32>, solarElev : f32, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let toFrag = worldPos - cameraPos;
+    let dist = length(toFrag);
+    let viewRay = toFrag / max(dist, 1e-4);
+
+    let windOffset = vec3<f32>(wind * time * 0.6, -time * 0.08, wind * time * 0.3);
+    let mistNoise = fbm3D(worldPos * 0.28 - windOffset);
+    let heightFalloff = exp(-max(worldPos.y + 2.0, 0.0) * 0.12);
+    let density = (0.045 + 0.055 * heightFalloff * (0.65 + 0.7 * mistNoise)) * intensity;
+    let fogFactor = clamp(1.0 - exp(-dist * density), 0.0, 0.96);
+
+    let cosTheta = max(dot(viewRay, sunDir), 0.0);
+    let mieScatter = pow(cosTheta, 6.0) * 0.45;
+
+    let dayFogColor = vec3<f32>(0.74, 0.81, 0.89);
+    let duskFogColor = vec3<f32>(0.82, 0.58, 0.46);
+    let nightFogColor = vec3<f32>(0.12, 0.17, 0.28);
+    var baseFogColor = dayFogColor;
+    if (solarElev < 0.25 && solarElev >= -0.15) {
+        baseFogColor = mix(nightFogColor, duskFogColor, clamp((solarElev + 0.15) / 0.40, 0.0, 1.0));
+    } else if (solarElev < -0.15) {
+        baseFogColor = nightFogColor;
+    } else {
+        baseFogColor = mix(duskFogColor, dayFogColor, clamp((solarElev - 0.25) / 0.75, 0.0, 1.0));
+    }
+
+    let scatterTint = select(vec3<f32>(0.35, 0.50, 0.80), vec3<f32>(1.0, 0.82, 0.55), solarElev >= 0.0);
+    let finalFogColor = baseFogColor + scatterTint * mieScatter;
+    return mix(sceneColor, finalFogColor, fogFactor);
+}
+
+fn calculateSmokePlumes(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let dist = length(worldPos - cameraPos);
+    let flow = vec3<f32>(wind * time * 1.1, -time * 1.35, wind * time * 0.45);
+    let p1 = worldPos * 0.42 + flow;
+    let warp = vec3<f32>(
+        fbm3D(p1 + vec3<f32>(5.2, 1.3, 2.8)),
+        fbm3D(p1 + vec3<f32>(1.7, 9.2, 4.1)),
+        fbm3D(p1 + vec3<f32>(8.3, 2.8, 6.4))
+    ) * 1.35;
+    let rawTurbulence = fbm3D(p1 + warp);
+
+    let heightEnvelope = exp(-max(worldPos.y + 3.0, 0.0) * 0.08);
+    let distEnvelope = 1.0 - exp(-dist * 0.085);
+    let plumeShape = smoothstep(0.32, 0.78, rawTurbulence);
+    let smokeOpacity = clamp((plumeShape * 0.75 + distEnvelope * 0.35) * heightEnvelope * intensity, 0.0, 0.94);
+
+    let sootColor = vec3<f32>(0.15, 0.16, 0.18);
+    let ashHighlight = vec3<f32>(0.34, 0.35, 0.38);
+    let emberGlow = vec3<f32>(0.95, 0.38, 0.08) * exp(-max(worldPos.y + 1.5, 0.0) * 0.45) * pow(plumeShape, 2.5) * 0.55 * clamp(intensity, 0.0, 1.5);
+    let smokeColor = mix(sootColor, ashHighlight, rawTurbulence) + emberGlow;
+
+    return mix(sceneColor, smokeColor, smokeOpacity);
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -1870,7 +1992,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // Ridge polish & crevice matte modulation for heightened tactile plasticity
     roughness = clamp(roughness * mix(1.15, 0.85, cavityFactor), 0.04, 1.0);
 
-    // Weather surface material modulation (wet absorption glaze & crystalline snow)
+    // Weather surface material modulation (wet absorption glaze, crystalline snow, fog condensation, smoke soot)
     if (weatherMode == 1.0 && weatherIntensity > 0.001) {
         roughness = mix(roughness, 0.08, clamp(weatherIntensity * 0.85, 0.0, 0.88));
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
@@ -1879,6 +2001,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             roughness = mix(roughness, 0.70, snowAccum * 0.9);
             metallic = mix(metallic, 0.0, snowAccum * 0.95);
         }
+    } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
+        roughness = mix(roughness, 0.30, clamp(weatherIntensity * 0.35, 0.0, 0.45));
+    } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
+        roughness = mix(roughness, 0.88, clamp(weatherIntensity * 0.4, 0.0, 0.55));
     }
 
     // 7. Ambient Occlusion with Micro-Cavity Crevice Deepening
@@ -1912,10 +2038,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         }
     }
 
-    // 10. Direct Lighting Evaluation with Horizon Micro-Shadowing
+    // 10. Direct Lighting Evaluation with Diurnal Sun/Moon Cycle & Horizon Micro-Shadowing
     var directRadiance = vec3<f32>(0.0);
+    let solarElev = ubo.lightDir.w;
+    let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
 
-    // Light 0: Sun Key Light
+    // Light 0: Sun / Moon Key Light
     let L0 = normalize(ubo.lightDir.xyz);
     let NdotL0 = max(dot(N, L0), 0.0);
     let geomNdotL0 = max(dot(geomNormal, L0), 0.0);
@@ -1935,7 +2063,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
         let diffuseBRDF = kD * (diffuseColor / PI);
 
-        let sunRadiance = vec3<f32>(1.0, 0.97, 0.92) * 2.5;
+        let sunRadiance = evaluateDiurnalSunRadiance(solarElev);
         directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * sunRadiance * (NdotL0 * light0Shadow);
     }
 
@@ -1958,7 +2086,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
         let diffuseBRDF = kD * (diffuseColor / PI);
 
-        let fillRadiance = vec3<f32>(0.35, 0.45, 0.60) * 0.8;
+        let fillRadiance = vec3<f32>(0.35, 0.45, 0.60) * 0.8 * diurnalAmbientScale;
         directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * fillRadiance * (NdotL1 * horizon1);
     }
 
@@ -1973,8 +2101,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     // 11. Ambient Lighting (Hemispheric Diffuse Irradiance + GGX Environment Specular Reflection)
     let hemiWeight = N.y * 0.5 + 0.5;
-    let groundAmbient = vec3<f32>(0.12, 0.11, 0.10);
-    let skyAmbient = vec3<f32>(0.35, 0.45, 0.60);
+    let groundAmbient = vec3<f32>(0.12, 0.11, 0.10) * diurnalAmbientScale;
+    let skyAmbient = vec3<f32>(0.35, 0.45, 0.60) * diurnalAmbientScale;
     let irradiance = mix(groundAmbient, skyAmbient, hemiWeight) * 0.9;
 
     let F_env = fresnelSchlickRoughness(NdotV, F0, roughness);
@@ -1984,8 +2112,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // Specular Reflection (Roughness-dependent environmental reflection modulated by cavity factor)
     let R = reflect(-V, N);
     let refHemi = R.y * 0.5 + 0.5;
-    let groundReflect = vec3<f32>(0.10, 0.09, 0.08);
-    let skyReflect = vec3<f32>(0.55, 0.70, 0.95);
+    let groundReflect = vec3<f32>(0.10, 0.09, 0.08) * diurnalAmbientScale;
+    let skyReflect = vec3<f32>(0.55, 0.70, 0.95) * diurnalAmbientScale;
     let envReflectCol = mix(groundReflect, skyReflect, refHemi);
     let roughnessAttenuation = 1.0 - roughness * 0.6;
     let ambientSpecular = envReflectCol * F_env * roughnessAttenuation * cavityFactor;
@@ -1995,11 +2123,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // 12. Total Radiance in Linear HDR Space
     var totalColor = directRadiance + ambientColor + emissive;
 
-    // Atmospheric Weather Precipitation (Volumetric rain streaks or drifting snow)
+    // Atmospheric Weather Effects (Rain, Snow, Fog, Smoke)
     if (weatherMode == 1.0 && weatherIntensity > 0.001) {
         totalColor = totalColor + calculateRainStreaks(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
         totalColor = totalColor + calculateSnowFlakes(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
+        totalColor = calculateFogEffect(totalColor, in.worldPos, ubo.cameraPos.xyz, L0, solarElev, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
+        totalColor = calculateSmokePlumes(totalColor, in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     }
 
     // 13. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
@@ -2914,12 +3046,53 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         return;
       }
 
+      const nowMs = performance.now();
+      const dtSec = this._lastDrawMs ? Math.min((nowMs - this._lastDrawMs) * 0.001, 0.1) : (1.0 / 60.0);
+      this._lastDrawMs = nowMs;
+
+      if (typeof BglState !== 'undefined' && BglState.isDayNightCycleActive) {
+        const speed = (BglState.dayNightSpeed !== undefined) ? BglState.dayNightSpeed : 1.0;
+        let nextTod = ((BglState.timeOfDay !== undefined ? BglState.timeOfDay : 14.0) + speed * dtSec) % 24.0;
+        if (nextTod < 0.0) nextTod += 24.0;
+        BglState.timeOfDay = nextTod;
+        const sliderTod = document.getElementById('slider-time-of-day');
+        if (sliderTod) sliderTod.value = nextTod.toFixed(2);
+        const labelTod = document.getElementById('val-time-of-day');
+        if (labelTod) {
+          const hrs = Math.floor(nextTod) % 24;
+          const mins = Math.floor((nextTod - Math.floor(nextTod)) * 60) % 60;
+          const icon = (nextTod >= 7.0 && nextTod < 17.5) ? '☀️' : ((nextTod >= 5.5 && nextTod < 19.5) ? '🌅' : '🌙');
+          labelTod.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')} ${icon}`;
+        }
+      }
+
+      const tod = (typeof BglState !== 'undefined' && BglState.timeOfDay !== undefined) ? BglState.timeOfDay : 14.0;
+      const solarElev = -Math.cos((tod / 24.0) * 2.0 * Math.PI);
+      const dayBlend = Math.max(0.0, Math.min(1.0, (solarElev + 0.15) / 0.85));
+      let clearR = 0.015 + 0.045 * dayBlend;
+      let clearG = 0.022 + 0.068 * dayBlend;
+      let clearB = 0.045 + 0.120 * dayBlend;
+
+      const wModeStr = (typeof BglState !== 'undefined' && BglState.weatherMode) ? BglState.weatherMode : 'none';
+      const weatherIntensity = (typeof BglState !== 'undefined' && BglState.weatherIntensity !== undefined) ? BglState.weatherIntensity : 1.0;
+      if (wModeStr === 'fog' && weatherIntensity > 0.001) {
+        const fogMix = Math.min(weatherIntensity * 0.65, 0.85);
+        clearR = clearR * (1.0 - fogMix) + (0.42 * dayBlend + 0.06) * fogMix;
+        clearG = clearG * (1.0 - fogMix) + (0.48 * dayBlend + 0.08) * fogMix;
+        clearB = clearB * (1.0 - fogMix) + (0.55 * dayBlend + 0.12) * fogMix;
+      } else if (wModeStr === 'smoke' && weatherIntensity > 0.001) {
+        const smokeMix = Math.min(weatherIntensity * 0.70, 0.88);
+        clearR = clearR * (1.0 - smokeMix) + 0.12 * smokeMix;
+        clearG = clearG * (1.0 - smokeMix) + 0.12 * smokeMix;
+        clearB = clearB * (1.0 - smokeMix) + 0.14 * smokeMix;
+      }
+
       const commandEncoder = this.device.createCommandEncoder();
       const renderPassDesc = {
         colorAttachments: [
           {
             view: currentTexture.createView(),
-            clearValue: { r: 0.04, g: 0.06, b: 0.10, a: 1.0 },
+            clearValue: { r: clearR, g: clearG, b: clearB, a: 1.0 },
             loadOp: 'clear',
             storeOp: 'store'
           }
@@ -2953,12 +3126,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       const viewProj = this._scratchViewProj;
       this.mat4.multiply(viewProj, proj, view);
 
-      const tod = BglState.timeOfDay || 14.0;
-      const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
+      const azimuth = (tod / 24.0) * 2.0 * Math.PI;
+      const activeElevSin = (solarElev >= 0.0) ? Math.max(solarElev, 0.08) : Math.max(-solarElev * 0.75, 0.15);
+      const activeElevCos = Math.sqrt(Math.max(0.0, 1.0 - activeElevSin * activeElevSin));
       const lightDir = this._scratchLightDir;
-      lightDir[0] = Math.cos(sunAngle) * 0.7;
-      lightDir[1] = Math.sin(sunAngle);
-      lightDir[2] = 0.35;
+      lightDir[0] = activeElevCos * Math.sin(azimuth);
+      lightDir[1] = activeElevSin;
+      lightDir[2] = activeElevCos * Math.cos(azimuth);
 
       const normalMat = this._scratchNormalMat;
       const uboBuffer = this._scratchUboBuffer;
@@ -2972,7 +3146,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32.set(prim.modelMatrix, 16);
         uboF32.set(normalMat, 32);
         uboF32[48] = eye[0]; uboF32[49] = eye[1]; uboF32[50] = eye[2]; uboF32[51] = 1.0;
-        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = 2.5;
+        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = solarElev;
         uboF32[56] = prim.baseColorFactor[0];
         uboF32[57] = prim.baseColorFactor[1];
         uboF32[58] = prim.baseColorFactor[2];
@@ -3003,10 +3177,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32[78] = (typeof BglState !== 'undefined' && BglState.isPomActive) ? 1.0 : 0.0;
         uboF32[79] = (typeof BglState !== 'undefined' && BglState.isBumpActive !== undefined) ? (BglState.isBumpActive ? 1.0 : 0.0) : 1.0;
 
-        const weatherMode = (typeof BglState !== 'undefined' && BglState.weatherMode === 'rain') ? 1.0 : ((typeof BglState !== 'undefined' && BglState.weatherMode === 'snow') ? 2.0 : 0.0);
-        const weatherIntensity = (typeof BglState !== 'undefined' && BglState.weatherIntensity !== undefined) ? BglState.weatherIntensity : 1.0;
+        const weatherMode = wModeStr === 'rain' ? 1.0 : (wModeStr === 'snow' ? 2.0 : (wModeStr === 'fog' ? 3.0 : (wModeStr === 'smoke' ? 4.0 : 0.0)));
         const windStrength = (typeof BglState !== 'undefined' && BglState.windStrength !== undefined) ? BglState.windStrength : 0.3;
-        const timeSec = (performance.now() * 0.001);
+        const timeSec = (nowMs * 0.001);
 
         uboF32[80] = weatherMode;
         uboF32[81] = weatherIntensity;
@@ -3644,41 +3817,51 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   window.onFlareSlider = onFlareSlider;
 
   // ============================================================================
-  // Atmospheric Weather Controls (Rain & Snow)
+  // Atmospheric Weather Controls (Rain, Snow, Fog, Smoke)
   // ============================================================================
 
   function setWeatherMode(mode) {
-    if (mode !== 'none' && mode !== 'rain' && mode !== 'snow') mode = 'none';
+    const validModes = ['none', 'rain', 'snow', 'fog', 'smoke'];
+    if (!validModes.includes(mode)) mode = 'none';
     BglState.weatherMode = mode;
 
     const btnNone = document.getElementById('btn-weather-none') || (BglUI && BglUI.btnWeatherNone);
     const btnRain = document.getElementById('btn-weather-rain') || (BglUI && BglUI.btnWeatherRain);
     const btnSnow = document.getElementById('btn-weather-snow') || (BglUI && BglUI.btnWeatherSnow);
+    const btnFog = document.getElementById('btn-weather-fog') || (BglUI && BglUI.btnWeatherFog);
+    const btnSmoke = document.getElementById('btn-weather-smoke') || (BglUI && BglUI.btnWeatherSmoke);
 
-    if (btnNone) {
-      btnNone.classList.toggle('active', mode === 'none');
-      btnNone.style.background = mode === 'none' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
-    }
-    if (btnRain) {
-      btnRain.classList.toggle('active', mode === 'rain');
-      btnRain.style.background = mode === 'rain' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
-    }
-    if (btnSnow) {
-      btnSnow.classList.toggle('active', mode === 'snow');
-      btnSnow.style.background = mode === 'snow' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
-    }
+    const applyChipState = (btn, active) => {
+      if (!btn) return;
+      btn.classList.toggle('active', active);
+      btn.style.background = active ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    };
+
+    applyChipState(btnNone, mode === 'none');
+    applyChipState(btnRain, mode === 'rain');
+    applyChipState(btnSnow, mode === 'snow');
+    applyChipState(btnFog, mode === 'fog');
+    applyChipState(btnSmoke, mode === 'smoke');
 
     BglLogger.log('Engine', `Atmospheric Weather Mode set to: ${mode.toUpperCase()}`);
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_weather_mode) {
-      const modeInt = mode === 'rain' ? 1 : (mode === 'snow' ? 2 : 0);
-      BglState.wasmExports.bgl_set_weather_mode(modeInt);
+      const modeMap = { none: 0, rain: 1, snow: 2, fog: 3, smoke: 4 };
+      BglState.wasmExports.bgl_set_weather_mode(modeMap[mode] || 0);
     }
     if (typeof BglNotifier !== 'undefined' && BglNotifier.info) {
-      const titles = { none: 'Clear Skies', rain: 'Rain Storm', snow: 'Snowfall' };
+      const titles = {
+        none: 'Clear Skies',
+        rain: 'Rain Storm',
+        snow: 'Snowfall',
+        fog: 'Atmospheric Fog',
+        smoke: 'Volumetric Smoke'
+      };
       const msgs = {
         none: 'Weather simulation disabled.',
         rain: 'Simulating rain precipitation, droplet ripples & wet surface glaze.',
-        snow: 'Simulating drifting snowfall flakes & upward surface accumulation.'
+        snow: 'Simulating drifting snowfall flakes & upward surface accumulation.',
+        fog: 'Simulating exponential height/distance mist banks & anisotropic Mie scattering.',
+        smoke: 'Simulating rising turbulent FBM smoke plumes & warm ember glow.'
       };
       BglNotifier.info(titles[mode], msgs[mode]);
     }
@@ -3694,6 +3877,16 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     setWeatherMode(BglState.weatherMode === 'snow' ? 'none' : 'snow');
   }
   window.toggleSnow = toggleSnow;
+
+  function toggleFog() {
+    setWeatherMode(BglState.weatherMode === 'fog' ? 'none' : 'fog');
+  }
+  window.toggleFog = toggleFog;
+
+  function toggleSmoke() {
+    setWeatherMode(BglState.weatherMode === 'smoke' ? 'none' : 'smoke');
+  }
+  window.toggleSmoke = toggleSmoke;
 
   function onWeatherIntensitySlider(val) {
     const num = Math.max(0.0, Math.min(2.0, Number(val)));
@@ -3784,17 +3977,52 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   window.onTurntableSpeedSlider = onTurntableSpeedSlider;
 
   function onTimeOfDaySlider(val) {
-    const num = Number(val);
-    const hrs = Math.floor(num);
-    const mins = Math.round((num - hrs) * 60);
+    let num = Number(val) % 24.0;
+    if (num < 0.0) num += 24.0;
+    const hrs = Math.floor(num) % 24;
+    const mins = Math.round((num - hrs) * 60) % 60;
+    const icon = (num >= 7.0 && num < 17.5) ? '☀️' : ((num >= 5.5 && num < 19.5) ? '🌅' : '🌙');
     const label = document.getElementById('val-time-of-day');
-    if (label) label.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    if (label) label.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')} ${icon}`;
     BglState.timeOfDay = num;
     if (BglState.wasmExports && BglState.wasmExports.bgl_set_time_of_day) {
       BglState.wasmExports.bgl_set_time_of_day(num);
     }
   }
   window.onTimeOfDaySlider = onTimeOfDaySlider;
+
+  function toggleDayNightCycle() {
+    BglState.isDayNightCycleActive = !BglState.isDayNightCycleActive;
+    const btn = document.getElementById('btn-day-night') || (BglUI && BglUI.btnDayNight);
+    if (btn) {
+      btn.classList.toggle('active', BglState.isDayNightCycleActive);
+      btn.style.background = BglState.isDayNightCycleActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    BglLogger.log('Engine', `Automatic Day/Night Cycle: ${BglState.isDayNightCycleActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_day_night_cycle) {
+      BglState.wasmExports.bgl_toggle_day_night_cycle();
+    }
+    if (typeof BglNotifier !== 'undefined' && BglNotifier.info) {
+      BglNotifier.info(
+        BglState.isDayNightCycleActive ? 'Day/Night Cycle Active' : 'Day/Night Cycle Paused',
+        BglState.isDayNightCycleActive
+          ? `Continuous sun & moon diurnal progression (${BglState.dayNightSpeed.toFixed(1)} h/s).`
+          : 'Time of day locked at current position.'
+      );
+    }
+  }
+  window.toggleDayNightCycle = toggleDayNightCycle;
+
+  function onDayNightSpeedSlider(val) {
+    const num = Math.max(0.05, Math.min(12.0, Number(val)));
+    BglState.dayNightSpeed = num;
+    const label = document.getElementById('val-day-night-speed');
+    if (label) label.textContent = `${num.toFixed(2)} h/s`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_day_night_speed) {
+      BglState.wasmExports.bgl_set_day_night_speed(num);
+    }
+  }
+  window.onDayNightSpeedSlider = onDayNightSpeedSlider;
 
   function saveBookmark(slot) {
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_save_bookmark) {
@@ -3997,6 +4225,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         case 'G': toggleSSAO(); break;
         case 'X': toggleRain(); break;
         case 'Y': toggleSnow(); break;
+        case 'F6': toggleFog(); break;
+        case 'F7': toggleSmoke(); break;
+        case 'I':
+        case 'F8': toggleDayNightCycle(); break;
         case '+':
         case '=':
           if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);

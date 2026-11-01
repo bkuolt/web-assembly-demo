@@ -44,6 +44,8 @@ struct OverlayStats {
     bool ambientOcclusionEnabled{true};
     bool occlusionCullingEnabled{true};
     std::string weatherModeName{"Clear"};
+    float timeOfDay{14.0f};
+    bool dayNightCycleEnabled{false};
 
     // System Memory & Hardware Telemetry
     size_t residentRamBytes{0};

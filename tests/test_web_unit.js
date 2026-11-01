@@ -767,7 +767,7 @@ suite('Reactive State, Camera Controls & UI Handlers', () => {
     window.onTimeOfDaySlider('18.5');
     assert.strictEqual(BglState.timeOfDay, 18.5);
     const label = document.getElementById('val-time-of-day');
-    assert.strictEqual(label.textContent, '18:30');
+    assert.strictEqual(label.textContent, '18:30 🌅');
   });
 
   test('onTurntableSpeedSlider(): updates turntable speed and label', () => {
@@ -874,6 +874,76 @@ suite('Atmospheric Weather Shader Effects (Rain & Snow)', () => {
     assert.strictEqual(BglState.weatherMode, 'snow', 'toggleSnow should activate snow from none');
     window.toggleSnow();
     assert.strictEqual(BglState.weatherMode, 'none', 'toggleSnow should return to none');
+
+    window.toggleFog();
+    assert.strictEqual(BglState.weatherMode, 'fog', 'toggleFog should activate fog from none');
+    window.toggleFog();
+    assert.strictEqual(BglState.weatherMode, 'none', 'toggleFog should return to none');
+
+    window.toggleSmoke();
+    assert.strictEqual(BglState.weatherMode, 'smoke', 'toggleSmoke should activate smoke from none');
+    window.toggleSmoke();
+    assert.strictEqual(BglState.weatherMode, 'none', 'toggleSmoke should return to none');
+  });
+
+  test('setWeatherMode(): supports fog and smoke modes and updates UI chip buttons', () => {
+    window.setWeatherMode('fog');
+    assert.strictEqual(BglState.weatherMode, 'fog');
+    const btnFog = document.getElementById('btn-weather-fog');
+    const btnSmoke = document.getElementById('btn-weather-smoke');
+    assert.strictEqual(btnFog.classList.contains('active'), true);
+    assert.strictEqual(btnSmoke.classList.contains('active'), false);
+
+    window.setWeatherMode('smoke');
+    assert.strictEqual(BglState.weatherMode, 'smoke');
+    assert.strictEqual(btnFog.classList.contains('active'), false);
+    assert.strictEqual(btnSmoke.classList.contains('active'), true);
+  });
+
+  test('Day/Night cycle controls: toggleDayNightCycle, onDayNightSpeedSlider, and onTimeOfDaySlider', () => {
+    assert.strictEqual(BglState.isDayNightCycleActive, false);
+    window.toggleDayNightCycle();
+    assert.strictEqual(BglState.isDayNightCycleActive, true);
+    const btnDayNight = document.getElementById('btn-day-night');
+    assert.strictEqual(btnDayNight.classList.contains('active'), true);
+    window.toggleDayNightCycle();
+    assert.strictEqual(BglState.isDayNightCycleActive, false);
+
+    window.onDayNightSpeedSlider('2.5');
+    assert.strictEqual(BglState.dayNightSpeed, 2.5);
+    const speedLabel = document.getElementById('val-day-night-speed');
+    assert.strictEqual(speedLabel.textContent, '2.50 h/s');
+
+    // Noon (12:00) -> sun icon ☀️
+    window.onTimeOfDaySlider('12.0');
+    assert.strictEqual(BglState.timeOfDay, 12.0);
+    const todLabel = document.getElementById('val-time-of-day');
+    assert(todLabel.textContent.includes('12:00') && todLabel.textContent.includes('☀️'), 'Noon must display 12:00 ☀️');
+
+    // Sunset (18.5 = 18:30) -> golden hour icon 🌅
+    window.onTimeOfDaySlider('18.5');
+    assert(todLabel.textContent.includes('18:30') && todLabel.textContent.includes('🌅'), 'Sunset must display 18:30 🌅');
+
+    // Midnight (0.0 = 00:00) -> moon icon 🌙
+    window.onTimeOfDaySlider('0.0');
+    assert(todLabel.textContent.includes('00:00') && todLabel.textContent.includes('🌙'), 'Midnight must display 00:00 🌙');
+  });
+
+  test('Fog exponential distance and height attenuation math (Beer-Lambert + Mie scattering)', () => {
+    const evalFog = (dist, worldY, intensity) => {
+      const heightFalloff = Math.exp(-Math.max(worldY + 2.0, 0.0) * 0.12);
+      const density = (0.045 + 0.055 * heightFalloff) * intensity;
+      return Math.min(0.96, Math.max(0.0, 1.0 - Math.exp(-dist * density)));
+    };
+
+    const fogNear = evalFog(2.0, 0.0, 1.0);
+    const fogFar = evalFog(35.0, 0.0, 1.0);
+    const fogHighAlt = evalFog(15.0, 20.0, 1.0);
+    const fogLowValley = evalFog(15.0, -2.0, 1.0);
+
+    assert(fogFar > fogNear, 'Fog opacity must increase monotonically with distance');
+    assert(fogLowValley > fogHighAlt, 'Ground-hugging valley fog must be denser than high-altitude air');
+    assert.strictEqual(evalFog(20.0, 0.0, 0.0), 0.0, 'Zero intensity fog must yield 0.0 opacity');
   });
 
   test('onWeatherIntensitySlider(): updates BglState and formats HUD label', () => {

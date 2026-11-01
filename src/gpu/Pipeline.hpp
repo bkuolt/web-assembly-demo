@@ -42,7 +42,9 @@ enum class EnvironmentPreset : uint32_t {
 enum class WeatherMode : uint32_t {
     None = 0,
     Rain = 1,
-    Snow = 2
+    Snow = 2,
+    Fog = 3,
+    Smoke = 4
 };
 
 namespace MaterialFlags {
@@ -412,7 +414,7 @@ public:
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
 
-    // Atmospheric Weather Controls (Rain & Snow)
+    // Atmospheric Weather Controls (Rain, Snow, Fog, Smoke) & Diurnal Time-of-Day
     void SetWeatherMode(WeatherMode mode) noexcept { weatherMode_ = mode; }
     void CycleWeatherMode() noexcept {
         switch (weatherMode_) {
@@ -423,6 +425,12 @@ public:
             weatherMode_ = WeatherMode::Snow;
             break;
         case WeatherMode::Snow:
+            weatherMode_ = WeatherMode::Fog;
+            break;
+        case WeatherMode::Fog:
+            weatherMode_ = WeatherMode::Smoke;
+            break;
+        case WeatherMode::Smoke:
             weatherMode_ = WeatherMode::None;
             break;
         }
@@ -433,6 +441,12 @@ public:
     void ToggleSnow() noexcept {
         weatherMode_ = (weatherMode_ == WeatherMode::Snow) ? WeatherMode::None : WeatherMode::Snow;
     }
+    void ToggleFog() noexcept {
+        weatherMode_ = (weatherMode_ == WeatherMode::Fog) ? WeatherMode::None : WeatherMode::Fog;
+    }
+    void ToggleSmoke() noexcept {
+        weatherMode_ = (weatherMode_ == WeatherMode::Smoke) ? WeatherMode::None : WeatherMode::Smoke;
+    }
     [[nodiscard]] WeatherMode GetWeatherMode() const noexcept { return weatherMode_; }
     [[nodiscard]] static constexpr std::string_view GetWeatherModeName(WeatherMode mode) noexcept {
         switch (mode) {
@@ -442,6 +456,10 @@ public:
             return "Rain";
         case WeatherMode::Snow:
             return "Snow";
+        case WeatherMode::Fog:
+            return "Fog";
+        case WeatherMode::Smoke:
+            return "Smoke";
         }
         return "Clear";
     }
@@ -455,6 +473,10 @@ public:
     void AdvanceWeatherTime(float dt) noexcept { weatherTimeSec_ += std::max(0.0f, dt); }
     void SetWeatherTime(float timeSec) noexcept { weatherTimeSec_ = std::max(0.0f, timeSec); }
     [[nodiscard]] float GetWeatherTime() const noexcept { return weatherTimeSec_; }
+
+    void SetTimeOfDay(float hour) noexcept;
+    [[nodiscard]] float GetTimeOfDay() const noexcept { return timeOfDay_; }
+    [[nodiscard]] float GetSolarElevationFactor() const noexcept { return solarElevation_; }
 
     void EnsureOpaqueCopyTexture(uint32_t width, uint32_t height);
 
@@ -510,6 +532,10 @@ public:
                                                          float intensity) noexcept;
     [[nodiscard]] static float EvaluateRainWetRoughness(float dryRoughness, float intensity) noexcept;
     [[nodiscard]] static float EvaluateSnowAccumulationFactor(float normalY, float intensity) noexcept;
+    [[nodiscard]] static float EvaluateFogFactor(float distance, float worldY, float intensity) noexcept;
+    [[nodiscard]] static float EvaluateSmokeDensity(float worldY, float intensity) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateDiurnalSunRadiance(float timeOfDayHours) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateDiurnalAmbientScale(float timeOfDayHours) noexcept;
     static void BuildClusteredLightGrid(std::span<const GpuPunctualLight> lights, uint32_t lightCount,
                                         const glm::mat4& viewMatrix, const glm::mat4& projMatrix, float zNear,
                                         float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept;
@@ -555,6 +581,8 @@ private:
     float weatherIntensity_{1.0f};
     float windStrength_{0.3f};
     float weatherTimeSec_{0.0f};
+    float timeOfDay_{14.0f};
+    float solarElevation_{0.8660254f}; // -cos(14/24 * 2 * pi)
 
     TextureHandle opaqueColorCopyTexture_{};
     TextureViewHandle opaqueColorCopyView_{};

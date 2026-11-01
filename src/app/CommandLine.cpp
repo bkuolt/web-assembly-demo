@@ -102,12 +102,20 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.weatherMode = 1;
         } else if (arg == "--snow") {
             opt.weatherMode = 2;
+        } else if (arg == "--fog") {
+            opt.weatherMode = 3;
+        } else if (arg == "--smoke") {
+            opt.weatherMode = 4;
         } else if (arg == "--weather" && i + 1 < args.size()) {
             std::string_view w{args[++i]};
             if (w == "rain" || w == "1") {
                 opt.weatherMode = 1;
             } else if (w == "snow" || w == "2") {
                 opt.weatherMode = 2;
+            } else if (w == "fog" || w == "3") {
+                opt.weatherMode = 3;
+            } else if (w == "smoke" || w == "4") {
+                opt.weatherMode = 4;
             } else {
                 opt.weatherMode = 0;
             }
@@ -120,6 +128,21 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             try {
                 const float val = std::stof(args[++i]);
                 opt.windStrength = std::clamp(val, -1.0f, 1.0f);
+            } catch (...) {}
+        } else if (arg == "--time" && i + 1 < args.size()) {
+            try {
+                float val = std::fmod(std::stof(args[++i]), 24.0f);
+                if (val < 0.0f) {
+                    val += 24.0f;
+                }
+                opt.timeOfDay = val;
+            } catch (...) {}
+        } else if (arg == "--day-night-cycle") {
+            opt.enableDayNightCycle = true;
+        } else if (arg == "--day-night-speed" && i + 1 < args.size()) {
+            try {
+                const float val = std::stof(args[++i]);
+                opt.dayNightSpeed = std::clamp(val, 0.05f, 12.0f);
             } catch (...) {}
         } else if (arg == "--headless") {
             opt.headless = true;
@@ -171,10 +194,13 @@ RENDERING TOGGLES:
   --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
   --no-ao / --ao                Disable / enable glTF Ambient Occlusion (default: ON)
   --no-occlusion / --occlusion  Disable / enable Quadtree Hierarchical Occlusion Culling (default: ON)
-  --rain / --snow               Start with atmospheric Rain or Snow weather shader active
-  --weather <clear|rain|snow>   Select initial atmospheric weather simulation mode (default: clear)
-  --weather-intensity <0.0-2.0> Set precipitation, wetness glaze, and snow depth intensity (default: 1.0)
-  --wind <-1.0-1.0>             Set lateral wind direction and speed for precipitation (default: 0.3)
+  --rain / --snow / --fog / --smoke Start with Rain, Snow, Fog, or Smoke shader active
+  --weather <clear|rain|snow|fog|smoke> Select initial atmospheric weather mode (default: clear)
+  --weather-intensity <0.0-2.0> Set precipitation, fog, and smoke density intensity (default: 1.0)
+  --wind <-1.0-1.0>             Set lateral wind direction and speed (default: 0.3)
+  --time <0.0-24.0>             Set initial diurnal time of day in hours (default: 14.0)
+  --day-night-cycle             Enable automatic continuous day/night sun/moon progression
+  --day-night-speed <hrs/sec>   Set automatic day/night progression speed (default: 1.0)
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
@@ -195,8 +221,10 @@ INTERACTIVE CONTROLS:
   U                             Toggle Ambient Occlusion & Micro-Cavity Shading
   X                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
   Z                             Toggle Emissive HDR Bloom
-  Y                             Cycle Atmospheric Weather (Clear / Rain / Snow)
-  F4 / F5                       Toggle Rain Storm (F4) / Toggle Snowfall (F5)
+  Y                             Cycle Atmospheric Weather (Clear / Rain / Snow / Fog / Smoke)
+  F4 / F5 / F6 / F7             Toggle Rain (F4) / Snow (F5) / Fog (F6) / Smoke (F7)
+  I / F8                        Toggle Automatic Day/Night Sun & Moon Cycle
+  , / .                         Step Time of Day backward / forward (-30m / +30m)
   C                             Switch Camera Navigation Mode (Orbit / First-Person Fly)
   T                             Toggle Turntable Autorotation
   F                             Focus Camera on Selection or Scene Bounds
