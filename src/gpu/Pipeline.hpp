@@ -39,6 +39,12 @@ enum class EnvironmentPreset : uint32_t {
     CustomHdr = 4
 };
 
+enum class WeatherMode : uint32_t {
+    None = 0,
+    Rain = 1,
+    Snow = 2
+};
+
 namespace MaterialFlags {
 constexpr uint32_t HasBaseColorTex = 1u << 0;
 constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
@@ -137,8 +143,10 @@ struct alignas(16) SceneLightingUniforms {
     glm::vec4 envParams{0.0f, 0.0f, 1.0f,
                         1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
     glm::mat4 viewMatrix{1.0f};
+    glm::vec4 weatherParams{0.0f, 1.0f, 0.3f,
+                            0.0f}; // x = weatherMode (0=None, 1=Rain, 2=Snow), y = intensity, z = wind, w = timeSec
 };
-static_assert(sizeof(SceneLightingUniforms) == 5360, "SceneLightingUniforms must be 5360 bytes");
+static_assert(sizeof(SceneLightingUniforms) == 5376, "SceneLightingUniforms must be 5376 bytes");
 
 struct alignas(16) PrefilterComputeParams {
     float roughness{0.0f};
@@ -404,6 +412,50 @@ public:
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
 
+    // Atmospheric Weather Controls (Rain & Snow)
+    void SetWeatherMode(WeatherMode mode) noexcept { weatherMode_ = mode; }
+    void CycleWeatherMode() noexcept {
+        switch (weatherMode_) {
+        case WeatherMode::None:
+            weatherMode_ = WeatherMode::Rain;
+            break;
+        case WeatherMode::Rain:
+            weatherMode_ = WeatherMode::Snow;
+            break;
+        case WeatherMode::Snow:
+            weatherMode_ = WeatherMode::None;
+            break;
+        }
+    }
+    void ToggleRain() noexcept {
+        weatherMode_ = (weatherMode_ == WeatherMode::Rain) ? WeatherMode::None : WeatherMode::Rain;
+    }
+    void ToggleSnow() noexcept {
+        weatherMode_ = (weatherMode_ == WeatherMode::Snow) ? WeatherMode::None : WeatherMode::Snow;
+    }
+    [[nodiscard]] WeatherMode GetWeatherMode() const noexcept { return weatherMode_; }
+    [[nodiscard]] static constexpr std::string_view GetWeatherModeName(WeatherMode mode) noexcept {
+        switch (mode) {
+        case WeatherMode::None:
+            return "Clear";
+        case WeatherMode::Rain:
+            return "Rain";
+        case WeatherMode::Snow:
+            return "Snow";
+        }
+        return "Clear";
+    }
+
+    void SetWeatherIntensity(float intensity) noexcept { weatherIntensity_ = std::clamp(intensity, 0.0f, 2.0f); }
+    [[nodiscard]] float GetWeatherIntensity() const noexcept { return weatherIntensity_; }
+
+    void SetWindStrength(float wind) noexcept { windStrength_ = std::clamp(wind, -1.0f, 1.0f); }
+    [[nodiscard]] float GetWindStrength() const noexcept { return windStrength_; }
+
+    void AdvanceWeatherTime(float dt) noexcept { weatherTimeSec_ += std::max(0.0f, dt); }
+    void SetWeatherTime(float timeSec) noexcept { weatherTimeSec_ = std::max(0.0f, timeSec); }
+    [[nodiscard]] float GetWeatherTime() const noexcept { return weatherTimeSec_; }
+
     void EnsureOpaqueCopyTexture(uint32_t width, uint32_t height);
 
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
@@ -454,6 +506,10 @@ public:
                                                           float threshold) noexcept;
     [[nodiscard]] static float EvaluateScreenSpaceOcclusionFactor(float depthCenter, float depthNeighbor, float radius,
                                                                   float bias) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateRainWetAlbedo(const glm::vec3& dryAlbedo, float metallic,
+                                                         float intensity) noexcept;
+    [[nodiscard]] static float EvaluateRainWetRoughness(float dryRoughness, float intensity) noexcept;
+    [[nodiscard]] static float EvaluateSnowAccumulationFactor(float normalY, float intensity) noexcept;
     static void BuildClusteredLightGrid(std::span<const GpuPunctualLight> lights, uint32_t lightCount,
                                         const glm::mat4& viewMatrix, const glm::mat4& projMatrix, float zNear,
                                         float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept;
@@ -495,6 +551,10 @@ private:
     float ssaoRadius_{0.02f};
     bool occlusionCullingEnabled_{true};
     bool shadowMapDirty_{true};
+    WeatherMode weatherMode_{WeatherMode::None};
+    float weatherIntensity_{1.0f};
+    float windStrength_{0.3f};
+    float weatherTimeSec_{0.0f};
 
     TextureHandle opaqueColorCopyTexture_{};
     TextureViewHandle opaqueColorCopyView_{};

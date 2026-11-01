@@ -233,3 +233,34 @@ TEST(CommandLineTest, PrintHelpAndVersionExecution) {
     EXPECT_NO_THROW(CliOptions::PrintVersion());
     EXPECT_NO_THROW(CliOptions::PrintFormats());
 }
+
+TEST(CommandLineTest, WeatherEffectFlagsAndParameters) {
+    // 1. Default weather options
+    const std::array<const char*, 1> defaultArgs{"bgl_viewer"};
+    auto optDefault = CliOptions::Parse(std::span<const char* const>{defaultArgs});
+    EXPECT_EQ(optDefault.weatherMode, 0u);
+    EXPECT_FLOAT_EQ(optDefault.weatherIntensity, 1.0f);
+    EXPECT_FLOAT_EQ(optDefault.windStrength, 0.3f);
+
+    // 2. --rain flag with custom intensity and wind
+    const std::array<const char*, 6> rainArgs{"bgl_viewer", "--rain", "--weather-intensity", "1.45", "--wind", "-0.6"};
+    auto optRain = CliOptions::Parse(std::span<const char* const>{rainArgs});
+    EXPECT_EQ(optRain.weatherMode, 1u);
+    EXPECT_NEAR(optRain.weatherIntensity, 1.45f, 1e-4f);
+    EXPECT_NEAR(optRain.windStrength, -0.6f, 1e-4f);
+
+    // 3. --snow flag
+    const std::array<const char*, 2> snowArgs{"bgl_viewer", "--snow"};
+    auto optSnow = CliOptions::Parse(std::span<const char* const>{snowArgs});
+    EXPECT_EQ(optSnow.weatherMode, 2u);
+
+    // 4. --weather <clear|rain|snow>
+    const std::array<const char*, 3> wRainArgs{"bgl_viewer", "--weather", "rain"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wRainArgs}).weatherMode, 1u);
+
+    const std::array<const char*, 3> wSnowArgs{"bgl_viewer", "--weather", "snow"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wSnowArgs}).weatherMode, 2u);
+
+    const std::array<const char*, 3> wClearArgs{"bgl_viewer", "--weather", "clear"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wClearArgs}).weatherMode, 0u);
+}

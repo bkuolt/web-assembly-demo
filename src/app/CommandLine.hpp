@@ -40,6 +40,10 @@ struct CliOptions {
     bool enableAmbientOcclusion{true};
     bool enableOcclusionCulling{true};
 
+    uint32_t weatherMode{0}; // 0=None/Clear, 1=Rain, 2=Snow
+    float weatherIntensity{1.0f};
+    float windStrength{0.3f};
+
     /**
      * @brief Parses a span of command-line arguments into a validated CliOptions structure.
      */

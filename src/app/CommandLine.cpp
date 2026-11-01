@@ -98,6 +98,29 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.enableOcclusionCulling = false;
         } else if (arg == "--occlusion") {
             opt.enableOcclusionCulling = true;
+        } else if (arg == "--rain") {
+            opt.weatherMode = 1;
+        } else if (arg == "--snow") {
+            opt.weatherMode = 2;
+        } else if (arg == "--weather" && i + 1 < args.size()) {
+            std::string_view w{args[++i]};
+            if (w == "rain" || w == "1") {
+                opt.weatherMode = 1;
+            } else if (w == "snow" || w == "2") {
+                opt.weatherMode = 2;
+            } else {
+                opt.weatherMode = 0;
+            }
+        } else if (arg == "--weather-intensity" && i + 1 < args.size()) {
+            try {
+                const float val = std::stof(args[++i]);
+                opt.weatherIntensity = std::clamp(val, 0.0f, 2.0f);
+            } catch (...) {}
+        } else if (arg == "--wind" && i + 1 < args.size()) {
+            try {
+                const float val = std::stof(args[++i]);
+                opt.windStrength = std::clamp(val, -1.0f, 1.0f);
+            } catch (...) {}
         } else if (arg == "--headless") {
             opt.headless = true;
         } else if (!arg.starts_with("-")) {
@@ -148,6 +171,10 @@ RENDERING TOGGLES:
   --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
   --no-ao / --ao                Disable / enable glTF Ambient Occlusion (default: ON)
   --no-occlusion / --occlusion  Disable / enable Quadtree Hierarchical Occlusion Culling (default: ON)
+  --rain / --snow               Start with atmospheric Rain or Snow weather shader active
+  --weather <clear|rain|snow>   Select initial atmospheric weather simulation mode (default: clear)
+  --weather-intensity <0.0-2.0> Set precipitation, wetness glaze, and snow depth intensity (default: 1.0)
+  --wind <-1.0-1.0>             Set lateral wind direction and speed for precipitation (default: 0.3)
 
 DEBUG & DIAGNOSTICS:
   --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
@@ -168,6 +195,8 @@ INTERACTIVE CONTROLS:
   U                             Toggle Ambient Occlusion & Micro-Cavity Shading
   X                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
   Z                             Toggle Emissive HDR Bloom
+  Y                             Cycle Atmospheric Weather (Clear / Rain / Snow)
+  F4 / F5                       Toggle Rain Storm (F4) / Toggle Snowfall (F5)
   C                             Switch Camera Navigation Mode (Orbit / First-Person Fly)
   T                             Toggle Turntable Autorotation
   F                             Focus Camera on Selection or Scene Bounds

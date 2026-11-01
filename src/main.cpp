@@ -128,6 +128,40 @@ void bgl_set_lens_flare_intensity(float val) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_set_weather_mode(int mode) {
+    if (g_pApp) {
+        const auto m = (mode == 1)   ? bgl::gpu::WeatherMode::Rain
+                       : (mode == 2) ? bgl::gpu::WeatherMode::Snow
+                                     : bgl::gpu::WeatherMode::None;
+        g_pApp->SetWeatherMode(m);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_rain() {
+    if (g_pApp)
+        g_pApp->ToggleRain();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_snow() {
+    if (g_pApp)
+        g_pApp->ToggleSnow();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_weather_intensity(float val) {
+    if (g_pApp)
+        g_pApp->SetWeatherIntensity(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_wind_strength(float val) {
+    if (g_pApp)
+        g_pApp->SetWindStrength(val);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_camera_move(float forward, float right, float up) {
     if (g_pApp) {
         if (std::abs(forward) > 1e-4f)
@@ -367,6 +401,9 @@ int main(int argc, char** argv) {
     config.enableReflections = cli.enableReflections;
     config.enableAmbientOcclusion = cli.enableAmbientOcclusion;
     config.enableOcclusionCulling = cli.enableOcclusionCulling;
+    config.weatherMode = static_cast<bgl::gpu::WeatherMode>(cli.weatherMode);
+    config.weatherIntensity = cli.weatherIntensity;
+    config.windStrength = cli.windStrength;
 
     bgl::app::Application app;
     if (auto res = app.Initialize(config); !res) {

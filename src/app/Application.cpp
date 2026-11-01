@@ -75,6 +75,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetReflectionsEnabled(config.enableReflections);
     pipelineManager_.SetAmbientOcclusionEnabled(config.enableAmbientOcclusion);
     pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
+    pipelineManager_.SetWeatherMode(config.weatherMode);
+    pipelineManager_.SetWeatherIntensity(config.weatherIntensity);
+    pipelineManager_.SetWindStrength(config.windStrength);
 
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(),
                                       gpuContext_.GetSampleCount());
@@ -202,6 +205,18 @@ void Application::Update(float deltaTime) {
                     pipelineManager_.ToggleSSAO();
                     BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}",
                                  pipelineManager_.IsSsaoEnabled());
+                } else if (event.key.keysym.sym == SDLK_y) {
+                    CycleWeatherMode();
+                    BGL_LOG_INFO("Switched Weather Effect: {}",
+                                 pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
+                } else if (event.key.keysym.sym == SDLK_F4) {
+                    ToggleRain();
+                    BGL_LOG_INFO("Toggled Rain Shader Effect: {}",
+                                 pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
+                } else if (event.key.keysym.sym == SDLK_F5) {
+                    ToggleSnow();
+                    BGL_LOG_INFO("Toggled Snow Shader Effect: {}",
+                                 pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
                 } else if (event.key.keysym.sym == SDLK_f) {
                     FocusSelection();
                     BGL_LOG_INFO("Framed camera on selection / scene bounds");
@@ -320,6 +335,8 @@ void Application::Update(float deltaTime) {
         activeScene_->UpdateAnimation(deltaTime);
     }
 
+    pipelineManager_.AdvanceWeatherTime(deltaTime);
+
     float aspect =
         static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
     camera_.Update(aspect);
@@ -344,6 +361,7 @@ void Application::Update(float deltaTime) {
     stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
     stats.ambientOcclusionEnabled = pipelineManager_.IsAmbientOcclusionEnabled();
     stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
+    stats.weatherModeName = std::string{pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode())};
 
     // Memory and Gamepad telemetry
     auto memTelemetry = core::MemoryTracker::Instance().Query();

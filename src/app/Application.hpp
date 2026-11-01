@@ -41,6 +41,9 @@ struct ApplicationConfig {
     bool enableReflections{true};
     bool enableAmbientOcclusion{true};
     bool enableOcclusionCulling{true};
+    gpu::WeatherMode weatherMode{gpu::WeatherMode::None};
+    float weatherIntensity{1.0f};
+    float windStrength{0.3f};
 };
 
 /**
@@ -163,6 +166,27 @@ public:
 
     /** @brief Sets directional sun lens flare intensity multiplier. */
     void SetLensFlareIntensity(float val) noexcept { pipelineManager_.SetLensFlareIntensity(val); }
+
+    /** @brief Sets atmospheric weather mode (None / Rain / Snow). */
+    void SetWeatherMode(gpu::WeatherMode mode) noexcept { pipelineManager_.SetWeatherMode(mode); }
+
+    /** @brief Cycles atmospheric weather mode (None -> Rain -> Snow -> None). */
+    void CycleWeatherMode() noexcept { pipelineManager_.CycleWeatherMode(); }
+
+    /** @brief Toggles rain storm simulation on/off. */
+    void ToggleRain() noexcept { pipelineManager_.ToggleRain(); }
+
+    /** @brief Toggles snowfall simulation on/off. */
+    void ToggleSnow() noexcept { pipelineManager_.ToggleSnow(); }
+
+    /** @brief Queries current atmospheric weather mode. */
+    [[nodiscard]] gpu::WeatherMode GetWeatherMode() const noexcept { return pipelineManager_.GetWeatherMode(); }
+
+    /** @brief Sets weather precipitation, wetness glaze, and snow depth intensity. */
+    void SetWeatherIntensity(float val) noexcept { pipelineManager_.SetWeatherIntensity(val); }
+
+    /** @brief Sets lateral wind direction and strength for precipitation. */
+    void SetWindStrength(float val) noexcept { pipelineManager_.SetWindStrength(val); }
 
     /** @brief Toggles spatial Quadtree hierarchical occlusion culling. */
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }

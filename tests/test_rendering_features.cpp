@@ -26,6 +26,7 @@
 #include "gpu/Handle.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/PostProcessPass.hpp"
+#include "gpu/Shaders.hpp"
 #include "gpu/ShadowPass.hpp"
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
@@ -775,8 +776,9 @@ TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     EXPECT_EQ(sizeof(gpu::ShadowUniforms), 8608u);
     EXPECT_EQ(alignof(gpu::ShadowUniforms), 16u);
 
-    EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5360u);
+    EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5376u);
     EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
+    EXPECT_EQ(offsetof(gpu::SceneLightingUniforms, weatherParams), 5360u);
 
     EXPECT_EQ(sizeof(gpu::TonemapUniforms), 80u);
     EXPECT_EQ(alignof(gpu::TonemapUniforms), 16u);
@@ -1444,5 +1446,99 @@ TEST(RenderingFeaturesTest, DebugOverlayModeCyclingAndStatsState) {
     stats.sceneName = "TestScene";
     stats.primitiveCount = 42;
     stats.residentRamBytes = 64 * 1024 * 1024;
+    stats.weatherModeName = "Rain";
     overlay.Update(0.0166f, stats);
+}
+
+TEST(RenderingFeaturesTest, WeatherModeStateTransitionsAndClamping) {
+    gpu::PipelineManager pm{};
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::None);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Clear");
+    EXPECT_FLOAT_EQ(pm.GetWeatherIntensity(), 1.0f);
+    EXPECT_FLOAT_EQ(pm.GetWindStrength(), 0.3f);
+    EXPECT_FLOAT_EQ(pm.GetWeatherTime(), 0.0f);
+
+    // Cycle None -> Rain -> Snow -> None
+    pm.CycleWeatherMode();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Rain);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Rain");
+
+    pm.CycleWeatherMode();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Snow);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Snow");
+
+    pm.CycleWeatherMode();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::None);
+    EXPECT_EQ(pm.GetWeatherModeName(pm.GetWeatherMode()), "Clear");
+
+    // ToggleRain and ToggleSnow
+    pm.ToggleRain();
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Rain);
+    pm.ToggleSnow(); // Direct switch from Rain to Snow
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::Snow);
+    pm.ToggleSnow(); // Toggle off back to None
+    EXPECT_EQ(pm.GetWeatherMode(), gpu::WeatherMode::None);
+
+    // Intensity and wind clamping
+    pm.SetWeatherIntensity(5.0f);
+    EXPECT_FLOAT_EQ(pm.GetWeatherIntensity(), 2.0f);
+    pm.SetWeatherIntensity(-1.0f);
+    EXPECT_FLOAT_EQ(pm.GetWeatherIntensity(), 0.0f);
+    pm.SetWeatherIntensity(1.25f);
+    EXPECT_FLOAT_EQ(pm.GetWeatherIntensity(), 1.25f);
+
+    pm.SetWindStrength(3.5f);
+    EXPECT_FLOAT_EQ(pm.GetWindStrength(), 1.0f);
+    pm.SetWindStrength(-3.5f);
+    EXPECT_FLOAT_EQ(pm.GetWindStrength(), -1.0f);
+    pm.SetWindStrength(-0.45f);
+    EXPECT_FLOAT_EQ(pm.GetWindStrength(), -0.45f);
+
+    // Time accumulation
+    pm.AdvanceWeatherTime(0.5f);
+    EXPECT_NEAR(pm.GetWeatherTime(), 0.5f, 1e-5f);
+    pm.AdvanceWeatherTime(-1.0f); // Negative delta ignored
+    EXPECT_NEAR(pm.GetWeatherTime(), 0.5f, 1e-5f);
+}
+
+TEST(RenderingFeaturesTest, WeatherMaterialModulationRainAndSnowPhysics) {
+    // 1. Rain wet surface roughness reduction and diffuse absorption darkening
+    const glm::vec3 dryStone(0.6f, 0.55f, 0.5f);
+    const glm::vec3 wetStone = gpu::PipelineManager::EvaluateRainWetAlbedo(dryStone, 0.0f, 1.0f);
+    EXPECT_LT(wetStone.r, dryStone.r);
+    EXPECT_LT(wetStone.g, dryStone.g);
+    EXPECT_LT(wetStone.b, dryStone.b);
+
+    // Pure metal (metallic = 1.0) does not absorb water into porous diffuse albedo
+    const glm::vec3 goldMetal(1.0f, 0.85f, 0.57f);
+    const glm::vec3 wetGold = gpu::PipelineManager::EvaluateRainWetAlbedo(goldMetal, 1.0f, 1.0f);
+    EXPECT_NEAR(wetGold.r, goldMetal.r, 1e-5f);
+    EXPECT_NEAR(wetGold.g, goldMetal.g, 1e-5f);
+    EXPECT_NEAR(wetGold.b, goldMetal.b, 1e-5f);
+
+    // Wet roughness glaze: rough concrete (0.85) becomes glossy (~0.20) in rain
+    const float dryRoughness = 0.85f;
+    const float wetRoughness = gpu::PipelineManager::EvaluateRainWetRoughness(dryRoughness, 1.0f);
+    EXPECT_LT(wetRoughness, 0.25f);
+    EXPECT_GT(wetRoughness, 0.05f);
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateRainWetRoughness(dryRoughness, 0.0f), dryRoughness);
+
+    // 2. Snow accumulation factor based on upward surface normal N.y
+    const float snowUp = gpu::PipelineManager::EvaluateSnowAccumulationFactor(1.0f, 1.0f);
+    const float snowSlope = gpu::PipelineManager::EvaluateSnowAccumulationFactor(0.475f, 1.0f);
+    const float snowWall = gpu::PipelineManager::EvaluateSnowAccumulationFactor(0.0f, 1.0f);
+    const float snowCeiling = gpu::PipelineManager::EvaluateSnowAccumulationFactor(-1.0f, 1.0f);
+
+    EXPECT_NEAR(snowUp, 1.0f, 1e-5f);
+    EXPECT_NEAR(snowSlope, 0.5f, 1e-3f);
+    EXPECT_FLOAT_EQ(snowWall, 0.0f);
+    EXPECT_FLOAT_EQ(snowCeiling, 0.0f);
+}
+
+TEST(RenderingFeaturesTest, WgslShaderContainsRainAndSnowEffects) {
+    const std::string_view wgsl{gpu::kPbrShaderWGSL};
+    EXPECT_NE(wgsl.find("weatherParams : vec4<f32>"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn calculateRainRipples"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn calculateRainStreaks"), std::string_view::npos);
+    EXPECT_NE(wgsl.find("fn calculateSnowFlakes"), std::string_view::npos);
 }

@@ -633,6 +633,7 @@ struct SceneLightingUniforms {
     gridParams : vec4<f32>, // x = viewportW, y = viewportH, z = zNear, w = zFar
     envParams : vec4<f32>,  // x = envRotation (rad), y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
     viewMatrix : mat4x4<f32>,
+    weatherParams : vec4<f32>, // x = weatherMode (0=None, 1=Rain, 2=Snow), y = intensity, z = wind, w = timeSec
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1009,6 +1010,84 @@ fn computeParallaxShadow(
     return clamp(shadowFactor, 0.25, 1.0);
 }
 
+// ============================================================================
+// Procedural Weather Effects (Atmospheric Rain & Snow WGSL Subroutines)
+// ============================================================================
+
+fn hash31(p : vec3<f32>) -> f32 {
+    let h = fract(sin(dot(p, vec3<f32>(12.9898, 78.233, 45.164))) * 43758.5453123);
+    return h;
+}
+
+fn calculateRainRipples(pos : vec2<f32>, time : f32) -> vec3<f32> {
+    let scale = 14.0;
+    let uvCoord = pos * scale;
+    let iuv = floor(uvCoord);
+    let fuv = fract(uvCoord);
+    var rippleVec = vec2<f32>(0.0);
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            let g = vec2<f32>(f32(x), f32(y));
+            let h = fract(sin(dot(iuv + g, vec2<f32>(127.1, 311.7))) * 43758.5453);
+            let t = fract(time * 2.2 + h);
+            let center = g + vec2<f32>(0.5) + vec2<f32>(sin(h * 6.28), cos(h * 6.28)) * 0.25;
+            let d = length(fuv - center);
+            let wave = sin(d * 24.0 - t * 14.0) * exp(-d * 4.5) * (1.0 - t);
+            let dir = normalize(fuv - center + 1e-4);
+            rippleVec = rippleVec + dir * wave * 0.5;
+        }
+    }
+    return normalize(vec3<f32>(rippleVec, 1.0));
+}
+
+fn calculateRainStreaks(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let rayDist = length(worldPos - cameraPos);
+    var streakAccum : f32 = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        let scale = select(4.0, 8.0, i == 1);
+        let speed = select(22.0, 32.0, i == 1);
+        let windVec = vec3<f32>(wind * 3.5, -speed, wind * 1.5);
+        let samplePos = (worldPos - windVec * time) * scale;
+        let cell = floor(vec3<f32>(samplePos.x, samplePos.y * 0.08, samplePos.z));
+        let f = fract(vec3<f32>(samplePos.x, samplePos.y * 0.08, samplePos.z));
+        let h = hash31(cell);
+        let dX = abs(f.x - 0.5);
+        let dZ = abs(f.z - 0.5);
+        let dY = abs(f.y - 0.5);
+        let streak = smoothstep(0.08, 0.0, dX) * smoothstep(0.08, 0.0, dZ) * smoothstep(0.45, 0.0, dY);
+        let activeDrop = step(0.70, h);
+        streakAccum = streakAccum + streak * activeDrop;
+    }
+    let mist = (1.0 - exp(-rayDist * 0.08)) * 0.15 * intensity;
+    let mistColor = vec3<f32>(0.65, 0.72, 0.82) * mist;
+    let streakColor = vec3<f32>(0.85, 0.92, 1.0) * (streakAccum * intensity * 0.75);
+    return streakColor + mistColor;
+}
+
+fn calculateSnowFlakes(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let rayDist = length(worldPos - cameraPos);
+    var flakeAccum : f32 = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        let scale = select(3.5, 6.5, i == 1);
+        let fallSpeed = select(2.4, 3.8, i == 1);
+        let freq = select(2.0, 3.2, i == 1);
+        let wobbleX = sin(time * freq + worldPos.y * 2.5 + f32(i)) * 0.35;
+        let wobbleZ = cos(time * (freq * 0.85) + worldPos.x * 2.0) * 0.3;
+        let driftVec = vec3<f32>(wind * 1.8 * time + wobbleX, -fallSpeed * time, wind * 0.8 * time + wobbleZ);
+        let samplePos = (worldPos - driftVec) * scale;
+        let cell = floor(samplePos);
+        let f = fract(samplePos) - 0.5;
+        let h = hash31(cell + vec3<f32>(17.3, 41.7, 83.1));
+        let dist = length(f);
+        let flake = smoothstep(0.20, 0.02, dist) * step(0.66, h);
+        flakeAccum = flakeAccum + flake;
+    }
+    let winterFog = (1.0 - exp(-rayDist * 0.06)) * 0.18 * intensity;
+    let winterFogColor = vec3<f32>(0.82, 0.88, 0.96) * winterFog;
+    let flakeColor = vec3<f32>(0.96, 0.98, 1.0) * (flakeAccum * intensity * 0.85);
+    return flakeColor + winterFogColor;
+}
+
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let dp1 = dpdx(in.worldPos);
@@ -1103,6 +1182,21 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         N = normalize(tbn * bumpNorm);
     }
 
+    // Weather Parameters & Surface Normal Perturbation (Rain Ripples & Snow Accumulation)
+    let weatherMode = sceneLighting.weatherParams.x;
+    let weatherIntensity = sceneLighting.weatherParams.y;
+    let windStrength = sceneLighting.weatherParams.z;
+    let weatherTime = sceneLighting.weatherParams.w;
+
+    if (weatherMode == 1.0 && weatherIntensity > 0.001 && geomN.y > 0.15) {
+        let rippleTan = calculateRainRipples(in.uv * 5.0 + in.worldPos.xz * 2.5, weatherTime);
+        let rippleWeight = smoothstep(0.15, 0.75, geomN.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
+        N = normalize(mix(N, tbn * rippleTan, rippleWeight));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomN.y > 0.2) {
+        let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
+        N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
+    }
+
     var roughness = ubo.roughnessFactor;
     var metallic = ubo.metallicFactor;
     if ((ubo.flags & 2u) != 0u) {
@@ -1112,11 +1206,32 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     roughness = clamp(roughness, 0.04, 1.0);
     metallic = clamp(metallic, 0.0, 1.0);
 
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        roughness = mix(roughness, 0.08, clamp(weatherIntensity * 0.85, 0.0, 0.88));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
+        if (snowAccum > 0.001) {
+            roughness = mix(roughness, 0.70, snowAccum * 0.9);
+            metallic = mix(metallic, 0.0, snowAccum * 0.95);
+        }
+    }
+
     let ior = max(ubo.ior, 1.0);
     let f0_dielectric = pow((ior - 1.0) / (ior + 1.0), 2.0);
     let specularColor = ubo.specularFactor * ubo.specularColorFactor.rgb;
     let F0 = mix(vec3<f32>(f0_dielectric) * specularColor, baseColor.rgb, metallic);
-    let diffuseColor = baseColor.rgb * (1.0 - metallic);
+    var diffuseColor = baseColor.rgb * (1.0 - metallic);
+
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        let wetWeight = clamp(weatherIntensity * 0.8, 0.0, 0.75);
+        diffuseColor = mix(diffuseColor, diffuseColor * 0.65, wetWeight * (1.0 - metallic));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
+        if (snowAccum > 0.001) {
+            let crispSnowColor = vec3<f32>(0.93, 0.95, 0.99);
+            diffuseColor = mix(diffuseColor, crispSnowColor, snowAccum * 0.95);
+        }
+    }
 
     var ccFactor = ubo.clearcoatFactor;
     var ccRoughness = ubo.clearcoatRoughness;
@@ -1170,6 +1285,14 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
             transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
         ) * (shadowFactor * pomShadow);
+    }
+
+    if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomN.y > 0.2) {
+        let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
+        let sparkleCoord = floor(in.worldPos * 75.0);
+        let sparkleNoise = fract(sin(dot(sparkleCoord, vec3<f32>(27.1, 59.3, 113.7))) * 43758.5453);
+        let sparkle = pow(sparkleNoise, 16.0) * 3.5 * snowAccum * max(dot(N, sunL), 0.0) * shadowFactor;
+        directLighting = directLighting + vec3<f32>(sparkle);
     }
 
     // 2. KHR_lights_punctual Evaluated via Clustered Forward+ Frustum Culling
@@ -1302,6 +1425,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let transMix = (1.0 - fresnelGlass) * transFactor;
         finalColor = mix(directLighting + ambientSpecular, transmittedColor, transMix) + emissive;
         outAlpha = 1.0;
+    }
+
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        finalColor = finalColor + calculateRainStreaks(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        finalColor = finalColor + calculateSnowFlakes(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     }
 
     return vec4<f32>(finalColor, outAlpha);

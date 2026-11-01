@@ -3669,6 +3669,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     }
 
     BglLogger.log('Engine', `Atmospheric Weather Mode set to: ${mode.toUpperCase()}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_weather_mode) {
+      const modeInt = mode === 'rain' ? 1 : (mode === 'snow' ? 2 : 0);
+      BglState.wasmExports.bgl_set_weather_mode(modeInt);
+    }
     if (typeof BglNotifier !== 'undefined' && BglNotifier.info) {
       const titles = { none: 'Clear Skies', rain: 'Rain Storm', snow: 'Snowfall' };
       const msgs = {
@@ -3696,6 +3700,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     BglState.weatherIntensity = num;
     const label = document.getElementById('val-weather-intensity');
     if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_weather_intensity) {
+      BglState.wasmExports.bgl_set_weather_intensity(num);
+    }
   }
   window.onWeatherIntensitySlider = onWeatherIntensitySlider;
 
@@ -3704,6 +3711,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     BglState.windStrength = num;
     const label = document.getElementById('val-wind-strength');
     if (label) label.textContent = `${num >= 0 ? '+' : ''}${num.toFixed(2)}`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_wind_strength) {
+      BglState.wasmExports.bgl_set_wind_strength(num);
+    }
   }
   window.onWindSlider = onWindSlider;
 

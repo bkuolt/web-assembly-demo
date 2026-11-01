@@ -2247,6 +2247,8 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
     sl.envParams = glm::vec4{envRotation_, static_cast<float>(lightCount),
                              1.0f, // Enable Clustered Forward+ 3D light culling
                              hasExplicitDirectional ? 0.0f : 1.0f};
+    sl.weatherParams =
+        glm::vec4{static_cast<float>(weatherMode_), weatherIntensity_, windStrength_, weatherTimeSec_};
 
     wgpuQueueWriteBuffer(queue_, sceneLightingBuffer_, 0, &sl, sizeof(sl));
 }
@@ -2734,6 +2736,32 @@ float PipelineManager::EvaluateScreenSpaceOcclusionFactor(float depthCenter, flo
         return std::clamp(1.0f - occ, 0.0f, 1.0f);
     }
     return 1.0f;
+}
+
+glm::vec3 PipelineManager::EvaluateRainWetAlbedo(const glm::vec3& dryAlbedo, float metallic, float intensity) noexcept {
+    const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
+    if (clampedInt <= 0.001f)
+        return dryAlbedo;
+    const float wetWeight{std::clamp(clampedInt * 0.8f, 0.0f, 0.75f) *
+                          (1.0f - std::clamp(metallic, 0.0f, 1.0f))};
+    return glm::mix(dryAlbedo, dryAlbedo * 0.65f, wetWeight);
+}
+
+float PipelineManager::EvaluateRainWetRoughness(float dryRoughness, float intensity) noexcept {
+    const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
+    if (clampedInt <= 0.001f)
+        return dryRoughness;
+    const float glazeWeight{std::clamp(clampedInt * 0.85f, 0.0f, 0.88f)};
+    return glm::mix(dryRoughness, 0.08f, glazeWeight);
+}
+
+float PipelineManager::EvaluateSnowAccumulationFactor(float normalY, float intensity) noexcept {
+    const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
+    if (clampedInt <= 0.001f || normalY <= 0.2f)
+        return 0.0f;
+    const float t{std::clamp((normalY - 0.2f) / (0.75f - 0.2f), 0.0f, 1.0f)};
+    const float smooth{t * t * (3.0f - 2.0f * t)};
+    return smooth * std::clamp(clampedInt, 0.0f, 1.5f);
 }
 
 } // namespace bgl::gpu

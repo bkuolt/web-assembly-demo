@@ -43,6 +43,7 @@ struct OverlayStats {
     bool reflectionsEnabled{true};
     bool ambientOcclusionEnabled{true};
     bool occlusionCullingEnabled{true};
+    std::string weatherModeName{"Clear"};
 
     // System Memory & Hardware Telemetry
     size_t residentRamBytes{0};
