@@ -52,6 +52,7 @@ class MockGPUDevice {
 
   createShaderModule(desc) {
     assert(desc.code && desc.code.includes('@vertex') && desc.code.includes('@fragment'), 'Shader must contain WGSL vertex and fragment stages');
+    assert(desc.code.includes('distributionGGX') && desc.code.includes('visibilitySmithGGX'), 'Shader must include Cook-Torrance GGX functions');
     return { id: Math.random(), code: desc.code };
   }
 
@@ -225,7 +226,7 @@ const gltfEnd = appCode.indexOf('  // ==========================================
 eval(appCode.slice(gltfStart, gltfEnd).replace('const BglGltf =', 'global.BglGltf ='));
 
 const startIdx = appCode.indexOf('const BglWebGpuRenderer = {');
-const endIdx = appCode.indexOf('  // ============================================================================\n  // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer');
+const endIdx = appCode.indexOf('  // ============================================================================\n  // Model Ingestion Coordinator');
 assert(startIdx !== -1, 'BglWebGpuRenderer must be defined in app.js');
 assert(endIdx !== -1, 'BglWebGpuRenderer delimiter must be present');
 const rendererCode = appCode.slice(startIdx, endIdx);
@@ -241,7 +242,11 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   assert.strictEqual(BglWebGpuRenderer.format, 'bgra8unorm', 'Canvas format must match getPreferredCanvasFormat');
   assert(BglWebGpuRenderer.pipeline !== null, 'Pipeline must be compiled');
   assert(BglWebGpuRenderer.pipelineDoubleSided !== null, 'Double-sided pipeline must be compiled');
-  console.log('✓ BglWebGpuRenderer initialized successfully with WGSL shaders and WebGPU pipelines');
+  assert(BglWebGpuRenderer.defaultWhiteTexture !== null, 'Default white texture must be created');
+  assert(BglWebGpuRenderer.defaultMrTexture !== null, 'Default metallic-roughness texture must be created');
+  assert(BglWebGpuRenderer.defaultNormalTexture !== null, 'Default normal texture must be created');
+  assert(BglWebGpuRenderer.defaultBlackTexture !== null, 'Default emissive black texture must be created');
+  console.log('✓ BglWebGpuRenderer initialized successfully with Cook-Torrance WGSL PBR shaders and WebGPU pipelines');
 
   console.log('--- Step 2: Ingesting ToyCar.glb into WebGPU pipeline ---');
   const toyCarBuf = fs.readFileSync('web/assets/ToyCar.glb');
@@ -260,13 +265,15 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   for (const prim of BglWebGpuRenderer.primitives) {
     assert(prim.vertexBuffer, 'Primitive must have vertex buffer');
     assert(prim.uniformBuffer, 'Primitive must have uniform buffer');
+    assert.strictEqual(prim.uniformBuffer.size, 512, 'Uniform buffer must be 512 bytes for PBR uniforms');
     assert(prim.bindGroup, 'Primitive must have bind group');
+    assert.strictEqual(prim.bindGroup.entries.length, 7, 'Bind group must have 7 entries for full PBR pipeline');
     if (prim.hasIndices) {
       assert(prim.indexBuffer, 'Indexed primitive must have index buffer');
       assert(prim.indexFormat === 'uint16' || prim.indexFormat === 'uint32', 'Index format must be uint16 or uint32');
     }
   }
-  console.log('✓ All GPU buffer bindings, uniform buffers, and bind groups validated');
+  console.log('✓ All GPU buffer bindings, uniform buffers, and 7-entry PBR bind groups validated');
 
   if (fs.existsSync('web/assets/Sponza.glb')) {
     console.log('--- Step 2b: Testing Sponza.glb ingestion into WebGPU pipeline ---');

@@ -93,8 +93,7 @@ def test_firefox():
                         return {
                             backend: window.BglState ? window.BglState.backend : null,
                             webgpuActive: renderer ? renderer.isActive : false,
-                            webglActive: window.BglWebGlRenderer ? window.BglWebGlRenderer.isActive : false,
-                            primitivesCount: renderer ? renderer.primitives.length : (window.BglWebGlRenderer ? window.BglWebGlRenderer.primitives.length : 0),
+                            primitivesCount: renderer ? renderer.primitives.length : 0,
                             currentModel: window.BglState ? window.BglState.currentModelName : null,
                             drawError
                         };
@@ -108,11 +107,12 @@ def test_firefox():
             res = json.loads(exec_resp.read().decode())['value']
 
         print('  Firefox Runtime State:', res)
-        assert res['backend'] in ['webgpu', 'webgl2'], f"Unexpected backend: {res['backend']}"
+        assert res['backend'] == 'webgpu', f"Expected webgpu backend, got {res['backend']}"
+        assert res['webgpuActive'] is True, "Expected WebGPU to be active in Firefox"
         assert res['primitivesCount'] == 3, f"Expected 3 primitives for ToyCar, got {res['primitivesCount']}"
         assert res['currentModel'] == 'ToyCar.glb', f"Expected ToyCar.glb, got {res['currentModel']}"
         assert res['drawError'] is None, f"Draw error occurred: {res['drawError']}"
-        print(f"  ✓ Firefox verified: Backend '{res['backend']}' active, {res['primitivesCount']} primitives rendered without errors.")
+        print(f"  ✓ Firefox verified: Native WebGPU active, {res['primitivesCount']} primitives rendered with Cook-Torrance PBR without errors.")
         return True
     finally:
         gd_proc.terminate()
@@ -120,12 +120,13 @@ def test_firefox():
 
 async def test_chrome():
     print('================================================================================')
-    print(' 2. Testing Real Google Chrome (Cross-Platform Pipeline & Fallback)')
+    print(' 2. Testing Real Google Chrome (Hardware-Accelerated Native WebGPU PBR)')
     print('================================================================================')
     proc = subprocess.Popen([
         'google-chrome', '--headless=new', '--remote-debugging-port=9270',
         '--no-sandbox', '--disable-dev-shm-usage',
-        f'http://localhost:{PORT}/web/index.html'
+        '--enable-unsafe-webgpu', '--use-angle=vulkan', '--enable-features=Vulkan',
+        f'http://127.0.0.1:{PORT}/web/index.html'
     ])
     time.sleep(2)
 
@@ -150,7 +151,7 @@ async def test_chrome():
                         }
                         return {
                             backend: window.BglState ? window.BglState.backend : null,
-                            activeRendererName: active === window.BglWebGpuRenderer ? 'WebGPU' : (active === window.BglWebGlRenderer ? 'WebGL2' : 'None'),
+                            activeRendererName: active === window.BglWebGpuRenderer ? 'WebGPU' : 'None',
                             primitivesCount: active ? active.primitives.length : 0,
                             currentModel: window.BglState ? window.BglState.currentModelName : null,
                             drawError
@@ -163,11 +164,12 @@ async def test_chrome():
             res = await ws.recv()
             data = json.loads(res)['result']['result']['value']
             print('  Chrome Runtime State:', data)
-            assert data['backend'] in ['webgpu', 'webgl2']
-            assert data['primitivesCount'] == 3
-            assert data['currentModel'] == 'ToyCar.glb'
-            assert data['drawError'] is None
-            print(f"  ✓ Chrome verified: Backend '{data['backend']}' ({data['activeRendererName']}) active, {data['primitivesCount']} primitives rendered without errors.")
+            assert data['backend'] == 'webgpu', f"Expected webgpu backend in Chrome, got {data['backend']}"
+            assert data['activeRendererName'] == 'WebGPU', f"Expected WebGPU renderer, got {data['activeRendererName']}"
+            assert data['primitivesCount'] == 3, f"Expected 3 primitives for ToyCar, got {data['primitivesCount']}"
+            assert data['currentModel'] == 'ToyCar.glb', f"Expected ToyCar.glb, got {data['currentModel']}"
+            assert data['drawError'] is None, f"Draw error occurred: {data['drawError']}"
+            print(f"  ✓ Chrome verified: Native WebGPU active, {data['primitivesCount']} primitives rendered with Cook-Torrance PBR without errors.")
             return True
     finally:
         proc.terminate()

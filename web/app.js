@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.13 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.14 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -779,7 +779,7 @@
 
         const bufPtr = BglState.wasmExports.malloc(uint8.length);
         if (!bufPtr) {
-          BglLogger.log('Wasm', `Wasm heap memory limit reached for '${name}' (${(uint8.length / (1024 * 1024)).toFixed(1)} MB). Model renders directly via WebGL 2.`);
+          BglLogger.log('Wasm', `Wasm heap memory limit reached for '${name}' (${(uint8.length / (1024 * 1024)).toFixed(1)} MB). Model renders directly via WebGPU.`);
           return false;
         }
 
@@ -1280,13 +1280,20 @@
     pipelineDoubleSided: null,
     depthTexture: null,
     depthTextureView: null,
-    defaultTexture: null,
-    defaultTextureView: null,
+    defaultWhiteTexture: null,
+    defaultWhiteTextureView: null,
+    defaultMrTexture: null,
+    defaultMrTextureView: null,
+    defaultNormalTexture: null,
+    defaultNormalTextureView: null,
+    defaultBlackTexture: null,
+    defaultBlackTextureView: null,
     defaultSampler: null,
     bindGroupLayout: null,
     pipelineLayout: null,
     isActive: false,
     primitives: [],
+    textureCache: new Map(),
 
     // Preallocated scratch objects for zero-allocation 60/120 FPS rendering
     _scratchEye: new Float32Array(3),
@@ -1295,7 +1302,7 @@
     _scratchView: null,
     _scratchViewProj: null,
     _scratchNormalMat: new Float32Array(16),
-    _scratchUboBuffer: new ArrayBuffer(256),
+    _scratchUboBuffer: new ArrayBuffer(512),
     _scratchUboF32: null,
     _scratchUboU32: null,
 
@@ -1438,12 +1445,19 @@ struct Uniforms {
     cameraPos : vec4<f32>,
     lightDir : vec4<f32>,
     baseColorFactor : vec4<f32>,
-    flags : vec4<u32>,
+    pbrFactors : vec4<f32>,      // x=metallic, y=roughness, z=normalScale, w=occlusionStrength
+    emissiveFactor : vec4<f32>,  // xyz=emissive, w=alphaCutoff
+    uvTransform : vec4<f32>,     // xy=scale, zw=offset
+    flags : vec4<u32>,           // x=texFlags, y=wireframe, z=doubleSided, w=alphaMode
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
 @group(0) @binding(1) var defaultSampler : sampler;
 @group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
+@group(0) @binding(3) var metallicRoughnessTexture : texture_2d<f32>;
+@group(0) @binding(4) var normalTexture : texture_2d<f32>;
+@group(0) @binding(5) var emissiveTexture : texture_2d<f32>;
+@group(0) @binding(6) var occlusionTexture : texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position : vec3<f32>,
@@ -1458,6 +1472,77 @@ struct VertexOutput {
     @location(2) uv : vec2<f32>,
 };
 
+const PI : f32 = 3.141592653589793;
+
+fn distributionGGX(NdotH : f32, roughness : f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let d = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+fn visibilitySmithGGX(NdotL : f32, NdotV : f32, roughness : f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let ggxL = NdotL + sqrt(a2 + (1.0 - a2) * (NdotL * NdotL));
+    let ggxV = NdotV + sqrt(a2 + (1.0 - a2) * (NdotV * NdotV));
+    return 1.0 / max(ggxL * ggxV, 0.0001);
+}
+
+fn fresnelSchlick(VdotH : f32, F0 : vec3<f32>) -> vec3<f32> {
+    return F0 + (vec3<f32>(1.0) - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
+}
+
+fn fresnelSchlickRoughness(NdotV : f32, F0 : vec3<f32>, roughness : f32) -> vec3<f32> {
+    return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
+}
+
+fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>) -> mat3x3<f32> {
+    let N = normalize(geomNormal);
+    let dp1 = dpdx(worldPos);
+    let dp2 = dpdy(worldPos);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
+    let dp2perp = cross(dp2, N);
+    let dp1perp = cross(N, dp1);
+    let T = dp2perp * duv1.x + dp1perp * duv2.x;
+    let B = dp2perp * duv1.y + dp1perp * duv2.y;
+    let maxLenSq = max(dot(T, T), dot(B, B));
+    if (maxLenSq > 1e-18) {
+        let invmax = inverseSqrt(maxLenSq);
+        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+    }
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
+    let fallbackT = normalize(cross(up, N));
+    let fallbackB = normalize(cross(N, fallbackT));
+    return mat3x3<f32>(fallbackT, fallbackB, N);
+}
+
+fn srgbToLinear(c : vec3<f32>) -> vec3<f32> {
+    return pow(c, vec3<f32>(2.2));
+}
+
+fn linearToSrgb(c : vec3<f32>) -> vec3<f32> {
+    return pow(c, vec3<f32>(1.0 / 2.2));
+}
+
+fn tonemapKhronosPbrNeutral(color : vec3<f32>) -> vec3<f32> {
+    let startCompression = 0.8 - 0.04;
+    let desaturation = 0.15;
+    let x = min(color.r, min(color.g, color.b));
+    let offset = select(0.04, x - 6.25 * x * x, x < 0.08);
+    var c = color - offset;
+    let peak = max(c.r, max(c.g, c.b));
+    if (peak < startCompression) {
+        return color;
+    }
+    let d = 1.0 - startCompression;
+    let newPeak = 1.0 - d * d / (peak + d - startCompression);
+    c = c * (newPeak / peak);
+    let g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return mix(c, vec3<f32>(newPeak), g);
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -1469,63 +1554,166 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     } else {
         out.normal = vec3<f32>(0.0, 1.0, 0.0);
     }
-    out.uv = in.uv;
+    out.uv = in.uv * ubo.uvTransform.xy + ubo.uvTransform.zw;
     out.clipPos = ubo.viewProj * worldPos4;
     return out;
 }
 
 @fragment
 fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @location(0) vec4<f32> {
+    // Wireframe debug override
     if (ubo.flags.y != 0u) {
         return vec4<f32>(0.22, 0.74, 0.97, 1.0);
     }
 
+    // 1. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
-    if (ubo.flags.x != 0u) {
+    if ((ubo.flags.x & 1u) != 0u) {
         let texColor = textureSample(baseColorTexture, defaultSampler, in.uv);
-        baseColor = baseColor * texColor;
+        baseColor = baseColor * vec4<f32>(srgbToLinear(texColor.rgb), texColor.a);
+    } else {
+        baseColor = vec4<f32>(srgbToLinear(baseColor.rgb), baseColor.a);
     }
 
-    if (baseColor.a < 0.05) {
+    // Alpha Cutoff test (glTF 2.0 alphaMode)
+    let alphaMode = ubo.flags.w;
+    let alphaCutoff = ubo.emissiveFactor.w;
+    if (alphaMode == 1u && baseColor.a < alphaCutoff) {
+        discard;
+    } else if (baseColor.a < 0.01) {
         discard;
     }
 
-    var N = in.normal;
-    if (dot(N, N) > 0.0001) {
-        N = normalize(N);
+    // 2. Normal Mapping with MikkTSpace / Cotangent TBN
+    var geomNormal = in.normal;
+    if (dot(geomNormal, geomNormal) > 0.0001) {
+        geomNormal = normalize(geomNormal);
     } else {
-        N = vec3<f32>(0.0, 1.0, 0.0);
+        geomNormal = vec3<f32>(0.0, 1.0, 0.0);
     }
     if (!frontFacing) {
-        N = -N;
+        geomNormal = -geomNormal;
     }
 
-    let L = normalize(ubo.lightDir.xyz);
+    var N = geomNormal;
+    if ((ubo.flags.x & 4u) != 0u) { // HasNormalTex
+        let normalSample = textureSample(normalTexture, defaultSampler, in.uv).xyz * 2.0 - 1.0;
+        let normalScale = ubo.pbrFactors.z;
+        let tangentNormal = normalize(vec3<f32>(normalSample.xy * normalScale, normalSample.z));
+        let TBN = getTBN(in.worldPos, geomNormal, in.uv);
+        N = normalize(TBN * tangentNormal);
+    }
+
+    // 3. Metallic & Roughness (glTF 2.0: Green = Roughness, Blue = Metallic)
+    var metallic = ubo.pbrFactors.x;
+    var roughness = ubo.pbrFactors.y;
+    if ((ubo.flags.x & 2u) != 0u) { // HasMrTex
+        let mrSample = textureSample(metallicRoughnessTexture, defaultSampler, in.uv);
+        roughness = roughness * mrSample.g;
+        metallic = metallic * mrSample.b;
+    }
+    metallic = clamp(metallic, 0.0, 1.0);
+    roughness = clamp(roughness, 0.04, 1.0);
+
+    // 4. Occlusion (glTF 2.0: Red = Ambient Occlusion)
+    var ao = 1.0;
+    if ((ubo.flags.x & 16u) != 0u) { // HasOcclusionTex
+        let occSample = textureSample(occlusionTexture, defaultSampler, in.uv);
+        ao = mix(1.0, occSample.r, ubo.pbrFactors.w);
+    }
+
+    // 5. Emissive
+    var emissive = ubo.emissiveFactor.rgb;
+    if ((ubo.flags.x & 8u) != 0u) { // HasEmissiveTex
+        let emissiveSample = textureSample(emissiveTexture, defaultSampler, in.uv);
+        emissive = emissive * srgbToLinear(emissiveSample.rgb);
+    }
+
+    // 6. PBR Vectors & Dielectric/Metallic Reflectance Setup
     let V = normalize(ubo.cameraPos.xyz - in.worldPos);
-    let H = normalize(L + V);
+    let NdotV = max(dot(N, V), 0.001);
 
-    let NdotL = max(dot(N, L), 0.0);
-    let NdotH = max(dot(N, H), 0.0);
-    let spec = pow(NdotH, 32.0) * 0.35;
+    let F0 = mix(vec3<f32>(0.04), baseColor.rgb, metallic);
+    let diffuseColor = baseColor.rgb * (1.0 - metallic);
 
-    let ambient = vec3<f32>(0.25, 0.28, 0.32) * baseColor.rgb;
-    let diffuse = baseColor.rgb * vec3<f32>(1.0, 0.98, 0.94) * NdotL;
-    let fillLight = baseColor.rgb * vec3<f32>(0.15, 0.17, 0.20) * max(dot(N, -L), 0.0);
-    var specular = vec3<f32>(0.0, 0.0, 0.0);
-    if (NdotL > 0.0) {
-        specular = vec3<f32>(spec, spec, spec);
+    // 7. Direct Lighting Evaluation (Sun Key Light + Secondary Fill Light)
+    var directRadiance = vec3<f32>(0.0);
+
+    // Light 0: Sun Key Light
+    let L0 = normalize(ubo.lightDir.xyz);
+    let NdotL0 = max(dot(N, L0), 0.0);
+    if (NdotL0 > 0.0) {
+        let H0 = normalize(L0 + V);
+        let NdotH0 = max(dot(N, H0), 0.0);
+        let VdotH0 = max(dot(V, H0), 0.0);
+
+        let D = distributionGGX(NdotH0, roughness);
+        let Vis = visibilitySmithGGX(NdotL0, NdotV, roughness);
+        let F = fresnelSchlick(VdotH0, F0);
+        let specularBRDF = D * Vis * F;
+
+        let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
+        let diffuseBRDF = kD * (diffuseColor / PI);
+
+        let sunRadiance = vec3<f32>(1.0, 0.97, 0.92) * 2.5;
+        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * sunRadiance * NdotL0;
     }
 
-    var color = ambient + diffuse + fillLight + specular;
-    color = color / (color + vec3<f32>(1.0, 1.0, 1.0));
-    color = pow(color, vec3<f32>(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    // Light 1: Cool Sky Fill Light
+    let L1 = normalize(vec3<f32>(-L0.x * 0.7, 0.5, -L0.z * 0.7));
+    let NdotL1 = max(dot(N, L1), 0.0);
+    if (NdotL1 > 0.0) {
+        let H1 = normalize(L1 + V);
+        let NdotH1 = max(dot(N, H1), 0.0);
+        let VdotH1 = max(dot(V, H1), 0.0);
 
-    return vec4<f32>(color, baseColor.a);
+        let D = distributionGGX(NdotH1, roughness);
+        let Vis = visibilitySmithGGX(NdotL1, NdotV, roughness);
+        let F = fresnelSchlick(VdotH1, F0);
+        let specularBRDF = D * Vis * F;
+
+        let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
+        let diffuseBRDF = kD * (diffuseColor / PI);
+
+        let fillRadiance = vec3<f32>(0.35, 0.45, 0.60) * 0.8;
+        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * fillRadiance * NdotL1;
+    }
+
+    // 8. Ambient Lighting (Hemispheric Diffuse Irradiance + GGX Environment Specular Reflection)
+    let hemiWeight = N.y * 0.5 + 0.5;
+    let groundAmbient = vec3<f32>(0.12, 0.11, 0.10);
+    let skyAmbient = vec3<f32>(0.35, 0.45, 0.60);
+    let irradiance = mix(groundAmbient, skyAmbient, hemiWeight) * 0.9;
+
+    let F_env = fresnelSchlickRoughness(NdotV, F0, roughness);
+    let kD_env = (vec3<f32>(1.0) - F_env) * (1.0 - metallic);
+    let ambientDiffuse = kD_env * diffuseColor * irradiance;
+
+    // Specular Reflection (Roughness-dependent environmental reflection)
+    let R = reflect(-V, N);
+    let refHemi = R.y * 0.5 + 0.5;
+    let groundReflect = vec3<f32>(0.10, 0.09, 0.08);
+    let skyReflect = vec3<f32>(0.55, 0.70, 0.95);
+    let envReflectCol = mix(groundReflect, skyReflect, refHemi);
+    let roughnessAttenuation = 1.0 - roughness * 0.6;
+    let ambientSpecular = envReflectCol * F_env * roughnessAttenuation;
+
+    let ambientColor = (ambientDiffuse + ambientSpecular) * ao;
+
+    // 9. Total Radiance in Linear HDR Space
+    var totalColor = directRadiance + ambientColor + emissive;
+
+    // 10. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
+    totalColor = tonemapKhronosPbrNeutral(totalColor);
+    let finalColor = linearToSrgb(totalColor);
+
+    return vec4<f32>(finalColor, baseColor.a);
 }
 `;
     },
 
     async init() {
+      if (this.isActive && this.device) return true;
       this.canvas = document.getElementById('canvas');
       if (!this.canvas) return false;
 
@@ -1574,28 +1762,70 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           alphaMode: 'opaque'
         });
 
-        // 1x1 default white texture
-        this.defaultTexture = this.device.createTexture({
+        // 1x1 default white texture [255, 255, 255, 255]
+        this.defaultWhiteTexture = this.device.createTexture({
           size: [1, 1, 1],
           format: 'rgba8unorm',
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
         });
         this.device.queue.writeTexture(
-          { texture: this.defaultTexture },
+          { texture: this.defaultWhiteTexture },
           new Uint8Array([255, 255, 255, 255]),
           { bytesPerRow: 4, rowsPerImage: 1 },
           [1, 1, 1]
         );
-        this.defaultTextureView = this.defaultTexture.createView();
+        this.defaultWhiteTextureView = this.defaultWhiteTexture.createView();
 
-        // Default linear sampler
+        // 1x1 default metallic-roughness texture [255, 255, 255, 255] (R=1, G=Roughness=1, B=Metallic=1)
+        this.defaultMrTexture = this.device.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        });
+        this.device.queue.writeTexture(
+          { texture: this.defaultMrTexture },
+          new Uint8Array([255, 255, 255, 255]),
+          { bytesPerRow: 4, rowsPerImage: 1 },
+          [1, 1, 1]
+        );
+        this.defaultMrTextureView = this.defaultMrTexture.createView();
+
+        // 1x1 default normal texture [128, 128, 255, 255] (tangent normal [0, 0, 1])
+        this.defaultNormalTexture = this.device.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        });
+        this.device.queue.writeTexture(
+          { texture: this.defaultNormalTexture },
+          new Uint8Array([128, 128, 255, 255]),
+          { bytesPerRow: 4, rowsPerImage: 1 },
+          [1, 1, 1]
+        );
+        this.defaultNormalTextureView = this.defaultNormalTexture.createView();
+
+        // 1x1 default black texture [0, 0, 0, 255] (emissive default)
+        this.defaultBlackTexture = this.device.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        });
+        this.device.queue.writeTexture(
+          { texture: this.defaultBlackTexture },
+          new Uint8Array([0, 0, 0, 255]),
+          { bytesPerRow: 4, rowsPerImage: 1 },
+          [1, 1, 1]
+        );
+        this.defaultBlackTextureView = this.defaultBlackTexture.createView();
+
+        // Default linear filtering sampler
         this.defaultSampler = this.device.createSampler({
           magFilter: 'linear',
           minFilter: 'linear',
           mipmapFilter: 'linear'
         });
 
-        // Bind group layout
+        // 7-Entry PBR Bind Group Layout
         this.bindGroupLayout = this.device.createBindGroupLayout({
           entries: [
             {
@@ -1610,6 +1840,26 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             },
             {
               binding: 2,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            },
+            {
+              binding: 3,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            },
+            {
+              binding: 4,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            },
+            {
+              binding: 5,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            },
+            {
+              binding: 6,
               visibility: GPUShaderStage.FRAGMENT,
               texture: { sampleType: 'float', viewDimension: '2d' }
             }
@@ -1683,8 +1933,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this._scratchProj = this.mat4.create();
         this._scratchView = this.mat4.create();
         this._scratchViewProj = this.mat4.create();
-        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 60);
-        this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 240, 4);
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 72);
+        this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 288, 4);
 
         this.isActive = true;
         this.initEvents();
@@ -1815,8 +2065,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         if (prim.vertexBuffer && prim.vertexBuffer.destroy) prim.vertexBuffer.destroy();
         if (prim.indexBuffer && prim.indexBuffer.destroy) prim.indexBuffer.destroy();
         if (prim.uniformBuffer && prim.uniformBuffer.destroy) prim.uniformBuffer.destroy();
-        if (prim.texture && prim.texture !== this.defaultTexture && prim.texture.destroy) prim.texture.destroy();
       }
+      for (const entry of this.textureCache.values()) {
+        if (entry.texture && entry.texture.destroy) entry.texture.destroy();
+      }
+      this.textureCache.clear();
       this.primitives = [];
 
       let binBuffer = null;
@@ -2091,30 +2344,58 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
               }
             }
 
+            // Material parsing (PBR Metallic-Roughness, Normal, Occlusion, Emissive, Alpha, Transform)
             let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
+            let metallicFactor = 1.0;
+            let roughnessFactor = 1.0;
+            let normalScale = 1.0;
+            let occlusionStrength = 1.0;
+            let emissiveFactor = [0.0, 0.0, 0.0];
+            let alphaCutoff = 0.5;
+            let alphaMode = 0; // 0=OPAQUE, 1=MASK, 2=BLEND
             let doubleSided = false;
+            let uvScale = [1.0, 1.0];
+            let uvOffset = [0.0, 0.0];
+
             if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
               const mat = gltf.materials[prim.material];
               if (mat.doubleSided) doubleSided = true;
-              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorFactor) {
-                baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
+              if (mat.alphaMode === 'MASK') alphaMode = 1;
+              else if (mat.alphaMode === 'BLEND') alphaMode = 2;
+              if (mat.alphaCutoff !== undefined) alphaCutoff = mat.alphaCutoff;
+              if (mat.emissiveFactor) emissiveFactor = mat.emissiveFactor;
+
+              if (mat.pbrMetallicRoughness) {
+                const pbr = mat.pbrMetallicRoughness;
+                if (pbr.baseColorFactor) baseColorFactor = pbr.baseColorFactor;
+                if (pbr.metallicFactor !== undefined) metallicFactor = pbr.metallicFactor;
+                if (pbr.roughnessFactor !== undefined) roughnessFactor = pbr.roughnessFactor;
+                if (pbr.baseColorTexture && pbr.baseColorTexture.extensions && pbr.baseColorTexture.extensions.KHR_texture_transform) {
+                  const tt = pbr.baseColorTexture.extensions.KHR_texture_transform;
+                  if (tt.scale) uvScale = [tt.scale[0], tt.scale[1]];
+                  if (tt.offset) uvOffset = [tt.offset[0], tt.offset[1]];
+                }
+              }
+
+              if (mat.normalTexture) {
+                if (mat.normalTexture.scale !== undefined) normalScale = mat.normalTexture.scale;
+                if (mat.normalTexture.extensions && mat.normalTexture.extensions.KHR_texture_transform) {
+                  const tt = mat.normalTexture.extensions.KHR_texture_transform;
+                  if (tt.scale) uvScale = [tt.scale[0], tt.scale[1]];
+                  if (tt.offset) uvOffset = [tt.offset[0], tt.offset[1]];
+                }
+              }
+
+              if (mat.occlusionTexture && mat.occlusionTexture.strength !== undefined) {
+                occlusionStrength = mat.occlusionTexture.strength;
               }
             }
 
             const currentPrimRecords = [];
             for (const worldMatrix of nodeMats) {
               const uniformBuffer = this.device.createBuffer({
-                size: 256,
+                size: 512,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-              });
-
-              const bindGroup = this.device.createBindGroup({
-                layout: this.bindGroupLayout,
-                entries: [
-                  { binding: 0, resource: { buffer: uniformBuffer } },
-                  { binding: 1, resource: this.defaultSampler },
-                  { binding: 2, resource: this.defaultTextureView }
-                ]
               });
 
               const primRecord = {
@@ -2125,72 +2406,131 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 vertexCount,
                 hasIndices: !!indexData,
                 uniformBuffer,
-                bindGroup,
+                bindGroup: null,
                 baseColorFactor,
+                metallicFactor,
+                roughnessFactor,
+                normalScale,
+                occlusionStrength,
+                emissiveFactor,
+                alphaCutoff,
+                alphaMode,
                 doubleSided,
-                hasTexture: false,
-                texture: null,
+                uvScale,
+                uvOffset,
+                flags: 0,
+                baseColorView: null,
+                mrView: null,
+                normalView: null,
+                emissiveView: null,
+                occlusionView: null,
                 modelMatrix: worldMatrix,
+                updateBindGroup: null
               };
+
+              primRecord.updateBindGroup = () => {
+                primRecord.bindGroup = this.device.createBindGroup({
+                  layout: this.bindGroupLayout,
+                  entries: [
+                    { binding: 0, resource: { buffer: primRecord.uniformBuffer } },
+                    { binding: 1, resource: this.defaultSampler },
+                    { binding: 2, resource: primRecord.baseColorView || this.defaultWhiteTextureView },
+                    { binding: 3, resource: primRecord.mrView || this.defaultMrTextureView },
+                    { binding: 4, resource: primRecord.normalView || this.defaultNormalTextureView },
+                    { binding: 5, resource: primRecord.emissiveView || this.defaultBlackTextureView },
+                    { binding: 6, resource: primRecord.occlusionView || this.defaultWhiteTextureView }
+                  ]
+                });
+              };
+
+              primRecord.updateBindGroup();
               currentPrimRecords.push(primRecord);
               this.primitives.push(primRecord);
             }
 
+            // Asynchronously load textures and update bind groups
             if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
               const mat = gltf.materials[prim.material];
-              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture) {
-                const texInfo = mat.pbrMetallicRoughness.baseColorTexture;
-                if (gltf.textures && gltf.textures[texInfo.index]) {
-                  const texObj = gltf.textures[texInfo.index];
-                  if (texObj.source !== undefined && gltf.images && gltf.images[texObj.source]) {
-                    const imgObj = gltf.images[texObj.source];
 
-                    const onImageReady = (bmp) => {
-                      try {
-                        const gpuTex = this.device.createTexture({
-                          size: [bmp.width, bmp.height, 1],
-                          format: 'rgba8unorm',
-                          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-                        });
-                        this.device.queue.copyExternalImageToTexture(
-                          { source: bmp },
-                          { texture: gpuTex },
-                          [bmp.width, bmp.height]
-                        );
-                        const gpuView = gpuTex.createView();
-                        for (const pr of currentPrimRecords) {
-                          pr.texture = gpuTex;
-                          pr.hasTexture = true;
-                          pr.bindGroup = this.device.createBindGroup({
-                            layout: this.bindGroupLayout,
-                            entries: [
-                              { binding: 0, resource: { buffer: pr.uniformBuffer } },
-                              { binding: 1, resource: this.defaultSampler },
-                              { binding: 2, resource: gpuView }
-                            ]
-                          });
-                        }
-                      } catch (texErr) {
-                        BglLogger.warn('WebGPU', 'Failed to upload texture to WebGPU:', texErr);
-                      }
-                    };
+              const loadTextureImage = (texInfo, viewSetter, flagBit) => {
+                if (!texInfo || texInfo.index === undefined || !gltf.textures || !gltf.textures[texInfo.index]) return;
+                const texObj = gltf.textures[texInfo.index];
+                if (texObj.source === undefined || !gltf.images || !gltf.images[texObj.source]) return;
+                const imgIdx = texObj.source;
+                const imgObj = gltf.images[imgIdx];
 
-                    if (imgObj.bufferView !== undefined) {
-                      const imgBytes = getBufferViewData(imgObj.bufferView);
-                      if (imgBytes) {
-                        const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
-                        createImageBitmap(blob).then(onImageReady).catch(() => {});
-                      }
-                    } else if (imgObj.uri) {
-                      const img = new Image();
-                      img.crossOrigin = 'anonymous';
-                      img.onload = () => {
-                        createImageBitmap(img).then(onImageReady).catch(() => {});
-                      };
-                      img.src = imgObj.uri;
-                    }
+                const applyView = (view) => {
+                  for (const pr of currentPrimRecords) {
+                    viewSetter(pr, view);
+                    pr.flags |= flagBit;
+                    pr.updateBindGroup();
                   }
+                };
+
+                if (this.textureCache.has(imgIdx)) {
+                  const cached = this.textureCache.get(imgIdx);
+                  applyView(cached.view);
+                  return;
                 }
+
+                const onImageReady = (bmp) => {
+                  try {
+                    if (!this.device) return;
+                    const gpuTex = this.device.createTexture({
+                      size: [bmp.width, bmp.height, 1],
+                      format: 'rgba8unorm',
+                      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+                    });
+                    this.device.queue.copyExternalImageToTexture(
+                      { source: bmp },
+                      { texture: gpuTex },
+                      [bmp.width, bmp.height]
+                    );
+                    const gpuView = gpuTex.createView();
+                    this.textureCache.set(imgIdx, { texture: gpuTex, view: gpuView });
+                    applyView(gpuView);
+                  } catch (texErr) {
+                    BglLogger.warn('WebGPU', `Failed to upload texture image #${imgIdx}:`, texErr);
+                  }
+                };
+
+                if (imgObj.bufferView !== undefined) {
+                  const imgBytes = getBufferViewData(imgObj.bufferView);
+                  if (imgBytes) {
+                    const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
+                    createImageBitmap(blob).then(onImageReady).catch((err) => {
+                      BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
+                    });
+                  }
+                } else if (imgObj.uri) {
+                  const img = new Image();
+                  img.crossOrigin = 'anonymous';
+                  img.onload = () => {
+                    createImageBitmap(img).then(onImageReady).catch((err) => {
+                      BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
+                    });
+                  };
+                  img.src = imgObj.uri;
+                }
+              };
+
+              if (mat.pbrMetallicRoughness) {
+                if (mat.pbrMetallicRoughness.baseColorTexture) {
+                  loadTextureImage(mat.pbrMetallicRoughness.baseColorTexture, (pr, v) => { pr.baseColorView = v; }, 1);
+                }
+                if (mat.pbrMetallicRoughness.metallicRoughnessTexture) {
+                  loadTextureImage(mat.pbrMetallicRoughness.metallicRoughnessTexture, (pr, v) => { pr.mrView = v; }, 2);
+                }
+              }
+
+              if (mat.normalTexture) {
+                loadTextureImage(mat.normalTexture, (pr, v) => { pr.normalView = v; }, 4);
+              }
+              if (mat.emissiveTexture) {
+                loadTextureImage(mat.emissiveTexture, (pr, v) => { pr.emissiveView = v; }, 8);
+              }
+              if (mat.occlusionTexture) {
+                loadTextureImage(mat.occlusionTexture, (pr, v) => { pr.occlusionView = v; }, 16);
               }
             }
           }
@@ -2328,16 +2668,31 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32.set(prim.modelMatrix, 16);
         uboF32.set(normalMat, 32);
         uboF32[48] = eye[0]; uboF32[49] = eye[1]; uboF32[50] = eye[2]; uboF32[51] = 1.0;
-        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = 0.0;
+        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = 2.5;
         uboF32[56] = prim.baseColorFactor[0];
         uboF32[57] = prim.baseColorFactor[1];
         uboF32[58] = prim.baseColorFactor[2];
         uboF32[59] = prim.baseColorFactor[3];
 
-        uboU32[0] = prim.hasTexture ? 1 : 0;
+        uboF32[60] = prim.metallicFactor;
+        uboF32[61] = prim.roughnessFactor;
+        uboF32[62] = prim.normalScale;
+        uboF32[63] = prim.occlusionStrength;
+
+        uboF32[64] = prim.emissiveFactor[0];
+        uboF32[65] = prim.emissiveFactor[1];
+        uboF32[66] = prim.emissiveFactor[2];
+        uboF32[67] = prim.alphaCutoff;
+
+        uboF32[68] = prim.uvScale[0];
+        uboF32[69] = prim.uvScale[1];
+        uboF32[70] = prim.uvOffset[0];
+        uboF32[71] = prim.uvOffset[1];
+
+        uboU32[0] = prim.flags;
         uboU32[1] = this.wireframe ? 1 : 0;
         uboU32[2] = prim.doubleSided ? 1 : 0;
-        uboU32[3] = 0;
+        uboU32[3] = prim.alphaMode;
 
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
@@ -2356,881 +2711,6 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
       pass.end();
       this.device.queue.submit([commandEncoder.finish()]);
-    }
-  };
-
-  // ============================================================================
-  // High-Performance WebGL 2 (GLES 3.0) Fallback 3D Renderer
-  // ============================================================================
-  /**
-   * @typedef {Object} WebGlPrimitiveRecord
-   * @property {WebGLVertexArrayObject} vao - Configured Vertex Array Object
-   * @property {WebGLBuffer[]} buffers - Associated VBOs and IBOs for memory cleanup
-   * @property {number} indexCount - Number of indices (if indexed)
-   * @property {number} indexType - WebGL index type (UNSIGNED_SHORT or UNSIGNED_INT)
-   * @property {number} vertexCount - Number of vertices (if unindexed)
-   * @property {boolean} hasIndices - Whether primitive uses indexed draw call
-   * @property {number[]} baseColorFactor - RGBA base color multiplier [r, g, b, a]
-   * @property {boolean} doubleSided - Whether primitive requires backface culling disabled
-   * @property {WebGLTexture|null} texture - Associated diffuse WebGLTexture
-   * @property {Float32Array} modelMatrix - 4x4 world transform matrix
-   * @property {WebGLTexture|null} currentTexture - Getter returning the active texture
-   */
-
-  /**
-   * High-performance WebGL 2 (OpenGL ES 3.0) fallback 3D renderer.
-   * Utilizes GLSL 3.00 ES shaders, Vertex Array Objects (VAOs),
-   * zero-allocation render loop, and multi-touch mobile gesture handlers.
-   */
-  const BglWebGlRenderer = {
-    gl: null,
-    canvas: null,
-    program: null,
-    isActive: false,
-    primitives: [],
-
-    // Preallocated scratch objects for zero-allocation 60/120 FPS rendering
-    _scratchEye: new Float32Array(3),
-    _scratchLightDir: new Float32Array(3),
-    _scratchProj: null,
-    _scratchView: null,
-    _scratchViewProj: null,
-    _scratchNormalMat: new Float32Array(9),
-    defaultTexture: null,
-
-    camera: {
-      target: [0.0, 0.0, 0.0],
-      distance: 3.5,
-      yaw: 0.45,
-      pitch: 0.35,
-      fov: (45 * Math.PI) / 180,
-      near: 0.05,
-      far: 500.0,
-      minDistance: 0.2,
-      maxDistance: 100.0,
-    },
-
-    isDragging: false,
-    lastMouseX: 0,
-    lastMouseY: 0,
-    dragButton: 0,
-    wireframe: false,
-    turntable: false,
-    turntableSpeed: 0.35,
-    lastFrameTime: performance.now(),
-    modelBounds: null,
-    uniforms: {},
-
-    mat4: {
-      create() {
-        const out = new Float32Array(16);
-        out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
-        return out;
-      },
-      perspective(out, fovy, aspect, near, far) {
-        const f = 1.0 / Math.tan(fovy / 2);
-        const nf = 1.0 / (near - far);
-        out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
-        out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
-        out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
-        out[12] = 0; out[13] = 0; out[14] = (2 * far * near) * nf; out[15] = 0;
-        return out;
-      },
-      lookAt(out, eye, target, up) {
-        let z0 = eye[0] - target[0], z1 = eye[1] - target[1], z2 = eye[2] - target[2];
-        let len = 1 / Math.hypot(z0, z1, z2);
-        z0 *= len; z1 *= len; z2 *= len;
-
-        let x0 = up[1] * z2 - up[2] * z1, x1 = up[2] * z0 - up[0] * z2, x2 = up[0] * z1 - up[1] * z0;
-        len = Math.hypot(x0, x1, x2);
-        if (len > 0.00001) { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
-
-        let y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
-
-        out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
-        out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
-        out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
-        out[12] = -(x0 * eye[0] + x1 * eye[1] + x2 * eye[2]);
-        out[13] = -(y0 * eye[0] + y1 * eye[1] + y2 * eye[2]);
-        out[14] = -(z0 * eye[0] + z1 * eye[1] + z2 * eye[2]);
-        out[15] = 1;
-        return out;
-      },
-      multiply(out, a, b) {
-        const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
-        const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
-        const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
-        const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
-
-        let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
-        out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-        out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-        out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-        out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-
-        b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
-        out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-        out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-        out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-        out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-
-        b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
-        out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-        out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-        out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-        out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-
-        b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
-        out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-        out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-        out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-        out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-        return out;
-      },
-      normalMatrix(out, m4) {
-        out[0] = m4[0]; out[1] = m4[1]; out[2] = m4[2];
-        out[3] = m4[4]; out[4] = m4[5]; out[5] = m4[6];
-        out[6] = m4[8]; out[7] = m4[9]; out[8] = m4[10];
-        return out;
-      }
-    },
-
-    init() {
-      this.canvas = document.getElementById('canvas');
-      if (!this.canvas) return false;
-
-      try {
-        const gl = this.canvas.getContext('webgl2', {
-          antialias: true,
-          alpha: false,
-          depth: true,
-          stencil: false,
-          powerPreference: 'high-performance'
-        });
-        if (!gl) {
-          BglLogger.warn('WebGL', 'WebGL 2 context creation returned null.');
-          return false;
-        }
-
-        this.gl = gl;
-        // Initialize reusable scratch buffers for zero-allocation rendering
-        this._scratchProj = this.mat4.create();
-        this._scratchView = this.mat4.create();
-        this._scratchViewProj = this.mat4.create();
-
-        this.isActive = true;
-
-        if (!this.initShaders()) {
-          this.isActive = false;
-          return false;
-        }
-
-        this.initEvents();
-        this.startLoop();
-        BglLogger.log('WebGL', 'WebGL 2 fallback pipeline initialized successfully.');
-
-        if (BglState.currentGltf && BglState.currentModelBuffer) {
-          BglLogger.log('WebGL', `Immediately loading pre-parsed model '${BglState.currentModelName}' into WebGL 2.`);
-          this.loadModel(BglState.currentGltf, BglState.currentModelBuffer, BglState.currentModelName);
-        }
-
-        return true;
-      } catch (err) {
-        BglLogger.error('WebGL', 'Exception initializing WebGL 2:', err);
-        return false;
-      }
-    },
-
-    initShaders() {
-      const gl = this.gl;
-      const vsSrc = `#version 300 es
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec2 aUv;
-
-uniform mat4 uModel;
-uniform mat4 uViewProj;
-uniform mat3 uNormalMatrix;
-
-out vec3 vWorldPos;
-out vec3 vNormal;
-out vec2 vUv;
-
-void main() {
-    vec4 worldPos = uModel * vec4(aPos, 1.0);
-    vWorldPos = worldPos.xyz;
-    vec3 n = uNormalMatrix * aNormal;
-    vNormal = dot(n, n) > 0.0001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
-    vUv = aUv;
-    gl_Position = uViewProj * worldPos;
-}
-`;
-
-      const fsSrc = `#version 300 es
-precision highp float;
-
-in vec3 vWorldPos;
-in vec3 vNormal;
-in vec2 vUv;
-
-uniform vec3 uCameraPos;
-uniform vec3 uLightDir;
-uniform vec4 uBaseColorFactor;
-uniform sampler2D uBaseColorTexture;
-uniform bool uHasBaseColorTexture;
-uniform bool uWireframe;
-
-out vec4 fragColor;
-
-void main() {
-    if (uWireframe) {
-        fragColor = vec4(0.22, 0.74, 0.97, 1.0);
-        return;
-    }
-
-    vec4 baseColor = uBaseColorFactor;
-    if (uHasBaseColorTexture) {
-        baseColor *= texture(uBaseColorTexture, vUv);
-    }
-    if (baseColor.a < 0.05) discard;
-
-    vec3 N = dot(vNormal, vNormal) > 0.0001 ? normalize(vNormal) : vec3(0.0, 1.0, 0.0);
-    if (!gl_FrontFacing) {
-        N = -N;
-    }
-
-    vec3 L = normalize(uLightDir);
-    vec3 V = normalize(uCameraPos - vWorldPos);
-    vec3 H = normalize(L + V);
-
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    float spec = pow(NdotH, 32.0) * 0.35;
-
-    vec3 ambient = vec3(0.25, 0.28, 0.32) * baseColor.rgb;
-    vec3 diffuse = baseColor.rgb * vec3(1.0, 0.98, 0.94) * NdotL;
-    vec3 fillLight = baseColor.rgb * vec3(0.15, 0.17, 0.20) * max(dot(N, -L), 0.0);
-    vec3 specular = vec3(1.0) * spec * (NdotL > 0.0 ? 1.0 : 0.0);
-
-    vec3 color = ambient + diffuse + fillLight + specular;
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
-
-    fragColor = vec4(color, baseColor.a);
-}
-`;
-
-      const compile = (type, src) => {
-        const s = gl.createShader(type);
-        gl.shaderSource(s, src);
-        gl.compileShader(s);
-        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-          const log = gl.getShaderInfoLog(s);
-          gl.deleteShader(s);
-          throw new Error(log);
-        }
-        return s;
-      };
-
-      try {
-        const vs = compile(gl.VERTEX_SHADER, vsSrc);
-        const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
-        const prog = gl.createProgram();
-        gl.attachShader(prog, vs);
-        gl.attachShader(prog, fs);
-        gl.linkProgram(prog);
-        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-          const log = gl.getProgramInfoLog(prog);
-          gl.deleteProgram(prog);
-          throw new Error(log);
-        }
-
-        this.program = prog;
-        this.uniforms = {
-          uModel: gl.getUniformLocation(prog, 'uModel'),
-          uViewProj: gl.getUniformLocation(prog, 'uViewProj'),
-          uNormalMatrix: gl.getUniformLocation(prog, 'uNormalMatrix'),
-          uCameraPos: gl.getUniformLocation(prog, 'uCameraPos'),
-          uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
-          uBaseColorFactor: gl.getUniformLocation(prog, 'uBaseColorFactor'),
-          uBaseColorTexture: gl.getUniformLocation(prog, 'uBaseColorTexture'),
-          uHasBaseColorTexture: gl.getUniformLocation(prog, 'uHasBaseColorTexture'),
-          uWireframe: gl.getUniformLocation(prog, 'uWireframe'),
-        };
-
-        const defaultTex = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, defaultTex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
-        this.defaultTexture = defaultTex;
-
-        return true;
-      } catch (err) {
-        BglLogger.error('WebGL', 'Shader compilation error:', err);
-        return false;
-      }
-    },
-
-    initEvents() {
-      const canvas = this.canvas;
-      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-      canvas.addEventListener('mousedown', (e) => {
-        this.isDragging = true;
-        this.lastMouseX = e.clientX;
-        this.lastMouseY = e.clientY;
-        this.dragButton = e.button;
-      });
-
-      window.addEventListener('mousemove', (e) => {
-        if (!this.isDragging) return;
-        const dx = e.clientX - this.lastMouseX;
-        const dy = e.clientY - this.lastMouseY;
-        this.lastMouseX = e.clientX;
-        this.lastMouseY = e.clientY;
-
-        if (this.dragButton === 0) {
-          this.camera.yaw += dx * 0.006;
-          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
-        } else if (this.dragButton === 2) {
-          const factor = this.camera.distance * 0.0015;
-          const cosY = Math.cos(this.camera.yaw);
-          const sinY = Math.sin(this.camera.yaw);
-          this.camera.target[0] -= (cosY * dx) * factor;
-          this.camera.target[1] += dy * factor;
-          this.camera.target[2] -= (sinY * dx) * factor;
-        }
-      });
-
-      window.addEventListener('mouseup', () => {
-        this.isDragging = false;
-      });
-
-      canvas.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const factor = e.deltaY > 0 ? 1.1 : 0.9;
-        this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
-      }, { passive: false });
-
-      // Mobile touch controls (Samsung S22, smartphones, tablets)
-      let touchLastPos = { x: 0, y: 0 };
-      let touchStartDist = 0;
-      let touchLastMid = { x: 0, y: 0 };
-
-      canvas.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        } else if (e.touches.length === 2) {
-          touchStartDist = Math.hypot(
-            e.touches[0].clientX - e.touches[1].clientX,
-            e.touches[0].clientY - e.touches[1].clientY
-          );
-          touchLastMid = {
-            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
-            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
-          };
-        }
-      }, { passive: false });
-
-      canvas.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        if (e.touches.length === 1) {
-          const dx = e.touches[0].clientX - touchLastPos.x;
-          const dy = e.touches[0].clientY - touchLastPos.y;
-          touchLastPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-          this.camera.yaw += dx * 0.006;
-          this.camera.pitch = Math.max(-1.45, Math.min(1.45, this.camera.pitch - dy * 0.006));
-        } else if (e.touches.length === 2) {
-          const curDist = Math.hypot(
-            e.touches[0].clientX - e.touches[1].clientX,
-            e.touches[0].clientY - e.touches[1].clientY
-          );
-          const deltaDist = curDist - touchStartDist;
-          touchStartDist = curDist;
-          if (Math.abs(deltaDist) > 0.5) {
-            const factor = deltaDist > 0 ? 0.96 : 1.04;
-            this.camera.distance = Math.max(this.camera.minDistance, Math.min(this.camera.maxDistance, this.camera.distance * factor));
-          }
-
-          const curMid = {
-            x: (e.touches[0].clientX + e.touches[1].clientX) * 0.5,
-            y: (e.touches[0].clientY + e.touches[1].clientY) * 0.5
-          };
-          const dMidX = curMid.x - touchLastMid.x;
-          const dMidY = curMid.y - touchLastMid.y;
-          touchLastMid = curMid;
-          if (Math.abs(dMidX) > 0.5 || Math.abs(dMidY) > 0.5) {
-            const factor = this.camera.distance * 0.002;
-            const cosY = Math.cos(this.camera.yaw);
-            const sinY = Math.sin(this.camera.yaw);
-            this.camera.target[0] -= (cosY * dMidX) * factor;
-            this.camera.target[1] += dMidY * factor;
-            this.camera.target[2] -= (sinY * dMidX) * factor;
-          }
-        }
-      }, { passive: false });
-    },
-
-    loadModel(gltf, arrayBuffer, modelName) {
-      if (!this.gl || !gltf) return;
-      const gl = this.gl;
-
-      for (const p of this.primitives) {
-        if (p.vao && gl.deleteVertexArray) gl.deleteVertexArray(p.vao);
-        if (p.buffers && gl.deleteBuffer) {
-          for (const b of p.buffers) gl.deleteBuffer(b);
-        }
-        const tex = p._texRef || p.texture;
-        if (tex && tex !== this.defaultTexture && gl.deleteTexture) {
-          gl.deleteTexture(tex);
-        }
-      }
-      this.primitives = [];
-
-      let binBuffer = null;
-      const dataView = new DataView(arrayBuffer);
-      if (dataView.getUint32(0, true) === 0x46546C67) {
-        const jsonChunkLen = dataView.getUint32(12, true);
-        const binHeaderOffset = 20 + jsonChunkLen;
-        if (binHeaderOffset + 8 <= arrayBuffer.byteLength) {
-          const binLen = dataView.getUint32(binHeaderOffset, true);
-          binBuffer = arrayBuffer.slice(binHeaderOffset + 8, binHeaderOffset + 8 + binLen);
-        }
-      }
-
-      // Support base64 embedded data URIs in buffers
-      const embeddedBuffers = [];
-      if (gltf.buffers) {
-        for (let i = 0; i < gltf.buffers.length; ++i) {
-          const b = gltf.buffers[i];
-          if (b.uri && b.uri.startsWith('data:')) {
-            const base64Index = b.uri.indexOf(';base64,');
-            if (base64Index !== -1) {
-              try {
-                const b64 = b.uri.substring(base64Index + 8);
-                const binStr = atob(b64);
-                const u8 = new Uint8Array(binStr.length);
-                for (let j = 0; j < binStr.length; ++j) u8[j] = binStr.charCodeAt(j);
-                embeddedBuffers[i] = u8.buffer;
-              } catch (e) {
-                BglLogger.warn('glTF', 'Failed to decode base64 buffer URI:', e);
-              }
-            }
-          }
-        }
-      }
-
-      const getBufferViewData = (viewIdx) => {
-        if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
-        const bv = gltf.bufferViews[viewIdx];
-        const offset = bv.byteOffset || 0;
-        const length = bv.byteLength || 0;
-        const bufferIdx = bv.buffer || 0;
-        const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
-        if (!src || offset + length > src.byteLength) {
-          BglLogger.warn('glTF', `BufferView ${viewIdx} out of bounds: offset ${offset} + length ${length} > ${src ? src.byteLength : 0}`);
-          return null;
-        }
-        return src.slice(offset, offset + length);
-      };
-
-      const getAccessorData = (accIdx) => {
-        if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
-        const acc = gltf.accessors[accIdx];
-        if (!acc.count) return null;
-        if (acc.bufferView === undefined) return null;
-        const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
-        if (!bv) return null;
-        const bvData = getBufferViewData(acc.bufferView);
-        if (!bvData) return null;
-        const byteOffset = acc.byteOffset || 0;
-
-        let TypedArray = Float32Array;
-        if (acc.componentType === 5126) TypedArray = Float32Array;
-        else if (acc.componentType === 5123) TypedArray = Uint16Array;
-        else if (acc.componentType === 5125) TypedArray = Uint32Array;
-        else if (acc.componentType === 5121) TypedArray = Uint8Array;
-        else if (acc.componentType === 5122) TypedArray = Int16Array;
-
-        const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
-        const elemBytes = TypedArray.BYTES_PER_ELEMENT;
-        const stride = bv.byteStride || (numComp * elemBytes);
-
-        if (byteOffset + (acc.count - 1) * stride + (numComp * elemBytes) > bvData.byteLength) {
-          BglLogger.warn('glTF', `Accessor ${accIdx} exceeds buffer view byte length.`);
-          return null;
-        }
-
-        // Fast path: contiguous and aligned
-        if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
-          return new TypedArray(bvData, byteOffset, acc.count * numComp);
-        }
-
-        // Safe path: strided or unaligned data view extraction
-        const totalElems = acc.count * numComp;
-        const out = new TypedArray(totalElems);
-        const dView = new DataView(bvData);
-        for (let i = 0; i < acc.count; ++i) {
-          const itemOffset = byteOffset + i * stride;
-          for (let c = 0; c < numComp; ++c) {
-            const valOffset = itemOffset + c * elemBytes;
-            if (valOffset + elemBytes <= dView.byteLength) {
-              if (acc.componentType === 5126) out[i * numComp + c] = dView.getFloat32(valOffset, true);
-              else if (acc.componentType === 5123) out[i * numComp + c] = dView.getUint16(valOffset, true);
-              else if (acc.componentType === 5125) out[i * numComp + c] = dView.getUint32(valOffset, true);
-              else if (acc.componentType === 5121) out[i * numComp + c] = dView.getUint8(valOffset);
-              else if (acc.componentType === 5122) out[i * numComp + c] = dView.getInt16(valOffset, true);
-            }
-          }
-        }
-        return out;
-      };
-
-      // Compute world transforms for scene graph nodes
-      const meshNodeMatrices = new Map();
-      if (gltf.nodes) {
-        const computeNodeMatrix = (nodeIdx, parentMat) => {
-          const node = gltf.nodes[nodeIdx];
-          if (!node) return;
-          let localMat = this.mat4.create();
-          if (node.matrix) {
-            for (let i = 0; i < 16; ++i) localMat[i] = node.matrix[i];
-          } else {
-            const t = node.translation || [0, 0, 0];
-            const r = node.rotation || [0, 0, 0, 1];
-            const s = node.scale || [1, 1, 1];
-            const x2 = r[0] + r[0], y2 = r[1] + r[1], z2 = r[2] + r[2];
-            const xx = r[0] * x2, xy = r[0] * y2, xz = r[0] * z2;
-            const yy = r[1] * y2, yz = r[1] * z2, zz = r[2] * z2;
-            const wx = r[3] * x2, wy = r[3] * y2, wz = r[3] * z2;
-
-            localMat[0] = (1 - (yy + zz)) * s[0];
-            localMat[1] = (xy + wz) * s[0];
-            localMat[2] = (xz - wy) * s[0];
-            localMat[3] = 0;
-
-            localMat[4] = (xy - wz) * s[1];
-            localMat[5] = (1 - (xx + zz)) * s[1];
-            localMat[6] = (yz + wx) * s[1];
-            localMat[7] = 0;
-
-            localMat[8] = (xz + wy) * s[2];
-            localMat[9] = (yz - wx) * s[2];
-            localMat[10] = (1 - (xx + yy)) * s[2];
-            localMat[11] = 0;
-
-            localMat[12] = t[0];
-            localMat[13] = t[1];
-            localMat[14] = t[2];
-            localMat[15] = 1;
-          }
-
-          let worldMat = this.mat4.create();
-          if (parentMat) {
-            this.mat4.multiply(worldMat, parentMat, localMat);
-          } else {
-            worldMat = localMat;
-          }
-
-          if (node.mesh !== undefined) {
-            if (!meshNodeMatrices.has(node.mesh)) {
-              meshNodeMatrices.set(node.mesh, []);
-            }
-            meshNodeMatrices.get(node.mesh).push(worldMat);
-          }
-
-          if (node.children) {
-            for (const childIdx of node.children) {
-              computeNodeMatrix(childIdx, worldMat);
-            }
-          }
-        };
-
-        const sceneIdx = gltf.scene || 0;
-        const rootNodes = (gltf.scenes && gltf.scenes[sceneIdx] && gltf.scenes[sceneIdx].nodes)
-          ? gltf.scenes[sceneIdx].nodes
-          : gltf.nodes.map((_, i) => i);
-
-        for (const rootIdx of rootNodes) {
-          computeNodeMatrix(rootIdx, null);
-        }
-      }
-
-      let minBound = [Infinity, Infinity, Infinity];
-      let maxBound = [-Infinity, -Infinity, -Infinity];
-
-      if (gltf.meshes) {
-        gltf.meshes.forEach((mesh, meshIdx) => {
-          if (!mesh.primitives) return;
-          const nodeMats = meshNodeMatrices.get(meshIdx) || [this.mat4.create()];
-
-          for (const prim of mesh.primitives) {
-            if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
-
-            const posData = getAccessorData(prim.attributes.POSITION);
-            if (!posData) continue;
-
-            const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
-            const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
-            const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
-
-            for (const worldMatrix of nodeMats) {
-              for (let i = 0; i < posData.length; i += 3) {
-                const lx = posData[i], ly = posData[i + 1], lz = posData[i + 2];
-                const wx = worldMatrix[0] * lx + worldMatrix[4] * ly + worldMatrix[8] * lz + worldMatrix[12];
-                const wy = worldMatrix[1] * lx + worldMatrix[5] * ly + worldMatrix[9] * lz + worldMatrix[13];
-                const wz = worldMatrix[2] * lx + worldMatrix[6] * ly + worldMatrix[10] * lz + worldMatrix[14];
-                minBound[0] = Math.min(minBound[0], wx); maxBound[0] = Math.max(maxBound[0], wx);
-                minBound[1] = Math.min(minBound[1], wy); maxBound[1] = Math.max(maxBound[1], wy);
-                minBound[2] = Math.min(minBound[2], wz); maxBound[2] = Math.max(maxBound[2], wz);
-              }
-            }
-
-            const vao = gl.createVertexArray();
-            gl.bindVertexArray(vao);
-
-            const pBuf = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, pBuf);
-            gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
-            gl.enableVertexAttribArray(0);
-            gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-
-            let nBuf = null;
-            if (normData) {
-              nBuf = gl.createBuffer();
-              gl.bindBuffer(gl.ARRAY_BUFFER, nBuf);
-              gl.bufferData(gl.ARRAY_BUFFER, normData, gl.STATIC_DRAW);
-              gl.enableVertexAttribArray(1);
-              gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-            }
-
-            let uBuf = null;
-            if (uvData) {
-              uBuf = gl.createBuffer();
-              gl.bindBuffer(gl.ARRAY_BUFFER, uBuf);
-              gl.bufferData(gl.ARRAY_BUFFER, uvData, gl.STATIC_DRAW);
-              gl.enableVertexAttribArray(2);
-              gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
-            }
-
-            let indexType = gl.UNSIGNED_SHORT;
-            let indexCount = 0;
-            let iBuf = null;
-            if (indexData) {
-              iBuf = gl.createBuffer();
-              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iBuf);
-              gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
-              indexCount = indexData.length;
-              indexType = (indexData instanceof Uint32Array) ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
-            }
-
-            gl.bindVertexArray(null);
-
-            let baseColorFactor = [1.0, 1.0, 1.0, 1.0];
-            let doubleSided = false;
-            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
-              const mat = gltf.materials[prim.material];
-              if (mat.doubleSided) doubleSided = true;
-              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorFactor) {
-                baseColorFactor = mat.pbrMetallicRoughness.baseColorFactor;
-              }
-            }
-
-            const primBuffers = [pBuf, normData ? nBuf : null, uvData ? uBuf : null, indexData ? iBuf : null].filter(Boolean);
-            const currentPrimRecords = [];
-            for (const worldMatrix of nodeMats) {
-              const primRecord = {
-                vao,
-                buffers: primBuffers,
-                indexCount,
-                indexType,
-                vertexCount: posData.length / 3,
-                hasIndices: !!indexData,
-                baseColorFactor,
-                doubleSided,
-                texture: null,
-                _texRef: null,
-                modelMatrix: worldMatrix,
-                get currentTexture() { return this._texRef || this.texture; }
-              };
-              currentPrimRecords.push(primRecord);
-              this.primitives.push(primRecord);
-            }
-
-            if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
-              const mat = gltf.materials[prim.material];
-              if (mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture) {
-                const texInfo = mat.pbrMetallicRoughness.baseColorTexture;
-                if (gltf.textures && gltf.textures[texInfo.index]) {
-                  const texObj = gltf.textures[texInfo.index];
-                  if (texObj.source !== undefined && gltf.images && gltf.images[texObj.source]) {
-                    const imgObj = gltf.images[texObj.source];
-                    if (imgObj.bufferView !== undefined) {
-                      const imgBytes = getBufferViewData(imgObj.bufferView);
-                      if (imgBytes) {
-                        const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
-                        createImageBitmap(blob).then((bmp) => {
-                          const t = gl.createTexture();
-                          gl.bindTexture(gl.TEXTURE_2D, t);
-                          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
-                          gl.generateMipmap(gl.TEXTURE_2D);
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                          for (const pr of currentPrimRecords) {
-                            pr._texRef = t;
-                          }
-                        }).catch(() => {});
-                      }
-                    } else if (imgObj.uri) {
-                      const img = new Image();
-                      img.crossOrigin = 'anonymous';
-                      img.onload = () => {
-                        const t = gl.createTexture();
-                        gl.bindTexture(gl.TEXTURE_2D, t);
-                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-                        gl.generateMipmap(gl.TEXTURE_2D);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                        for (const pr of currentPrimRecords) {
-                          pr._texRef = t;
-                        }
-                      };
-                      img.src = imgObj.uri;
-                    }
-                  }
-                }
-              }
-            }
-          }
-        });
-      }
-
-      if (minBound[0] <= maxBound[0]) {
-        const cx = (minBound[0] + maxBound[0]) * 0.5;
-        const cy = (minBound[1] + maxBound[1]) * 0.5;
-        const cz = (minBound[2] + maxBound[2]) * 0.5;
-        const dx = maxBound[0] - minBound[0];
-        const dy = maxBound[1] - minBound[1];
-        const dz = maxBound[2] - minBound[2];
-        const rawRadius = Math.hypot(dx, dy, dz) * 0.5;
-        const radius = Math.max(rawRadius, 0.0001);
-
-        this.camera.target = [cx, cy, cz];
-        this.camera.distance = radius * 2.2;
-        this.camera.minDistance = Math.max(0.0001, radius * 0.05);
-        this.camera.maxDistance = Math.max(10.0, radius * 35.0);
-        this.camera.near = Math.max(0.0001, radius * 0.02);
-        this.camera.far = Math.max(100.0, radius * 50.0);
-        this.modelBounds = { center: [cx, cy, cz], radius };
-      }
-
-      BglLogger.log('WebGL', `Loaded '${modelName}' into WebGL 2 fallback pipeline (${this.primitives.length} primitives).`);
-    },
-
-    startLoop() {
-      const render = (time) => {
-        if (!this.isActive || !this.gl) return;
-        const dt = (time - this.lastFrameTime) * 0.001;
-        this.lastFrameTime = time;
-
-        if (this.turntable) {
-          this.camera.yaw += this.turntableSpeed * dt;
-        }
-
-        this.draw();
-        requestAnimationFrame(render);
-      };
-      requestAnimationFrame(render);
-    },
-
-    draw() {
-      const gl = this.gl;
-      if (!gl || !this.program) return;
-
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.round((this.canvas.clientWidth || window.innerWidth) * dpr);
-      const h = Math.round((this.canvas.clientHeight || window.innerHeight) * dpr);
-      if (this.canvas.width !== w || this.canvas.height !== h) {
-        this.canvas.width = w;
-        this.canvas.height = h;
-      }
-
-      gl.viewport(0, 0, w, h);
-      gl.enable(gl.DEPTH_TEST);
-      gl.enable(gl.CULL_FACE);
-      gl.cullFace(gl.BACK);
-
-      gl.clearColor(0.04, 0.06, 0.10, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-      gl.useProgram(this.program);
-
-      const cy = Math.cos(this.camera.yaw);
-      const sy = Math.sin(this.camera.yaw);
-      const cp = Math.cos(this.camera.pitch);
-      const sp = Math.sin(this.camera.pitch);
-
-      const eye = this._scratchEye;
-      eye[0] = this.camera.target[0] + this.camera.distance * cp * sy;
-      eye[1] = this.camera.target[1] + this.camera.distance * sp;
-      eye[2] = this.camera.target[2] + this.camera.distance * cp * cy;
-
-      const proj = this._scratchProj;
-      this.mat4.perspective(proj, this.camera.fov, w / Math.max(1, h), this.camera.near, this.camera.far);
-
-      const view = this._scratchView;
-      this.mat4.lookAt(view, eye, this.camera.target, [0, 1, 0]);
-
-      const viewProj = this._scratchViewProj;
-      this.mat4.multiply(viewProj, proj, view);
-
-      gl.uniformMatrix4fv(this.uniforms.uViewProj, false, viewProj);
-      gl.uniform3fv(this.uniforms.uCameraPos, eye);
-
-      const tod = BglState.timeOfDay || 14.0;
-      const sunAngle = ((tod - 6.0) / 18.0) * Math.PI;
-      const lightDir = this._scratchLightDir;
-      lightDir[0] = Math.cos(sunAngle) * 0.7;
-      lightDir[1] = Math.sin(sunAngle);
-      lightDir[2] = 0.35;
-      gl.uniform3fv(this.uniforms.uLightDir, lightDir);
-      gl.uniform1i(this.uniforms.uWireframe, this.wireframe ? 1 : 0);
-
-      const normalMat = this._scratchNormalMat;
-      for (const prim of this.primitives) {
-        gl.uniformMatrix4fv(this.uniforms.uModel, false, prim.modelMatrix);
-        this.mat4.normalMatrix(normalMat, prim.modelMatrix);
-        gl.uniformMatrix3fv(this.uniforms.uNormalMatrix, false, normalMat);
-
-        gl.uniform4fv(this.uniforms.uBaseColorFactor, prim.baseColorFactor);
-
-        const activeTex = prim.currentTexture || prim.texture;
-        if (activeTex) {
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, activeTex);
-          gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
-          gl.uniform1i(this.uniforms.uHasBaseColorTexture, 1);
-        } else {
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
-          gl.uniform1i(this.uniforms.uBaseColorTexture, 0);
-          gl.uniform1i(this.uniforms.uHasBaseColorTexture, 0);
-        }
-
-        if (prim.doubleSided) {
-          gl.disable(gl.CULL_FACE);
-        } else {
-          gl.enable(gl.CULL_FACE);
-          gl.cullFace(gl.BACK);
-        }
-
-        gl.bindVertexArray(prim.vao);
-        if (prim.hasIndices) {
-          gl.drawElements(this.wireframe ? gl.LINES : gl.TRIANGLES, prim.indexCount, prim.indexType, 0);
-        } else {
-          gl.drawArrays(this.wireframe ? gl.LINES : gl.TRIANGLES, 0, prim.vertexCount);
-        }
-      }
-      gl.bindVertexArray(null);
     }
   };
 
@@ -3289,11 +2769,9 @@ void main() {
       BglUI.setActiveModelButton(name);
       updateCameraDropdown(gltf);
 
-      // Forward to active 3D renderer (WebGPU or WebGL 2)
+      // Forward to active 3D renderer (WebGPU)
       if (BglWebGpuRenderer.isActive) {
         BglWebGpuRenderer.loadModel(gltf, arrayBuffer, name);
-      } else if (BglWebGlRenderer.isActive) {
-        BglWebGlRenderer.loadModel(gltf, arrayBuffer, name);
       }
 
       BglLogger.timeEnd('glTF', 'Model-Ingest', `Model '${name}' loaded and inspected`);
@@ -3554,97 +3032,42 @@ void main() {
       });
     }
 
-    // 3. WebGPU Support Check with Automatic WebGL 2 Fallback
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceWebGl = urlParams.has('webgl') || urlParams.get('backend') === 'webgl' || urlParams.get('backend') === 'webgl2';
-    const forceWebGpu = urlParams.get('backend') === 'webgpu';
-
+    // 3. WebGPU Support Check & Pipeline Initialization
     const hasGpuApi = Boolean(navigator && ('gpu' in navigator) && navigator.gpu);
     let gpuOperational = false;
 
-    const resetCanvasElement = () => {
-      const oldCanvas = document.getElementById('canvas');
-      if (oldCanvas) {
-        const newCanvas = oldCanvas.cloneNode(false);
-        oldCanvas.replaceWith(newCanvas);
-        return newCanvas;
-      }
-      return null;
-    };
-
-    const updateBackendUI = (backend) => {
-      const sub = document.querySelector('.hud-subtitle');
-      const pill = document.getElementById('hud-backend-pill');
-      const btn = document.getElementById('btn-toggle-backend');
-      const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
-
-      if (backend === 'webgpu') {
-        if (sub) sub.textContent = `WebGPU & Wasm 3D Runtime${vendorStr}`;
-        if (pill) {
-          pill.textContent = 'WebGPU';
-          pill.className = 'badge badge-webgpu';
-          pill.title = 'Hardware-accelerated native WebGPU pipeline with WGSL shaders';
-        }
-        if (btn) {
-          btn.textContent = 'Switch to WebGL 2';
-          btn.title = 'Switch active renderer to WebGL 2 fallback pipeline';
-        }
-      } else {
-        if (sub) sub.textContent = `WebGL 2 & Wasm 3D Runtime${vendorStr}`;
-        if (pill) {
-          pill.textContent = 'WebGL 2';
-          pill.className = 'badge badge-webgl';
-          pill.title = 'Hardware-accelerated WebGL 2 (OpenGL ES 3.0) fallback pipeline';
-        }
-        if (btn) {
-          btn.textContent = 'Switch to WebGPU';
-          btn.title = 'Switch active renderer to native WebGPU pipeline';
-        }
-      }
-    };
-
-    if (hasGpuApi && !forceWebGl) {
-      BglLogger.log('Engine', 'Attempting native WebGPU 3D pipeline initialization...');
+    if (hasGpuApi) {
+      BglLogger.log('Engine', 'Attempting native WebGPU Cook-Torrance PBR pipeline initialization...');
       try {
         gpuOperational = await BglWebGpuRenderer.init();
       } catch (e) {
         BglLogger.warn('WebGPU', 'Exception during WebGPU initialization:', e.message || e);
         gpuOperational = false;
       }
-    } else if (forceWebGl) {
-      BglLogger.log('Engine', 'WebGL 2 forced via URL parameter (?backend=webgl or ?webgl).');
     }
 
     if (gpuOperational) {
       BglState.backend = 'webgpu';
-      updateBackendUI('webgpu');
       const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
+      const sub = document.querySelector('.hud-subtitle');
+      if (sub) sub.textContent = `Native WebGPU PBR & Wasm Runtime${vendorStr}`;
+      const pill = document.getElementById('hud-backend-pill');
+      if (pill) {
+        pill.textContent = 'WebGPU PBR';
+        pill.className = 'badge badge-webgpu';
+        pill.title = 'Hardware-accelerated native WebGPU Cook-Torrance PBR pipeline';
+      }
       BglNotifier.success(
-        'WebGPU Engine Operational',
-        `Native hardware WebGPU 3D pipeline and WebAssembly runtime active${vendorStr}.`
+        'WebGPU PBR Engine Operational',
+        `Native hardware WebGPU Cook-Torrance PBR pipeline active${vendorStr}.`
       );
       return true;
     }
 
-    // WebGL 2 Fallback path
-    BglLogger.log('Engine', 'Initializing high-performance WebGL 2 3D rendering pipeline...');
-    resetCanvasElement();
-    const webglOk = BglWebGlRenderer.init();
-    if (webglOk) {
-      BglState.backend = 'webgl2';
-      updateBackendUI('webgl2');
-      const vendorStr = (window.cachedGpuInfo && window.cachedGpuInfo.vendor) ? ` (${window.cachedGpuInfo.vendor})` : '';
-      BglNotifier.success(
-        'WebGL 2 Engine Operational',
-        `Hardware-accelerated WebGL 2 fallback pipeline and WebAssembly runtime active${vendorStr}.`
-      );
-      return true;
-    } else {
-      issues.push({
-        feature: '3D Graphics Acceleration (WebGPU / WebGL 2)',
-        detail: 'Neither WebGPU nor WebGL 2 could be initialized on this browser. Verify hardware graphics acceleration settings in your browser.'
-      });
-    }
+    issues.push({
+      feature: 'WebGPU (Web Graphics API)',
+      detail: 'This application requires WebGPU for high-performance Cook-Torrance PBR rendering. Please use a WebGPU-enabled browser such as Google Chrome (113+), Microsoft Edge (113+), or Mozilla Firefox (with dom.webgpu.enabled).'
+    });
 
     if (issues.length > 0) {
       showCompatibilityWarning(issues, warnings);
@@ -3656,18 +3079,8 @@ void main() {
 
   function getActiveRenderer() {
     if (BglWebGpuRenderer && BglWebGpuRenderer.isActive) return BglWebGpuRenderer;
-    if (BglWebGlRenderer && BglWebGlRenderer.isActive) return BglWebGlRenderer;
     return null;
   }
-
-  function toggleBackend() {
-    const target = BglState.backend === 'webgpu' ? 'webgl' : 'webgpu';
-    const url = new URL(window.location.href);
-    url.searchParams.set('backend', target);
-    if (target === 'webgpu') url.searchParams.delete('webgl');
-    window.location.href = url.toString();
-  }
-  window.toggleBackend = toggleBackend;
 
   // ============================================================================
   // Engine Control Toggles (Exposed to HTML onclick handlers)
@@ -4531,7 +3944,6 @@ void main() {
     // Expose engine handles for telemetry, testing, and debugging
     window.BglState = BglState;
     window.BglWebGpuRenderer = BglWebGpuRenderer;
-    window.BglWebGlRenderer = BglWebGlRenderer;
     window.getActiveRenderer = getActiveRenderer;
 
     BglLogger.log('Engine', `Bootstrap completed successfully (Backend: ${BglState.backend}).`);

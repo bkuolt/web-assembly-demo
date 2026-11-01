@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.14] - 2026-11-01
+
+### Photorealistic Cook-Torrance glTF 2.0 PBR Shading & Pure WebGPU Migration
+- **Photorealistic Cook-Torrance glTF 2.0 PBR Shading (`web/app.js`):**
+  - Replaced legacy Blinn-Phong shading with full glTF 2.0 Metallic-Roughness Physically Based Rendering (PBR) microfacet BRDF in native WebGPU WGSL.
+  - Implemented Trowbridge-Reitz GGX normal distribution function ($D$), Smith Joint Masking-Shadowing visibility function ($Vis$), and Schlick's Fresnel approximation ($F$) with roughness attenuation for ambient reflections.
+  - Added Lambertian diffuse BRDF with metallic energy conservation: $\vec{c}_{\text{diffuse}} = (1 - F) \cdot (1 - \text{metallic}) \cdot \frac{\vec{c}_{\text{albedo}}}{\pi}$.
+  - Derives dynamic tangent space and screen-space cotangent TBN basis via `dpdx` and `dpdy` derivatives, enabling normal mapping with glTF `normalScale` without requiring precomputed 4-component vertex tangents.
+  - Added dual-lobe directional lighting (Sun Key Light + Diurnal angle + Cool Sky Fill Light) alongside hemispheric ambient diffuse irradiance and GGX specular environment reflection.
+  - Integrated official Khronos PBR Neutral tonemapping curve (`tonemapKhronosPbrNeutral`) and linear-to-sRGB display encoding.
+  - Supported glTF `alphaMode` modes (`OPAQUE`, `MASK` with `alphaCutoff`, and `BLEND`).
+- **Full Multi-Texture Pipeline & 7-Slot GPU Bind Groups:**
+  - Expanded WebGPU bind group layout to 7 dedicated resources per primitive: 512-byte uniform buffer, linear filtering sampler, `baseColorTexture`, `metallicRoughnessTexture` (G=roughness, B=metallic), `normalTexture`, `emissiveTexture`, and `occlusionTexture`.
+  - Added default 1x1 fallback textures for untextured or partially textured glTF primitives (`defaultWhiteTexture`, `defaultMrTexture`, `defaultNormalTexture`, `defaultBlackTexture`).
+  - Added full support for the `KHR_texture_transform` glTF extension (UV scale and offset coordinates).
+  - Deduplicated texture caching in `this.textureCache` by GLB bufferView and external URI to prevent redundant GPU memory allocation.
+- **Pure Native WebGPU Architecture & WebGL Fallback Eradication:**
+  - Completely removed the legacy WebGL 2 fallback runtime (`BglWebGlRenderer`, ~870 lines of GLSL ES 3.0 / VAO legacy code).
+  - Streamlined web UI: removed backend switch button `#btn-toggle-backend` and `.badge-webgl`, updated live telemetry HUD to pure native WebGPU PBR status.
+  - Removed `tests/test_webgl_path.js` and deleted `WebGLPipelineTest` from CMake and CTest suites.
+  - Hardened WebGPU re-entrancy safety: added `if (this.isActive && this.device) return true;` to prevent duplicate `GPUDevice` instantiation in Google Chrome Dawn.
+- **Automated Verification:**
+  - Node.js WebGPU simulation test `tests/test_webgpu_path.js` verifies Cook-Torrance GGX functions, 512-byte UBOs, and 7-entry PBR bind groups.
+  - Real browser end-to-end tests `tests/test_browsers_e2e.py` confirm native WebGPU execution with 0 errors across Google Chrome and Mozilla Firefox.
+  - 100% CTest pass rate across all 3 test suites (`AllUnitTests` with 210 tests, `WebGPUPipelineTest`, `BrowserE2ETest`).
+
+---
+
 ## [0.9.13] - 2026-10-31
 
 ### Production Optimization, Cross-Browser WebGPU Hardening & Conan 2.x Lock
