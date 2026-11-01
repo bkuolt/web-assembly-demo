@@ -36,10 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Streamlined web UI: removed backend switch button `#btn-toggle-backend` and `.badge-webgl`, updated live telemetry HUD to pure native WebGPU PBR status.
   - Removed `tests/test_webgl_path.js` and deleted `WebGLPipelineTest` from CMake and CTest suites.
   - Hardened WebGPU re-entrancy safety: added `if (this.isActive && this.device) return true;` to prevent duplicate `GPUDevice` instantiation in Google Chrome Dawn.
+- **Dedicated Web Runtime Unit Test Suite (`tests/test_web_unit.js`, 44 Tests):**
+  - Added standalone, isolated JavaScript unit test suite covering 44 granular test cases:
+    - `Vector & Matrix Mathematics`: 4x4 identity, multiplication associativity, perspective clip space $[0, 1]$ depth mapping, lookAt view matrices, inverse-transpose normal matrices, and degenerate zero-determinant fallbacks.
+    - `glTF 2.0 / GLB Binary Parser`: Magic header (`0x46546C67`), version checks, truncated buffer security, chunk length bounds validation, AABB extents and telemetry calculation.
+    - `PBR & Cook-Torrance Mathematics`: GGX normal distribution, Smith Joint masking-shadowing, Schlick Fresnel, energy conservation, Khronos PBR Neutral tonemapping, and sRGB gamma transfer symmetry.
+    - `Cotangent Frame & POM`: Analytic $2\times 2$ cotangent system solving, glTF tangent space orientation, view-adaptive POM layer scaling ($8$ to $32$ layers), and contact self-shadowing.
+    - `WebGPU UBO Layout (std140)`: 16-byte alignment, 512-byte scratch buffer, flags bit packing, zero-allocation typed array views.
+    - `Reactive State & UI Handlers`: Feature toggles, slider numeric updates, camera pitch clamping $[-1.55, 1.55]$, zoom distance clamping, and structured logger.
+  - Integrated `WebUnitTests` into CMake and CTest test runner (now testing 4 test suites: 210 C++ unit tests + 44 Web unit tests = 254 unit tests total).
 - **Automated Verification:**
   - Node.js WebGPU simulation test `tests/test_webgpu_path.js` verifies Cook-Torrance GGX functions, 512-byte UBOs, and 7-entry PBR bind groups.
+  - Dedicated unit test suite `tests/test_web_unit.js` executes 44 unit tests with 100% pass rate.
   - Real browser end-to-end tests `tests/test_browsers_e2e.py` confirm native WebGPU execution with 0 errors across Google Chrome and Mozilla Firefox.
-  - 100% CTest pass rate across all 3 test suites (`AllUnitTests` with 210 tests, `WebGPUPipelineTest`, `BrowserE2ETest`).
+  - 100% CTest pass rate across all 4 test suites (`AllUnitTests` with 210 tests, `WebGPUPipelineTest`, `WebUnitTests` with 44 tests, `BrowserE2ETest`).
 
 ---
 

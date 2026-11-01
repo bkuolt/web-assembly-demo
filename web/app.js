@@ -4062,8 +4062,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   }
 
   // ============================================================================
-  // Application Bootstrap
+  // Application Bootstrap & Global Module Exports
   // ============================================================================
+  window.BglState = BglState;
+  window.BglWebGpuRenderer = BglWebGpuRenderer;
+  window.BglGltf = BglGltf;
+  window.BglLogger = BglLogger;
+  window.BglModelCache = BglModelCache;
+  window.getActiveRenderer = getActiveRenderer;
+
   async function bootstrap() {
     BglLogger.banner();
     registerEventListeners();
@@ -4121,6 +4128,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // Expose engine handles for telemetry, testing, and debugging
     window.BglState = BglState;
     window.BglWebGpuRenderer = BglWebGpuRenderer;
+    window.BglGltf = BglGltf;
+    window.BglLogger = BglLogger;
+    window.BglModelCache = BglModelCache;
     window.getActiveRenderer = getActiveRenderer;
 
     BglLogger.log('Engine', `Bootstrap completed successfully (Backend: ${BglState.backend}).`);

@@ -382,6 +382,11 @@ if(BGL_BUILD_TESTING)
         set_tests_properties(WebGPUPipelineTest PROPERTIES
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         )
+
+        add_test(NAME WebUnitTests COMMAND ${NODE_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_web_unit.js")
+        set_tests_properties(WebUnitTests PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
     endif()
 
     find_package(Python3 COMPONENTS Interpreter)

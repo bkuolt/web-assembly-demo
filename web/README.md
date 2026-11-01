@@ -250,16 +250,28 @@ Camera parameters are dynamically configured:
 
 ## Automated Verification & Test Suites
 
-The web runtime is verified by two complementary automated test suites:
+The web runtime is verified by three complementary automated test suites:
 
-### 1. WebGPU Pipeline Test (`tests/test_webgpu_path.js`)
+### 1. Web Runtime Unit Tests (`tests/test_web_unit.js`)
+Dedicated, high-speed unit test suite executing 44 isolated unit tests covering all algorithmic, mathematical, and parser components:
+```bash
+node tests/test_web_unit.js
+```
+- **Matrix Math**: 4x4 identity, multiplication associativity, perspective projection $[0, 1]$ depth mapping, lookAt view matrices, inverse-transpose normal matrices, and degenerate matrix fallbacks.
+- **glTF 2.0 / GLB Parsing**: Magic header (`0x46546C67`), truncated buffer security, chunk length bounds checking, AABB extents and telemetry calculation.
+- **PBR & Cook-Torrance**: GGX NDF, Smith Joint Masking-Shadowing, Schlick Fresnel, energy conservation, Khronos PBR Neutral tonemapping, and sRGB gamma transfer symmetry.
+- **Cotangent Frame & POM**: Analytic $2\times 2$ cotangent system solving, glTF tangent space orientation, view-adaptive POM layer scaling ($8$ to $32$ layers), and contact self-shadowing.
+- **WebGPU UBO Layout (std140)**: 16-byte alignment, 512-byte scratch buffer, flags bit packing, zero-allocation typed array views.
+- **State & UI Handlers**: Feature toggles, slider numeric updates, camera pitch clamping $[-1.55, 1.55]$, zoom distance clamping, and structured logger.
+
+### 2. WebGPU Pipeline Test (`tests/test_webgpu_path.js`)
 Simulates standard W3C WebGPU device, command encoder, and WGSL pipelines:
 ```bash
 node tests/test_webgpu_path.js
 ```
 - Tests: Ingestion of `ToyCar.glb` and `Sponza.glb`, Cook-Torrance GGX functions, 7-slot PBR bind groups, 4-byte index buffer alignment, 512-byte UBO layout, zero-allocation render loop, and GPU buffer destruction.
 
-### 2. Multi-Browser End-to-End Test (`tests/test_browsers_e2e.py`)
+### 3. Multi-Browser End-to-End Test (`tests/test_browsers_e2e.py`)
 Controls real instances of **Google Chrome** (via Chrome DevTools Protocol) and **Mozilla Firefox** (via Marionette/geckodriver) over a local HTTP server:
 ```bash
 python3 tests/test_browsers_e2e.py
