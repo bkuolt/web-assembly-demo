@@ -278,9 +278,30 @@ TEST(CommandLineTest, WeatherEffectFlagsAndParameters) {
     EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{wSmokeArgs}).weatherMode, 4u);
 
     // 6. Day/Night cycle flags (--time, --day-night-cycle, --day-night-speed)
-    const std::array<const char*, 6> dnArgs{"bgl_viewer", "--time", "18.5", "--day-night-cycle", "--day-night-speed", "2.4"};
+    const std::array<const char*, 6> dnArgs{"bgl_viewer",        "--time", "18.5", "--day-night-cycle",
+                                            "--day-night-speed", "2.4"};
     const auto optDn = CliOptions::Parse(std::span<const char* const>{dnArgs});
     EXPECT_NEAR(optDn.timeOfDay, 18.5f, 1e-4f);
     EXPECT_TRUE(optDn.enableDayNightCycle);
     EXPECT_NEAR(optDn.dayNightSpeed, 2.4f, 1e-4f);
+}
+
+TEST(CommandLineTest, WeatherAndDiurnalEdgeCasesAndPrecedence) {
+    // 1. --weather none resets a prior --smoke flag back to 0 (Clear)
+    const std::array<const char*, 4> resetArgs{"bgl_viewer", "--smoke", "--weather", "none"};
+    const auto optReset = CliOptions::Parse(std::span<const char* const>{resetArgs});
+    EXPECT_EQ(optReset.weatherMode, 0u);
+
+    // 2. Trailing flags without arguments do not crash or throw
+    const std::array<const char*, 2> trailingTime{"bgl_viewer", "--time"};
+    EXPECT_NO_THROW({
+        const auto opt = CliOptions::Parse(std::span<const char* const>{trailingTime});
+        EXPECT_FLOAT_EQ(opt.timeOfDay, 14.0f);
+    });
+
+    const std::array<const char*, 2> trailingSpeed{"bgl_viewer", "--day-night-speed"};
+    EXPECT_NO_THROW({
+        const auto opt = CliOptions::Parse(std::span<const char* const>{trailingSpeed});
+        EXPECT_FLOAT_EQ(opt.dayNightSpeed, 1.0f);
+    });
 }

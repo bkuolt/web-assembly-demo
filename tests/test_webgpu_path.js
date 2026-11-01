@@ -245,6 +245,12 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   assert.strictEqual(BglWebGpuRenderer.format, 'bgra8unorm', 'Canvas format must match getPreferredCanvasFormat');
   assert(BglWebGpuRenderer.pipeline !== null, 'Pipeline must be compiled');
   assert(BglWebGpuRenderer.pipelineDoubleSided !== null, 'Double-sided pipeline must be compiled');
+  assert(BglWebGpuRenderer.mipmapPipeline !== null, 'Mipmap render pipeline must be compiled');
+  assert.strictEqual(BglWebGpuRenderer.pipeline.desc.vertex.buffers[0].arrayStride, 48, 'Vertex buffer stride must be 48 bytes (pos+norm+uv+tangent)');
+  assert.strictEqual(BglWebGpuRenderer.pipeline.desc.vertex.buffers[0].attributes.length, 4, 'Vertex buffer must declare 4 attributes');
+  assert.strictEqual(BglWebGpuRenderer.defaultSampler.desc.addressModeU, 'repeat', 'Default sampler addressModeU must be repeat');
+  assert.strictEqual(BglWebGpuRenderer.defaultSampler.desc.addressModeV, 'repeat', 'Default sampler addressModeV must be repeat');
+  assert.strictEqual(BglWebGpuRenderer.defaultSampler.desc.maxAnisotropy, 16, 'Default sampler maxAnisotropy must be 16');
   assert(BglWebGpuRenderer.defaultWhiteTexture !== null, 'Default white texture must be created');
   assert(BglWebGpuRenderer.defaultMrTexture !== null, 'Default metallic-roughness texture must be created');
   assert(BglWebGpuRenderer.defaultNormalTexture !== null, 'Default normal texture must be created');
@@ -288,7 +294,10 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
 
     BglWebGpuRenderer.loadModel(gltfS, sponzaBuf.buffer, 'Sponza.glb');
     assert(BglWebGpuRenderer.primitives.length > 0, 'Sponza primitives must be loaded');
-    console.log(`✓ Loaded ${BglWebGpuRenderer.primitives.length} primitives from Sponza.glb`);
+    assert.strictEqual(BglWebGpuRenderer.modelBounds.isSponza, true, 'Sponza modelBounds.isSponza must be true');
+    assert.strictEqual(BglWebGpuRenderer.camera.distance, 7.2, 'Sponza camera distance must be placed at 7.2m inside courtyard');
+    assert.strictEqual(BglWebGpuRenderer.textureCache.size, gltfS.images.length, 'Async textureCache must deduplicate Sponza textures to exact image count');
+    console.log(`✓ Loaded ${BglWebGpuRenderer.primitives.length} primitives from Sponza.glb (${BglWebGpuRenderer.textureCache.size} unique textures cached)`);
     console.log('  Sponza Bounds Center:', BglWebGpuRenderer.modelBounds.center);
     console.log('  Sponza Bounds Radius:', BglWebGpuRenderer.modelBounds.radius);
   }

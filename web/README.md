@@ -91,24 +91,32 @@ The renderer implements a fully conformant **glTF 2.0 Metallic-Roughness PBR pip
   $$k_S = F, \quad k_D = (1 - k_S)(1 - \text{metallic})$$
   $$\text{diffuseBRDF} = k_D \cdot \frac{\text{diffuseColor}}{\pi}$$
 
-### 2. Multi-Texture PBR Bind Group (7 Bindings)
+### 2. Multi-Texture PBR Bind Group (7 Bindings) & GPU Mipmap Pipeline
 Each primitive binds a 7-resource bind group:
 1. `Binding 0`: Uniform Buffer (512-byte aligned UBO).
-2. `Binding 1`: Linear filtering sampler (`GPUFilterMode.linear`).
+2. `Binding 1`: 16× Anisotropic Repeat Sampler (`addressModeU: 'repeat'`, `addressModeV: 'repeat'`, `mipmapFilter: 'linear'`, `maxAnisotropy: 16`), matching glTF 2.0's default repeat wrapping mode (`10497`) for tiled architectural UV coordinates (such as Sponza's `[-27.8, 32.3]` range).
 3. `Binding 2`: `baseColorTexture` (decoded to linear space via $2.2$ gamma exponent).
 4. `Binding 3`: `metallicRoughnessTexture` (glTF 2.0 standard: green = roughness, blue = metallic).
-5. `Binding 4`: `normalTexture` (screen-space cotangent/MikkTSpace frame normal mapping).
+5. `Binding 4`: `normalTexture` (MikkTSpace vertex tangent & screen-space cotangent normal mapping).
 6. `Binding 5`: `emissiveTexture` (emissive surfaces with HDR contribution).
 7. `Binding 6`: `occlusionTexture` (red = ambient occlusion cavity map).
 
-### 3. Tactile 3D Bump Mapping & Parallax Occlusion Mapping (POM)
+**Hardware Mipmap Generation (`generateMipmaps`):**
+Every texture generates a full mip chain ($\lfloor\log_2(\max(W, H))\rfloor + 1$ levels down to $1\times 1$) on the GPU via a dedicated full-screen triangle render pass (`vs_mip` / `fs_mip`), eliminating distant shimmering and enabling 16× anisotropic filtering. All fragment shader texture fetches use `textureSampleGrad` with precomputed uniform screen-space UV derivatives (`duv1 = dpdx(uv)`, `duv2 = dpdy(uv)`).
+
+### 3. Tactile 3D Bump Mapping, MikkTSpace Tangents & Parallax Occlusion Mapping (POM)
 To achieve true sculptural depth and plastic relief on flat surfaces:
-- **Analytic Cotangent Frame ($\text{TBN}$)**:
-  Solves the $2\times 2$ surface gradient system directly from screen-space derivatives:
+- **48-Byte Interleaved Vertex Layout & MikkTSpace Tangents**:
+  Packs `position` (`vec3<f32>`), `normal` (`vec3<f32>`), `uv` (`vec2<f32>`), and `tangent` (`vec4<f32>`) into a cache-coherent 48-byte stride. When glTF `TANGENT` attributes are present, `getTBN()` orthogonalizes $\vec{T}$ against $\vec{N}$ via Gram-Schmidt and computes $\vec{B} = \text{normalize}(\vec{N} \times \vec{T} \cdot \text{sign}(T_w))$, falling back to the analytic $2\times 2$ screen-space cotangent frame when vertex tangents are omitted:
   $$\begin{pmatrix} duv_{1,x} & duv_{1,y} \\ duv_{2,x} & duv_{2,y} \end{pmatrix} \begin{pmatrix} \vec{T} \\ \vec{B} \end{pmatrix} = \begin{pmatrix} \vec{dp}_1 \\ \vec{dp}_2 \end{pmatrix}$$
   $$\det = duv_{1,x} \cdot duv_{2,y} - duv_{1,y} \cdot duv_{2,x}$$
   $$\vec{T} = \frac{1}{\det}(\vec{dp}_1 \cdot duv_{2,y} - \vec{dp}_2 \cdot duv_{1,y}), \quad \vec{B} = \frac{1}{\det}(\vec{dp}_2 \cdot duv_{1,x} - \vec{dp}_1 \cdot duv_{2,x})$$
-  Orthogonalized via Gram-Schmidt against $\vec{N}_{\text{geom}}$ with handedness preservation.
+- **Atmospheric Weather (Rain, Snow, Fog, Smoke) & 24h Day/Night Cycle**:
+  - **Rain (`[X]` / `[F4]`)**: Directional volumetric rain streaks, concentric tangent-space raindrop ripples, and wet surface glaze.
+  - **Snow (`[Y]` / `[F5]`)**: Drifting volumetric snowflakes, upward-facing surface snow accumulation ($N_y > 0.2$), and solar crystal micro-sparkles.
+  - **Fog (`[F6]`)**: Exponential distance and height mist with 3D FBM density waves and anisotropic Mie forward scattering.
+  - **Smoke (`[F7]`)**: Rising 3-octave 3D FBM turbulent smoke plumes with warm ground-level ember glow.
+  - **Day/Night Cycle (`[I]` / `[F8]`)**: Continuous 24-hour diurnal progression smoothly transitioning between noon daylight, warm golden-hour sunset/sunrise, and cool silver-blue moonlight.
 - **glTF 2.0 Tangent-Space Alignment & Relief Scaling**:
   Corrects tangent space orientation ($+X = \text{right}, +Y = \text{up} = -\vec{B}$ in texture space) and scales by dynamic `bumpScale` ($0.0\times$ to $3.0\times$, default $1.5\times$):
   $$\vec{N}_{\text{tangent}} = \text{normalize}\left(\text{sample}_x \cdot s, \; -\text{sample}_y \cdot s, \; \text{sample}_z\right), \quad s = \text{normalScale} \cdot \text{bumpScale}$$

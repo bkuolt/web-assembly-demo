@@ -39,13 +39,7 @@ enum class EnvironmentPreset : uint32_t {
     CustomHdr = 4
 };
 
-enum class WeatherMode : uint32_t {
-    None = 0,
-    Rain = 1,
-    Snow = 2,
-    Fog = 3,
-    Smoke = 4
-};
+enum class WeatherMode : uint32_t { None = 0, Rain = 1, Snow = 2, Fog = 3, Smoke = 4 };
 
 namespace MaterialFlags {
 constexpr uint32_t HasBaseColorTex = 1u << 0;

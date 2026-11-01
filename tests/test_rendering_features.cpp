@@ -1599,3 +1599,89 @@ TEST(RenderingFeaturesTest, FogSmokeAndDiurnalDayNightPhysics) {
     EXPECT_GT(noonAmb.r, nightAmb.r);
     EXPECT_GT(nightAmb.b, nightAmb.r);
 }
+
+TEST(RenderingFeaturesTest, DayNightCycleProgressionAndTimeOfDayWrapping) {
+    gpu::PipelineManager pm{};
+
+    // 1. Default diurnal state (14:00 afternoon sun)
+    EXPECT_FLOAT_EQ(pm.GetTimeOfDay(), 14.0f);
+    EXPECT_GT(pm.GetSolarElevationFactor(), 0.5f);
+
+    // 2. Wrapping across [0, 24) boundaries
+    pm.SetTimeOfDay(26.5f);
+    EXPECT_NEAR(pm.GetTimeOfDay(), 2.5f, 1e-4f);
+    EXPECT_LT(pm.GetSolarElevationFactor(), 0.0f); // 02:30 AM is night (below horizon)
+
+    pm.SetTimeOfDay(-4.0f);
+    EXPECT_NEAR(pm.GetTimeOfDay(), 20.0f, 1e-4f);
+    EXPECT_LT(pm.GetSolarElevationFactor(), 0.0f); // 20:00 PM is after sunset
+
+    pm.SetTimeOfDay(48.0f);
+    EXPECT_NEAR(pm.GetTimeOfDay(), 0.0f, 1e-4f);
+    EXPECT_NEAR(pm.GetSolarElevationFactor(), -1.0f, 1e-4f); // Midnight nadir
+
+    // 3. Symmetry of solar elevation around noon (09:00 vs 15:00)
+    pm.SetTimeOfDay(9.0f);
+    const float elevMorning = pm.GetSolarElevationFactor();
+    pm.SetTimeOfDay(15.0f);
+    const float elevAfternoon = pm.GetSolarElevationFactor();
+    EXPECT_NEAR(elevMorning, elevAfternoon, 1e-4f);
+    EXPECT_NEAR(elevMorning, std::sin(std::numbers::pi_v<float> * 0.25f), 1e-4f);
+
+    // 4. Continuity of diurnal radiance and ambient scale across 24 hours
+    for (int h = 0; h <= 24; ++h) {
+        const glm::vec3 rad = gpu::PipelineManager::EvaluateDiurnalSunRadiance(static_cast<float>(h));
+        const glm::vec3 amb = gpu::PipelineManager::EvaluateDiurnalAmbientScale(static_cast<float>(h));
+        EXPECT_GT(rad.r, 0.0f);
+        EXPECT_GT(rad.g, 0.0f);
+        EXPECT_GT(rad.b, 0.0f);
+        EXPECT_GT(amb.r, 0.0f);
+        EXPECT_GT(amb.g, 0.0f);
+        EXPECT_GT(amb.b, 0.0f);
+    }
+}
+
+TEST(RenderingFeaturesTest, FogAndSmokeBoundaryAndSaturationPhysics) {
+    // 1. Zero or negative distance yields 0.0 fog
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateFogFactor(0.0f, 0.0f, 1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateFogFactor(-10.0f, 0.0f, 1.0f), 0.0f);
+
+    // 2. Extreme distance saturates smoothly at 0.96 maximum opacity cap
+    const float extremeFog = gpu::PipelineManager::EvaluateFogFactor(10000.0f, -5.0f, 2.0f);
+    EXPECT_NEAR(extremeFog, 0.96f, 1e-4f);
+
+    // 3. Smoke vertical exponential decay and saturation cap [0.0, 0.95]
+    EXPECT_FLOAT_EQ(gpu::PipelineManager::EvaluateSmokeDensity(0.0f, -1.0f), 0.0f);
+    EXPECT_LT(gpu::PipelineManager::EvaluateSmokeDensity(100.0f, 1.0f), 0.01f);
+
+    // Maximum intensity (2.0) at ground level saturates at 0.95 cap
+    const float peakSmoke = gpu::PipelineManager::EvaluateSmokeDensity(-3.0f, 2.0f);
+    EXPECT_NEAR(peakSmoke, 0.95f, 1e-4f);
+}
+
+TEST(RenderingFeaturesTest, TiledUvMikkTSpaceTangentsOrthogonality) {
+    // Verify tangent computation on Sponza-like large tiled UVs spanning [-25.0, +30.0]
+    scene::MeshPrimitive prim{};
+    prim.vertices.resize(3);
+    prim.vertices[0].position = glm::vec3(-10.0f, 0.0f, -10.0f);
+    prim.vertices[0].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    prim.vertices[0].uv = glm::vec2(-25.0f, -20.0f);
+
+    prim.vertices[1].position = glm::vec3(10.0f, 0.0f, -10.0f);
+    prim.vertices[1].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    prim.vertices[1].uv = glm::vec2(30.0f, -20.0f);
+
+    prim.vertices[2].position = glm::vec3(-10.0f, 0.0f, 10.0f);
+    prim.vertices[2].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    prim.vertices[2].uv = glm::vec2(-25.0f, 28.0f);
+
+    prim.indices = {0, 1, 2};
+    prim.ComputeTangents();
+
+    for (const auto& v : prim.vertices) {
+        const glm::vec3 T(v.tangent);
+        EXPECT_NEAR(glm::length(T), 1.0f, 1e-4f);
+        EXPECT_NEAR(glm::dot(v.normal, T), 0.0f, 1e-4f);
+        EXPECT_NEAR(std::abs(v.tangent.w), 1.0f, 1e-4f);
+    }
+}

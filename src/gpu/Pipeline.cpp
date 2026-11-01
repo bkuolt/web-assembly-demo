@@ -1689,8 +1689,7 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
         bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[12].binding = 12;
-        bgEntries[12].sampler =
-            shadowPass_.IsInitialized() ? shadowPass_.GetShadowSampler() : shadowSampler_.Get();
+        bgEntries[12].sampler = shadowPass_.IsInitialized() ? shadowPass_.GetShadowSampler() : shadowSampler_.Get();
 
         bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[13].binding = 13;
@@ -2247,8 +2246,7 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
     sl.envParams = glm::vec4{envRotation_, static_cast<float>(lightCount),
                              1.0f, // Enable Clustered Forward+ 3D light culling
                              hasExplicitDirectional ? 0.0f : 1.0f};
-    sl.weatherParams =
-        glm::vec4{static_cast<float>(weatherMode_), weatherIntensity_, windStrength_, weatherTimeSec_};
+    sl.weatherParams = glm::vec4{static_cast<float>(weatherMode_), weatherIntensity_, windStrength_, weatherTimeSec_};
 
     wgpuQueueWriteBuffer(queue_, sceneLightingBuffer_, 0, &sl, sizeof(sl));
 }
@@ -2742,8 +2740,7 @@ glm::vec3 PipelineManager::EvaluateRainWetAlbedo(const glm::vec3& dryAlbedo, flo
     const float clampedInt{std::clamp(intensity, 0.0f, 2.0f)};
     if (clampedInt <= 0.001f)
         return dryAlbedo;
-    const float wetWeight{std::clamp(clampedInt * 0.8f, 0.0f, 0.75f) *
-                          (1.0f - std::clamp(metallic, 0.0f, 1.0f))};
+    const float wetWeight{std::clamp(clampedInt * 0.8f, 0.0f, 0.75f) * (1.0f - std::clamp(metallic, 0.0f, 1.0f))};
     return glm::mix(dryAlbedo, dryAlbedo * 0.65f, wetWeight);
 }
 

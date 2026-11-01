@@ -176,12 +176,10 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawRect(panelX + 10.0f, panelY + 105.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
 
     // 7. Row 4: Geometry & Spatial Feature Status
-    std::string geoToggleText =
-        std::format("Geo: [B]AABB:{} [Q]Quad:{} [H]Hi-Z:{} [K]Sky:{} [Y]Wthr:{}",
-                    currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
-                    currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF",
-                    currentStats_.occlusionCullingEnabled ? "ON" : "OFF", currentStats_.skyboxEnabled ? "ON" : "OFF",
-                    currentStats_.weatherModeName);
+    std::string geoToggleText = std::format(
+        "Geo: [B]AABB:{} [Q]Quad:{} [H]Hi-Z:{} [K]Sky:{} [Y]Wthr:{}", currentStats_.boundingBoxesEnabled ? "ON" : "OFF",
+        currentStats_.quadtreeBoundsEnabled ? "ON" : "OFF", currentStats_.occlusionCullingEnabled ? "ON" : "OFF",
+        currentStats_.skyboxEnabled ? "ON" : "OFF", currentStats_.weatherModeName);
     textRenderer_.DrawText(geoToggleText, textX, panelY + 114.0f, glm::vec4(0.99f, 0.73f, 0.22f, 1.0f));
 
     // 8. Row 5: PBR Shading & Diurnal Lighting Status

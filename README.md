@@ -4,7 +4,7 @@
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-262_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-283_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.15-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
@@ -34,14 +34,14 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | **glTF Cameras from File** | Complete parsing of perspective and orthographic `fastgltf::Camera` instances mapped to scene transforms, selectable via dropdown | UI Camera Dropdown |
 | **Touch Controls (Web)** | 1-finger orbit, 2-finger pinch-zoom, and 2-finger pan gestures with event prevention for mobile/tablet browsers | Touch gestures on canvas |
 | **Dual Gamepad Support** | Native `SDL_GameController` on desktop, HTML5 Web Gamepad API in browser, 0.12 radial deadzone, dual-stick orbit/fly/pan | Gamepad sticks & triggers |
-| **Live Sun / Time-of-Day** | Diurnal cycle slider (0–24h) computing solar azimuth and elevation; Skybox, PCF shadows, lens flares, and specular highlights follow live | Slider in Tuning Drawer |
+| **Live Sun / Day-Night Cycle** | Dynamic 24-hour diurnal progression (`[I]` / `[F8]`) with golden-hour sunset & lunar night lighting; Skybox, PCF shadows, lens flares, and specular highlights follow live | `[I]` / `[F8]` / Slider / `--day-night-cycle` |
 | **Alpha-Tested Shadows** | Directional shadow pre-pass tests material textures and cutoff ($\alpha < \alpha_{\text{cutoff}}$) for `MASK` and `BLEND` foliage/cutouts, casting accurate silhouette shadows | Automatic (`alphaMode == MASK`) |
 | **Screen-Space AO (SSAO/GTAO)** | Real-time depth/contrast horizon gradient sampling complementing material occlusion maps and micro-cavities | `[G]` / Slider / HUD |
 | **HDR Emissive Bloom** | Linear HDR bright-pass extraction with golden-angle multi-ring scatter glow for radiant emissive materials | `[Z]` / Slider / HUD |
 | **True Transmission & Refraction** | Full `KHR_materials_volume` support, view-space Snell's law screen refraction, and physical Beer-Lambert volume extinction | Automatic (`KHR_materials_volume`) |
 | **Native Compressed Textures** | Automatic KTX2 Basis Universal transcoding to native BC7, ASTC 4×4, or ETC2 based on WebGPU adapter capabilities | Automatic GPU feature detection |
 | **Parallax Occlusion Mapping (POM)** | Steep parallax raymarching (8–32 view-adaptive layers) with secant interpolation and light-facing self-shadowing for deep 3D surface immersion | `[P]` / Slider / HUD |
-| **Atmospheric Weather (Rain & Snow)** | Directional rain streaks oriented by wind, animated droplet ripples & wet surface glaze, drifting snowflakes with turbulent wobble, upward snow accumulation ($N.y > 0.2$), and crystalline sparkles | `[X]` (Rain) / `[Y]` (Snow) / Sliders / HUD |
+| **Atmospheric Weather (Rain, Snow, Fog, Smoke)** | Directional rain streaks & droplet ripples (`[X]`/`[F4]`), drifting snowflakes & accumulation (`[Y]`/`[F5]`), exponential height/distance mist (`[F6]`), and rising turbulent FBM smoke plumes (`[F7]`) | `[X]`/`[Y]`/`[F4]`–`[F7]` / `--rain` / `--snow` / `--fog` / `--smoke` |
 | **Ambient Occlusion (AO)** | glTF occlusion texture + micro-cavity + horizon contact + Jimenez multi-bounce color conservation with live intensity tuning | `[U]` / Slider / `--no-ao` |
 | **Directional Sun Lens Flares** | Real-time post-processing lens flare with solar corona glow, anamorphic horizontal streaks, chromatic ghosts, optical halo rings, and screen-edge fade | `[J]` / Slider / HUD |
 | **Full Keyboard Navigation** | Smooth WASD & Arrow key 3D camera pan/fly, `+` / `-` keys for zoom in / out with step clamping | `[W]`/`[A]`/`[S]`/`[D]` / `[+]`/`[-]` |

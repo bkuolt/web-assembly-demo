@@ -9,26 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.15] - 2026-11-01
 
-### Atmospheric Weather Simulation & Shader Effects (Rain & Snow)
-- **Atmospheric Weather WGSL Shaders (`web/app.js`):**
-  - **Dynamic Rain Simulation:**
+### Atmospheric Weather Simulation (Rain, Snow, Fog, Smoke), Dynamic Day/Night Cycle & Sponza WebGPU Texturing
+- **Atmospheric Weather WGSL Shaders (`web/app.js`, `src/gpu/Shaders.hpp`, `src/gpu/Pipeline.cpp`):**
+  - **Dynamic Rain Simulation (`[X]` / `[F4]` / `--rain`):**
     - High-velocity directional rain streaks oriented along wind vectors using multi-frequency 3D volumetric hash ray cells with depth-attenuated atmospheric mist.
     - Procedural concentric raindrop ripples on upward-facing surfaces ($N.y > 0.15$), computing dynamic wave propagation and exponential decay in tangent space.
     - Physically based wet surface glaze: dielectric diffuse albedo darkening through liquid layer internal absorption and specular glossiness boost (roughness pulled down towards $0.08$ water sheen).
-  - **Atmospheric Snowfall Simulation:**
+  - **Atmospheric Snowfall Simulation (`[Y]` / `[F5]` / `--snow`):**
     - Volumetric drifting snowflakes with sinusoidal lateral turbulence wobble ($\sin(\omega t + \phi)$) and soft Gaussian particle profiles across two parallax depth layers.
     - Surface snow accumulation on upward-facing geometry ($N.y > 0.2$), transitioning albedo to crisp crystalline snow ($[0.93, 0.95, 0.99]$), increasing roughness to $0.70$, and zeroing metallic reflectance.
     - Direct solar micro-sparkles on accumulated snow crystals under sun key light.
-- **Web UI & Interactive Controls (`web/index.html`, `web/app.js`):**
-  - Added dedicated *Atmospheric Weather* category with single-click mode selector chips: `Clear`, `Rain [X]`, and `Snow [Y]`.
-  - Added *Weather Intensity* slider ($0.0\times$ to $2.0\times$) and *Wind Direction & Strength* slider ($-1.0$ to $+1.0$) in the Live Parameter Tuning Drawer.
-  - Added keyboard shortcuts `[X]` for Rain and `[Y]` for Snow with toast notifications.
-- **WebGPU Uniforms & Pipeline Integration:**
-  - Extended WGSL `struct Uniforms` with 16-byte aligned `weather : vec4<f32>` (mode, intensity, wind, timeSec) at byte offset 320.
-  - Updated zero-allocation WebGPU scratch buffer views (`_scratchUboF32` length 84) to eliminate per-frame allocations during weather simulation.
-- **Comprehensive Unit Test Expansion (`tests/test_web_unit.js`):**
-  - Added *Suite 7: Atmospheric Weather Shader Effects (Rain & Snow)* with 8 new unit tests covering weather mode cycling, slider clamping, wetness absorption math, normal gating, ripple decay, and flake turbulence.
-  - Total test count expanded to 262 passing unit tests (210 C++ engine tests + 52 Web runtime tests).
+  - **Exponential Height & Distance Fog (`[F6]` / `--fog`):**
+    - Beer-Lambert exponential distance extinction combined with ground-hugging height falloff (`exp(-max(worldY + 2.0, 0.0) * 0.12)`), animated 3D FBM mist banks, and anisotropic Mie forward solar/lunar scattering.
+  - **Volumetric Rising Smoke Plumes (`[F7]` / `--smoke`):**
+    - 3-octave 3D Fractal Brownian Motion (`fbm3`) turbulent smoke rising with buoyancy and wind advection, charcoal-to-ash coloring, and warm subsurface ember glow near ground level.
+- **Dynamic 24-Hour Day/Night Cycle (`[I]` / `[F8]` / `--day-night-cycle` / `--time`):**
+  - Continuous diurnal progression across the full 24-hour cycle with configurable speed (`--day-night-speed` / UI slider).
+  - Dynamic solar/lunar elevation and azimuth driving sun key radiance (crisp daylight at noon, warm golden-hour orange at sunrise/sunset, cool silver-blue moonlight at night), ambient hemisphere irradiance, and procedural skybox atmosphere (`src/gpu/Skybox.cpp`).
+- **Sponza WebGPU Texturing, Mipmap Generation & MikkTSpace Tangents (`web/app.js`):**
+  - Configured `defaultSampler` with `addressModeU: 'repeat'`, `addressModeV: 'repeat'`, `mipmapFilter: 'linear'`, and `maxAnisotropy: 16` to conform to the glTF 2.0 default sampler specification (`10497` repeat mode) for tiled architectural UV coordinates.
+  - Added GPU render-pass mipmap chain generator (`generateMipmaps`, `vs_mip`, `fs_mip`) producing full mip pyramids down to $1\times 1$ for every loaded texture.
+  - Expanded interleaved vertex layout to 48 bytes (`position`, `normal`, `uv`, `tangent`) with glTF `TANGENT` (`vec4<f32>`) ingestion and Gram-Schmidt orthogonalization in `getTBN()`.
+  - Switched fragment shader texture fetches to uniformity-safe `textureSampleGrad` using precomputed screen-space UV gradients (`duv1`, `duv2`).
+  - Added asynchronous `textureCache` deduplication (`waiters` queue) reducing Sponza GPU texture uploads from 307 redundant decodes to 69 unique textures.
+  - Added automatic interior atrium camera framing for Sponza (`isSponza`).
+- **Comprehensive Unit Test Expansion (`tests/test_web_unit.js`, `tests/test_webgpu_path.js`, `tests/test_rendering_features.cpp`, `tests/test_command_line.cpp`):**
+  - Expanded test suite to **283 passing unit tests** (219 C++ engine unit tests + 64 Web runtime unit tests) plus `WebGPUPipelineTest` and `BrowserE2ETest`.
 
 ## [0.9.14] - 2026-11-01
 

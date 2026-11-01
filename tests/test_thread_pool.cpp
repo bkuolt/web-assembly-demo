@@ -32,9 +32,7 @@ TEST(ThreadPoolTest, MultipleConcurrentAsyncTasks) {
     futures.reserve(kNumTasks);
 
     for (size_t i = 0; i < kNumTasks; ++i) {
-        futures.push_back(pool.Enqueue([i]() {
-            return i * i;
-        }));
+        futures.push_back(pool.Enqueue([i]() { return i * i; }));
     }
 
     for (size_t i = 0; i < kNumTasks; ++i) {
@@ -47,9 +45,7 @@ TEST(ThreadPoolTest, ParallelForWorkPartitioning) {
     constexpr size_t kSize = 10000;
     std::vector<int> data(kSize, 0);
 
-    pool.ParallelFor(0, kSize, [&data](size_t i) {
-        data[i] = static_cast<int>(i * 2 + 1);
-    });
+    pool.ParallelFor(0, kSize, [&data](size_t i) { data[i] = static_cast<int>(i * 2 + 1); });
 
     for (size_t i = 0; i < kSize; ++i) {
         EXPECT_EQ(data[i], static_cast<int>(i * 2 + 1));
@@ -61,9 +57,7 @@ TEST(ThreadPoolTest, ParallelForAtomicAccumulation) {
     constexpr size_t kSize = 5000;
     std::atomic<int64_t> sum{0};
 
-    pool.ParallelFor(0, kSize, [&sum](size_t i) {
-        sum.fetch_add(static_cast<int64_t>(i), std::memory_order_relaxed);
-    });
+    pool.ParallelFor(0, kSize, [&sum](size_t i) { sum.fetch_add(static_cast<int64_t>(i), std::memory_order_relaxed); });
 
     const int64_t expected = (static_cast<int64_t>(kSize - 1) * kSize) / 2;
     EXPECT_EQ(sum.load(), expected);
@@ -86,9 +80,8 @@ TEST(ThreadPoolTest, ReentrancyAndNestedStarvationGuard) {
 
     // ParallelFor invoked from inside ParallelFor (nested)
     pool.ParallelFor(0, 10, [&pool, &innerSum](size_t outer) {
-        pool.ParallelFor(0, 5, [&innerSum, outer](size_t inner) {
-            innerSum.fetch_add(static_cast<int>(outer * 10 + inner));
-        });
+        pool.ParallelFor(
+            0, 5, [&innerSum, outer](size_t inner) { innerSum.fetch_add(static_cast<int>(outer * 10 + inner)); });
     });
 
     EXPECT_GT(innerSum.load(), 0);
@@ -96,9 +89,7 @@ TEST(ThreadPoolTest, ReentrancyAndNestedStarvationGuard) {
 
 TEST(ThreadPoolTest, ExceptionPropagationThroughFuture) {
     ThreadPool pool(2);
-    auto future = pool.Enqueue([]() -> int {
-        throw std::runtime_error("Test exception in ThreadPool worker");
-    });
+    auto future = pool.Enqueue([]() -> int { throw std::runtime_error("Test exception in ThreadPool worker"); });
 
     EXPECT_THROW(future.get(), std::runtime_error);
 }
@@ -113,7 +104,8 @@ TEST(ThreadPoolTest, HeavyWorkloadStressAndDistribution) {
     for (size_t i = 0; i < kTasks; ++i) {
         futures.push_back(pool.Enqueue([&completed]() {
             uint64_t v = 0;
-            for (int k = 0; k < 500; ++k) v += k;
+            for (int k = 0; k < 500; ++k)
+                v += k;
             (void)v;
             completed.fetch_add(1, std::memory_order_release);
         }));
@@ -124,4 +116,3 @@ TEST(ThreadPoolTest, HeavyWorkloadStressAndDistribution) {
     }
     EXPECT_EQ(completed.load(), kTasks);
 }
-

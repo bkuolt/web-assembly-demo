@@ -73,4 +73,3 @@ TEST(SoundEngineTest, IdempotentShutdown) {
         EXPECT_FALSE(engine.IsInitialized());
     }
 }
-

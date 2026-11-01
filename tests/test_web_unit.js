@@ -1047,6 +1047,196 @@ suite('Atmospheric Weather Shader Effects (Rain & Snow)', () => {
 });
 
 // ============================================================================
+// Suite 8: Sponza Texturing, Mipmaps, Vertex Tangents & Volumetric Math
+// ============================================================================
+suite('Sponza Texturing, Mipmaps, Vertex Tangents & Volumetric Math', () => {
+
+  test('Volumetric smoke plume vertical density envelope and FBM turbulence bounds', () => {
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0.0, Math.min(1.0, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3.0 - 2.0 * t);
+    };
+    const evalSmokeEnvelope = (worldY, dist, intensity) => {
+      const heightEnvelope = smoothstep(-4.0, 2.0, worldY) * (1.0 - smoothstep(4.0, 22.0, worldY));
+      const distFactor = Math.min(dist * 0.08, 1.5);
+      return Math.min(0.92, Math.max(0.0, heightEnvelope * distFactor * intensity));
+    };
+
+    const smokeGround = evalSmokeEnvelope(1.0, 12.0, 1.0);
+    const smokeHigh = evalSmokeEnvelope(25.0, 12.0, 1.0);
+    const smokeBelow = evalSmokeEnvelope(-6.0, 12.0, 1.0);
+
+    assert(smokeGround > 0.4, 'Smoke density at courtyard height (Y=1.0) must be substantial');
+    assert.strictEqual(smokeHigh, 0.0, 'Smoke density above top height envelope (Y=25.0) must decay to 0.0');
+    assert.strictEqual(smokeBelow, 0.0, 'Smoke density below floor envelope (Y=-6.0) must be 0.0');
+    assert.strictEqual(evalSmokeEnvelope(1.0, 12.0, 0.0), 0.0, 'Zero intensity smoke must produce 0.0 opacity');
+  });
+
+  test('Diurnal solar elevation factor and chromatic sun/moon radiance across 24-hour cycle', () => {
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0.0, Math.min(1.0, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3.0 - 2.0 * t);
+    };
+    const mix3 = (a, b, t) => [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t
+    ];
+    const evalSolarElevation = (tod) => Math.sin(((tod - 6.0) / 12.0) * Math.PI);
+    const evalSunRadiance = (tod) => {
+      const rawSin = evalSolarElevation(tod);
+      const dayFactor = smoothstep(-0.08, 0.25, rawSin);
+      const twilightFactor = smoothstep(-0.22, 0.05, rawSin) * (1.0 - smoothstep(0.05, 0.38, rawSin));
+      const noonRad = [2.55, 2.45, 2.32];
+      const sunsetRad = [3.10, 1.25, 0.42];
+      const nightMoonRad = [0.16, 0.24, 0.42];
+      let rad = mix3(nightMoonRad, noonRad, dayFactor);
+      rad = mix3(rad, sunsetRad, twilightFactor * 0.85);
+      return rad;
+    };
+
+    assert(approxEq(evalSolarElevation(12.0), 1.0, 1e-5), 'Solar noon (12:00) must have +1.0 elevation');
+    assert(approxEq(evalSolarElevation(6.0), 0.0, 1e-5), 'Sunrise (06:00) must cross horizon (0.0)');
+    assert(approxEq(evalSolarElevation(18.0), 0.0, 1e-5), 'Sunset (18:00) must cross horizon (0.0)');
+    assert(approxEq(evalSolarElevation(0.0), -1.0, 1e-5), 'Midnight (00:00) must reach nadir (-1.0)');
+
+    const noon = evalSunRadiance(12.0);
+    const sunset = evalSunRadiance(18.0);
+    const midnight = evalSunRadiance(0.0);
+
+    assert(noon[1] > sunset[1], 'Noon green radiance must exceed sunset green radiance');
+    assert(sunset[0] > sunset[2] * 2.0, 'Golden hour sunset must be strongly warm-shifted (R >> B)');
+    assert(midnight[2] > midnight[0], 'Midnight moonlight must be cool blue-shifted (B > R)');
+  });
+
+  test('Mipmap chain level count calculation: floor(log2(max(W, H))) + 1', () => {
+    const calcMipLevels = (w, h) => Math.floor(Math.log2(Math.max(w, h))) + 1;
+    assert.strictEqual(calcMipLevels(1, 1), 1, '1x1 texture has 1 mip level');
+    assert.strictEqual(calcMipLevels(64, 64), 7, '64x64 texture has 7 mip levels');
+    assert.strictEqual(calcMipLevels(1024, 1024), 11, '1024x1024 Sponza texture has 11 mip levels');
+    assert.strictEqual(calcMipLevels(2048, 1024), 12, '2048x1024 texture has 12 mip levels');
+  });
+
+  test('generateMipmaps(): executes render pass per mip level down to 1x1', () => {
+    const renderedViews = [];
+    const savedDevice = BglWebGpuRenderer.device;
+    const savedMipPipeline = BglWebGpuRenderer.mipmapPipeline;
+    const savedSampler = BglWebGpuRenderer.defaultSampler;
+
+    BglWebGpuRenderer.mipmapPipeline = {
+      getBindGroupLayout: () => ({ id: 'mip-bgl' })
+    };
+    BglWebGpuRenderer.defaultSampler = { id: 'default-sampler' };
+    BglWebGpuRenderer.device = {
+      createCommandEncoder: () => ({
+        beginRenderPass: (desc) => {
+          renderedViews.push(desc.colorAttachments[0].view);
+          return {
+            setPipeline: () => {},
+            setBindGroup: () => {},
+            draw: () => {},
+            end: () => {}
+          };
+        },
+        finish: () => ({ id: 'cmd-buf' })
+      }),
+      createBindGroup: () => ({ id: 'mip-bg' }),
+      queue: { submit: () => {} }
+    };
+
+    const mockTexture = {
+      createView: (desc) => ({ baseMipLevel: desc.baseMipLevel, mipLevelCount: desc.mipLevelCount })
+    };
+
+    // 16x16 texture -> 5 mip levels total -> 4 downsample passes (mips 1, 2, 3, 4)
+    BglWebGpuRenderer.generateMipmaps(mockTexture, 16, 16, 5);
+    assert.strictEqual(renderedViews.length, 4, '16x16 texture with 5 mip levels must execute 4 mipmap render passes');
+    assert.strictEqual(renderedViews[0].baseMipLevel, 1);
+    assert.strictEqual(renderedViews[3].baseMipLevel, 4);
+
+    BglWebGpuRenderer.device = savedDevice;
+    BglWebGpuRenderer.mipmapPipeline = savedMipPipeline;
+    BglWebGpuRenderer.defaultSampler = savedSampler;
+  });
+
+  test('48-byte interleaved vertex layout: packs POSITION(3), NORMAL(3), TEXCOORD_0(2), and TANGENT(4)', () => {
+    // 12 floats * 4 bytes = 48 bytes per vertex
+    const numVerts = 2;
+    const posData = new Float32Array([1, 2, 3, 4, 5, 6]);
+    const normData = new Float32Array([0, 1, 0, 0, 0, 1]);
+    const uvData = new Float32Array([0.25, 0.75, -4.5, 12.0]); // Including Sponza-like tiled UVs outside [0, 1]
+    const tanData = new Float32Array([1, 0, 0, -1, 0, 1, 0, 1]);
+
+    const vertexData = new Float32Array(numVerts * 12);
+    for (let v = 0; v < numVerts; ++v) {
+      const base = v * 12;
+      vertexData[base + 0] = posData[v * 3 + 0];
+      vertexData[base + 1] = posData[v * 3 + 1];
+      vertexData[base + 2] = posData[v * 3 + 2];
+      vertexData[base + 3] = normData[v * 3 + 0];
+      vertexData[base + 4] = normData[v * 3 + 1];
+      vertexData[base + 5] = normData[v * 3 + 2];
+      vertexData[base + 6] = uvData[v * 2 + 0];
+      vertexData[base + 7] = uvData[v * 2 + 1];
+      vertexData[base + 8] = tanData[v * 4 + 0];
+      vertexData[base + 9] = tanData[v * 4 + 1];
+      vertexData[base + 10] = tanData[v * 4 + 2];
+      vertexData[base + 11] = tanData[v * 4 + 3];
+    }
+
+    assert.strictEqual(vertexData.byteLength, 96, '2 vertices must occupy 96 bytes (48 bytes stride)');
+    assert.strictEqual(vertexData[6], 0.25);
+    assert.strictEqual(vertexData[11], -1.0, 'First vertex tangent handedness w must be -1.0');
+    assert.strictEqual(vertexData[12 + 6], -4.5, 'Tiled negative U coordinate must be preserved');
+    assert.strictEqual(vertexData[12 + 11], 1.0, 'Second vertex tangent handedness w must be +1.0');
+  });
+
+  test('MikkTSpace vertex tangent transformation vs screen-space cotangent fallback in getTBN', () => {
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    assert(wgsl.includes('abs(tangent.w) > 0.001 && orthoLenSq > 1e-6'), 'getTBN must check vertex tangent validity before falling back to screen-space derivatives');
+    assert(wgsl.includes('cross(N, T) * sign(tangent.w)'), 'getTBN must compute bitangent B = normalize(cross(N, T) * sign(tangent.w))');
+  });
+
+  test('Sponza courtyard camera framing: focusSelection() and frameAll() position camera inside atrium', () => {
+    BglWebGpuRenderer.isActive = true;
+    BglWebGpuRenderer.modelBounds = {
+      center: [0.0, 6.0, 0.0],
+      radius: 18.5,
+      minBound: [-15.0, -1.0, -8.0],
+      maxBound: [15.0, 13.0, 8.0],
+      isSponza: true
+    };
+
+    window.focusSelection();
+    assert(approxEq(BglWebGpuRenderer.camera.distance, 8.5, 1e-4), 'Sponza focusSelection must set interior distance 8.5m');
+    assert(approxEq(BglWebGpuRenderer.camera.target[1], -1.0 + 14.0 * 0.26, 1e-4), 'Sponza focusSelection must set lower atrium target height');
+
+    BglWebGpuRenderer.camera.distance = 50.0;
+    window.frameAll();
+    assert(approxEq(BglWebGpuRenderer.camera.distance, 8.5, 1e-4), 'Sponza frameAll must restore interior courtyard distance 8.5m');
+    assert(approxEq(BglWebGpuRenderer.camera.target[1], -1.0 + 14.0 * 0.26, 1e-4), 'Sponza frameAll must restore lower atrium target height');
+  });
+
+  test('Non-Sponza camera framing: focusSelection() and frameAll() use bounding sphere radius', () => {
+    BglWebGpuRenderer.isActive = true;
+    BglWebGpuRenderer.modelBounds = {
+      center: [1.0, 2.0, 3.0],
+      radius: 5.0,
+      minBound: [-2.0, -1.0, 0.0],
+      maxBound: [4.0, 5.0, 6.0],
+      isSponza: false
+    };
+
+    window.focusSelection();
+    assert(approxEq(BglWebGpuRenderer.camera.distance, 5.0 * 2.2, 1e-4), 'Standard focusSelection must set distance = radius * 2.2');
+    assert.deepStrictEqual(BglWebGpuRenderer.camera.target, [1.0, 2.0, 3.0]);
+
+    window.frameAll();
+    assert(approxEq(BglWebGpuRenderer.camera.distance, 5.0 * 2.2, 1e-4), 'Standard frameAll must set distance = radius * 2.2');
+  });
+});
+
+// ============================================================================
 // Final Summary & Exit Code
 // ============================================================================
 console.log('\n================================================================================');
