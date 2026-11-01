@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added dual-lobe directional lighting (Sun Key Light + Diurnal angle + Cool Sky Fill Light) alongside hemispheric ambient diffuse irradiance and GGX specular environment reflection.
   - Integrated official Khronos PBR Neutral tonemapping curve (`tonemapKhronosPbrNeutral`) and linear-to-sRGB display encoding.
   - Supported glTF `alphaMode` modes (`OPAQUE`, `MASK` with `alphaCutoff`, and `BLEND`).
+- **Sculptural 3D Bump Mapping & Parallax Occlusion Mapping (POM) (`web/app.js`):**
+  - Resolved tangent plane distortion by replacing ad-hoc cross products with the direct analytic solution of the $2\times 2$ cotangent system from screen-space derivatives (`dpdx`, `dpdy`).
+  - Aligned glTF 2.0 tangent space orientation ($+Y$ up, opposite of texture $V$) and added dynamic relief scaling via `BglState.bumpScale` ($0.0\times$ to $3.0\times$, default $1.5\times$).
+  - Integrated Steep Parallax Occlusion Mapping (POM) with adaptive view-dependent raymarching ($8$ to $32$ layers) and linear interpolation for true geometric perspective shifts.
+  - Added Parallax Contact Self-Shadowing along the tangent-space light vector, casting crisp micro-shadows into crevices.
+  - Added Surface Gradient Bump fallback computing spatial gradients $\nabla H = \left(\frac{\partial H}{\partial u}, \frac{\partial H}{\partial v}\right)$ from base color luminance and occlusion cavity data, providing tangible 3D relief for models lacking normal maps.
+  - Implemented micro-cavity occlusion and horizon shadowing to prevent flat ambient washout in deep crevices and enhance specular glints on bump ridges.
+  - Added interactive `Bump / Normal Relief` slider (`#slider-bump-scale`) in the web UI and live WebGPU binding for `[V]` (Bump) and `[P]` (POM) keyboard shortcuts.
 - **Full Multi-Texture Pipeline & 7-Slot GPU Bind Groups:**
   - Expanded WebGPU bind group layout to 7 dedicated resources per primitive: 512-byte uniform buffer, linear filtering sampler, `baseColorTexture`, `metallicRoughnessTexture` (G=roughness, B=metallic), `normalTexture`, `emissiveTexture`, and `occlusionTexture`.
   - Added default 1x1 fallback textures for untextured or partially textured glTF primitives (`defaultWhiteTexture`, `defaultMrTexture`, `defaultNormalTexture`, `defaultBlackTexture`).

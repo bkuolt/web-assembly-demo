@@ -101,12 +101,25 @@ Each primitive binds a 7-resource bind group:
 6. `Binding 5`: `emissiveTexture` (emissive surfaces with HDR contribution).
 7. `Binding 6`: `occlusionTexture` (red = ambient occlusion cavity map).
 
-### 3. Screen-Space Derivative Normal Mapping (MikkTSpace Equivalent)
-For geometries lacking precomputed vertex tangents, the fragment shader computes the tangent-bitangent-normal (TBN) cotangent frame analytically using screen-space partial derivatives:
-$$\vec{dp}_1 = \frac{\partial \vec{p}}{\partial x}, \quad \vec{dp}_2 = \frac{\partial \vec{p}}{\partial y}, \quad \vec{duv}_1 = \frac{\partial \vec{uv}}{\partial x}, \quad \vec{duv}_2 = \frac{\partial \vec{uv}}{\partial y}$$
-$$\vec{T} = \text{normalize}(\vec{dp}_2^{\perp} \cdot duv_{1,x} + \vec{dp}_1^{\perp} \cdot duv_{2,x})$$
-$$\vec{B} = \text{normalize}(\vec{dp}_2^{\perp} \cdot duv_{1,y} + \vec{dp}_1^{\perp} \cdot duv_{2,y})$$
-This guarantees tangent-space normal perturbation across all glTF models without requiring tangent vertex buffers.
+### 3. Tactile 3D Bump Mapping & Parallax Occlusion Mapping (POM)
+To achieve true sculptural depth and plastic relief on flat surfaces:
+- **Analytic Cotangent Frame ($\text{TBN}$)**:
+  Solves the $2\times 2$ surface gradient system directly from screen-space derivatives:
+  $$\begin{pmatrix} duv_{1,x} & duv_{1,y} \\ duv_{2,x} & duv_{2,y} \end{pmatrix} \begin{pmatrix} \vec{T} \\ \vec{B} \end{pmatrix} = \begin{pmatrix} \vec{dp}_1 \\ \vec{dp}_2 \end{pmatrix}$$
+  $$\det = duv_{1,x} \cdot duv_{2,y} - duv_{1,y} \cdot duv_{2,x}$$
+  $$\vec{T} = \frac{1}{\det}(\vec{dp}_1 \cdot duv_{2,y} - \vec{dp}_2 \cdot duv_{1,y}), \quad \vec{B} = \frac{1}{\det}(\vec{dp}_2 \cdot duv_{1,x} - \vec{dp}_1 \cdot duv_{2,x})$$
+  Orthogonalized via Gram-Schmidt against $\vec{N}_{\text{geom}}$ with handedness preservation.
+- **glTF 2.0 Tangent-Space Alignment & Relief Scaling**:
+  Corrects tangent space orientation ($+X = \text{right}, +Y = \text{up} = -\vec{B}$ in texture space) and scales by dynamic `bumpScale` ($0.0\times$ to $3.0\times$, default $1.5\times$):
+  $$\vec{N}_{\text{tangent}} = \text{normalize}\left(\text{sample}_x \cdot s, \; -\text{sample}_y \cdot s, \; \text{sample}_z\right), \quad s = \text{normalScale} \cdot \text{bumpScale}$$
+- **Steep Parallax Occlusion Mapping (POM) & UV Displacements**:
+  Raymarches adaptive surface height layers ($8$ to $32$ layers depending on camera grazing angle) along the tangent-space view vector $\vec{V}_{\text{tangent}}$, shifting texture coordinates to reveal true 3D geometric depth.
+- **Parallax Contact Self-Shadowing**:
+  Raymarches from the displaced surface point along the tangent-space sun light vector $\vec{L}_{\text{tangent}}$, casting crisp contact micro-shadows into surface crevices.
+- **Luminance & Cavity Surface Gradient Bump Fallback**:
+  For glTF models without dedicated normal maps, derives spatial surface gradients $\nabla H = \left(\frac{\partial H}{\partial u}, \frac{\partial H}{\partial v}\right)$ from base color luminance and ambient occlusion cavity textures, providing tactile surface relief across all models.
+- **Horizon Micro-Shadowing & Cavity Occlusion**:
+  Attenuates lighting in deep crevices where $\vec{N}_{\text{geom}} \cdot \vec{N}_{\text{perturbed}}$ dips, while enhancing micro-roughness specular glints on bump ridges.
 
 ### 4. Dual-Lobe Directional Lighting & Ambient Specular Reflection
 - **Sun Key Light**: Diurnal sun position computed from engine `timeOfDay` with warm solar radiance ($\vec{E}_{\text{sun}} = [2.5, 2.42, 2.30]$).

@@ -236,6 +236,7 @@
     aoIntensity: 1.0,
     ssaoIntensity: 0.75,
     bloomIntensity: 0.65,
+    bumpScale: 1.5,
     pomScale: 0.035,
     flareIntensity: 0.75,
   };
@@ -1449,6 +1450,7 @@ struct Uniforms {
     emissiveFactor : vec4<f32>,  // xyz=emissive, w=alphaCutoff
     uvTransform : vec4<f32>,     // xy=scale, zw=offset
     flags : vec4<u32>,           // x=texFlags, y=wireframe, z=doubleSided, w=alphaMode
+    params : vec4<f32>,          // x=bumpScale, y=pomScale, z=isPomActive, w=isBumpActive
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1503,19 +1505,114 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>) -> mat3x
     let dp2 = dpdy(worldPos);
     let duv1 = dpdx(uv);
     let duv2 = dpdy(uv);
-    let dp2perp = cross(dp2, N);
-    let dp1perp = cross(N, dp1);
-    let T = dp2perp * duv1.x + dp1perp * duv2.x;
-    let B = dp2perp * duv1.y + dp1perp * duv2.y;
-    let maxLenSq = max(dot(T, T), dot(B, B));
-    if (maxLenSq > 1e-18) {
-        let invmax = inverseSqrt(maxLenSq);
-        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+
+    let det = duv1.x * duv2.y - duv1.y * duv2.x;
+    if (abs(det) > 1e-12) {
+        let invDet = 1.0 / det;
+        var T = (dp1 * duv2.y - dp2 * duv1.y) * invDet;
+        var B = (dp2 * duv1.x - dp1 * duv2.x) * invDet;
+
+        T = normalize(T - N * dot(N, T));
+        B = normalize(B - N * dot(N, B));
+
+        let crossB = cross(N, T);
+        if (dot(crossB, B) < 0.0) {
+            B = -B;
+        }
+        return mat3x3<f32>(T, B, N);
     }
+
     let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
     let fallbackT = normalize(cross(up, N));
     let fallbackB = normalize(cross(N, fallbackT));
     return mat3x3<f32>(fallbackT, fallbackB, N);
+}
+
+fn getSurfaceHeight(uv : vec2<f32>) -> f32 {
+    var height = 0.5;
+    if ((ubo.flags.x & 16u) != 0u) {
+        height = textureSampleLevel(occlusionTexture, defaultSampler, uv, 0.0).r;
+    } else if ((ubo.flags.x & 4u) != 0u) {
+        let nSamp = textureSampleLevel(normalTexture, defaultSampler, uv, 0.0);
+        if (nSamp.a < 0.99 && nSamp.a > 0.01) {
+            height = nSamp.a;
+        } else {
+            height = clamp(nSamp.z, 0.0, 1.0);
+        }
+    } else if ((ubo.flags.x & 1u) != 0u) {
+        let col = textureSampleLevel(baseColorTexture, defaultSampler, uv, 0.0).rgb;
+        height = dot(col, vec3<f32>(0.299, 0.587, 0.114));
+    }
+    return clamp(height, 0.0, 1.0);
+}
+
+fn parallaxOcclusionMapping(
+    initialUV : vec2<f32>,
+    viewDirTangent : vec3<f32>,
+    scale : f32
+) -> vec2<f32> {
+    let minLayers : f32 = 8.0;
+    let maxLayers : f32 = 32.0;
+    let numLayers = mix(maxLayers, minLayers, clamp(abs(viewDirTangent.z), 0.0, 1.0));
+    let layerDepth = 1.0 / numLayers;
+    var currentLayerDepth : f32 = 0.0;
+
+    let P = (viewDirTangent.xy / max(abs(viewDirTangent.z), 0.15)) * scale;
+    let deltaUV = P / numLayers;
+
+    var currentUV = initialUV;
+    var currentHeight = getSurfaceHeight(currentUV);
+
+    var prevUV = currentUV;
+    var prevHeight = currentHeight;
+    var prevLayerDepth = currentLayerDepth;
+
+    for (var i : i32 = 0; i < 32; i = i + 1) {
+        if (f32(i) >= numLayers || currentLayerDepth >= (1.0 - currentHeight)) {
+            break;
+        }
+        prevUV = currentUV;
+        prevHeight = currentHeight;
+        prevLayerDepth = currentLayerDepth;
+
+        currentUV = currentUV - deltaUV;
+        currentHeight = getSurfaceHeight(currentUV);
+        currentLayerDepth = currentLayerDepth + layerDepth;
+    }
+
+    let afterDepth = currentLayerDepth - (1.0 - currentHeight);
+    let beforeDepth = (1.0 - prevHeight) - prevLayerDepth;
+    let weight = afterDepth / max(afterDepth + beforeDepth, 0.0001);
+    return mix(currentUV, prevUV, clamp(weight, 0.0, 1.0));
+}
+
+fn computeParallaxShadow(
+    displacedUV : vec2<f32>,
+    lightDirTangent : vec3<f32>,
+    scale : f32
+) -> f32 {
+    let initialHeight = getSurfaceHeight(displacedUV);
+    if (lightDirTangent.z <= 0.0) {
+        return 0.2;
+    }
+    let numSamples : f32 = 12.0;
+    let stepSize = (1.0 - initialHeight) / numSamples;
+    let deltaUV = (lightDirTangent.xy / max(lightDirTangent.z, 0.15)) * scale / numSamples;
+
+    var currentLayerHeight = initialHeight;
+    var currentUV = displacedUV;
+    var shadowFactor = 1.0;
+
+    for (var i : i32 = 0; i < 12; i = i + 1) {
+        currentUV = currentUV + deltaUV;
+        currentLayerHeight = currentLayerHeight + stepSize;
+        let sampledHeight = getSurfaceHeight(currentUV);
+        if (sampledHeight > currentLayerHeight) {
+            let diff = sampledHeight - currentLayerHeight;
+            shadowFactor = min(shadowFactor, 1.0 - diff * 0.85);
+        }
+    }
+    return clamp(shadowFactor, 0.2, 1.0);
 }
 
 fn srgbToLinear(c : vec3<f32>) -> vec3<f32> {
@@ -1566,10 +1663,41 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         return vec4<f32>(0.22, 0.74, 0.97, 1.0);
     }
 
-    // 1. Base Color & Alpha
+    // 1. Initial Geometry Normal & Orthonormal TBN Basis
+    var geomNormal = in.normal;
+    if (dot(geomNormal, geomNormal) > 0.0001) {
+        geomNormal = normalize(geomNormal);
+    } else {
+        geomNormal = vec3<f32>(0.0, 1.0, 0.0);
+    }
+    if (!frontFacing) {
+        geomNormal = -geomNormal;
+    }
+
+    let TBN = getTBN(in.worldPos, geomNormal, in.uv);
+    let invTBN = transpose(TBN);
+
+    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
+    let V_tangent = invTBN * V;
+
+    // 2. Parallax Occlusion Mapping (POM) & Surface Displacement
+    var uv = in.uv;
+    var pomShadow = 1.0;
+    let bumpScale = ubo.params.x;
+    let pomScale = ubo.params.y;
+    let isPomActive = ubo.params.z > 0.5;
+    let isBumpActive = ubo.params.w > 0.5;
+
+    if (isPomActive && isBumpActive) {
+        uv = parallaxOcclusionMapping(in.uv, V_tangent, pomScale);
+        let L0_tangent = invTBN * normalize(ubo.lightDir.xyz);
+        pomShadow = computeParallaxShadow(uv, L0_tangent, pomScale);
+    }
+
+    // 3. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags.x & 1u) != 0u) {
-        let texColor = textureSample(baseColorTexture, defaultSampler, in.uv);
+        let texColor = textureSample(baseColorTexture, defaultSampler, uv);
         baseColor = baseColor * vec4<f32>(srgbToLinear(texColor.rgb), texColor.a);
     } else {
         baseColor = vec4<f32>(srgbToLinear(baseColor.rgb), baseColor.a);
@@ -1584,65 +1712,90 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         discard;
     }
 
-    // 2. Normal Mapping with MikkTSpace / Cotangent TBN
-    var geomNormal = in.normal;
-    if (dot(geomNormal, geomNormal) > 0.0001) {
-        geomNormal = normalize(geomNormal);
-    } else {
-        geomNormal = vec3<f32>(0.0, 1.0, 0.0);
-    }
-    if (!frontFacing) {
-        geomNormal = -geomNormal;
-    }
-
+    // 4. High-Detail Sculptural Bump & Normal Mapping
     var N = geomNormal;
-    if ((ubo.flags.x & 4u) != 0u) { // HasNormalTex
-        let normalSample = textureSample(normalTexture, defaultSampler, in.uv).xyz * 2.0 - 1.0;
-        let normalScale = ubo.pbrFactors.z;
-        let tangentNormal = normalize(vec3<f32>(normalSample.xy * normalScale, normalSample.z));
-        let TBN = getTBN(in.worldPos, geomNormal, in.uv);
-        N = normalize(TBN * tangentNormal);
+    if (isBumpActive) {
+        if ((ubo.flags.x & 4u) != 0u) { // HasNormalTex
+            let normalSample = textureSample(normalTexture, defaultSampler, uv).xyz * 2.0 - 1.0;
+            let totalScale = ubo.pbrFactors.z * bumpScale;
+            // glTF convention: +X is right, +Y is up (which corresponds to -V in texture space)
+            let tangentNormal = normalize(vec3<f32>(normalSample.x * totalScale, -normalSample.y * totalScale, normalSample.z));
+            N = normalize(TBN * tangentNormal);
+        } else if ((ubo.flags.x & 1u) != 0u || (ubo.flags.x & 16u) != 0u) {
+            // Surface Gradient Bump Mapping from BaseColor Luminance and Occlusion Cavity
+            let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
+            let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
+            let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
+
+            let hR = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), 0.0).rgb, lumaWeights);
+            let hL = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), 0.0).rgb, lumaWeights);
+            let hU = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), 0.0).rgb, lumaWeights);
+            let hD = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), 0.0).rgb, lumaWeights);
+
+            var dHdU = (hR - hL);
+            var dHdV = (hU - hD);
+
+            if ((ubo.flags.x & 16u) != 0u) {
+                let occR = textureSampleLevel(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), 0.0).r;
+                let occL = textureSampleLevel(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), 0.0).r;
+                let occU = textureSampleLevel(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), 0.0).r;
+                let occD = textureSampleLevel(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), 0.0).r;
+                dHdU = dHdU + (occR - occL) * 0.75;
+                dHdV = dHdV + (occU - occD) * 0.75;
+            }
+
+            let bumpStrength = 3.0 * bumpScale;
+            let tangentBump = normalize(vec3<f32>(-dHdU * bumpStrength, dHdV * bumpStrength, 1.0));
+            N = normalize(TBN * tangentBump);
+        }
     }
 
-    // 3. Metallic & Roughness (glTF 2.0: Green = Roughness, Blue = Metallic)
+    // 5. Micro-Cavity Factor & Horizon Occlusion
+    let cavityFactor = clamp(dot(geomNormal, N), 0.0, 1.0);
+
+    // 6. Metallic & Roughness with Micro-Roughness Relief
     var metallic = ubo.pbrFactors.x;
     var roughness = ubo.pbrFactors.y;
     if ((ubo.flags.x & 2u) != 0u) { // HasMrTex
-        let mrSample = textureSample(metallicRoughnessTexture, defaultSampler, in.uv);
+        let mrSample = textureSample(metallicRoughnessTexture, defaultSampler, uv);
         roughness = roughness * mrSample.g;
         metallic = metallic * mrSample.b;
     }
     metallic = clamp(metallic, 0.0, 1.0);
-    roughness = clamp(roughness, 0.04, 1.0);
+    // Ridge polish & crevice matte modulation for heightened tactile plasticity
+    roughness = clamp(roughness * mix(1.15, 0.85, cavityFactor), 0.04, 1.0);
 
-    // 4. Occlusion (glTF 2.0: Red = Ambient Occlusion)
+    // 7. Ambient Occlusion with Micro-Cavity Crevice Deepening
     var ao = 1.0;
     if ((ubo.flags.x & 16u) != 0u) { // HasOcclusionTex
-        let occSample = textureSample(occlusionTexture, defaultSampler, in.uv);
+        let occSample = textureSample(occlusionTexture, defaultSampler, uv);
         ao = mix(1.0, occSample.r, ubo.pbrFactors.w);
     }
+    ao = ao * mix(0.5, 1.0, cavityFactor * cavityFactor);
 
-    // 5. Emissive
+    // 8. Emissive
     var emissive = ubo.emissiveFactor.rgb;
     if ((ubo.flags.x & 8u) != 0u) { // HasEmissiveTex
-        let emissiveSample = textureSample(emissiveTexture, defaultSampler, in.uv);
+        let emissiveSample = textureSample(emissiveTexture, defaultSampler, uv);
         emissive = emissive * srgbToLinear(emissiveSample.rgb);
     }
 
-    // 6. PBR Vectors & Dielectric/Metallic Reflectance Setup
-    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
+    // 9. PBR Vectors & Dielectric/Metallic Reflectance Setup
     let NdotV = max(dot(N, V), 0.001);
-
     let F0 = mix(vec3<f32>(0.04), baseColor.rgb, metallic);
     let diffuseColor = baseColor.rgb * (1.0 - metallic);
 
-    // 7. Direct Lighting Evaluation (Sun Key Light + Secondary Fill Light)
+    // 10. Direct Lighting Evaluation with Horizon Micro-Shadowing
     var directRadiance = vec3<f32>(0.0);
 
     // Light 0: Sun Key Light
     let L0 = normalize(ubo.lightDir.xyz);
     let NdotL0 = max(dot(N, L0), 0.0);
-    if (NdotL0 > 0.0) {
+    let geomNdotL0 = max(dot(geomNormal, L0), 0.0);
+    let horizon0 = clamp(geomNdotL0 * 3.0, 0.0, 1.0);
+    let light0Shadow = pomShadow * horizon0;
+
+    if (NdotL0 > 0.0 && light0Shadow > 0.001) {
         let H0 = normalize(L0 + V);
         let NdotH0 = max(dot(N, H0), 0.0);
         let VdotH0 = max(dot(V, H0), 0.0);
@@ -1656,13 +1809,16 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let diffuseBRDF = kD * (diffuseColor / PI);
 
         let sunRadiance = vec3<f32>(1.0, 0.97, 0.92) * 2.5;
-        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * sunRadiance * NdotL0;
+        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * sunRadiance * (NdotL0 * light0Shadow);
     }
 
     // Light 1: Cool Sky Fill Light
     let L1 = normalize(vec3<f32>(-L0.x * 0.7, 0.5, -L0.z * 0.7));
     let NdotL1 = max(dot(N, L1), 0.0);
-    if (NdotL1 > 0.0) {
+    let geomNdotL1 = max(dot(geomNormal, L1), 0.0);
+    let horizon1 = clamp(geomNdotL1 * 3.0, 0.0, 1.0);
+
+    if (NdotL1 > 0.0 && horizon1 > 0.001) {
         let H1 = normalize(L1 + V);
         let NdotH1 = max(dot(N, H1), 0.0);
         let VdotH1 = max(dot(V, H1), 0.0);
@@ -1676,10 +1832,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let diffuseBRDF = kD * (diffuseColor / PI);
 
         let fillRadiance = vec3<f32>(0.35, 0.45, 0.60) * 0.8;
-        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * fillRadiance * NdotL1;
+        directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * fillRadiance * (NdotL1 * horizon1);
     }
 
-    // 8. Ambient Lighting (Hemispheric Diffuse Irradiance + GGX Environment Specular Reflection)
+    // 11. Ambient Lighting (Hemispheric Diffuse Irradiance + GGX Environment Specular Reflection)
     let hemiWeight = N.y * 0.5 + 0.5;
     let groundAmbient = vec3<f32>(0.12, 0.11, 0.10);
     let skyAmbient = vec3<f32>(0.35, 0.45, 0.60);
@@ -1689,21 +1845,21 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     let kD_env = (vec3<f32>(1.0) - F_env) * (1.0 - metallic);
     let ambientDiffuse = kD_env * diffuseColor * irradiance;
 
-    // Specular Reflection (Roughness-dependent environmental reflection)
+    // Specular Reflection (Roughness-dependent environmental reflection modulated by cavity factor)
     let R = reflect(-V, N);
     let refHemi = R.y * 0.5 + 0.5;
     let groundReflect = vec3<f32>(0.10, 0.09, 0.08);
     let skyReflect = vec3<f32>(0.55, 0.70, 0.95);
     let envReflectCol = mix(groundReflect, skyReflect, refHemi);
     let roughnessAttenuation = 1.0 - roughness * 0.6;
-    let ambientSpecular = envReflectCol * F_env * roughnessAttenuation;
+    let ambientSpecular = envReflectCol * F_env * roughnessAttenuation * cavityFactor;
 
     let ambientColor = (ambientDiffuse + ambientSpecular) * ao;
 
-    // 9. Total Radiance in Linear HDR Space
+    // 12. Total Radiance in Linear HDR Space
     var totalColor = directRadiance + ambientColor + emissive;
 
-    // 10. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
+    // 13. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
     totalColor = tonemapKhronosPbrNeutral(totalColor);
     let finalColor = linearToSrgb(totalColor);
 
@@ -1933,7 +2089,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this._scratchProj = this.mat4.create();
         this._scratchView = this.mat4.create();
         this._scratchViewProj = this.mat4.create();
-        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 72);
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 80);
         this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 288, 4);
 
         this.isActive = true;
@@ -2494,21 +2650,26 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                   }
                 };
 
+                const decodeBitmap = (srcObj) => {
+                  const opts = { colorSpaceConversion: 'none' };
+                  createImageBitmap(srcObj, opts).then(onImageReady).catch(() => {
+                    createImageBitmap(srcObj).then(onImageReady).catch((err) => {
+                      BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
+                    });
+                  });
+                };
+
                 if (imgObj.bufferView !== undefined) {
                   const imgBytes = getBufferViewData(imgObj.bufferView);
                   if (imgBytes) {
                     const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
-                    createImageBitmap(blob).then(onImageReady).catch((err) => {
-                      BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
-                    });
+                    decodeBitmap(blob);
                   }
                 } else if (imgObj.uri) {
                   const img = new Image();
                   img.crossOrigin = 'anonymous';
                   img.onload = () => {
-                    createImageBitmap(img).then(onImageReady).catch((err) => {
-                      BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
-                    });
+                    decodeBitmap(img);
                   };
                   img.src = imgObj.uri;
                 }
@@ -2693,6 +2854,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboU32[1] = this.wireframe ? 1 : 0;
         uboU32[2] = prim.doubleSided ? 1 : 0;
         uboU32[3] = prim.alphaMode;
+
+        uboF32[76] = (typeof BglState !== 'undefined' && BglState.bumpScale !== undefined) ? BglState.bumpScale : 1.5;
+        uboF32[77] = (typeof BglState !== 'undefined' && BglState.pomScale !== undefined) ? BglState.pomScale : 0.035;
+        uboF32[78] = (typeof BglState !== 'undefined' && BglState.isPomActive) ? 1.0 : 0.0;
+        uboF32[79] = (typeof BglState !== 'undefined' && BglState.isBumpActive !== undefined) ? (BglState.isBumpActive ? 1.0 : 0.0) : 1.0;
 
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
@@ -3290,6 +3456,17 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     }
   }
   window.onAoSlider = onAoSlider;
+
+  function onBumpSlider(val) {
+    const num = Number(val);
+    BglState.bumpScale = num;
+    const label = document.getElementById('val-bump-scale');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_bump_scale) {
+      BglState.wasmExports.bgl_set_bump_scale(num);
+    }
+  }
+  window.onBumpSlider = onBumpSlider;
 
   function onPomSlider(val) {
     const num = Number(val);

@@ -53,6 +53,8 @@ class MockGPUDevice {
   createShaderModule(desc) {
     assert(desc.code && desc.code.includes('@vertex') && desc.code.includes('@fragment'), 'Shader must contain WGSL vertex and fragment stages');
     assert(desc.code.includes('distributionGGX') && desc.code.includes('visibilitySmithGGX'), 'Shader must include Cook-Torrance GGX functions');
+    assert(desc.code.includes('parallaxOcclusionMapping') && desc.code.includes('computeParallaxShadow'), 'Shader must include POM and parallax self-shadowing');
+    assert(desc.code.includes('getSurfaceHeight'), 'Shader must include getSurfaceHeight for height-based bump mapping');
     return { id: Math.random(), code: desc.code };
   }
 
@@ -232,6 +234,7 @@ assert(endIdx !== -1, 'BglWebGpuRenderer delimiter must be present');
 const rendererCode = appCode.slice(startIdx, endIdx);
 
 // Execute renderer in current scope
+global.BglState = { isBumpActive: true, isPomActive: true, bumpScale: 1.5, pomScale: 0.035 };
 eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer ='));
 
 (async () => {
