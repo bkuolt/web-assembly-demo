@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.15] - 2026-11-01
+
+### Atmospheric Weather Simulation & Shader Effects (Rain & Snow)
+- **Atmospheric Weather WGSL Shaders (`web/app.js`):**
+  - **Dynamic Rain Simulation:**
+    - High-velocity directional rain streaks oriented along wind vectors using multi-frequency 3D volumetric hash ray cells with depth-attenuated atmospheric mist.
+    - Procedural concentric raindrop ripples on upward-facing surfaces ($N.y > 0.15$), computing dynamic wave propagation and exponential decay in tangent space.
+    - Physically based wet surface glaze: dielectric diffuse albedo darkening through liquid layer internal absorption and specular glossiness boost (roughness pulled down towards $0.08$ water sheen).
+  - **Atmospheric Snowfall Simulation:**
+    - Volumetric drifting snowflakes with sinusoidal lateral turbulence wobble ($\sin(\omega t + \phi)$) and soft Gaussian particle profiles across two parallax depth layers.
+    - Surface snow accumulation on upward-facing geometry ($N.y > 0.2$), transitioning albedo to crisp crystalline snow ($[0.93, 0.95, 0.99]$), increasing roughness to $0.70$, and zeroing metallic reflectance.
+    - Direct solar micro-sparkles on accumulated snow crystals under sun key light.
+- **Web UI & Interactive Controls (`web/index.html`, `web/app.js`):**
+  - Added dedicated *Atmospheric Weather* category with single-click mode selector chips: `Clear`, `Rain [X]`, and `Snow [Y]`.
+  - Added *Weather Intensity* slider ($0.0\times$ to $2.0\times$) and *Wind Direction & Strength* slider ($-1.0$ to $+1.0$) in the Live Parameter Tuning Drawer.
+  - Added keyboard shortcuts `[X]` for Rain and `[Y]` for Snow with toast notifications.
+- **WebGPU Uniforms & Pipeline Integration:**
+  - Extended WGSL `struct Uniforms` with 16-byte aligned `weather : vec4<f32>` (mode, intensity, wind, timeSec) at byte offset 320.
+  - Updated zero-allocation WebGPU scratch buffer views (`_scratchUboF32` length 84) to eliminate per-frame allocations during weather simulation.
+- **Comprehensive Unit Test Expansion (`tests/test_web_unit.js`):**
+  - Added *Suite 7: Atmospheric Weather Shader Effects (Rain & Snow)* with 8 new unit tests covering weather mode cycling, slider clamping, wetness absorption math, normal gating, ripple decay, and flake turbulence.
+  - Total test count expanded to 262 passing unit tests (210 C++ engine tests + 52 Web runtime tests).
+
 ## [0.9.14] - 2026-11-01
 
 ### Photorealistic Cook-Torrance glTF 2.0 PBR Shading & Pure WebGPU Migration

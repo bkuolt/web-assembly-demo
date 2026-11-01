@@ -88,7 +88,7 @@
     <div class="hud-header">
       <div class="hud-brand">
         <span class="hud-logo-icon">◈</span>
-        <h2>bgl Engine <span class="badge">v0.9.14</span></h2>
+        <h2>bgl Engine <span class="badge">v0.9.15</span></h2>
       </div>
       <div class="hud-header-actions">
         <button id="btn-minimize-hud" class="hud-icon-btn" onclick="toggleHudMinimize()" title="Minimize / Expand HUD (O)">―</button>
@@ -226,6 +226,16 @@
               <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
             </div>
           </div>
+
+          <!-- Category D: Atmospheric Weather -->
+          <div class="chip-category">
+            <div class="category-title">Atmospheric Weather</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-weather-none" onclick="setWeatherMode('none')" title="Clear atmospheric skies">Clear</button>
+              <button class="chip-btn" id="btn-weather-rain" onclick="setWeatherMode('rain')" title="Rain precipitation streaks, ripples & wet glaze [X]">Rain [X]</button>
+              <button class="chip-btn" id="btn-weather-snow" onclick="setWeatherMode('snow')" title="Snowfall flakes & upward surface accumulation [Y]">Snow [Y]</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -299,6 +309,22 @@
             </div>
             <input type="range" class="slider-input" id="slider-flare" min="0" max="2.5" step="0.05" value="0.75" oninput="onFlareSlider(this.value)">
           </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Weather Intensity</span>
+              <span class="slider-value" id="val-weather-intensity">1.00×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-weather-intensity" min="0.0" max="2.0" step="0.05" value="1.0" oninput="onWeatherIntensitySlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Wind Direction &amp; Strength</span>
+              <span class="slider-value" id="val-wind-strength">+0.30</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-wind-strength" min="-1.0" max="1.0" step="0.05" value="0.30" oninput="onWindSlider(this.value)">
+          </div>
         </div>
       </div>
 
@@ -319,7 +345,7 @@
 
       <!-- Navigation & Controls Hint Card -->
       <div class="keyboard-hint-row">
-        <strong>Keys:</strong> <span class="key-pill">WASD</span> Move, <span class="key-pill">F</span> Focus, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">1-3</span> Bookmarks, <span class="key-pill">N</span> Hierarchy.
+        <strong>Keys:</strong> <span class="key-pill">WASD</span> Move, <span class="key-pill">F</span> Focus, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">X</span> Rain, <span class="key-pill">Y</span> Snow, <span class="key-pill">1-3</span> Bookmarks, <span class="key-pill">N</span> Hierarchy.
       </div>
     </div>
   </div>

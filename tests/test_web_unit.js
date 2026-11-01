@@ -650,6 +650,10 @@ suite('Cotangent Frame, Sculptural Bump Mapping & POM', () => {
     assert(wgsl.includes('computeParallaxShadow'), 'Must contain computeParallaxShadow function');
     assert(wgsl.includes('getSurfaceHeight'), 'Must contain getSurfaceHeight function');
     assert(wgsl.includes('textureSampleLevel'), 'Must use textureSampleLevel in non-uniform control flow');
+    assert(wgsl.includes('calculateRainRipples'), 'Must contain calculateRainRipples function');
+    assert(wgsl.includes('calculateRainStreaks'), 'Must contain calculateRainStreaks function');
+    assert(wgsl.includes('calculateSnowFlakes'), 'Must contain calculateSnowFlakes function');
+    assert(wgsl.includes('weather : vec4<f32>'), 'Uniforms struct must contain weather vector');
   });
 });
 
@@ -677,8 +681,9 @@ suite('WebGPU Uniform Buffer Layout & Memory Safety (std140)', () => {
     // uvTransform:     offset 272 (16 bytes)
     // flags:           offset 288 (16 bytes) - vec4<u32>
     // params:          offset 304 (16 bytes) - vec4<f32>
-    // Total struct size: 320 bytes <= 512 bytes buffer
-    const offsets = [0, 64, 128, 192, 208, 224, 240, 256, 272, 288, 304];
+    // weather:         offset 320 (16 bytes) - vec4<f32>
+    // Total struct size: 336 bytes <= 512 bytes buffer
+    const offsets = [0, 64, 128, 192, 208, 224, 240, 256, 272, 288, 304, 320];
     for (const off of offsets) {
       assert.strictEqual(off % 16, 0, `Offset ${off} must be 16-byte aligned`);
     }
@@ -686,7 +691,7 @@ suite('WebGPU Uniform Buffer Layout & Memory Safety (std140)', () => {
 
   test('UBO TypedArray views: Float32Array and Uint32Array share the exact same underlying ArrayBuffer', () => {
     const rawBuffer = new ArrayBuffer(512);
-    const f32 = new Float32Array(rawBuffer, 0, 80);
+    const f32 = new Float32Array(rawBuffer, 0, 84);
     const u32 = new Uint32Array(rawBuffer, 288, 4);
 
     assert.strictEqual(f32.buffer, rawBuffer);
@@ -833,6 +838,135 @@ suite('Reactive State, Camera Controls & UI Handlers', () => {
 });
 
 // ============================================================================
+// Suite 7: Atmospheric Weather Shader Effects (Rain & Snow)
+// ============================================================================
+suite('Atmospheric Weather Shader Effects (Rain & Snow)', () => {
+
+  test('setWeatherMode(): sets valid weather modes and updates UI chip active classes', () => {
+    window.setWeatherMode('rain');
+    assert.strictEqual(BglState.weatherMode, 'rain');
+    assert(document.getElementById('btn-weather-rain').classList.contains('active'));
+    assert(!document.getElementById('btn-weather-none').classList.contains('active'));
+    assert(!document.getElementById('btn-weather-snow').classList.contains('active'));
+
+    window.setWeatherMode('snow');
+    assert.strictEqual(BglState.weatherMode, 'snow');
+    assert(document.getElementById('btn-weather-snow').classList.contains('active'));
+    assert(!document.getElementById('btn-weather-rain').classList.contains('active'));
+
+    window.setWeatherMode('none');
+    assert.strictEqual(BglState.weatherMode, 'none');
+    assert(document.getElementById('btn-weather-none').classList.contains('active'));
+
+    // Invalid mode defaults safely to none
+    window.setWeatherMode('tornado');
+    assert.strictEqual(BglState.weatherMode, 'none');
+  });
+
+  test('toggleRain() and toggleSnow(): cleanly cycle weather states', () => {
+    window.setWeatherMode('none');
+    window.toggleRain();
+    assert.strictEqual(BglState.weatherMode, 'rain', 'toggleRain should activate rain from none');
+    window.toggleRain();
+    assert.strictEqual(BglState.weatherMode, 'none', 'toggleRain should return to none');
+
+    window.toggleSnow();
+    assert.strictEqual(BglState.weatherMode, 'snow', 'toggleSnow should activate snow from none');
+    window.toggleSnow();
+    assert.strictEqual(BglState.weatherMode, 'none', 'toggleSnow should return to none');
+  });
+
+  test('onWeatherIntensitySlider(): updates BglState and formats HUD label', () => {
+    window.onWeatherIntensitySlider('1.45');
+    assert.strictEqual(BglState.weatherIntensity, 1.45);
+    const label = document.getElementById('val-weather-intensity');
+    assert.strictEqual(label.textContent, '1.45×');
+
+    // Clamps to [0.0, 2.0]
+    window.onWeatherIntensitySlider('3.5');
+    assert.strictEqual(BglState.weatherIntensity, 2.0);
+    window.onWeatherIntensitySlider('-1.0');
+    assert.strictEqual(BglState.weatherIntensity, 0.0);
+  });
+
+  test('onWindSlider(): updates BglState.windStrength and formats sign-prefixed label', () => {
+    window.onWindSlider('0.45');
+    assert.strictEqual(BglState.windStrength, 0.45);
+    const labelPos = document.getElementById('val-wind-strength');
+    assert.strictEqual(labelPos.textContent, '+0.45');
+
+    window.onWindSlider('-0.60');
+    assert.strictEqual(BglState.windStrength, -0.60);
+    assert.strictEqual(labelPos.textContent, '-0.60');
+
+    // Clamps to [-1.0, 1.0]
+    window.onWindSlider('2.5');
+    assert.strictEqual(BglState.windStrength, 1.0);
+    window.onWindSlider('-3.0');
+    assert.strictEqual(BglState.windStrength, -1.0);
+  });
+
+  test('Rain wetness PBR math: simulates diffuse darkening and specular water glaze', () => {
+    // Albedo absorption in wet liquid layer: mix(albedo, albedo * 0.65, wetWeight * (1 - metallic * 0.5))
+    const dryAlbedo = [0.8, 0.6, 0.4];
+    const metallic = 0.0;
+    const intensity = 1.0;
+    const wetWeight = Math.min(0.75, intensity * 0.8);
+    const wetAlbedo = dryAlbedo.map(c => c * (1.0 - wetWeight) + (c * 0.65) * wetWeight * (1.0 - metallic * 0.5));
+    assert(wetAlbedo[0] < dryAlbedo[0], 'Wet albedo must be darker than dry albedo');
+    assert(approxEq(wetAlbedo[0], 0.8 * 0.25 + (0.8 * 0.65) * 0.75, 1e-4));
+
+    // Specular water sheen: roughness drops towards 0.08
+    const dryRoughness = 0.75;
+    const wetRoughness = dryRoughness * (1.0 - 0.75) + 0.08 * 0.75;
+    assert(wetRoughness < dryRoughness, 'Wet roughness must be lower (glossier) than dry roughness');
+    assert(wetRoughness >= 0.08, 'Wet roughness should approach 0.08 water sheen');
+  });
+
+  test('Snow surface accumulation math: gates strictly on upward-facing normal (N.y > 0.2)', () => {
+    const smoothstep = (min, max, x) => {
+      const t = Math.max(0, Math.min(1, (x - min) / (max - min)));
+      return t * t * (3 - 2 * t);
+    };
+
+    const intensity = 1.0;
+    const groundNormalY = 1.0; // Upward facing surface
+    const wallNormalY = 0.0;   // Vertical wall
+    const ceilingNormalY = -1.0; // Downward overhang
+
+    const snowGround = smoothstep(0.2, 0.75, groundNormalY) * intensity;
+    const snowWall = smoothstep(0.2, 0.75, wallNormalY) * intensity;
+    const snowCeiling = smoothstep(0.2, 0.75, ceilingNormalY) * intensity;
+
+    assert.strictEqual(snowGround, 1.0, 'Upward facing ground must accumulate full snow');
+    assert.strictEqual(snowWall, 0.0, 'Vertical walls must accumulate zero snow');
+    assert.strictEqual(snowCeiling, 0.0, 'Overhang ceilings must accumulate zero snow');
+  });
+
+  test('Procedural rain droplet ripple wave dispersion and exponential spatial damping', () => {
+    // Wave equation: sin(d * 24.0 - t * 14.0) * exp(-d * 4.5) * (1.0 - t)
+    const wave = (d, t) => Math.sin(d * 24.0 - t * 14.0) * Math.exp(-d * 4.5) * (1.0 - t);
+
+    const nearCenter = wave(0.05, 0.2);
+    const farDistance = wave(1.5, 0.2);
+
+    assert(Math.abs(farDistance) < Math.abs(nearCenter), 'Wave amplitude must exponentially decay with radial distance');
+    const expiredWave = wave(0.05, 1.0);
+    assert.strictEqual(Math.abs(expiredWave), 0.0, 'Expired droplet (t = 1.0) amplitude must be zero');
+  });
+
+  test('Volumetric drifting snowflake lateral swaying turbulence oscillation', () => {
+    // Oscillation equation: wobbleX = sin(time * freq + y * 2.5) * 0.35
+    const wobble = (time, y) => Math.sin(time * 2.0 + y * 2.5) * 0.35;
+
+    const w0 = wobble(0.0, 1.0);
+    const w1 = wobble(0.785, 1.0); // +pi/4
+    assert(w0 !== w1, 'Wobble must vary sinusoidally across time');
+    assert(Math.abs(w0) <= 0.35 && Math.abs(w1) <= 0.35, 'Wobble amplitude must not exceed 0.35');
+  });
+});
+
+// ============================================================================
 // Final Summary & Exit Code
 // ============================================================================
 console.log('\n================================================================================');
@@ -850,6 +984,6 @@ if (failedTests > 0) {
   });
   process.exit(1);
 } else {
-  console.log('✓ All 44 web viewer unit tests PASSED successfully!\n');
+  console.log(`✓ All ${totalTests} web viewer unit tests PASSED successfully!\n`);
   process.exit(0);
 }

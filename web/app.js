@@ -239,6 +239,9 @@
     bumpScale: 1.5,
     pomScale: 0.035,
     flareIntensity: 0.75,
+    weatherMode: 'none',
+    weatherIntensity: 1.0,
+    windStrength: 0.30,
   };
 
   // ============================================================================
@@ -265,6 +268,9 @@
     btnSSAO: document.getElementById('btn-ssao'),
     btnBloom: document.getElementById('btn-bloom'),
     btnFlare: document.getElementById('btn-flare'),
+    btnWeatherNone: document.getElementById('btn-weather-none'),
+    btnWeatherRain: document.getElementById('btn-weather-rain'),
+    btnWeatherSnow: document.getElementById('btn-weather-snow'),
 
     btnToyCar: document.getElementById('btn-load-toycar'),
     btnSponza: document.getElementById('btn-load-sponza'),
@@ -1451,6 +1457,7 @@ struct Uniforms {
     uvTransform : vec4<f32>,     // xy=scale, zw=offset
     flags : vec4<u32>,           // x=texFlags, y=wireframe, z=doubleSided, w=alphaMode
     params : vec4<f32>,          // x=bumpScale, y=pomScale, z=isPomActive, w=isBumpActive
+    weather : vec4<f32>,         // x=weatherMode (0=none, 1=rain, 2=snow), y=intensity, z=wind, w=timeSec
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1640,6 +1647,87 @@ fn tonemapKhronosPbrNeutral(color : vec3<f32>) -> vec3<f32> {
     return mix(c, vec3<f32>(newPeak), g);
 }
 
+// ============================================================================
+// Procedural Weather Effects (Atmospheric Rain & Snow WGSL Subroutines)
+// ============================================================================
+
+fn hash31(p : vec3<f32>) -> f32 {
+    let h = fract(sin(dot(p, vec3<f32>(12.9898, 78.233, 45.164))) * 43758.5453123);
+    return h;
+}
+
+// Procedural dynamic raindrops ripples on surface
+fn calculateRainRipples(pos : vec2<f32>, time : f32) -> vec3<f32> {
+    let scale = 14.0;
+    let uvCoord = pos * scale;
+    let iuv = floor(uvCoord);
+    let fuv = fract(uvCoord);
+    var rippleVec = vec2<f32>(0.0);
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            let g = vec2<f32>(f32(x), f32(y));
+            let h = fract(sin(dot(iuv + g, vec2<f32>(127.1, 311.7))) * 43758.5453);
+            let t = fract(time * 2.2 + h);
+            let center = g + vec2<f32>(0.5) + vec2<f32>(sin(h * 6.28), cos(h * 6.28)) * 0.25;
+            let d = length(fuv - center);
+            let wave = sin(d * 24.0 - t * 14.0) * exp(-d * 4.5) * (1.0 - t);
+            let dir = normalize(fuv - center + 1e-4);
+            rippleVec = rippleVec + dir * wave * 0.5;
+        }
+    }
+    return normalize(vec3<f32>(rippleVec, 1.0));
+}
+
+// Volumetric atmospheric rain streaks
+fn calculateRainStreaks(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let rayDist = length(worldPos - cameraPos);
+    var streakAccum : f32 = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        let scale = select(4.0, 8.0, i == 1);
+        let speed = select(22.0, 32.0, i == 1);
+        let windVec = vec3<f32>(wind * 3.5, -speed, wind * 1.5);
+        let samplePos = (worldPos - windVec * time) * scale;
+        let cell = floor(vec3<f32>(samplePos.x, samplePos.y * 0.08, samplePos.z));
+        let f = fract(vec3<f32>(samplePos.x, samplePos.y * 0.08, samplePos.z));
+        let h = hash31(cell);
+        let dX = abs(f.x - 0.5);
+        let dZ = abs(f.z - 0.5);
+        let dY = abs(f.y - 0.5);
+        let streak = smoothstep(0.08, 0.0, dX) * smoothstep(0.08, 0.0, dZ) * smoothstep(0.45, 0.0, dY);
+        let activeDrop = step(0.70, h);
+        streakAccum = streakAccum + streak * activeDrop;
+    }
+    let mist = (1.0 - exp(-rayDist * 0.08)) * 0.15 * intensity;
+    let mistColor = vec3<f32>(0.65, 0.72, 0.82) * mist;
+    let streakColor = vec3<f32>(0.85, 0.92, 1.0) * (streakAccum * intensity * 0.75);
+    return streakColor + mistColor;
+}
+
+// Volumetric atmospheric drifting snow flakes
+fn calculateSnowFlakes(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
+    let rayDist = length(worldPos - cameraPos);
+    var flakeAccum : f32 = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        let scale = select(3.5, 6.5, i == 1);
+        let fallSpeed = select(2.4, 3.8, i == 1);
+        let freq = select(2.0, 3.2, i == 1);
+        let wobbleX = sin(time * freq + worldPos.y * 2.5 + f32(i)) * 0.35;
+        let wobbleZ = cos(time * (freq * 0.85) + worldPos.x * 2.0) * 0.3;
+        let driftVec = vec3<f32>(wind * 1.8 * time + wobbleX, -fallSpeed * time, wind * 0.8 * time + wobbleZ);
+        let samplePos = (worldPos - driftVec) * scale;
+        let cell = floor(samplePos);
+        let f = fract(samplePos) - 0.5;
+        let h = hash31(cell + vec3<f32>(17.3, 41.7, 83.1));
+        let dist = length(f);
+        let flake = smoothstep(0.20, 0.02, dist) * step(0.66, h);
+        flakeAccum = flakeAccum + flake;
+    }
+    let winterFog = (1.0 - exp(-rayDist * 0.06)) * 0.18 * intensity;
+    let winterFogColor = vec3<f32>(0.82, 0.88, 0.96) * winterFog;
+    let flakeColor = vec3<f32>(0.96, 0.98, 1.0) * (flakeAccum * intensity * 0.85);
+    return flakeColor + winterFogColor;
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -1753,6 +1841,23 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // 5. Micro-Cavity Factor & Horizon Occlusion
     let cavityFactor = clamp(dot(geomNormal, N), 0.0, 1.0);
 
+    // Weather Parameters
+    let weatherMode = ubo.weather.x;
+    let weatherIntensity = ubo.weather.y;
+    let windStrength = ubo.weather.z;
+    let weatherTime = ubo.weather.w;
+
+    if (weatherMode == 1.0 && weatherIntensity > 0.001 && geomNormal.y > 0.15) {
+        // Rain droplet ripples on upward-facing surfaces
+        let rippleTan = calculateRainRipples(in.uv * 5.0 + in.worldPos.xz * 2.5, weatherTime);
+        let rippleWeight = smoothstep(0.15, 0.75, geomNormal.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
+        N = normalize(mix(N, TBN * rippleTan, rippleWeight));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomNormal.y > 0.2) {
+        // Snow settles and flattens crevices upward
+        let snowAccum = smoothstep(0.2, 0.75, geomNormal.y) * clamp(weatherIntensity, 0.0, 1.5);
+        N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
+    }
+
     // 6. Metallic & Roughness with Micro-Roughness Relief
     var metallic = ubo.pbrFactors.x;
     var roughness = ubo.pbrFactors.y;
@@ -1764,6 +1869,17 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     metallic = clamp(metallic, 0.0, 1.0);
     // Ridge polish & crevice matte modulation for heightened tactile plasticity
     roughness = clamp(roughness * mix(1.15, 0.85, cavityFactor), 0.04, 1.0);
+
+    // Weather surface material modulation (wet absorption glaze & crystalline snow)
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        roughness = mix(roughness, 0.08, clamp(weatherIntensity * 0.85, 0.0, 0.88));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        let snowAccum = smoothstep(0.2, 0.75, geomNormal.y) * clamp(weatherIntensity, 0.0, 1.5);
+        if (snowAccum > 0.001) {
+            roughness = mix(roughness, 0.70, snowAccum * 0.9);
+            metallic = mix(metallic, 0.0, snowAccum * 0.95);
+        }
+    }
 
     // 7. Ambient Occlusion with Micro-Cavity Crevice Deepening
     var ao = 1.0;
@@ -1783,7 +1899,18 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // 9. PBR Vectors & Dielectric/Metallic Reflectance Setup
     let NdotV = max(dot(N, V), 0.001);
     let F0 = mix(vec3<f32>(0.04), baseColor.rgb, metallic);
-    let diffuseColor = baseColor.rgb * (1.0 - metallic);
+    var diffuseColor = baseColor.rgb * (1.0 - metallic);
+
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        let wetWeight = clamp(weatherIntensity * 0.8, 0.0, 0.75);
+        diffuseColor = mix(diffuseColor, diffuseColor * 0.65, wetWeight * (1.0 - metallic * 0.5));
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        let snowAccum = smoothstep(0.2, 0.75, geomNormal.y) * clamp(weatherIntensity, 0.0, 1.5);
+        if (snowAccum > 0.001) {
+            let crispSnowColor = vec3<f32>(0.93, 0.95, 0.99);
+            diffuseColor = mix(diffuseColor, crispSnowColor, snowAccum * 0.95);
+        }
+    }
 
     // 10. Direct Lighting Evaluation with Horizon Micro-Shadowing
     var directRadiance = vec3<f32>(0.0);
@@ -1835,6 +1962,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         directRadiance = directRadiance + (diffuseBRDF + specularBRDF) * fillRadiance * (NdotL1 * horizon1);
     }
 
+    // Snow crystalline micro-sparkle under direct key illumination
+    if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomNormal.y > 0.2) {
+        let snowAccum = smoothstep(0.2, 0.75, geomNormal.y) * clamp(weatherIntensity, 0.0, 1.5);
+        let sparkleCoord = floor(in.worldPos * 75.0);
+        let sparkleNoise = fract(sin(dot(sparkleCoord, vec3<f32>(27.1, 59.3, 113.7))) * 43758.5453);
+        let sparkle = pow(sparkleNoise, 16.0) * 3.5 * snowAccum * max(dot(N, L0), 0.0);
+        directRadiance = directRadiance + vec3<f32>(sparkle);
+    }
+
     // 11. Ambient Lighting (Hemispheric Diffuse Irradiance + GGX Environment Specular Reflection)
     let hemiWeight = N.y * 0.5 + 0.5;
     let groundAmbient = vec3<f32>(0.12, 0.11, 0.10);
@@ -1858,6 +1994,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     // 12. Total Radiance in Linear HDR Space
     var totalColor = directRadiance + ambientColor + emissive;
+
+    // Atmospheric Weather Precipitation (Volumetric rain streaks or drifting snow)
+    if (weatherMode == 1.0 && weatherIntensity > 0.001) {
+        totalColor = totalColor + calculateRainStreaks(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
+        totalColor = totalColor + calculateSnowFlakes(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    }
 
     // 13. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
     totalColor = tonemapKhronosPbrNeutral(totalColor);
@@ -2089,7 +2232,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this._scratchProj = this.mat4.create();
         this._scratchView = this.mat4.create();
         this._scratchViewProj = this.mat4.create();
-        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 80);
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 84);
         this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 288, 4);
 
         this.isActive = true;
@@ -2860,6 +3003,16 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32[78] = (typeof BglState !== 'undefined' && BglState.isPomActive) ? 1.0 : 0.0;
         uboF32[79] = (typeof BglState !== 'undefined' && BglState.isBumpActive !== undefined) ? (BglState.isBumpActive ? 1.0 : 0.0) : 1.0;
 
+        const weatherMode = (typeof BglState !== 'undefined' && BglState.weatherMode === 'rain') ? 1.0 : ((typeof BglState !== 'undefined' && BglState.weatherMode === 'snow') ? 2.0 : 0.0);
+        const weatherIntensity = (typeof BglState !== 'undefined' && BglState.weatherIntensity !== undefined) ? BglState.weatherIntensity : 1.0;
+        const windStrength = (typeof BglState !== 'undefined' && BglState.windStrength !== undefined) ? BglState.windStrength : 0.3;
+        const timeSec = (performance.now() * 0.001);
+
+        uboF32[80] = weatherMode;
+        uboF32[81] = weatherIntensity;
+        uboF32[82] = windStrength;
+        uboF32[83] = timeSec;
+
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
         const pipeline = prim.doubleSided ? this.pipelineDoubleSided : this.pipeline;
@@ -3490,6 +3643,70 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   }
   window.onFlareSlider = onFlareSlider;
 
+  // ============================================================================
+  // Atmospheric Weather Controls (Rain & Snow)
+  // ============================================================================
+
+  function setWeatherMode(mode) {
+    if (mode !== 'none' && mode !== 'rain' && mode !== 'snow') mode = 'none';
+    BglState.weatherMode = mode;
+
+    const btnNone = document.getElementById('btn-weather-none') || (BglUI && BglUI.btnWeatherNone);
+    const btnRain = document.getElementById('btn-weather-rain') || (BglUI && BglUI.btnWeatherRain);
+    const btnSnow = document.getElementById('btn-weather-snow') || (BglUI && BglUI.btnWeatherSnow);
+
+    if (btnNone) {
+      btnNone.classList.toggle('active', mode === 'none');
+      btnNone.style.background = mode === 'none' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    if (btnRain) {
+      btnRain.classList.toggle('active', mode === 'rain');
+      btnRain.style.background = mode === 'rain' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    if (btnSnow) {
+      btnSnow.classList.toggle('active', mode === 'snow');
+      btnSnow.style.background = mode === 'snow' ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+
+    BglLogger.log('Engine', `Atmospheric Weather Mode set to: ${mode.toUpperCase()}`);
+    if (typeof BglNotifier !== 'undefined' && BglNotifier.info) {
+      const titles = { none: 'Clear Skies', rain: 'Rain Storm', snow: 'Snowfall' };
+      const msgs = {
+        none: 'Weather simulation disabled.',
+        rain: 'Simulating rain precipitation, droplet ripples & wet surface glaze.',
+        snow: 'Simulating drifting snowfall flakes & upward surface accumulation.'
+      };
+      BglNotifier.info(titles[mode], msgs[mode]);
+    }
+  }
+  window.setWeatherMode = setWeatherMode;
+
+  function toggleRain() {
+    setWeatherMode(BglState.weatherMode === 'rain' ? 'none' : 'rain');
+  }
+  window.toggleRain = toggleRain;
+
+  function toggleSnow() {
+    setWeatherMode(BglState.weatherMode === 'snow' ? 'none' : 'snow');
+  }
+  window.toggleSnow = toggleSnow;
+
+  function onWeatherIntensitySlider(val) {
+    const num = Math.max(0.0, Math.min(2.0, Number(val)));
+    BglState.weatherIntensity = num;
+    const label = document.getElementById('val-weather-intensity');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+  }
+  window.onWeatherIntensitySlider = onWeatherIntensitySlider;
+
+  function onWindSlider(val) {
+    const num = Math.max(-1.0, Math.min(1.0, Number(val)));
+    BglState.windStrength = num;
+    const label = document.getElementById('val-wind-strength');
+    if (label) label.textContent = `${num >= 0 ? '+' : ''}${num.toFixed(2)}`;
+  }
+  window.onWindSlider = onWindSlider;
+
   function focusSelection() {
     BglLogger.log('Engine', 'Focusing camera on selection / scene bounds');
     const activeRenderer = getActiveRenderer();
@@ -3768,6 +3985,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         case 'R': toggleReflections(); break;
         case 'U': toggleAO(); break;
         case 'G': toggleSSAO(); break;
+        case 'X': toggleRain(); break;
+        case 'Y': toggleSnow(); break;
         case '+':
         case '=':
           if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);

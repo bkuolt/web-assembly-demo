@@ -1,11 +1,11 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.9.14)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.9.15)
 
 # 🎮 **[👉 RUN LIVE DEMO IN BROWSER (Instant GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-254_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.14-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Unit_Tests-262_Passing-22c55e?style=for-the-badge)](tests/)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.15-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -41,6 +41,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | **True Transmission & Refraction** | Full `KHR_materials_volume` support, view-space Snell's law screen refraction, and physical Beer-Lambert volume extinction | Automatic (`KHR_materials_volume`) |
 | **Native Compressed Textures** | Automatic KTX2 Basis Universal transcoding to native BC7, ASTC 4×4, or ETC2 based on WebGPU adapter capabilities | Automatic GPU feature detection |
 | **Parallax Occlusion Mapping (POM)** | Steep parallax raymarching (8–32 view-adaptive layers) with secant interpolation and light-facing self-shadowing for deep 3D surface immersion | `[P]` / Slider / HUD |
+| **Atmospheric Weather (Rain & Snow)** | Directional rain streaks oriented by wind, animated droplet ripples & wet surface glaze, drifting snowflakes with turbulent wobble, upward snow accumulation ($N.y > 0.2$), and crystalline sparkles | `[X]` (Rain) / `[Y]` (Snow) / Sliders / HUD |
 | **Ambient Occlusion (AO)** | glTF occlusion texture + micro-cavity + horizon contact + Jimenez multi-bounce color conservation with live intensity tuning | `[U]` / Slider / `--no-ao` |
 | **Directional Sun Lens Flares** | Real-time post-processing lens flare with solar corona glow, anamorphic horizontal streaks, chromatic ghosts, optical halo rings, and screen-edge fade | `[J]` / Slider / HUD |
 | **Full Keyboard Navigation** | Smooth WASD & Arrow key 3D camera pan/fly, `+` / `-` keys for zoom in / out with step clamping | `[W]`/`[A]`/`[S]`/`[D]` / `[+]`/`[-]` |

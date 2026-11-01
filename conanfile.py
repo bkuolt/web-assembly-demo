@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "0.9.14"
+    version = "0.9.15"
     package_type = "application"
     required_conan_version = ">=2.28"
     settings = "os", "arch", "compiler", "build_type"
