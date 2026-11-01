@@ -1478,6 +1478,7 @@ struct VertexInput {
     @location(0) position : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) uv : vec2<f32>,
+    @location(3) tangent : vec4<f32>,
 };
 
 struct VertexOutput {
@@ -1485,7 +1486,28 @@ struct VertexOutput {
     @location(0) worldPos : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) uv : vec2<f32>,
+    @location(3) tangent : vec4<f32>,
 };
+
+struct MipVertexOutput {
+    @builtin(position) clipPos : vec4<f32>,
+    @location(0) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_mip(@builtin(vertex_index) vIdx : u32) -> MipVertexOutput {
+    var out : MipVertexOutput;
+    let x = f32(i32(vIdx << 1u) & 2) * 2.0 - 1.0;
+    let y = f32(i32(vIdx & 2u)) * 2.0 - 1.0;
+    out.clipPos = vec4<f32>(x, y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, 0.5 - y * 0.5);
+    return out;
+}
+
+@fragment
+fn fs_mip(in : MipVertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(baseColorTexture, defaultSampler, in.uv);
+}
 
 const PI : f32 = 3.141592653589793;
 
@@ -1512,48 +1534,36 @@ fn fresnelSchlickRoughness(NdotV : f32, F0 : vec3<f32>, roughness : f32) -> vec3
     return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
 }
 
-fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>) -> mat3x3<f32> {
+fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>, dp1 : vec3<f32>, dp2 : vec3<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> mat3x3<f32> {
     let N = normalize(geomNormal);
-    let dp1 = dpdx(worldPos);
-    let dp2 = dpdy(worldPos);
-    let duv1 = dpdx(uv);
-    let duv2 = dpdy(uv);
-
-    let det = duv1.x * duv2.y - duv1.y * duv2.x;
-    if (abs(det) > 1e-12) {
-        let invDet = 1.0 / det;
-        var T = (dp1 * duv2.y - dp2 * duv1.y) * invDet;
-        var B = (dp2 * duv1.x - dp1 * duv2.x) * invDet;
-
-        T = normalize(T - N * dot(N, T));
-        B = normalize(B - N * dot(N, B));
-
-        let crossB = cross(N, T);
-        if (dot(crossB, B) < 0.0) {
-            B = -B;
-        }
+    let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
+    let orthoLenSq = dot(orthoT, orthoT);
+    if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-6) {
+        let T = orthoT * inverseSqrt(orthoLenSq);
+        let B = normalize(cross(N, T) * sign(tangent.w));
         return mat3x3<f32>(T, B, N);
     }
-
+    let dp2perp = cross(dp2, N);
+    let dp1perp = cross(N, dp1);
+    let T = dp2perp * duv1.x + dp1perp * duv2.x;
+    let B = dp2perp * duv1.y + dp1perp * duv2.y;
+    let maxLenSq = max(dot(T, T), dot(B, B));
+    if (maxLenSq > 1e-18) {
+        let invmax = inverseSqrt(maxLenSq);
+        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+    }
     let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
     let fallbackT = normalize(cross(up, N));
     let fallbackB = normalize(cross(N, fallbackT));
     return mat3x3<f32>(fallbackT, fallbackB, N);
 }
 
-fn getSurfaceHeight(uv : vec2<f32>) -> f32 {
+fn getSurfaceHeight(uv : vec2<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> f32 {
     var height = 0.5;
     if ((ubo.flags.x & 16u) != 0u) {
-        height = textureSampleLevel(occlusionTexture, defaultSampler, uv, 0.0).r;
-    } else if ((ubo.flags.x & 4u) != 0u) {
-        let nSamp = textureSampleLevel(normalTexture, defaultSampler, uv, 0.0);
-        if (nSamp.a < 0.99 && nSamp.a > 0.01) {
-            height = nSamp.a;
-        } else {
-            height = clamp(nSamp.z, 0.0, 1.0);
-        }
+        height = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2).r;
     } else if ((ubo.flags.x & 1u) != 0u) {
-        let col = textureSampleLevel(baseColorTexture, defaultSampler, uv, 0.0).rgb;
+        let col = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2).rgb;
         height = dot(col, vec3<f32>(0.299, 0.587, 0.114));
     }
     return clamp(height, 0.0, 1.0);
@@ -1562,6 +1572,8 @@ fn getSurfaceHeight(uv : vec2<f32>) -> f32 {
 fn parallaxOcclusionMapping(
     initialUV : vec2<f32>,
     viewDirTangent : vec3<f32>,
+    duv1 : vec2<f32>,
+    duv2 : vec2<f32>,
     scale : f32
 ) -> vec2<f32> {
     let minLayers : f32 = 8.0;
@@ -1574,7 +1586,7 @@ fn parallaxOcclusionMapping(
     let deltaUV = P / numLayers;
 
     var currentUV = initialUV;
-    var currentHeight = getSurfaceHeight(currentUV);
+    var currentHeight = getSurfaceHeight(currentUV, duv1, duv2);
 
     var prevUV = currentUV;
     var prevHeight = currentHeight;
@@ -1589,7 +1601,7 @@ fn parallaxOcclusionMapping(
         prevLayerDepth = currentLayerDepth;
 
         currentUV = currentUV - deltaUV;
-        currentHeight = getSurfaceHeight(currentUV);
+        currentHeight = getSurfaceHeight(currentUV, duv1, duv2);
         currentLayerDepth = currentLayerDepth + layerDepth;
     }
 
@@ -1602,13 +1614,15 @@ fn parallaxOcclusionMapping(
 fn computeParallaxShadow(
     displacedUV : vec2<f32>,
     lightDirTangent : vec3<f32>,
+    duv1 : vec2<f32>,
+    duv2 : vec2<f32>,
     scale : f32
 ) -> f32 {
-    let initialHeight = getSurfaceHeight(displacedUV);
+    let initialHeight = getSurfaceHeight(displacedUV, duv1, duv2);
     if (lightDirTangent.z <= 0.0) {
-        return 0.2;
+        return 0.25;
     }
-    let numSamples : f32 = 12.0;
+    let numSamples : f32 = 8.0;
     let stepSize = (1.0 - initialHeight) / numSamples;
     let deltaUV = (lightDirTangent.xy / max(lightDirTangent.z, 0.15)) * scale / numSamples;
 
@@ -1616,16 +1630,16 @@ fn computeParallaxShadow(
     var currentUV = displacedUV;
     var shadowFactor = 1.0;
 
-    for (var i : i32 = 0; i < 12; i = i + 1) {
+    for (var i : i32 = 0; i < 8; i = i + 1) {
         currentUV = currentUV + deltaUV;
         currentLayerHeight = currentLayerHeight + stepSize;
-        let sampledHeight = getSurfaceHeight(currentUV);
+        let sampledHeight = getSurfaceHeight(currentUV, duv1, duv2);
         if (sampledHeight > currentLayerHeight) {
             let diff = sampledHeight - currentLayerHeight;
             shadowFactor = min(shadowFactor, 1.0 - diff * 0.85);
         }
     }
-    return clamp(shadowFactor, 0.2, 1.0);
+    return clamp(shadowFactor, 0.25, 1.0);
 }
 
 fn srgbToLinear(c : vec3<f32>) -> vec3<f32> {
@@ -1861,6 +1875,10 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     } else {
         out.normal = vec3<f32>(0.0, 1.0, 0.0);
     }
+    let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
+    let tanLen = length(worldTan);
+    let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
+    out.tangent = vec4<f32>(normTan, in.tangent.w);
     out.uv = in.uv * ubo.uvTransform.xy + ubo.uvTransform.zw;
     out.clipPos = ubo.viewProj * worldPos4;
     return out;
@@ -1868,6 +1886,11 @@ fn vs_main(in : VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @location(0) vec4<f32> {
+    let dp1 = dpdx(in.worldPos);
+    let dp2 = dpdy(in.worldPos);
+    let duv1 = dpdx(in.uv);
+    let duv2 = dpdy(in.uv);
+
     // Wireframe debug override
     if (ubo.flags.y != 0u) {
         return vec4<f32>(0.22, 0.74, 0.97, 1.0);
@@ -1880,14 +1903,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     } else {
         geomNormal = vec3<f32>(0.0, 1.0, 0.0);
     }
-    if (!frontFacing) {
+    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
+    if (!frontFacing || (ubo.flags.z != 0u && dot(geomNormal, V) < 0.0)) {
         geomNormal = -geomNormal;
     }
 
-    let TBN = getTBN(in.worldPos, geomNormal, in.uv);
+    let TBN = getTBN(in.worldPos, geomNormal, in.uv, in.tangent, dp1, dp2, duv1, duv2);
     let invTBN = transpose(TBN);
-
-    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
     let V_tangent = invTBN * V;
 
     // 2. Parallax Occlusion Mapping (POM) & Surface Displacement
@@ -1899,16 +1921,24 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     let isBumpActive = ubo.params.w > 0.5;
 
     if (isPomActive && isBumpActive) {
-        uv = parallaxOcclusionMapping(in.uv, V_tangent, pomScale);
+        let isNormalMapped = (ubo.flags.x & 4u) != 0u;
+        let effPomScale = select(pomScale, pomScale * 0.14, isNormalMapped);
+        uv = parallaxOcclusionMapping(in.uv, V_tangent, duv1, duv2, effPomScale);
         let L0_tangent = invTBN * normalize(ubo.lightDir.xyz);
-        pomShadow = computeParallaxShadow(uv, L0_tangent, pomScale);
+        pomShadow = computeParallaxShadow(uv, L0_tangent, duv1, duv2, effPomScale);
     }
+
+    // Sample all PBR material maps using explicit screen-space gradients (uniformity-safe & anisotropic-correct)
+    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2);
+    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, uv, duv1, duv2);
+    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, uv, duv1, duv2);
+    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uv, duv1, duv2);
+    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2);
 
     // 3. Base Color & Alpha
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags.x & 1u) != 0u) {
-        let texColor = textureSample(baseColorTexture, defaultSampler, uv);
-        baseColor = baseColor * vec4<f32>(srgbToLinear(texColor.rgb), texColor.a);
+        baseColor = baseColor * vec4<f32>(srgbToLinear(baseTexSample.rgb), baseTexSample.a);
     } else {
         baseColor = vec4<f32>(srgbToLinear(baseColor.rgb), baseColor.a);
     }
@@ -1926,10 +1956,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     var N = geomNormal;
     if (isBumpActive) {
         if ((ubo.flags.x & 4u) != 0u) { // HasNormalTex
-            let normalSample = textureSample(normalTexture, defaultSampler, uv).xyz * 2.0 - 1.0;
+            let normalSample = normTexSample.xyz * 2.0 - 1.0;
             let totalScale = ubo.pbrFactors.z * bumpScale;
-            // glTF convention: +X is right, +Y is up (which corresponds to -V in texture space)
-            let tangentNormal = normalize(vec3<f32>(normalSample.x * totalScale, -normalSample.y * totalScale, normalSample.z));
+            let tangentNormal = normalize(vec3<f32>(normalSample.xy * totalScale, normalSample.z));
             N = normalize(TBN * tangentNormal);
         } else if ((ubo.flags.x & 1u) != 0u || (ubo.flags.x & 16u) != 0u) {
             // Surface Gradient Bump Mapping from BaseColor Luminance and Occlusion Cavity
@@ -1937,25 +1966,25 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
             let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
 
-            let hR = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), 0.0).rgb, lumaWeights);
-            let hL = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), 0.0).rgb, lumaWeights);
-            let hU = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), 0.0).rgb, lumaWeights);
-            let hD = dot(textureSampleLevel(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), 0.0).rgb, lumaWeights);
+            let hR = dot(textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb, lumaWeights);
+            let hL = dot(textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb, lumaWeights);
+            let hU = dot(textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb, lumaWeights);
+            let hD = dot(textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb, lumaWeights);
 
             var dHdU = (hR - hL);
             var dHdV = (hU - hD);
 
             if ((ubo.flags.x & 16u) != 0u) {
-                let occR = textureSampleLevel(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), 0.0).r;
-                let occL = textureSampleLevel(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), 0.0).r;
-                let occU = textureSampleLevel(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), 0.0).r;
-                let occD = textureSampleLevel(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), 0.0).r;
+                let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+                let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
+                let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+                let occD = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
                 dHdU = dHdU + (occR - occL) * 0.75;
                 dHdV = dHdV + (occU - occD) * 0.75;
             }
 
-            let bumpStrength = 3.0 * bumpScale;
-            let tangentBump = normalize(vec3<f32>(-dHdU * bumpStrength, dHdV * bumpStrength, 1.0));
+            let bumpStrength = 2.0 * bumpScale;
+            let tangentBump = normalize(vec3<f32>(-dHdU * bumpStrength, -dHdV * bumpStrength, 1.0));
             N = normalize(TBN * tangentBump);
         }
     }
@@ -1984,9 +2013,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     var metallic = ubo.pbrFactors.x;
     var roughness = ubo.pbrFactors.y;
     if ((ubo.flags.x & 2u) != 0u) { // HasMrTex
-        let mrSample = textureSample(metallicRoughnessTexture, defaultSampler, uv);
-        roughness = roughness * mrSample.g;
-        metallic = metallic * mrSample.b;
+        roughness = roughness * mrTexSample.g;
+        metallic = metallic * mrTexSample.b;
     }
     metallic = clamp(metallic, 0.0, 1.0);
     // Ridge polish & crevice matte modulation for heightened tactile plasticity
@@ -2010,16 +2038,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // 7. Ambient Occlusion with Micro-Cavity Crevice Deepening
     var ao = 1.0;
     if ((ubo.flags.x & 16u) != 0u) { // HasOcclusionTex
-        let occSample = textureSample(occlusionTexture, defaultSampler, uv);
-        ao = mix(1.0, occSample.r, ubo.pbrFactors.w);
+        ao = mix(1.0, occTexSample.r, ubo.pbrFactors.w);
     }
     ao = ao * mix(0.5, 1.0, cavityFactor * cavityFactor);
 
     // 8. Emissive
     var emissive = ubo.emissiveFactor.rgb;
     if ((ubo.flags.x & 8u) != 0u) { // HasEmissiveTex
-        let emissiveSample = textureSample(emissiveTexture, defaultSampler, uv);
-        emissive = emissive * srgbToLinear(emissiveSample.rgb);
+        emissive = emissive * srgbToLinear(emTexSample.rgb);
     }
 
     // 9. PBR Vectors & Dielectric/Metallic Reflectance Setup
@@ -2249,11 +2275,22 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         );
         this.defaultBlackTextureView = this.defaultBlackTexture.createView();
 
-        // Default linear filtering sampler
+        // Default 16x anisotropic trilinear repeat sampler (glTF 2.0 default wrapS/wrapT = REPEAT 10497)
         this.defaultSampler = this.device.createSampler({
+          addressModeU: 'repeat',
+          addressModeV: 'repeat',
+          addressModeW: 'repeat',
           magFilter: 'linear',
           minFilter: 'linear',
-          mipmapFilter: 'linear'
+          mipmapFilter: 'linear',
+          maxAnisotropy: 16
+        });
+
+        this.mipmapSampler = this.device.createSampler({
+          addressModeU: 'clamp-to-edge',
+          addressModeV: 'clamp-to-edge',
+          magFilter: 'linear',
+          minFilter: 'linear'
         });
 
         // 7-Entry PBR Bind Group Layout
@@ -2306,11 +2343,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         });
 
         const vertexBufferLayout = {
-          arrayStride: 32,
+          arrayStride: 48,
           attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
             { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
-            { shaderLocation: 2, offset: 24, format: 'float32x2' }  // uv
+            { shaderLocation: 2, offset: 24, format: 'float32x2' }, // uv
+            { shaderLocation: 3, offset: 32, format: 'float32x4' }  // tangent
           ]
         };
 
@@ -2358,6 +2396,22 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             depthWriteEnabled: true,
             depthCompare: 'less'
           }
+        });
+
+        this.mipmapBindGroupLayout = this.device.createBindGroupLayout({
+          entries: [
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+            { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } }
+          ]
+        });
+        this.mipmapPipelineLayout = this.device.createPipelineLayout({
+          bindGroupLayouts: [this.mipmapBindGroupLayout]
+        });
+        this.mipmapPipeline = this.device.createRenderPipeline({
+          layout: this.mipmapPipelineLayout,
+          vertex: { module: shaderModule, entryPoint: 'vs_mip' },
+          fragment: { module: shaderModule, entryPoint: 'fs_mip', targets: [{ format: 'rgba8unorm' }] },
+          primitive: { topology: 'triangle-list' }
         });
 
         // Initialize reusable scratch buffers for zero-allocation rendering
@@ -2694,6 +2748,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
             const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
             const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
+            const tanData = prim.attributes.TANGENT !== undefined ? getAccessorData(prim.attributes.TANGENT) : null;
             const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
 
             for (const worldMatrix of nodeMats) {
@@ -2709,9 +2764,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             }
 
             const vertexCount = posData.length / 3;
-            const interleaved = new Float32Array(vertexCount * 8);
+            const interleaved = new Float32Array(vertexCount * 12);
             for (let i = 0; i < vertexCount; ++i) {
-              const base = i * 8;
+              const base = i * 12;
               const pIdx = i * 3;
               interleaved[base + 0] = posData[pIdx + 0];
               interleaved[base + 1] = posData[pIdx + 1];
@@ -2735,10 +2790,23 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 interleaved[base + 6] = 0.0;
                 interleaved[base + 7] = 0.0;
               }
+
+              if (tanData) {
+                const tIdx = i * 4;
+                interleaved[base + 8] = tanData[tIdx + 0];
+                interleaved[base + 9] = tanData[tIdx + 1];
+                interleaved[base + 10] = tanData[tIdx + 2];
+                interleaved[base + 11] = tanData[tIdx + 3];
+              } else {
+                interleaved[base + 8] = 0.0;
+                interleaved[base + 9] = 0.0;
+                interleaved[base + 10] = 0.0;
+                interleaved[base + 11] = 0.0;
+              }
             }
 
             const vertexBuffer = this.device.createBuffer({
-              size: Math.max(32, interleaved.byteLength),
+              size: Math.max(48, interleaved.byteLength),
               usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
             });
             this.device.queue.writeBuffer(vertexBuffer, 0, interleaved);
@@ -2900,26 +2968,45 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
                 if (this.textureCache.has(imgIdx)) {
                   const cached = this.textureCache.get(imgIdx);
-                  applyView(cached.view);
+                  if (cached.view) {
+                    applyView(cached.view);
+                  } else if (cached.waiters) {
+                    cached.waiters.push(applyView);
+                  }
                   return;
                 }
+
+                // Register pending entry immediately to deduplicate concurrent async decodes across primitives
+                this.textureCache.set(imgIdx, { texture: null, view: null, waiters: [applyView] });
 
                 const onImageReady = (bmp) => {
                   try {
                     if (!this.device) return;
+                    const mipLevelCount = Math.max(1, Math.floor(Math.log2(Math.max(bmp.width || 1, bmp.height || 1))) + 1);
                     const gpuTex = this.device.createTexture({
                       size: [bmp.width, bmp.height, 1],
+                      mipLevelCount,
                       format: 'rgba8unorm',
                       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
                     });
                     this.device.queue.copyExternalImageToTexture(
                       { source: bmp },
-                      { texture: gpuTex },
+                      { texture: gpuTex, mipLevel: 0 },
                       [bmp.width, bmp.height]
                     );
+                    if (mipLevelCount > 1) {
+                      this.generateMipmaps(gpuTex, bmp.width, bmp.height, mipLevelCount);
+                    }
+                    if (typeof bmp.close === 'function') {
+                      bmp.close();
+                    }
                     const gpuView = gpuTex.createView();
-                    this.textureCache.set(imgIdx, { texture: gpuTex, view: gpuView });
-                    applyView(gpuView);
+                    const prevEntry = this.textureCache.get(imgIdx);
+                    const waiters = (prevEntry && prevEntry.waiters) ? prevEntry.waiters : [applyView];
+                    this.textureCache.set(imgIdx, { texture: gpuTex, view: gpuView, waiters: null });
+                    for (const fn of waiters) {
+                      fn(gpuView);
+                    }
                   } catch (texErr) {
                     BglLogger.warn('WebGPU', `Failed to upload texture image #${imgIdx}:`, texErr);
                   }
@@ -2983,16 +3070,57 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         const rawRadius = Math.hypot(dx, dy, dz) * 0.5;
         const radius = Math.max(rawRadius, 0.0001);
 
-        this.camera.target = [cx, cy, cz];
-        this.camera.distance = radius * 2.2;
-        this.camera.minDistance = Math.max(0.0001, radius * 0.05);
+        const isSponza = /sponza/i.test(modelName || '') || (dx > 25.0 && dx < 32.0 && dy > 10.0 && dy < 15.0 && dz > 15.0 && dz < 22.0);
+        if (isSponza) {
+          this.camera.target = [cx, minBound[1] + dy * 0.25, cz];
+          this.camera.distance = 7.2;
+          this.camera.yaw = 1.5708;
+          this.camera.pitch = 0.06;
+        } else {
+          this.camera.target = [cx, cy, cz];
+          this.camera.distance = radius * 2.2;
+        }
+        this.camera.minDistance = Math.max(0.0001, radius * 0.02);
         this.camera.maxDistance = Math.max(10.0, radius * 35.0);
-        this.camera.near = Math.max(0.0001, radius * 0.02);
+        this.camera.near = Math.max(0.0001, radius * 0.008);
         this.camera.far = Math.max(100.0, radius * 50.0);
-        this.modelBounds = { center: [cx, cy, cz], radius };
+        this.modelBounds = { center: [cx, cy, cz], radius, isSponza, minBound, maxBound };
       }
 
       BglLogger.log('WebGPU', `Loaded '${modelName}' into WebGPU rendering pipeline (${this.primitives.length} primitives).`);
+    },
+
+    generateMipmaps(gpuTex, width, height, mipLevelCount) {
+      if (!this.device || !this.mipmapPipeline || mipLevelCount <= 1 || typeof this.device.createCommandEncoder !== 'function') return;
+      try {
+        const encoder = this.device.createCommandEncoder();
+        for (let mip = 1; mip < mipLevelCount; ++mip) {
+          const srcView = gpuTex.createView({ baseMipLevel: mip - 1, mipLevelCount: 1 });
+          const dstView = gpuTex.createView({ baseMipLevel: mip, mipLevelCount: 1 });
+          const bindGroup = this.device.createBindGroup({
+            layout: this.mipmapBindGroupLayout,
+            entries: [
+              { binding: 1, resource: this.mipmapSampler || this.defaultSampler },
+              { binding: 2, resource: srcView }
+            ]
+          });
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: dstView,
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: 'clear',
+              storeOp: 'store'
+            }]
+          });
+          pass.setPipeline(this.mipmapPipeline);
+          pass.setBindGroup(0, bindGroup);
+          pass.draw(3);
+          pass.end();
+        }
+        this.device.queue.submit([encoder.finish()]);
+      } catch (mipErr) {
+        BglLogger.warn('WebGPU', 'Mipmap generation notice:', mipErr);
+      }
     },
 
     startLoop() {
@@ -3914,8 +4042,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     BglLogger.log('Engine', 'Focusing camera on selection / scene bounds');
     const activeRenderer = getActiveRenderer();
     if (activeRenderer && activeRenderer.modelBounds) {
-      activeRenderer.camera.target = [...activeRenderer.modelBounds.center];
-      activeRenderer.camera.distance = activeRenderer.modelBounds.radius * 2.2;
+      const mb = activeRenderer.modelBounds;
+      if (mb.isSponza && mb.minBound && mb.maxBound) {
+        const dy = mb.maxBound[1] - mb.minBound[1];
+        activeRenderer.camera.target = [mb.center[0], mb.minBound[1] + dy * 0.26, mb.center[2]];
+        activeRenderer.camera.distance = 8.5;
+      } else {
+        activeRenderer.camera.target = [...mb.center];
+        activeRenderer.camera.distance = mb.radius * 2.2;
+      }
     }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_focus_selection) {
       BglState.wasmExports.bgl_camera_focus_selection();
@@ -3927,8 +4062,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     BglLogger.log('Engine', 'Framing all scene geometry');
     const activeRenderer = getActiveRenderer();
     if (activeRenderer && activeRenderer.modelBounds) {
-      activeRenderer.camera.target = [...activeRenderer.modelBounds.center];
-      activeRenderer.camera.distance = activeRenderer.modelBounds.radius * 2.2;
+      const mb = activeRenderer.modelBounds;
+      if (mb.isSponza && mb.minBound && mb.maxBound) {
+        const dy = mb.maxBound[1] - mb.minBound[1];
+        activeRenderer.camera.target = [mb.center[0], mb.minBound[1] + dy * 0.26, mb.center[2]];
+        activeRenderer.camera.distance = 8.5;
+      } else {
+        activeRenderer.camera.target = [...mb.center];
+        activeRenderer.camera.distance = mb.radius * 2.2;
+      }
     }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_frame_all) {
       BglState.wasmExports.bgl_camera_frame_all();

@@ -59,8 +59,8 @@ class MockGPUDevice {
   }
 
   createRenderPipeline(desc) {
-    assert(desc.vertex && desc.vertex.entryPoint === 'vs_main', 'Vertex entry point must be vs_main');
-    assert(desc.fragment && desc.fragment.entryPoint === 'fs_main', 'Fragment entry point must be fs_main');
+    assert(desc.vertex && (desc.vertex.entryPoint === 'vs_main' || desc.vertex.entryPoint === 'vs_mip'), 'Vertex entry point must be vs_main or vs_mip');
+    assert(desc.fragment && (desc.fragment.entryPoint === 'fs_main' || desc.fragment.entryPoint === 'fs_mip'), 'Fragment entry point must be fs_main or fs_mip');
     return { id: Math.random(), desc };
   }
 

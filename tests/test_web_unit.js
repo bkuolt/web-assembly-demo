@@ -649,7 +649,7 @@ suite('Cotangent Frame, Sculptural Bump Mapping & POM', () => {
     assert(wgsl.includes('parallaxOcclusionMapping'), 'Must contain parallaxOcclusionMapping function');
     assert(wgsl.includes('computeParallaxShadow'), 'Must contain computeParallaxShadow function');
     assert(wgsl.includes('getSurfaceHeight'), 'Must contain getSurfaceHeight function');
-    assert(wgsl.includes('textureSampleLevel'), 'Must use textureSampleLevel in non-uniform control flow');
+    assert(wgsl.includes('textureSampleGrad') || wgsl.includes('textureSampleLevel'), 'Must use textureSampleGrad/textureSampleLevel in non-uniform control flow');
     assert(wgsl.includes('calculateRainRipples'), 'Must contain calculateRainRipples function');
     assert(wgsl.includes('calculateRainStreaks'), 'Must contain calculateRainStreaks function');
     assert(wgsl.includes('calculateSnowFlakes'), 'Must contain calculateSnowFlakes function');
@@ -1033,6 +1033,16 @@ suite('Atmospheric Weather Shader Effects (Rain & Snow)', () => {
     const w1 = wobble(0.785, 1.0); // +pi/4
     assert(w0 !== w1, 'Wobble must vary sinusoidally across time');
     assert(Math.abs(w0) <= 0.35 && Math.abs(w1) <= 0.35, 'Wobble amplitude must not exceed 0.35');
+  });
+
+  test('Sponza texturing & WGSL uniformity: repeat wrapping, textureSampleGrad, vertex tangents, and mipmap pass', () => {
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    assert(wgsl.includes('textureSampleGrad(baseColorTexture'), 'WGSL must use textureSampleGrad for uniformity-safe anisotropic sampling');
+    assert(wgsl.includes('textureSampleGrad(normalTexture'), 'WGSL must use textureSampleGrad for normal maps');
+    assert(wgsl.includes('textureSampleGrad(metallicRoughnessTexture'), 'WGSL must use textureSampleGrad for metallic-roughness maps');
+    assert(wgsl.includes('@location(3) tangent : vec4<f32>'), 'VertexInput must include @location(3) tangent : vec4<f32>');
+    assert(wgsl.includes('fn vs_mip') && wgsl.includes('fn fs_mip'), 'WGSL must include GPU mipmap generation entry points vs_mip and fs_mip');
+    assert(typeof BglWebGpuRenderer.generateMipmaps === 'function', 'BglWebGpuRenderer must expose generateMipmaps helper');
   });
 });
 
