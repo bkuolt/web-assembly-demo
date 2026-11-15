@@ -47,10 +47,10 @@ public:
 
     // GPU VRAM Tracking
     void TrackBufferAlloc(size_t bytes) noexcept { gpuBufferBytes_.fetch_add(bytes, std::memory_order_relaxed); }
-    void TrackBufferFree(size_t bytes) noexcept { gpuBufferBytes_.fetch_sub(bytes, std::memory_order_relaxed); }
+    void TrackBufferFree(size_t bytes) noexcept { SubtractSaturated(gpuBufferBytes_, bytes); }
 
     void TrackTextureAlloc(size_t bytes) noexcept { gpuTextureBytes_.fetch_add(bytes, std::memory_order_relaxed); }
-    void TrackTextureFree(size_t bytes) noexcept { gpuTextureBytes_.fetch_sub(bytes, std::memory_order_relaxed); }
+    void TrackTextureFree(size_t bytes) noexcept { SubtractSaturated(gpuTextureBytes_, bytes); }
 
     [[nodiscard]] size_t GetGpuBufferBytes() const noexcept { return gpuBufferBytes_.load(std::memory_order_relaxed); }
     [[nodiscard]] size_t GetGpuTextureBytes() const noexcept {
@@ -66,6 +66,17 @@ public:
 
 private:
     MemoryTracker() = default;
+
+    static void SubtractSaturated(std::atomic<size_t>& target, size_t bytes) noexcept {
+        size_t expected = target.load(std::memory_order_relaxed);
+        while (expected != 0) {
+            const size_t desired = (expected >= bytes) ? (expected - bytes) : 0;
+            if (target.compare_exchange_weak(expected, desired, std::memory_order_relaxed)) {
+                return;
+            }
+        }
+    }
+
     std::atomic<size_t> gpuBufferBytes_{0};
     std::atomic<size_t> gpuTextureBytes_{0};
 };

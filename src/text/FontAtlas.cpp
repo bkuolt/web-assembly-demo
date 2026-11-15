@@ -23,7 +23,7 @@ FontAtlas::~FontAtlas() {
 FontAtlas::FontAtlas(FontAtlas&& other) noexcept
     : ftLibrary_{std::exchange(other.ftLibrary_, nullptr)}, ftFace_{std::exchange(other.ftFace_, nullptr)},
       hbFont_{std::exchange(other.hbFont_, nullptr)}, fontDataBuffer_{std::move(other.fontDataBuffer_)},
-      pixelSize_{other.pixelSize_}, lineHeight_{other.lineHeight_}, ascender_{other.ascender_},
+      pixelSize_{other.pixelSize_}, useSdf_{other.useSdf_}, lineHeight_{other.lineHeight_}, ascender_{other.ascender_},
       descender_{other.descender_}, atlasDim_{other.atlasDim_}, cpuAtlas_{std::move(other.cpuAtlas_)},
       isDirty_{other.isDirty_}, packX_{other.packX_}, packY_{other.packY_}, rowHeight_{other.rowHeight_},
       whitePixelUV_{other.whitePixelUV_}, glyphCache_{std::move(other.glyphCache_)},
@@ -38,6 +38,7 @@ FontAtlas& FontAtlas::operator=(FontAtlas&& other) noexcept {
         hbFont_ = std::exchange(other.hbFont_, nullptr);
         fontDataBuffer_ = std::move(other.fontDataBuffer_);
         pixelSize_ = other.pixelSize_;
+        useSdf_ = other.useSdf_;
         lineHeight_ = other.lineHeight_;
         ascender_ = other.ascender_;
         descender_ = other.descender_;
@@ -77,10 +78,11 @@ void FontAtlas::Cleanup() {
 }
 
 core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize,
-                                                   uint32_t atlasDim) {
+                                                   uint32_t atlasDim, bool useSdf) {
     Cleanup();
     pixelSize_ = pixelSize;
     atlasDim_ = atlasDim;
+    useSdf_ = useSdf;
 
     if (FT_Init_FreeType(&ftLibrary_)) {
         return std::unexpected("Failed to initialize FreeType 2 library");
@@ -138,7 +140,8 @@ core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> font
     return {};
 }
 
-core::Result<void> FontAtlas::InitializeFromFile(std::string_view filePath, uint32_t pixelSize, uint32_t atlasDim) {
+core::Result<void> FontAtlas::InitializeFromFile(std::string_view filePath, uint32_t pixelSize, uint32_t atlasDim,
+                                                 bool useSdf) {
     std::ifstream file(std::string(filePath), std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         return std::unexpected(std::string("Cannot open font file: ") + std::string(filePath));
@@ -150,7 +153,7 @@ core::Result<void> FontAtlas::InitializeFromFile(std::string_view filePath, uint
         return std::unexpected(std::string("Failed to read font file: ") + std::string(filePath));
     }
 
-    return InitializeFromMemory(fontDataBuffer_, pixelSize, atlasDim);
+    return InitializeFromMemory(fontDataBuffer_, pixelSize, atlasDim, useSdf);
 }
 
 const GlyphInfo& FontAtlas::GetGlyph(uint32_t glyphIndex) {
@@ -170,7 +173,13 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     if (!ftFace_)
         return;
 
-    FT_Error err = FT_Load_Glyph(ftFace_, glyphIndex, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+    FT_Error err = FT_Load_Glyph(ftFace_, glyphIndex, useSdf_ ? FT_LOAD_DEFAULT : (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL));
+    if (!err && useSdf_) {
+        err = FT_Render_Glyph(ftFace_->glyph, FT_RENDER_MODE_SDF);
+        if (err) {
+            err = FT_Load_Glyph(ftFace_, glyphIndex, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+        }
+    }
     if (err) {
         BGL_LOG_WARN("FreeType failed to render glyph index {}", glyphIndex);
         info.uvMin = whitePixelUV_;
@@ -185,13 +194,13 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     info.bearing = glm::vec2(static_cast<float>(slot->bitmap_left), static_cast<float>(slot->bitmap_top));
     info.advance = static_cast<float>(slot->advance.x >> 6);
 
-    if (bitmap.width == 0 || bitmap.rows == 0) {
+    if (!bitmap.buffer || bitmap.width == 0 || bitmap.rows == 0) {
         info.uvMin = whitePixelUV_;
         info.uvMax = whitePixelUV_;
         return;
     }
 
-    constexpr uint32_t padding = 1;
+    const uint32_t padding = useSdf_ ? 2u : 1u;
     const uint32_t glyphW = bitmap.width + 2 * padding;
     const uint32_t glyphH = bitmap.rows + 2 * padding;
 
@@ -212,8 +221,11 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     uint32_t targetY = packY_ + padding;
 
     for (uint32_t y = 0; y < bitmap.rows; ++y) {
+        const uint32_t srcRow = (bitmap.pitch >= 0) ? y : (bitmap.rows - 1u - y);
+        const size_t absPitch = static_cast<size_t>(bitmap.pitch >= 0 ? bitmap.pitch : -bitmap.pitch);
+        const uint8_t* rowPtr = bitmap.buffer + static_cast<size_t>(srcRow) * absPitch;
         for (uint32_t x = 0; x < bitmap.width; ++x) {
-            uint8_t alpha = bitmap.buffer[y * bitmap.pitch + x];
+            const uint8_t alpha = rowPtr[x];
             uint32_t dstIdx = ((targetY + y) * atlasDim_ + (targetX + x)) * 4;
             cpuAtlas_[dstIdx + 0] = 255;
             cpuAtlas_[dstIdx + 1] = 255;
@@ -258,6 +270,10 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
         texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
         texDesc.label = gpu::ToWgpuStringView("FontAtlasTexture");
         gpuTexture_ = wgpuDeviceCreateTexture(device, &texDesc);
+        if (!gpuTexture_) {
+            BGL_LOG_ERROR("Failed to create GPU texture for FontAtlas ({}x{})", atlasDim_, atlasDim_);
+            return;
+        }
 
         WGPUTextureViewDescriptor viewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
         viewDesc.format = WGPUTextureFormat_RGBA8Unorm;

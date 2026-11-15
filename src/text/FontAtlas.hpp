@@ -54,17 +54,22 @@ public:
      * @param fontData Span of font file bytes.
      * @param pixelSize Font size in pixels (e.g. 18).
      * @param atlasDim Atlas width and height in pixels (default 1024).
+     * @param useSdf Enable FreeType Signed Distance Field (SDF) rasterization for crisp scaling.
      */
     core::Result<void> InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize = 18,
-                                            uint32_t atlasDim = 1024);
+                                            uint32_t atlasDim = 1024, bool useSdf = false);
 
     /**
      * @brief Initializes the font atlas by reading a TrueType font file from disk.
      * @param filePath Path to the .ttf font file.
      * @param pixelSize Font size in pixels.
      * @param atlasDim Atlas dimension in pixels.
+     * @param useSdf Enable FreeType Signed Distance Field (SDF) rasterization.
      */
-    core::Result<void> InitializeFromFile(std::string_view filePath, uint32_t pixelSize = 18, uint32_t atlasDim = 1024);
+    core::Result<void> InitializeFromFile(std::string_view filePath, uint32_t pixelSize = 18, uint32_t atlasDim = 1024,
+                                          bool useSdf = false);
+
+    [[nodiscard]] bool IsSdf() const noexcept { return useSdf_; }
 
     /**
      * @brief Retrieves glyph metrics and atlas UVs for a given glyph index.
@@ -105,6 +110,7 @@ private:
     std::vector<uint8_t> fontDataBuffer_{}; // Keep in memory if loaded from file
 
     uint32_t pixelSize_{18};
+    bool useSdf_{false};
     float lineHeight_{22.0f};
     float ascender_{16.0f};
     float descender_{-4.0f};

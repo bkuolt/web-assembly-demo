@@ -1237,12 +1237,167 @@ suite('Sponza Texturing, Mipmaps, Vertex Tangents & Volumetric Math', () => {
 });
 
 // ============================================================================
+// Suite 9: glTF 2.0 Skeletal Skinning & Animation Interpolation
+// ============================================================================
+suite('glTF 2.0 Skeletal Skinning & Animation Interpolation', () => {
+  test('mat4.invert() and mat4.fromRotationTranslationScale() compute exact inverse TRS', () => {
+    const { mat4 } = BglWebGpuRenderer;
+    const m = mat4.create();
+    const q = [0, Math.sin(Math.PI / 8), 0, Math.cos(Math.PI / 8)]; // 45 deg around Y
+    mat4.fromRotationTranslationScale(m, q, [3.0, -2.0, 5.0], [2.0, 2.0, 2.0]);
+
+    const inv = mat4.create();
+    mat4.invert(inv, m);
+
+    const prod = mat4.create();
+    mat4.multiply(prod, m, inv);
+
+    const id = mat4.create();
+    for (let i = 0; i < 16; ++i) {
+      assert(approxEq(prod[i], id[i], 1e-5), `M * M^-1 element ${i} must equal identity (${prod[i]} vs ${id[i]})`);
+    }
+  });
+
+  test('sampleAnimationSampler(): STEP, LINEAR vector, LINEAR SLERP rotation, and CUBICSPLINE', () => {
+    const out = new Float32Array(4);
+
+    // 1. STEP
+    BglWebGpuRenderer.sampleAnimationSampler({
+      input: new Float32Array([0.0, 1.0]),
+      output: new Float32Array([1, 2, 3, 10, 20, 30]),
+      interpolation: 'STEP',
+      stride: 3
+    }, 0.75, 'translation', out);
+    assert(approxEq(out[0], 1) && approxEq(out[1], 2) && approxEq(out[2], 3), 'STEP must hold previous keyframe');
+
+    // 2. LINEAR translation
+    BglWebGpuRenderer.sampleAnimationSampler({
+      input: new Float32Array([0.0, 2.0]),
+      output: new Float32Array([0, 0, 0, 10, 20, 30]),
+      interpolation: 'LINEAR',
+      stride: 3
+    }, 1.0, 'translation', out);
+    assert(approxEq(out[0], 5) && approxEq(out[1], 10) && approxEq(out[2], 15), 'LINEAR must interpolate midpoint');
+
+    // 3. LINEAR rotation SLERP (shortest path, 0 -> 90 deg around Y)
+    const s45 = Math.sin(Math.PI / 4);
+    const c45 = Math.cos(Math.PI / 4);
+    BglWebGpuRenderer.sampleAnimationSampler({
+      input: new Float32Array([0.0, 1.0]),
+      output: new Float32Array([0, 0, 0, 1, 0, s45, 0, c45]),
+      interpolation: 'LINEAR',
+      stride: 4
+    }, 0.5, 'rotation', out);
+    const s225 = Math.sin(Math.PI / 8);
+    const c225 = Math.cos(Math.PI / 8);
+    assert(approxEq(out[1], s225, 1e-5) && approxEq(out[3], c225, 1e-5), 'SLERP midpoint must be 45 deg');
+
+    // 4. CUBICSPLINE
+    BglWebGpuRenderer.sampleAnimationSampler({
+      input: new Float32Array([0.0, 1.0]),
+      // [inTan0, val0, outTan0, inTan1, val1, outTan1]
+      output: new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
+      interpolation: 'CUBICSPLINE',
+      stride: 3
+    }, 0.5, 'translation', out);
+    assert(approxEq(out[0], 5.0, 1e-5), 'CUBICSPLINE with zero tangents at midpoint must equal 0.5 * v1');
+  });
+
+  test('WGSL shader includes vs_main_skinned with jointMatrices storage buffer', () => {
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    assert(wgsl.includes('fn vs_main_skinned'), 'WGSL must define vs_main_skinned');
+    assert(wgsl.includes('var<storage, read> jointMatrices : array<mat4x4<f32>>'), 'WGSL must declare jointMatrices storage buffer');
+  });
+});
+
+// ============================================================================
+// Suite 10: Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views
+// ============================================================================
+suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
+  test('BglWebGpuRenderer.generateLodData() generates 4 progressive LOD slices for complex meshes', () => {
+    const grid = 16;
+    const vertexCount = grid * grid;
+    const posData = new Float32Array(vertexCount * 3);
+    const normData = new Float32Array(vertexCount * 3);
+    for (let y = 0; y < grid; ++y) {
+      for (let x = 0; x < grid; ++x) {
+        const i = (y * grid + x) * 3;
+        posData[i] = x * 0.5;
+        posData[i + 1] = Math.sin((x + y) * 0.3);
+        posData[i + 2] = y * 0.5;
+        normData[i] = 0;
+        normData[i + 1] = 1;
+        normData[i + 2] = 0;
+      }
+    }
+    const indices = [];
+    for (let y = 0; y + 1 < grid; ++y) {
+      for (let x = 0; x + 1 < grid; ++x) {
+        const i0 = y * grid + x;
+        const i1 = i0 + 1;
+        const i2 = (y + 1) * grid + x;
+        const i3 = i2 + 1;
+        indices.push(i0, i2, i1, i1, i2, i3);
+      }
+    }
+    const indexData = new Uint16Array(indices);
+    const lodRes = BglWebGpuRenderer.generateLodData(posData, normData, indexData, vertexCount);
+
+    assert.strictEqual(lodRes.lodSlices.length, 4, 'Must generate 4 LOD slices (LOD0..LOD3)');
+    assert.strictEqual(lodRes.lodSlices[0].firstIndex, 0);
+    assert.strictEqual(lodRes.lodSlices[0].indexCount, indexData.length);
+    assert(lodRes.lodSlices[1].indexCount < lodRes.lodSlices[0].indexCount, 'LOD1 must have fewer indices than LOD0');
+    assert(lodRes.lodSlices[2].indexCount < lodRes.lodSlices[1].indexCount, 'LOD2 must have fewer indices than LOD1');
+    assert(lodRes.lodSlices[3].indexCount <= lodRes.lodSlices[2].indexCount, 'LOD3 must have <= indices than LOD2');
+    assert(lodRes.localRadius > 0.1, 'Must compute positive local bounding radius');
+  });
+
+  test('BglWebGpuRenderer.evaluatePrimitiveLod() selects LOD0..LOD3 and smooth transition factor', () => {
+    const l0 = BglWebGpuRenderer.evaluatePrimitiveLod(2.0, 1.0, 1.0, true);
+    const l1 = BglWebGpuRenderer.evaluatePrimitiveLod(14.0, 1.0, 1.0, true);
+    const l2 = BglWebGpuRenderer.evaluatePrimitiveLod(45.0, 1.0, 1.0, true);
+    const l3 = BglWebGpuRenderer.evaluatePrimitiveLod(120.0, 1.0, 1.0, true);
+    const disabled = BglWebGpuRenderer.evaluatePrimitiveLod(120.0, 1.0, 1.0, false);
+
+    assert.strictEqual(l0.lodLevel, 0);
+    assert.strictEqual(l1.lodLevel, 1);
+    assert.strictEqual(l2.lodLevel, 2);
+    assert.strictEqual(l3.lodLevel, 3);
+    assert.strictEqual(disabled.lodLevel, 0, 'When LOD is disabled, must always select LOD0');
+  });
+
+  test('UI LOD and Diagnostic Debug View controls update BglState and WGSL includes Bayer heatmap', () => {
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    assert(wgsl.includes('fn bayerDither4x4'), 'WGSL must include 4x4 Bayer dithering function');
+    assert(wgsl.includes('fn getLodHeatmapColor'), 'WGSL must include LOD heatmap color function');
+
+    const initLod = BglState.isLodActive;
+    window.toggleLod();
+    assert.strictEqual(BglState.isLodActive, !initLod);
+    window.toggleLod();
+    assert.strictEqual(BglState.isLodActive, initLod);
+
+    window.onLodBiasSlider(2.5);
+    assert(approxEq(BglState.lodBias, 2.5, 1e-4));
+    window.onLodBiasSlider(1.0);
+
+    window.toggleLodHeatmap();
+    assert.strictEqual(BglState.debugViewMode, 1);
+    window.cycleDebugView();
+    assert.strictEqual(BglState.debugViewMode, 2);
+    window.setDebugView(0);
+    assert.strictEqual(BglState.debugViewMode, 0);
+  });
+});
+
+// ============================================================================
 // Final Summary & Exit Code
 // ============================================================================
 console.log('\n================================================================================');
 console.log(` UNIT TEST EXECUTION COMPLETE`);
+const passPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
 console.log(` Total Tests:  ${totalTests}`);
-console.log(` Passed Tests: ${passedTests} (100%)`);
+console.log(` Passed Tests: ${passedTests} (${passPct}%)`);
 console.log(` Failed Tests: ${failedTests}`);
 console.log('================================================================================');
 

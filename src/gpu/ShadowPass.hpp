@@ -75,17 +75,36 @@ public:
                                                                  const glm::vec3& lightDir) noexcept;
 
     /**
-     * @brief Records directional shadow map depth pre-pass.
+     * @brief Marks the cached shadow map dirty so the next Render() call re-renders depth.
+     */
+    void MarkDirty() noexcept { dirty_ = true; }
+
+    /**
+     * @brief Clears the shadow depth map to 1.0 (unshadowed) if not already cleared.
+     */
+    void Clear(WGPUCommandEncoder encoder);
+
+    /**
+     * @brief Records directional shadow map depth pre-pass (cached for static scenes).
      */
     void Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                 const scene::Quadtree* spatialIndex = nullptr);
 
+    /**
+     * @brief Creates a shadow-pass bind group compatible with ShadowPass's pipeline layout.
+     */
+    [[nodiscard]] WGPUBindGroup CreateShadowBindGroup(WGPUBuffer shadowUniformBuffer,
+                                                      WGPUTextureView baseColorView) const noexcept;
+
+    [[nodiscard]] WGPUBindGroupLayout GetShadowBindGroupLayout() const noexcept { return shadowBindGroupLayout_; }
     [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_; }
     [[nodiscard]] WGPUSampler GetShadowSampler() const noexcept { return shadowSampler_; }
     [[nodiscard]] glm::mat4 GetLightViewProjMatrix() const noexcept { return lightViewProj_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return shadowPipeline_ != nullptr; }
 
 private:
+    void MoveFrom(ShadowPass& other) noexcept;
+
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
@@ -99,6 +118,10 @@ private:
     WGPUTextureView defaultWhiteView_{nullptr};
 
     glm::mat4 lightViewProj_{1.0f};
+    bool dirty_{true};
+    bool cleared_{false};
+    const scene::Scene* lastScene_{nullptr};
+    glm::vec3 lastLightDir_{0.0f};
 };
 
 } // namespace bgl::gpu

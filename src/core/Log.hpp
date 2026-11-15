@@ -47,4 +47,6 @@ void InitLogging(std::string_view logLevel = "info");
 #define BGL_LOG_INFO(...) SPDLOG_INFO(__VA_ARGS__)
 #define BGL_LOG_WARN(...) SPDLOG_WARN(__VA_ARGS__)
 #define BGL_LOG_ERROR(...) SPDLOG_ERROR(__VA_ARGS__)
-#define BGL_PROFILE_SCOPE(name) ::bgl::core::ScopedTimer _bgl_timer_##__LINE__(name)
+#define BGL_CONCAT_INNER(a, b) a##b
+#define BGL_CONCAT(a, b) BGL_CONCAT_INNER(a, b)
+#define BGL_PROFILE_SCOPE(name) ::bgl::core::ScopedTimer BGL_CONCAT(_bgl_timer_, __LINE__)(name)

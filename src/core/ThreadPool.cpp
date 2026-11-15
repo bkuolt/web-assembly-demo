@@ -38,13 +38,17 @@ ThreadPool::~ThreadPool() {
 }
 
 void ThreadPool::Shutdown() noexcept {
-    bool expected = false;
-    if (stop_.compare_exchange_strong(expected, true)) {
-        cv_.notify_all();
-        for (auto& worker : workers_) {
-            if (worker.joinable()) {
-                worker.join();
-            }
+    {
+        std::unique_lock<std::mutex> lock(queueMutex_);
+        if (stop_.load(std::memory_order_relaxed)) {
+            return;
+        }
+        stop_.store(true, std::memory_order_relaxed);
+    }
+    cv_.notify_all();
+    for (auto& worker : workers_) {
+        if (worker.joinable()) {
+            worker.join();
         }
     }
 }

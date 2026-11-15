@@ -69,6 +69,8 @@ glm::vec2 Gamepad::ApplyPs5ResponseCurve(glm::vec2 stick, float exponent, float 
 }
 
 void Gamepad::SetRawState(const GamepadState& raw, float deltaTime) noexcept {
+    const glm::vec2 prevSmoothedMove = state_.smoothedMove;
+    const glm::vec2 prevSmoothedLook = state_.smoothedLook;
     state_ = raw;
     state_.leftStick = ApplyDeadzone(raw.leftStick);
     state_.rightStick = ApplyDeadzone(raw.rightStick);
@@ -76,8 +78,8 @@ void Gamepad::SetRawState(const GamepadState& raw, float deltaTime) noexcept {
 
     const float dt = std::clamp(deltaTime, 0.001f, 0.1f);
     const float blend = 1.0f - std::exp(-20.0f * dt);
-    state_.smoothedMove = glm::mix(state_.smoothedMove, state_.leftStick, blend);
-    state_.smoothedLook = glm::mix(state_.smoothedLook, state_.curvedLook, blend);
+    state_.smoothedMove = glm::mix(prevSmoothedMove, state_.leftStick, blend);
+    state_.smoothedLook = glm::mix(prevSmoothedLook, state_.curvedLook, blend);
 }
 
 void Gamepad::Rumble(float lowFreq, float highFreq, uint32_t durationMs) noexcept {

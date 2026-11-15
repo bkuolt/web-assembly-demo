@@ -137,11 +137,12 @@ void EnsureCurlGlobalInitialized() {
 }
 
 size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    const size_t totalBytes{size * nmemb};
     auto* buffer{static_cast<std::vector<uint8_t>*>(userp)};
-    if (buffer->size() + totalBytes > kMaxAssetFileSize) {
-        return 0; // Exceeded limit; abort download safely with CURLE_WRITE_ERROR
+    const size_t remaining{buffer->size() < kMaxAssetFileSize ? (kMaxAssetFileSize - buffer->size()) : 0};
+    if (nmemb > 0 && size > remaining / nmemb) {
+        return 0; // Exceeded limit or multiplication overflow; abort download safely with CURLE_WRITE_ERROR
     }
+    const size_t totalBytes{size * nmemb};
     const auto* bytePtr{static_cast<const uint8_t*>(contents)};
     buffer->insert(buffer->end(), bytePtr, bytePtr + totalBytes);
     return totalBytes;
@@ -433,6 +434,13 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errBuf.data());
         curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl.get(), CURLOPT_MAXREDIRS, 10L);
+#if defined(CURLOPT_PROTOCOLS_STR) && defined(CURLOPT_REDIR_PROTOCOLS_STR)
+        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "http,https");
+        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#elif defined(CURLOPT_PROTOCOLS) && defined(CURLOPT_REDIR_PROTOCOLS)
+        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
         curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
         const std::string userAgent = std::string("bgl-engine/") + std::string(kEngineVersion) + " (libcurl)";
         curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, userAgent.c_str());

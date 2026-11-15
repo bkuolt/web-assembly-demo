@@ -8,6 +8,8 @@
 #include "text/EmbeddedFont.hpp"
 #include "text/FontAtlas.hpp"
 #include "text/TextShaper.hpp"
+#include "ui/ImmediateUI.hpp"
+#include <array>
 
 using namespace bgl;
 
@@ -132,4 +134,94 @@ TEST(TextRenderingTest, CustomColorTintPreserved) {
         EXPECT_FLOAT_EQ(quad.color.b, 1.0f);
         EXPECT_FLOAT_EQ(quad.color.a, 0.75f);
     }
+}
+
+TEST(TextRenderingTest, SdfFontAtlasInitializationAndGlyphRasterization) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    auto res = atlas.InitializeFromMemory(data, 24, 1024, true);
+    ASSERT_TRUE(res.has_value()) << (res.has_value() ? "" : res.error());
+    EXPECT_TRUE(atlas.IsSdf());
+    EXPECT_EQ(atlas.GetPixelSize(), 24u);
+
+    const uint32_t glyphIdx = FT_Get_Char_Index(atlas.GetFTFace(), 'A');
+    const auto& glyph = atlas.GetGlyph(glyphIdx);
+    EXPECT_GT(glyph.size.x, 0.0f);
+    EXPECT_GT(glyph.size.y, 0.0f);
+    EXPECT_GT(glyph.uvMax.x, glyph.uvMin.x);
+    EXPECT_GT(glyph.uvMax.y, glyph.uvMin.y);
+}
+
+TEST(ImmediateUITest, EmbeddedShaderAndWidgetsAndMouseConsumption) {
+    const std::string_view shaderSrc = ui::ImmediateUI::GetEmbeddedShaderSource();
+    EXPECT_FALSE(shaderSrc.empty());
+    EXPECT_NE(shaderSrc.find("UiUniforms"), std::string_view::npos);
+    EXPECT_NE(shaderSrc.find("isSdf"), std::string_view::npos);
+    EXPECT_NE(shaderSrc.find("fwidth"), std::string_view::npos);
+
+    ui::ImmediateUI imgui;
+    bool checkboxState = false;
+    size_t dropdownIdx = 0;
+    constexpr std::array<const char*, 3> options = {"Auto", "BC7", "ASTC"};
+
+    // Layout inside BeginWindow("VRAM Settings", 10, 10, 300):
+    //   Label:    y = 48 .. 72
+    //   Button:   y = 72 .. 96   (center y = 84)
+    //   Checkbox: y = 102 .. 126 (center y = 114)
+    //   Dropdown: label at 132, box y = 149 .. 173 (center y = 161),
+    //             popup y = 175 .. 247 (opt 0: 175..199, opt 1: 199..223 -> center y = 211)
+
+    // Frame 1: click Button at (100, 84)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 84.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("VRAM Settings", 10.0f, 10.0f, 300.0f);
+    ui::UI::Label("VRAM: 12.5 MB");
+    EXPECT_TRUE(ui::UI::Button("Apply"));
+    EXPECT_FALSE(ui::UI::Checkbox("Mipmaps", checkboxState));
+    EXPECT_FALSE(ui::UI::Dropdown("Compression", options, dropdownIdx));
+    imgui.EndWindow();
+    imgui.EndFrame();
+
+    EXPECT_TRUE(imgui.WantsMouse());
+    EXPECT_GT(imgui.GetVertexCount(), 0u);
+    EXPECT_GT(imgui.GetIndexCount(), 0u);
+
+    // Frame 2: click Checkbox at (100, 114)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 114.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("VRAM Settings", 10.0f, 10.0f, 300.0f);
+    ui::UI::Label("VRAM: 12.5 MB");
+    EXPECT_FALSE(ui::UI::Button("Apply"));
+    EXPECT_TRUE(ui::UI::Checkbox("Mipmaps", checkboxState));
+    EXPECT_FALSE(ui::UI::Dropdown("Compression", options, dropdownIdx));
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(checkboxState);
+
+    // Frame 3: open Dropdown anchor at (100, 161)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 161.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("VRAM Settings", 10.0f, 10.0f, 300.0f);
+    ui::UI::Label("VRAM: 12.5 MB");
+    EXPECT_FALSE(ui::UI::Button("Apply"));
+    EXPECT_FALSE(ui::UI::Checkbox("Mipmaps", checkboxState));
+    EXPECT_FALSE(ui::UI::Dropdown("Compression", options, dropdownIdx));
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(imgui.WantsMouse());
+
+    // Frame 4: click second dropdown option ("BC7") at (100, 211) inside popup overlay
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 211.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("VRAM Settings", 10.0f, 10.0f, 300.0f);
+    ui::UI::Label("VRAM: 12.5 MB");
+    EXPECT_FALSE(ui::UI::Button("Apply"));
+    EXPECT_FALSE(ui::UI::Checkbox("Mipmaps", checkboxState));
+    EXPECT_TRUE(ui::UI::Dropdown("Compression", options, dropdownIdx));
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_EQ(dropdownIdx, 1u);
+
+    // Frame 5: mouse outside window and no widgets -> PMR arena reset leaves 0 verts and WantsMouse() == false
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 900.0f, .mouseY = 500.0f}, 1280, 720);
+    imgui.EndFrame();
+    EXPECT_EQ(imgui.GetVertexCount(), 0u);
+    EXPECT_EQ(imgui.GetIndexCount(), 0u);
+    EXPECT_FALSE(imgui.WantsMouse());
 }

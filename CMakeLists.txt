@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 0.9.15 LANGUAGES C CXX)
+project(bgl_engine VERSION 0.9.16 LANGUAGES C CXX)
 
 # ==============================================================================
 # RPATH Configuration for Native Desktop Execution
@@ -312,6 +312,7 @@ target_link_libraries(bgl_text PUBLIC
 # ==============================================================================
 add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
+    src/ui/ImmediateUI.cpp
 )
 target_link_libraries(bgl_ui PUBLIC
     bgl_core

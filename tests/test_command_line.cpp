@@ -305,3 +305,34 @@ TEST(CommandLineTest, WeatherAndDiurnalEdgeCasesAndPrecedence) {
         EXPECT_FLOAT_EQ(opt.dayNightSpeed, 1.0f);
     });
 }
+
+TEST(CommandLineTest, LodAndDebugViewCommandLineFlags) {
+    // 1. Default LOD options
+    const std::array<const char*, 1> defArgs{"bgl_viewer"};
+    const auto optDef = CliOptions::Parse(std::span<const char* const>{defArgs});
+    EXPECT_TRUE(optDef.enableLod);
+    EXPECT_FALSE(optDef.enableAutoLod);
+    EXPECT_FLOAT_EQ(optDef.lodBias, 1.0f);
+    EXPECT_EQ(optDef.debugViewMode, 0u);
+
+    // 2. Custom LOD flags & heatmap
+    const std::array<const char*, 6> lodArgs{"bgl_viewer", "--no-lod", "--auto-lod", "--lod-bias", "2.25", "--lod-heatmap"};
+    const auto optLod = CliOptions::Parse(std::span<const char* const>{lodArgs});
+    EXPECT_FALSE(optLod.enableLod);
+    EXPECT_TRUE(optLod.enableAutoLod);
+    EXPECT_NEAR(optLod.lodBias, 2.25f, 1e-4f);
+    EXPECT_EQ(optLod.debugViewMode, 1u);
+
+    // 3. Debug view modes
+    const std::array<const char*, 3> normArgs{"bgl_viewer", "--debug-view", "normals"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{normArgs}).debugViewMode, 2u);
+
+    const std::array<const char*, 3> pbrArgs{"bgl_viewer", "--debug-view", "pbr"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{pbrArgs}).debugViewMode, 3u);
+
+    const std::array<const char*, 3> uvArgs{"bgl_viewer", "--debug-view", "uv"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{uvArgs}).debugViewMode, 4u);
+
+    const std::array<const char*, 3> litArgs{"bgl_viewer", "--debug-view", "lit"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{litArgs}).debugViewMode, 0u);
+}

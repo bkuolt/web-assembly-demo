@@ -41,6 +41,14 @@ enum class EnvironmentPreset : uint32_t {
 
 enum class WeatherMode : uint32_t { None = 0, Rain = 1, Snow = 2, Fog = 3, Smoke = 4 };
 
+enum class DebugViewMode : uint32_t {
+    LitPbr = 0,
+    LodHeatmap = 1,
+    Normals = 2,
+    MetallicRoughnessAo = 3,
+    UvChecker = 4
+};
+
 namespace MaterialFlags {
 constexpr uint32_t HasBaseColorTex = 1u << 0;
 constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
@@ -61,6 +69,10 @@ constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
 constexpr uint32_t HasThicknessTex = 1u << 16;
 constexpr uint32_t HasSkinning = 1u << 17;
 constexpr uint32_t HasMorphTargets = 1u << 18;
+constexpr uint32_t LodLevelShift = 19u;
+constexpr uint32_t LodLevelMask = 3u << 19;
+constexpr uint32_t DebugViewShift = 21u;
+constexpr uint32_t DebugViewMask = 7u << 21;
 } // namespace MaterialFlags
 
 struct alignas(16) PrimitiveUniforms {
@@ -193,6 +205,11 @@ public:
     void PrepareScene(scene::Scene& scene);
 
     /**
+     * @brief Re-transcodes loaded KTX2 textures to a new target GPU compression format using a PMR staging arena.
+     */
+    void RetranscodeKtxTextures(scene::Scene& scene, scene::KtxTranscodeTarget target);
+
+    /**
      * @brief Rebuilds texture and sampler bind groups following dynamic material changes.
      * @param scene Target scene whose material bind groups need updating.
      */
@@ -299,7 +316,7 @@ public:
     void SetEnvironmentRotation(float radians) noexcept {
         if (std::abs(envRotation_ - radians) > 1e-4f) {
             envRotation_ = radians;
-            shadowMapDirty_ = true;
+            shadowPass_.MarkDirty();
         }
     }
     [[nodiscard]] float GetEnvironmentRotation() const noexcept { return envRotation_; }
@@ -308,22 +325,10 @@ public:
     [[nodiscard]] WGPUSampler GetDefaultSampler() const noexcept { return defaultSampler_.Get(); }
     [[nodiscard]] const std::array<glm::vec4, 9>& GetSphericalHarmonics() const noexcept { return shIrradiance_; }
 
-    // Tonemapping & Exposure Controls
-    void SetToneMapOperator(ToneMapOperator op) noexcept { toneMapOperator_ = op; }
-    void CycleToneMapOperator() noexcept {
-        switch (toneMapOperator_) {
-        case ToneMapOperator::KhronosPbrNeutral:
-            toneMapOperator_ = ToneMapOperator::AgX;
-            break;
-        case ToneMapOperator::AgX:
-            toneMapOperator_ = ToneMapOperator::ACES;
-            break;
-        case ToneMapOperator::ACES:
-            toneMapOperator_ = ToneMapOperator::KhronosPbrNeutral;
-            break;
-        }
-    }
-    [[nodiscard]] ToneMapOperator GetToneMapOperator() const noexcept { return toneMapOperator_; }
+    // Tonemapping & Exposure Controls (forwarded to single-source PostProcessPass)
+    void SetToneMapOperator(ToneMapOperator op) noexcept { postProcessPass_.SetToneMapOperator(op); }
+    void CycleToneMapOperator() noexcept { postProcessPass_.CycleToneMapOperator(); }
+    [[nodiscard]] ToneMapOperator GetToneMapOperator() const noexcept { return postProcessPass_.GetToneMapOperator(); }
     [[nodiscard]] static constexpr std::string_view GetToneMapOperatorName(ToneMapOperator op) noexcept {
         switch (op) {
         case ToneMapOperator::KhronosPbrNeutral:
@@ -336,8 +341,8 @@ public:
         return "Khronos PBR Neutral";
     }
 
-    void SetExposure(float exposure) noexcept { exposure_ = std::clamp(exposure, 0.05f, 16.0f); }
-    [[nodiscard]] float GetExposure() const noexcept { return exposure_; }
+    void SetExposure(float exposure) noexcept { postProcessPass_.SetExposure(exposure); }
+    [[nodiscard]] float GetExposure() const noexcept { return postProcessPass_.GetExposure(); }
 
     // Feature Toggles (Bump Mapping, Mipmapping, Shadow Mapping, Environment Reflections)
     void SetBumpMappingEnabled(bool enabled) noexcept { bumpMappingEnabled_ = enabled; }
@@ -353,7 +358,7 @@ public:
     void SetShadowsEnabled(bool enabled) noexcept {
         if (shadowsEnabled_ != enabled) {
             shadowsEnabled_ = enabled;
-            shadowMapDirty_ = true;
+            shadowPass_.MarkDirty();
         }
     }
     void ToggleShadows() noexcept { SetShadowsEnabled(!shadowsEnabled_); }
@@ -377,36 +382,94 @@ public:
     void SetParallaxScale(float scale) noexcept { parallaxScale_ = std::clamp(scale, 0.0f, 0.2f); }
     [[nodiscard]] float GetParallaxScale() const noexcept { return parallaxScale_; }
 
-    void SetLensFlareEnabled(bool enabled) noexcept { lensFlareEnabled_ = enabled; }
-    void ToggleLensFlare() noexcept { lensFlareEnabled_ = !lensFlareEnabled_; }
-    [[nodiscard]] bool IsLensFlareEnabled() const noexcept { return lensFlareEnabled_; }
+    void SetLensFlareEnabled(bool enabled) noexcept { postProcessPass_.SetLensFlareEnabled(enabled); }
+    void ToggleLensFlare() noexcept { postProcessPass_.ToggleLensFlare(); }
+    [[nodiscard]] bool IsLensFlareEnabled() const noexcept { return postProcessPass_.IsLensFlareEnabled(); }
 
-    void SetLensFlareIntensity(float intensity) noexcept { lensFlareIntensity_ = std::clamp(intensity, 0.0f, 5.0f); }
-    [[nodiscard]] float GetLensFlareIntensity() const noexcept { return lensFlareIntensity_; }
+    void SetLensFlareIntensity(float intensity) noexcept { postProcessPass_.SetLensFlareIntensity(intensity); }
+    [[nodiscard]] float GetLensFlareIntensity() const noexcept { return postProcessPass_.GetLensFlareIntensity(); }
 
-    void SetBloomEnabled(bool enabled) noexcept { bloomEnabled_ = enabled; }
-    void ToggleBloom() noexcept { bloomEnabled_ = !bloomEnabled_; }
-    [[nodiscard]] bool IsBloomEnabled() const noexcept { return bloomEnabled_; }
+    void SetBloomEnabled(bool enabled) noexcept { postProcessPass_.SetBloomEnabled(enabled); }
+    void ToggleBloom() noexcept { postProcessPass_.ToggleBloom(); }
+    [[nodiscard]] bool IsBloomEnabled() const noexcept { return postProcessPass_.IsBloomEnabled(); }
 
-    void SetBloomIntensity(float intensity) noexcept { bloomIntensity_ = std::max(0.0f, intensity); }
-    [[nodiscard]] float GetBloomIntensity() const noexcept { return bloomIntensity_; }
+    void SetBloomIntensity(float intensity) noexcept { postProcessPass_.SetBloomIntensity(intensity); }
+    [[nodiscard]] float GetBloomIntensity() const noexcept { return postProcessPass_.GetBloomIntensity(); }
 
-    void SetBloomThreshold(float threshold) noexcept { bloomThreshold_ = std::max(0.0f, threshold); }
-    [[nodiscard]] float GetBloomThreshold() const noexcept { return bloomThreshold_; }
+    void SetBloomThreshold(float threshold) noexcept { postProcessPass_.SetBloomThreshold(threshold); }
+    [[nodiscard]] float GetBloomThreshold() const noexcept { return postProcessPass_.GetBloomThreshold(); }
 
-    void SetSsaoEnabled(bool enabled) noexcept { ssaoEnabled_ = enabled; }
-    void ToggleSSAO() noexcept { ssaoEnabled_ = !ssaoEnabled_; }
-    [[nodiscard]] bool IsSsaoEnabled() const noexcept { return ssaoEnabled_; }
+    void SetSsaoEnabled(bool enabled) noexcept { postProcessPass_.SetSsaoEnabled(enabled); }
+    void ToggleSSAO() noexcept { postProcessPass_.ToggleSSAO(); }
+    [[nodiscard]] bool IsSsaoEnabled() const noexcept { return postProcessPass_.IsSsaoEnabled(); }
 
-    void SetSsaoIntensity(float intensity) noexcept { ssaoIntensity_ = std::clamp(intensity, 0.0f, 2.0f); }
-    [[nodiscard]] float GetSsaoIntensity() const noexcept { return ssaoIntensity_; }
+    void SetSsaoIntensity(float intensity) noexcept { postProcessPass_.SetSsaoIntensity(intensity); }
+    [[nodiscard]] float GetSsaoIntensity() const noexcept { return postProcessPass_.GetSsaoIntensity(); }
 
-    void SetSsaoRadius(float radius) noexcept { ssaoRadius_ = std::clamp(radius, 0.001f, 0.1f); }
-    [[nodiscard]] float GetSsaoRadius() const noexcept { return ssaoRadius_; }
+    void SetSsaoRadius(float radius) noexcept { postProcessPass_.SetSsaoRadius(radius); }
+    [[nodiscard]] float GetSsaoRadius() const noexcept { return postProcessPass_.GetSsaoRadius(); }
 
     void SetOcclusionCullingEnabled(bool enabled) noexcept { occlusionCullingEnabled_ = enabled; }
     void ToggleOcclusionCulling() noexcept { occlusionCullingEnabled_ = !occlusionCullingEnabled_; }
     [[nodiscard]] bool IsOcclusionCullingEnabled() const noexcept { return occlusionCullingEnabled_; }
+
+    // Level-of-Detail (LOD) Management & Multi-Mode Debug Render Views
+    void SetLodEnabled(bool enabled) noexcept { lodEnabled_ = enabled; }
+    void ToggleLod() noexcept { lodEnabled_ = !lodEnabled_; }
+    [[nodiscard]] bool IsLodEnabled() const noexcept { return lodEnabled_; }
+
+    void SetLodBias(float bias) noexcept { lodBias_ = std::clamp(bias, 0.25f, 4.0f); }
+    [[nodiscard]] float GetLodBias() const noexcept { return lodBias_; }
+
+    void SetAutoLodEnabled(bool enabled) noexcept { autoLodEnabled_ = enabled; }
+    void ToggleAutoLod() noexcept { autoLodEnabled_ = !autoLodEnabled_; }
+    [[nodiscard]] bool IsAutoLodEnabled() const noexcept { return autoLodEnabled_; }
+    void UpdateAutoLod(float deltaTime) noexcept;
+
+    void SetDebugViewMode(DebugViewMode mode) noexcept { debugViewMode_ = mode; }
+    void CycleDebugViewMode() noexcept {
+        switch (debugViewMode_) {
+        case DebugViewMode::LitPbr:
+            debugViewMode_ = DebugViewMode::LodHeatmap;
+            break;
+        case DebugViewMode::LodHeatmap:
+            debugViewMode_ = DebugViewMode::Normals;
+            break;
+        case DebugViewMode::Normals:
+            debugViewMode_ = DebugViewMode::MetallicRoughnessAo;
+            break;
+        case DebugViewMode::MetallicRoughnessAo:
+            debugViewMode_ = DebugViewMode::UvChecker;
+            break;
+        case DebugViewMode::UvChecker:
+            debugViewMode_ = DebugViewMode::LitPbr;
+            break;
+        }
+    }
+    void ToggleLodHeatmap() noexcept {
+        debugViewMode_ =
+            (debugViewMode_ == DebugViewMode::LodHeatmap) ? DebugViewMode::LitPbr : DebugViewMode::LodHeatmap;
+    }
+    [[nodiscard]] DebugViewMode GetDebugViewMode() const noexcept { return debugViewMode_; }
+    [[nodiscard]] static constexpr std::string_view GetDebugViewModeName(DebugViewMode mode) noexcept {
+        switch (mode) {
+        case DebugViewMode::LitPbr:
+            return "Lit PBR";
+        case DebugViewMode::LodHeatmap:
+            return "LOD Heatmap";
+        case DebugViewMode::Normals:
+            return "Normals";
+        case DebugViewMode::MetallicRoughnessAo:
+            return "Metal/Rough/AO";
+        case DebugViewMode::UvChecker:
+            return "UV Checker";
+        }
+        return "Lit PBR";
+    }
+
+    [[nodiscard]] size_t GetRenderedTriangleCount() const noexcept { return lastRenderedTriangleCount_; }
+    [[nodiscard]] size_t GetTotalVisibleTriangleCount() const noexcept { return lastTotalVisibleTriangleCount_; }
+    [[nodiscard]] const std::array<uint32_t, 4>& GetLodLevelCounts() const noexcept { return lastLodCounts_; }
 
     // Atmospheric Weather Controls (Rain, Snow, Fog, Smoke) & Diurnal Time-of-Day
     void SetWeatherMode(WeatherMode mode) noexcept { weatherMode_ = mode; }
@@ -530,13 +593,14 @@ public:
     [[nodiscard]] static float EvaluateSmokeDensity(float worldY, float intensity) noexcept;
     [[nodiscard]] static glm::vec3 EvaluateDiurnalSunRadiance(float timeOfDayHours) noexcept;
     [[nodiscard]] static glm::vec3 EvaluateDiurnalAmbientScale(float timeOfDayHours) noexcept;
+    [[nodiscard]] static glm::vec3 EvaluateLodHeatmapColor(uint32_t lodLevel, float transition = 0.0f) noexcept;
+    [[nodiscard]] static float EvaluateBayerDither4x4(uint32_t x, uint32_t y) noexcept;
     static void BuildClusteredLightGrid(std::span<const GpuPunctualLight> lights, uint32_t lightCount,
                                         const glm::mat4& viewMatrix, const glm::mat4& projMatrix, float zNear,
                                         float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept;
 
 private:
     void InitializeComputeIBLPipelines();
-    void InitializeTonemapPipeline();
     void DispatchBrdfLutCompute();
     void BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces, uint32_t faceSize);
     void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix,
@@ -545,12 +609,7 @@ private:
     void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim,
                          const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos,
                          bool wireframe, WGPURenderPipeline& currentBoundPipeline,
-                         const scene::SceneNode* node = nullptr);
-    void RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node, const glm::mat4& viewProj,
-                    const glm::mat4& parentTransform, const glm::vec3& cameraPos, bool wireframe,
-                    const core::Frustum& frustum, WGPURenderPipeline& currentBoundPipeline);
-    void RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node,
-                          const glm::mat4& parentTransform);
+                         const scene::SceneNode* node = nullptr, uint32_t lodLevel = 0, float lodTransition = 0.0f);
 
     bool initialized_{false};
     bool bumpMappingEnabled_{true};
@@ -561,16 +620,14 @@ private:
     float aoIntensity_{1.0f};
     bool parallaxEnabled_{true};
     float parallaxScale_{0.035f};
-    bool lensFlareEnabled_{true};
-    float lensFlareIntensity_{0.75f};
-    bool bloomEnabled_{true};
-    float bloomIntensity_{0.65f};
-    float bloomThreshold_{1.05f};
-    bool ssaoEnabled_{true};
-    float ssaoIntensity_{0.75f};
-    float ssaoRadius_{0.02f};
     bool occlusionCullingEnabled_{true};
-    bool shadowMapDirty_{true};
+    bool lodEnabled_{true};
+    bool autoLodEnabled_{false};
+    float lodBias_{1.0f};
+    DebugViewMode debugViewMode_{DebugViewMode::LitPbr};
+    size_t lastRenderedTriangleCount_{0};
+    size_t lastTotalVisibleTriangleCount_{0};
+    std::array<uint32_t, 4> lastLodCounts_{0, 0, 0, 0};
     WeatherMode weatherMode_{WeatherMode::None};
     float weatherIntensity_{1.0f};
     float windStrength_{0.3f};
@@ -583,9 +640,7 @@ private:
     uint32_t opaqueCopyWidth_{0};
     uint32_t opaqueCopyHeight_{0};
 
-    ToneMapOperator toneMapOperator_{ToneMapOperator::KhronosPbrNeutral};
     EnvironmentPreset currentEnvPreset_{EnvironmentPreset::MediterraneanCourtyard};
-    float exposure_{1.0f};
     float envRotation_{0.0f};
     uint32_t activePunctualLightCount_{0};
 
@@ -593,8 +648,6 @@ private:
     uint32_t envMipLevels_{8};
     size_t lastVisiblePrimitiveCount_{0};
     size_t lastOccludedPrimitiveCount_{0};
-    const scene::Scene* lastShadowScene_{nullptr};
-    glm::vec3 lastShadowLightDir_{0.0f};
     glm::mat4 currentLightViewProj_{1.0f};
     glm::vec3 currentLightDir_{0.35f, 1.0f, 0.25f};
     std::array<glm::vec4, 9> shIrradiance_{};
@@ -609,13 +662,6 @@ private:
     RenderPipelineHandle wireframePipeline_{};
     BindGroupLayoutHandle bindGroupLayout_{};
 
-    // Directional Shadow Mapping Resources
-    RenderPipelineHandle shadowPipeline_{};
-    BindGroupLayoutHandle shadowBindGroupLayout_{};
-    TextureHandle shadowDepthTexture_{};
-    TextureViewHandle shadowDepthView_{};
-    SamplerHandle shadowSampler_{};
-
     // True HDR IBL Resources (RGBA16Float Cubemap + Compute GGX Prefilter + Compute BRDF LUT + SceneLightingUniforms)
     TextureHandle envCubemapTexture_{};
     TextureViewHandle envCubemapView_{};
@@ -627,14 +673,6 @@ private:
     BindGroupLayoutHandle ggxPrefilterComputeBgl_{};
     BufferHandle ggxPrefilterUniformBuffer_{};
     BufferHandle sceneLightingBuffer_{};
-
-    // Fullscreen HDR Tonemapping Post-Process Resources
-    RenderPipelineHandle tonemapPipeline_{};
-    BindGroupLayoutHandle tonemapBindGroupLayout_{};
-    BufferHandle tonemapUniformBuffer_{};
-    SamplerHandle tonemapSampler_{};
-    WGPUTextureView cachedHdrResolveView_{nullptr};
-    BindGroupHandle tonemapBindGroup_{};
 
     // Default 1x1 Fallback Textures
     TextureHandle defaultWhiteTexture_{};

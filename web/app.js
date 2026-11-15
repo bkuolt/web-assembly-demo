@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.15 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.16 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -245,7 +245,12 @@
     timeOfDay: 14.0,
     isDayNightCycleActive: false,
     dayNightSpeed: 1.0,
+    isLodActive: true,
+    isAutoLodActive: false,
+    lodBias: 1.0,
+    debugViewMode: 0,
   };
+  window.BglState = BglState;
 
   // ============================================================================
   // UI & DOM Controller
@@ -1304,8 +1309,20 @@
     defaultSampler: null,
     bindGroupLayout: null,
     pipelineLayout: null,
+    skinBindGroupLayout: null,
+    skinnedPipelineLayout: null,
+    skinnedPipeline: null,
+    skinnedPipelineDoubleSided: null,
     isActive: false,
     primitives: [],
+    nodes: [],
+    rootNodes: [],
+    skins: [],
+    animations: [],
+    activeAnimationIndex: -1,
+    animationTime: 0.0,
+    animationPlaying: true,
+    animationSpeed: 1.0,
     textureCache: new Map(),
 
     // Preallocated scratch objects for zero-allocation 60/120 FPS rendering
@@ -1315,6 +1332,9 @@
     _scratchView: null,
     _scratchViewProj: null,
     _scratchNormalMat: new Float32Array(16),
+    _scratchInvMat: new Float32Array(16),
+    _scratchJointMat: new Float32Array(16),
+    _scratchSampleVal: new Float32Array(4),
     _scratchUboBuffer: new ArrayBuffer(512),
     _scratchUboF32: null,
     _scratchUboU32: null,
@@ -1344,6 +1364,11 @@
     mat4: {
       create() {
         const out = new Float32Array(16);
+        out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
+        return out;
+      },
+      identity(out) {
+        out.fill(0);
         out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
         return out;
       },
@@ -1446,6 +1471,79 @@
         out[14] = 0;
         out[15] = 1;
         return out;
+      },
+      invert(out, a) {
+        const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+        const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+        const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+        const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+        const b00 = a00 * a11 - a01 * a10;
+        const b01 = a00 * a12 - a02 * a10;
+        const b02 = a00 * a13 - a03 * a10;
+        const b03 = a01 * a12 - a02 * a11;
+        const b04 = a01 * a13 - a03 * a11;
+        const b05 = a02 * a13 - a03 * a12;
+        const b06 = a20 * a31 - a21 * a30;
+        const b07 = a20 * a32 - a22 * a30;
+        const b08 = a20 * a33 - a23 * a30;
+        const b09 = a21 * a32 - a22 * a31;
+        const b10 = a21 * a33 - a23 * a31;
+        const b11 = a22 * a33 - a23 * a32;
+
+        let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+        if (!det || Math.abs(det) < 1e-12) {
+          out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
+          out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
+          out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
+          out[12] = 0; out[13] = 0; out[14] = 0; out[15] = 1;
+          return out;
+        }
+        det = 1.0 / det;
+
+        out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+        out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+        out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+        out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+        out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+        out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+        out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+        out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+        out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+        out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+        out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+        out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+        out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+        out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+        out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+        out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+        return out;
+      },
+      fromRotationTranslationScale(out, q, v, s) {
+        const x = q[0], y = q[1], z = q[2], w = q[3];
+        const x2 = x + x, y2 = y + y, z2 = z + z;
+        const xx = x * x2, xy = x * y2, xz = x * z2;
+        const yy = y * y2, yz = y * z2, zz = z * z2;
+        const wx = w * x2, wy = w * y2, wz = w * z2;
+        const sx = s[0], sy = s[1], sz = s[2];
+
+        out[0] = (1 - (yy + zz)) * sx;
+        out[1] = (xy + wz) * sx;
+        out[2] = (xz - wy) * sx;
+        out[3] = 0;
+        out[4] = (xy - wz) * sy;
+        out[5] = (1 - (xx + zz)) * sy;
+        out[6] = (yz + wx) * sy;
+        out[7] = 0;
+        out[8] = (xz + wy) * sz;
+        out[9] = (yz - wx) * sz;
+        out[10] = (1 - (xx + yy)) * sz;
+        out[11] = 0;
+        out[12] = v[0];
+        out[13] = v[1];
+        out[14] = v[2];
+        out[15] = 1;
+        return out;
       }
     },
 
@@ -1464,6 +1562,7 @@ struct Uniforms {
     flags : vec4<u32>,           // x=texFlags, y=wireframe, z=doubleSided, w=alphaMode
     params : vec4<f32>,          // x=bumpScale, y=pomScale, z=isPomActive, w=isBumpActive
     weather : vec4<f32>,         // x=weatherMode (0=none, 1=rain, 2=snow), y=intensity, z=wind, w=timeSec
+    lodParams : vec4<f32>,       // x=lodLevel, y=lodTransition, z=debugViewMode, w=lodBias
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1474,11 +1573,22 @@ struct Uniforms {
 @group(0) @binding(5) var emissiveTexture : texture_2d<f32>;
 @group(0) @binding(6) var occlusionTexture : texture_2d<f32>;
 
+@group(1) @binding(0) var<storage, read> jointMatrices : array<mat4x4<f32>>;
+
 struct VertexInput {
     @location(0) position : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) uv : vec2<f32>,
     @location(3) tangent : vec4<f32>,
+};
+
+struct SkinnedVertexInput {
+    @location(0) position : vec3<f32>,
+    @location(1) normal : vec3<f32>,
+    @location(2) uv : vec2<f32>,
+    @location(3) tangent : vec4<f32>,
+    @location(4) joints : vec4<u32>,
+    @location(5) weights : vec4<f32>,
 };
 
 struct VertexOutput {
@@ -1864,6 +1974,30 @@ fn calculateSmokePlumes(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos 
     return mix(sceneColor, smokeColor, smokeOpacity);
 }
 
+fn bayerDither4x4(fragCoord : vec2<f32>) -> f32 {
+    let x = u32(fragCoord.x) & 3u;
+    let y = u32(fragCoord.y) & 3u;
+    let idx = y * 4u + x;
+    let bayer = array<f32, 16>(
+         0.0 / 16.0,  8.0 / 16.0,  2.0 / 16.0, 10.0 / 16.0,
+        12.0 / 16.0,  4.0 / 16.0, 14.0 / 16.0,  6.0 / 16.0,
+         3.0 / 16.0, 11.0 / 16.0,  1.0 / 16.0,  9.0 / 16.0,
+        15.0 / 16.0,  7.0 / 16.0, 13.0 / 16.0,  5.0 / 16.0
+    );
+    return bayer[idx];
+}
+
+fn getLodHeatmapColor(lod : u32) -> vec3<f32> {
+    if (lod == 0u) {
+        return vec3<f32>(0.15, 0.90, 0.35);
+    } else if (lod == 1u) {
+        return vec3<f32>(0.95, 0.85, 0.15);
+    } else if (lod == 2u) {
+        return vec3<f32>(0.98, 0.48, 0.12);
+    }
+    return vec3<f32>(0.95, 0.18, 0.22);
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -1876,6 +2010,46 @@ fn vs_main(in : VertexInput) -> VertexOutput {
         out.normal = vec3<f32>(0.0, 1.0, 0.0);
     }
     let worldTan = (ubo.model * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
+    let tanLen = length(worldTan);
+    let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
+    out.tangent = vec4<f32>(normTan, in.tangent.w);
+    out.uv = in.uv * ubo.uvTransform.xy + ubo.uvTransform.zw;
+    out.clipPos = ubo.viewProj * worldPos4;
+    return out;
+}
+
+@vertex
+fn vs_main_skinned(in : SkinnedVertexInput) -> VertexOutput {
+    var out : VertexOutput;
+    var localPos = in.position;
+    var localNorm = in.normal;
+    var localTan = in.tangent.xyz;
+
+    let weightSum = in.weights.x + in.weights.y + in.weights.z + in.weights.w;
+    if (weightSum > 0.0001) {
+        let numJoints = arrayLength(&jointMatrices);
+        let i0 = min(in.joints.x, numJoints - 1u);
+        let i1 = min(in.joints.y, numJoints - 1u);
+        let i2 = min(in.joints.z, numJoints - 1u);
+        let i3 = min(in.joints.w, numJoints - 1u);
+        let skinMat = in.weights.x * jointMatrices[i0] +
+                      in.weights.y * jointMatrices[i1] +
+                      in.weights.z * jointMatrices[i2] +
+                      in.weights.w * jointMatrices[i3];
+        localPos = (skinMat * vec4<f32>(in.position, 1.0)).xyz;
+        localNorm = (skinMat * vec4<f32>(in.normal, 0.0)).xyz;
+        localTan = (skinMat * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
+    }
+
+    let worldPos4 = ubo.model * vec4<f32>(localPos, 1.0);
+    out.worldPos = worldPos4.xyz;
+    let n = (ubo.normalMatrix * vec4<f32>(localNorm, 0.0)).xyz;
+    if (dot(n, n) > 0.0001) {
+        out.normal = normalize(n);
+    } else {
+        out.normal = vec3<f32>(0.0, 1.0, 0.0);
+    }
+    let worldTan = (ubo.model * vec4<f32>(localTan, 0.0)).xyz;
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     out.tangent = vec4<f32>(normTan, in.tangent.w);
@@ -1917,8 +2091,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     var pomShadow = 1.0;
     let bumpScale = ubo.params.x;
     let pomScale = ubo.params.y;
-    let isPomActive = ubo.params.z > 0.5;
-    let isBumpActive = ubo.params.w > 0.5;
+    let activeLodLevel = u32(clamp(ubo.lodParams.x, 0.0, 3.0));
+    let lodTransition = clamp(ubo.lodParams.y, 0.0, 1.0);
+    let debugViewMode = u32(clamp(ubo.lodParams.z, 0.0, 4.0));
+    let isPomActive = (ubo.params.z > 0.5) && (activeLodLevel == 0u);
+    let isBumpActive = (ubo.params.w > 0.5) && (activeLodLevel < 2u);
 
     if (isPomActive && isBumpActive) {
         let isNormalMapped = (ubo.flags.x & 4u) != 0u;
@@ -1935,12 +2112,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uv, duv1, duv2);
     let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2);
 
-    // 3. Base Color & Alpha
+    // 3. Base Color & Alpha (glTF baseColorFactor is already linear-space)
     var baseColor = ubo.baseColorFactor;
     if ((ubo.flags.x & 1u) != 0u) {
         baseColor = baseColor * vec4<f32>(srgbToLinear(baseTexSample.rgb), baseTexSample.a);
-    } else {
-        baseColor = vec4<f32>(srgbToLinear(baseColor.rgb), baseColor.a);
     }
 
     // Alpha Cutoff test (glTF 2.0 alphaMode)
@@ -2160,7 +2335,28 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         totalColor = calculateSmokePlumes(totalColor, in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
     }
 
-    // 13. HDR Tonemapping (Khronos PBR Neutral) & sRGB Display Encoding
+    // 13. Diagnostic Render Views & HDR Tonemapping (Khronos PBR Neutral)
+    if (debugViewMode == 1u) {
+        var heatCol = getLodHeatmapColor(activeLodLevel);
+        if (lodTransition > 0.01 && activeLodLevel < 3u) {
+            let dither = bayerDither4x4(in.clipPos.xy);
+            if (lodTransition > dither) {
+                heatCol = getLodHeatmapColor(activeLodLevel + 1u);
+            }
+        }
+        let litLuma = dot(linearToSrgb(tonemapKhronosPbrNeutral(totalColor)), vec3<f32>(0.299, 0.587, 0.114));
+        return vec4<f32>(heatCol * (0.35 + 0.65 * litLuma), 1.0);
+    } else if (debugViewMode == 2u) {
+        return vec4<f32>(N * 0.5 + 0.5, 1.0);
+    } else if (debugViewMode == 3u) {
+        return vec4<f32>(ao, roughness, metallic, 1.0);
+    } else if (debugViewMode == 4u) {
+        let grid = floor(uv * 16.0);
+        let checker = abs((grid.x + grid.y) % 2.0);
+        let checkerCol = mix(vec3<f32>(0.16, 0.18, 0.22), vec3<f32>(0.90, 0.92, 0.96), checker);
+        return vec4<f32>(checkerCol * (0.4 + 0.6 * max(dot(N, L0), 0.2)), 1.0);
+    }
+
     totalColor = tonemapKhronosPbrNeutral(totalColor);
     let finalColor = linearToSrgb(totalColor);
 
@@ -2398,6 +2594,75 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           }
         });
 
+        // Skeletal Skinning Bind Group Layout (@group(1)) & Pipelines
+        this.skinBindGroupLayout = this.device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.VERTEX,
+              buffer: { type: 'read-only-storage' }
+            }
+          ]
+        });
+
+        this.skinnedPipelineLayout = this.device.createPipelineLayout({
+          bindGroupLayouts: [this.bindGroupLayout, this.skinBindGroupLayout]
+        });
+
+        const skinVertexBufferLayout = {
+          arrayStride: 32,
+          attributes: [
+            { shaderLocation: 4, offset: 0, format: 'uint32x4' },
+            { shaderLocation: 5, offset: 16, format: 'float32x4' }
+          ]
+        };
+
+        this.skinnedPipeline = this.device.createRenderPipeline({
+          layout: this.skinnedPipelineLayout,
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main_skinned',
+            buffers: [vertexBufferLayout, skinVertexBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: this.format }]
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: 'back'
+          },
+          depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: true,
+            depthCompare: 'less'
+          }
+        });
+
+        this.skinnedPipelineDoubleSided = this.device.createRenderPipeline({
+          layout: this.skinnedPipelineLayout,
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main_skinned',
+            buffers: [vertexBufferLayout, skinVertexBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: this.format }]
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: 'none'
+          },
+          depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: true,
+            depthCompare: 'less'
+          }
+        });
+
         this.mipmapBindGroupLayout = this.device.createBindGroupLayout({
           entries: [
             { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
@@ -2418,7 +2683,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this._scratchProj = this.mat4.create();
         this._scratchView = this.mat4.create();
         this._scratchViewProj = this.mat4.create();
-        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 84);
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 88);
         this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 288, 4);
 
         this.isActive = true;
@@ -2542,20 +2807,180 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       }, { passive: false });
     },
 
+    generateLodData(posData, normData, indexData, vertexCount) {
+      let baseIndices = indexData;
+      let indexFormat = 'uint16';
+      if (indexData instanceof Uint8Array) {
+        baseIndices = new Uint16Array(indexData);
+        indexFormat = 'uint16';
+      } else if (indexData instanceof Uint32Array) {
+        indexFormat = 'uint32';
+      } else {
+        indexFormat = 'uint16';
+      }
+      const baseCount = baseIndices.length;
+      const triCount = Math.floor(baseCount / 3);
+
+      // Compute local AABB center and bounding radius for LOD distance evaluation
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (let i = 0; i < posData.length; i += 3) {
+        const x = posData[i], y = posData[i + 1], z = posData[i + 2];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      const localCenter = [
+        Number.isFinite(minX) ? (minX + maxX) * 0.5 : 0.0,
+        Number.isFinite(minY) ? (minY + maxY) * 0.5 : 0.0,
+        Number.isFinite(minZ) ? (minZ + maxZ) * 0.5 : 0.0
+      ];
+      const extX = Number.isFinite(maxX - minX) ? (maxX - minX) : 1.0;
+      const extY = Number.isFinite(maxY - minY) ? (maxY - minY) : 1.0;
+      const extZ = Number.isFinite(maxZ - minZ) ? (maxZ - minZ) : 1.0;
+      const localRadius = Math.max(Math.hypot(extX, extY, extZ) * 0.5, 0.05);
+
+      // Keep small meshes (< 24 triangles) at 100% LOD0 across all levels
+      if (triCount < 24 || vertexCount < 12) {
+        const slice0 = { firstIndex: 0, indexCount: baseCount };
+        return {
+          gpuIndexData: baseIndices,
+          indexFormat,
+          indexCount: baseCount,
+          lodSlices: [slice0, slice0, slice0, slice0],
+          localCenter,
+          localRadius
+        };
+      }
+
+      const invExtX = extX > 1e-6 ? 1.0 / extX : 0.0;
+      const invExtY = extY > 1e-6 ? 1.0 / extY : 0.0;
+      const invExtZ = extZ > 1e-6 ? 1.0 / extZ : 0.0;
+
+      const buildLodLevel = (gridRes, targetRatio) => {
+        const targetTris = Math.max(8, Math.floor(triCount * targetRatio));
+        const clusterMap = new Map();
+        const remap = new Uint32Array(vertexCount);
+        for (let v = 0; v < vertexCount; ++v) {
+          const pIdx = v * 3;
+          const nx = Math.max(0.0, Math.min(1.0, (posData[pIdx] - minX) * invExtX));
+          const ny = Math.max(0.0, Math.min(1.0, (posData[pIdx + 1] - minY) * invExtY));
+          const nz = Math.max(0.0, Math.min(1.0, (posData[pIdx + 2] - minZ) * invExtZ));
+          const gx = Math.min(gridRes - 1, Math.floor(nx * gridRes));
+          const gy = Math.min(gridRes - 1, Math.floor(ny * gridRes));
+          const gz = Math.min(gridRes - 1, Math.floor(nz * gridRes));
+          let oct = 0;
+          if (normData && pIdx + 2 < normData.length) {
+            oct = (normData[pIdx] >= 0 ? 1 : 0) | (normData[pIdx + 1] >= 0 ? 2 : 0) | (normData[pIdx + 2] >= 0 ? 4 : 0);
+          }
+          const key = ((gx * gridRes + gy) * gridRes + gz) * 8 + oct;
+          let rep = clusterMap.get(key);
+          if (rep === undefined) {
+            rep = v;
+            clusterMap.set(key, v);
+          }
+          remap[v] = rep;
+        }
+
+        const out = [];
+        for (let t = 0; t < triCount; ++t) {
+          const i0 = remap[baseIndices[t * 3]];
+          const i1 = remap[baseIndices[t * 3 + 1]];
+          const i2 = remap[baseIndices[t * 3 + 2]];
+          if (i0 !== i1 && i1 !== i2 && i2 !== i0) {
+            out.push(i0, i1, i2);
+          }
+        }
+
+        const clusteredTris = Math.floor(out.length / 3);
+        if (clusteredTris >= 6 && clusteredTris <= Math.floor(targetTris * 1.35)) {
+          return out;
+        }
+
+        // Geometric stride-decimation fallback when uniform grid clustering retains too many/few triangles
+        const stepOut = [];
+        const step = Math.max(1.0, triCount / targetTris);
+        for (let f = 0.0; Math.floor(f) < triCount && stepOut.length / 3 < targetTris; f += step) {
+          const t = Math.floor(f);
+          stepOut.push(baseIndices[t * 3], baseIndices[t * 3 + 1], baseIndices[t * 3 + 2]);
+        }
+        return stepOut.length >= 9 ? stepOut : Array.from(baseIndices);
+      };
+
+      const lod1Arr = buildLodLevel(28, 0.55);
+      const lod2Arr = buildLodLevel(16, 0.30);
+      const lod3Arr = buildLodLevel(9, 0.15);
+
+      const totalLen = baseCount + lod1Arr.length + lod2Arr.length + lod3Arr.length;
+      const TypedArr = indexFormat === 'uint32' ? Uint32Array : Uint16Array;
+      const gpuIndexData = new TypedArr(totalLen);
+      gpuIndexData.set(baseIndices, 0);
+      let offset = baseCount;
+      const lodSlices = [
+        { firstIndex: 0, indexCount: baseCount }
+      ];
+      for (const arr of [lod1Arr, lod2Arr, lod3Arr]) {
+        gpuIndexData.set(arr, offset);
+        lodSlices.push({ firstIndex: offset, indexCount: arr.length });
+        offset += arr.length;
+      }
+
+      return {
+        gpuIndexData,
+        indexFormat,
+        indexCount: baseCount,
+        lodSlices,
+        localCenter,
+        localRadius
+      };
+    },
+
+    evaluatePrimitiveLod(dist, radius, lodBias = 1.0, isLodActive = true) {
+      if (!isLodActive) {
+        return { lodLevel: 0, lodTransition: 0.0 };
+      }
+      const safeRadius = Math.max(radius || 1.0, 0.05);
+      const clampedBias = Math.max(0.25, Math.min(4.0, lodBias || 1.0));
+      const metric = (Math.max(0.0, dist) / safeRadius) * clampedBias;
+
+      const thresholds = [8.0, 25.0, 85.0];
+      let prev = 0.0;
+      for (let lvl = 0; lvl < thresholds.length; ++lvl) {
+        const th = thresholds[lvl];
+        if (metric < th) {
+          const band = (th - prev) * 0.25;
+          const tr = metric > (th - band) ? (metric - (th - band)) / band : 0.0;
+          return { lodLevel: lvl, lodTransition: Math.max(0.0, Math.min(1.0, tr)) };
+        }
+        prev = th;
+      }
+      return { lodLevel: 3, lodTransition: 0.0 };
+    },
+
     loadModel(gltf, arrayBuffer, modelName) {
       if (!this.isActive || !this.device) return;
 
       // Release previous GPU resources to prevent VRAM memory leak
       for (const prim of this.primitives) {
         if (prim.vertexBuffer && prim.vertexBuffer.destroy) prim.vertexBuffer.destroy();
+        if (prim.skinVertexBuffer && prim.skinVertexBuffer.destroy) prim.skinVertexBuffer.destroy();
         if (prim.indexBuffer && prim.indexBuffer.destroy) prim.indexBuffer.destroy();
         if (prim.uniformBuffer && prim.uniformBuffer.destroy) prim.uniformBuffer.destroy();
+      }
+      for (const skin of this.skins) {
+        if (skin.jointBuffer && skin.jointBuffer.destroy) skin.jointBuffer.destroy();
       }
       for (const entry of this.textureCache.values()) {
         if (entry.texture && entry.texture.destroy) entry.texture.destroy();
       }
       this.textureCache.clear();
       this.primitives = [];
+      this.nodes = [];
+      this.rootNodes = [];
+      this.skins = [];
+      this.animations = [];
+      this.activeAnimationIndex = -1;
+      this.animationTime = 0.0;
 
       let binBuffer = null;
       if (arrayBuffer && arrayBuffer.byteLength >= 12) {
@@ -2630,8 +3055,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         else if (acc.componentType === 5125) TypedArray = Uint32Array;
         else if (acc.componentType === 5121) TypedArray = Uint8Array;
         else if (acc.componentType === 5122) TypedArray = Int16Array;
+        else if (acc.componentType === 5120) TypedArray = Int8Array;
 
-        const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : 4);
+        const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : acc.type === 'MAT4' ? 16 : 4);
         const elemBytes = TypedArray.BYTES_PER_ELEMENT;
         const stride = bv.byteStride || (numComp * elemBytes);
 
@@ -2657,78 +3083,167 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
               else if (acc.componentType === 5125) out[i * numComp + c] = dView.getUint32(valOffset, true);
               else if (acc.componentType === 5121) out[i * numComp + c] = dView.getUint8(valOffset);
               else if (acc.componentType === 5122) out[i * numComp + c] = dView.getInt16(valOffset, true);
+              else if (acc.componentType === 5120) out[i * numComp + c] = dView.getInt8(valOffset);
             }
           }
         }
         return out;
       };
 
-      const meshNodeMatrices = new Map();
+      const getAccessorAsFloat32 = (accIdx) => {
+        const raw = getAccessorData(accIdx);
+        if (!raw) return null;
+        if (raw instanceof Float32Array) return raw;
+        const acc = gltf.accessors[accIdx];
+        const out = new Float32Array(raw.length);
+        if (acc.componentType === 5121) { // UNSIGNED_BYTE
+          for (let i = 0; i < raw.length; ++i) out[i] = raw[i] / 255.0;
+        } else if (acc.componentType === 5123) { // UNSIGNED_SHORT
+          for (let i = 0; i < raw.length; ++i) out[i] = raw[i] / 65535.0;
+        } else if (acc.componentType === 5120) { // BYTE
+          for (let i = 0; i < raw.length; ++i) out[i] = Math.max(raw[i] / 127.0, -1.0);
+        } else if (acc.componentType === 5122) { // SHORT
+          for (let i = 0; i < raw.length; ++i) out[i] = Math.max(raw[i] / 32767.0, -1.0);
+        } else {
+          for (let i = 0; i < raw.length; ++i) out[i] = raw[i];
+        }
+        return out;
+      };
+
+      const meshNodeIndices = new Map();
       if (gltf.nodes) {
-        const computeNodeMatrix = (nodeIdx, parentMat) => {
-          const node = gltf.nodes[nodeIdx];
-          if (!node) return;
-          let localMat = this.mat4.create();
-          if (node.matrix) {
-            for (let i = 0; i < 16; ++i) localMat[i] = node.matrix[i];
-          } else {
-            const t = node.translation || [0, 0, 0];
-            const r = node.rotation || [0, 0, 0, 1];
-            const s = node.scale || [1, 1, 1];
-            const x2 = r[0] + r[0], y2 = r[1] + r[1], z2 = r[2] + r[2];
-            const xx = r[0] * x2, xy = r[0] * y2, xz = r[0] * z2;
-            const yy = r[1] * y2, yz = r[1] * z2, zz = r[2] * z2;
-            const wx = r[3] * x2, wy = r[3] * y2, wz = r[3] * z2;
-
-            localMat[0] = (1 - (yy + zz)) * s[0];
-            localMat[1] = (xy + wz) * s[0];
-            localMat[2] = (xz - wy) * s[0];
-            localMat[3] = 0;
-
-            localMat[4] = (xy - wz) * s[1];
-            localMat[5] = (1 - (xx + zz)) * s[1];
-            localMat[6] = (yz + wx) * s[1];
-            localMat[7] = 0;
-
-            localMat[8] = (xz + wy) * s[2];
-            localMat[9] = (yz - wx) * s[2];
-            localMat[10] = (1 - (xx + yy)) * s[2];
-            localMat[11] = 0;
-
-            localMat[12] = t[0];
-            localMat[13] = t[1];
-            localMat[14] = t[2];
-            localMat[15] = 1;
-          }
-
-          let worldMat = this.mat4.create();
-          if (parentMat) {
-            this.mat4.multiply(worldMat, parentMat, localMat);
-          } else {
-            worldMat.set(localMat);
-          }
-
-          if (node.mesh !== undefined) {
-            if (!meshNodeMatrices.has(node.mesh)) {
-              meshNodeMatrices.set(node.mesh, []);
+        for (let i = 0; i < gltf.nodes.length; ++i) {
+          const gn = gltf.nodes[i];
+          const nodeObj = {
+            name: gn.name || `Node_${i}`,
+            translation: gn.translation ? [gn.translation[0], gn.translation[1], gn.translation[2]] : [0, 0, 0],
+            rotation: gn.rotation ? [gn.rotation[0], gn.rotation[1], gn.rotation[2], gn.rotation[3]] : [0, 0, 0, 1],
+            scale: gn.scale ? [gn.scale[0], gn.scale[1], gn.scale[2]] : [1, 1, 1],
+            matrix: gn.matrix ? new Float32Array(gn.matrix) : null,
+            children: gn.children ? gn.children.slice() : [],
+            mesh: gn.mesh,
+            skin: gn.skin,
+            localMatrix: this.mat4.create(),
+            worldMatrix: this.mat4.create()
+          };
+          this.nodes.push(nodeObj);
+          if (gn.mesh !== undefined) {
+            if (!meshNodeIndices.has(gn.mesh)) {
+              meshNodeIndices.set(gn.mesh, []);
             }
-            meshNodeMatrices.get(node.mesh).push(worldMat);
+            meshNodeIndices.get(gn.mesh).push(i);
           }
-
-          if (node.children) {
-            for (const childIdx of node.children) {
-              computeNodeMatrix(childIdx, worldMat);
-            }
-          }
-        };
+        }
 
         const sceneIdx = gltf.scene || 0;
-        const rootNodes = (gltf.scenes && gltf.scenes[sceneIdx] && gltf.scenes[sceneIdx].nodes)
-          ? gltf.scenes[sceneIdx].nodes
-          : gltf.nodes.map((_, i) => i);
+        this.rootNodes = (gltf.scenes && gltf.scenes[sceneIdx] && gltf.scenes[sceneIdx].nodes)
+          ? gltf.scenes[sceneIdx].nodes.slice()
+          : this.nodes.map((_, i) => i);
 
-        for (const rootIdx of rootNodes) {
-          computeNodeMatrix(rootIdx, null);
+        this.updateNodeHierarchy();
+      }
+
+      // Parse glTF 2.0 Skins (Bones & Inverse Bind Matrices)
+      if (gltf.skins && this.skinBindGroupLayout) {
+        for (let s = 0; s < gltf.skins.length; ++s) {
+          const gs = gltf.skins[s];
+          const joints = gs.joints ? gs.joints.slice() : [];
+          const jointCount = Math.max(1, joints.length);
+          let ibm = null;
+          if (gs.inverseBindMatrices !== undefined) {
+            ibm = getAccessorData(gs.inverseBindMatrices);
+          }
+          const inverseBindMatrices = new Float32Array(jointCount * 16);
+          for (let j = 0; j < jointCount; ++j) {
+            if (ibm && j * 16 + 16 <= ibm.length) {
+              for (let k = 0; k < 16; ++k) inverseBindMatrices[j * 16 + k] = ibm[j * 16 + k];
+            } else {
+              inverseBindMatrices[j * 16 + 0] = 1;
+              inverseBindMatrices[j * 16 + 5] = 1;
+              inverseBindMatrices[j * 16 + 10] = 1;
+              inverseBindMatrices[j * 16 + 15] = 1;
+            }
+          }
+
+          const jointMatricesData = new Float32Array(jointCount * 16);
+          for (let j = 0; j < jointCount; ++j) {
+            jointMatricesData[j * 16 + 0] = 1;
+            jointMatricesData[j * 16 + 5] = 1;
+            jointMatricesData[j * 16 + 10] = 1;
+            jointMatricesData[j * 16 + 15] = 1;
+          }
+
+          const jointBuffer = this.device.createBuffer({
+            size: Math.max(64, jointCount * 64),
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+          });
+          this.device.queue.writeBuffer(jointBuffer, 0, jointMatricesData);
+
+          const bindGroup = this.device.createBindGroup({
+            layout: this.skinBindGroupLayout,
+            entries: [{ binding: 0, resource: { buffer: jointBuffer } }]
+          });
+
+          this.skins.push({
+            name: gs.name || `Skin_${s}`,
+            joints,
+            inverseBindMatrices,
+            jointMatricesData,
+            jointBuffer,
+            bindGroup,
+            meshNodeIdx: -1
+          });
+        }
+      }
+
+      // Parse glTF 2.0 Animations (Samplers & Channels)
+      if (gltf.animations) {
+        for (let a = 0; a < gltf.animations.length; ++a) {
+          const ga = gltf.animations[a];
+          const samplers = [];
+          let duration = 0.0;
+          if (ga.samplers) {
+            for (const gs of ga.samplers) {
+              const input = getAccessorAsFloat32(gs.input) || new Float32Array(0);
+              const output = getAccessorAsFloat32(gs.output) || new Float32Array(0);
+              const accOut = (gs.output !== undefined && gltf.accessors) ? gltf.accessors[gs.output] : null;
+              const stride = accOut
+                ? (accOut.type === 'SCALAR' ? 1 : accOut.type === 'VEC2' ? 2 : accOut.type === 'VEC3' ? 3 : 4)
+                : 3;
+              if (input.length > 0) {
+                duration = Math.max(duration, input[input.length - 1]);
+              }
+              samplers.push({
+                input,
+                output,
+                interpolation: gs.interpolation || 'LINEAR',
+                stride
+              });
+            }
+          }
+          const channels = [];
+          if (ga.channels) {
+            for (const gc of ga.channels) {
+              if (gc.target && gc.target.node !== undefined && gc.target.path) {
+                channels.push({
+                  sampler: gc.sampler,
+                  targetNode: gc.target.node,
+                  path: gc.target.path
+                });
+              }
+            }
+          }
+          this.animations.push({
+            name: ga.name || `Animation ${a}`,
+            samplers,
+            channels,
+            duration
+          });
+        }
+        if (this.animations.length > 0) {
+          this.activeAnimationIndex = 0;
+          this.animationTime = 0.0;
+          BglLogger.log('Animation', `Loaded ${this.animations.length} glTF animation(s), ${this.skins.length} skin(s). Active: '${this.animations[0].name}' (${this.animations[0].duration.toFixed(2)}s)`);
         }
       }
 
@@ -2738,7 +3253,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       if (gltf.meshes) {
         gltf.meshes.forEach((mesh, meshIdx) => {
           if (!mesh.primitives) return;
-          const nodeMats = meshNodeMatrices.get(meshIdx) || [this.mat4.create()];
+          const nodeIdxList = meshNodeIndices.get(meshIdx) || [-1];
 
           for (const prim of mesh.primitives) {
             if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
@@ -2749,9 +3264,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
             const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
             const tanData = prim.attributes.TANGENT !== undefined ? getAccessorData(prim.attributes.TANGENT) : null;
+            const jointsData = prim.attributes.JOINTS_0 !== undefined ? getAccessorData(prim.attributes.JOINTS_0) : null;
+            const weightsData = prim.attributes.WEIGHTS_0 !== undefined ? getAccessorAsFloat32(prim.attributes.WEIGHTS_0) : null;
             const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
 
-            for (const worldMatrix of nodeMats) {
+            for (const nIdx of nodeIdxList) {
+              const worldMatrix = (nIdx >= 0 && this.nodes[nIdx]) ? this.nodes[nIdx].worldMatrix : this.mat4.create();
               for (let i = 0; i < posData.length; i += 3) {
                 const lx = posData[i], ly = posData[i + 1], lz = posData[i + 2];
                 const wx = worldMatrix[0] * lx + worldMatrix[4] * ly + worldMatrix[8] * lz + worldMatrix[12];
@@ -2811,20 +3329,56 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             });
             this.device.queue.writeBuffer(vertexBuffer, 0, interleaved);
 
+            let skinVertexBuffer = null;
+            if (jointsData && weightsData && this.skinnedPipeline) {
+              const skinBytes = new ArrayBuffer(Math.max(32, vertexCount * 32));
+              const skinU32 = new Uint32Array(skinBytes);
+              const skinF32 = new Float32Array(skinBytes);
+              for (let i = 0; i < vertexCount; ++i) {
+                const jIdx = i * 4;
+                const dBase = i * 8;
+                skinU32[dBase + 0] = jointsData[jIdx + 0] || 0;
+                skinU32[dBase + 1] = jointsData[jIdx + 1] || 0;
+                skinU32[dBase + 2] = jointsData[jIdx + 2] || 0;
+                skinU32[dBase + 3] = jointsData[jIdx + 3] || 0;
+
+                let w0 = weightsData[jIdx + 0] || 0;
+                let w1 = weightsData[jIdx + 1] || 0;
+                let w2 = weightsData[jIdx + 2] || 0;
+                let w3 = weightsData[jIdx + 3] || 0;
+                const wSum = w0 + w1 + w2 + w3;
+                if (wSum > 1e-6) {
+                  const invW = 1.0 / wSum;
+                  w0 *= invW; w1 *= invW; w2 *= invW; w3 *= invW;
+                } else {
+                  w0 = 1.0; w1 = 0.0; w2 = 0.0; w3 = 0.0;
+                }
+                skinF32[dBase + 4] = w0;
+                skinF32[dBase + 5] = w1;
+                skinF32[dBase + 6] = w2;
+                skinF32[dBase + 7] = w3;
+              }
+              skinVertexBuffer = this.device.createBuffer({
+                size: skinBytes.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+              });
+              this.device.queue.writeBuffer(skinVertexBuffer, 0, skinBytes);
+            }
+
             let indexBuffer = null;
             let indexFormat = 'uint16';
             let indexCount = 0;
+            let lodSlices = null;
+            let localCenter = [0, 0, 0];
+            let localRadius = 1.0;
             if (indexData) {
-              let gpuIndexData = indexData;
-              if (indexData instanceof Uint8Array) {
-                gpuIndexData = new Uint16Array(indexData);
-                indexFormat = 'uint16';
-              } else if (indexData instanceof Uint32Array) {
-                indexFormat = 'uint32';
-              } else {
-                indexFormat = 'uint16';
-              }
-              indexCount = gpuIndexData.length;
+              const lodInfo = this.generateLodData(posData, normData, indexData, vertexCount);
+              const gpuIndexData = lodInfo.gpuIndexData;
+              indexFormat = lodInfo.indexFormat;
+              indexCount = lodInfo.indexCount;
+              lodSlices = lodInfo.lodSlices;
+              localCenter = lodInfo.localCenter;
+              localRadius = lodInfo.localRadius;
 
               // Ensure buffer size and write size are strictly multiples of 4 (W3C WebGPU specification requirement)
               const rawByteLength = gpuIndexData.byteLength;
@@ -2878,7 +3432,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
               if (mat.normalTexture) {
                 if (mat.normalTexture.scale !== undefined) normalScale = mat.normalTexture.scale;
-                if (mat.normalTexture.extensions && mat.normalTexture.extensions.KHR_texture_transform) {
+                const hasBaseColorTransform = Boolean(
+                  mat.pbrMetallicRoughness &&
+                  mat.pbrMetallicRoughness.baseColorTexture &&
+                  mat.pbrMetallicRoughness.baseColorTexture.extensions &&
+                  mat.pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform
+                );
+                if (!hasBaseColorTransform && mat.normalTexture.extensions && mat.normalTexture.extensions.KHR_texture_transform) {
                   const tt = mat.normalTexture.extensions.KHR_texture_transform;
                   if (tt.scale) uvScale = [tt.scale[0], tt.scale[1]];
                   if (tt.offset) uvOffset = [tt.offset[0], tt.offset[1]];
@@ -2891,7 +3451,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             }
 
             const currentPrimRecords = [];
-            for (const worldMatrix of nodeMats) {
+            for (const nIdx of nodeIdxList) {
+              const nodeObj = (nIdx >= 0 && this.nodes[nIdx]) ? this.nodes[nIdx] : null;
+              const worldMatrix = nodeObj ? nodeObj.worldMatrix : this.mat4.create();
+              const skinIdx = (nodeObj && nodeObj.skin !== undefined && this.skins[nodeObj.skin]) ? nodeObj.skin : -1;
+              const isSkinned = (skinIdx >= 0 && !!skinVertexBuffer);
+              if (isSkinned && this.skins[skinIdx].meshNodeIdx < 0) {
+                this.skins[skinIdx].meshNodeIdx = nIdx;
+              }
+
               const uniformBuffer = this.device.createBuffer({
                 size: 512,
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -2899,9 +3467,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
               const primRecord = {
                 vertexBuffer,
+                skinVertexBuffer: isSkinned ? skinVertexBuffer : null,
                 indexBuffer,
                 indexCount,
                 indexFormat,
+                lodSlices,
+                localCenter,
+                localRadius,
                 vertexCount,
                 hasIndices: !!indexData,
                 uniformBuffer,
@@ -2924,6 +3496,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 emissiveView: null,
                 occlusionView: null,
                 modelMatrix: worldMatrix,
+                nodeIdx: nIdx,
+                skinIdx,
+                isSkinned,
                 updateBindGroup: null
               };
 
@@ -3087,7 +3662,233 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this.modelBounds = { center: [cx, cy, cz], radius, isSponza, minBound, maxBound };
       }
 
-      BglLogger.log('WebGPU', `Loaded '${modelName}' into WebGPU rendering pipeline (${this.primitives.length} primitives).`);
+      if (this.animations.length > 0 && this.activeAnimationIndex >= 0) {
+        this.evaluateAnimation(this.activeAnimationIndex, 0.0);
+      } else {
+        this.updateNodeHierarchy();
+      }
+      this.updateSkinMatrices();
+
+      if (typeof updateAnimationDropdown === 'function') {
+        updateAnimationDropdown();
+      }
+
+      BglLogger.log('WebGPU', `Loaded '${modelName}' into WebGPU rendering pipeline (${this.primitives.length} primitives, ${this.skins.length} skins, ${this.animations.length} animations).`);
+    },
+
+    updateNodeHierarchy() {
+      const updateNode = (nodeIdx, parentWorld) => {
+        const node = this.nodes[nodeIdx];
+        if (!node) return;
+        if (node.matrix) {
+          node.localMatrix.set(node.matrix);
+        } else {
+          this.mat4.fromRotationTranslationScale(node.localMatrix, node.rotation, node.translation, node.scale);
+        }
+        if (parentWorld) {
+          this.mat4.multiply(node.worldMatrix, parentWorld, node.localMatrix);
+        } else {
+          node.worldMatrix.set(node.localMatrix);
+        }
+        for (let i = 0; i < node.children.length; ++i) {
+          updateNode(node.children[i], node.worldMatrix);
+        }
+      };
+      for (let i = 0; i < this.rootNodes.length; ++i) {
+        updateNode(this.rootNodes[i], null);
+      }
+    },
+
+    sampleAnimationSampler(sampler, t, path, out) {
+      const timestamps = sampler.input;
+      const values = sampler.output;
+      const stride = sampler.stride;
+      const count = timestamps.length;
+      if (count === 0 || values.length === 0 || stride === 0) return;
+
+      const copyKeyframe = (kfIdx) => {
+        const off = (sampler.interpolation === 'CUBICSPLINE')
+          ? (kfIdx * 3 + 1) * stride
+          : kfIdx * stride;
+        if (off + stride <= values.length) {
+          for (let i = 0; i < stride; ++i) out[i] = values[off + i];
+        }
+      };
+
+      const normalizeQuat = () => {
+        if (path === 'rotation' && stride >= 4) {
+          const len = Math.hypot(out[0], out[1], out[2], out[3]);
+          if (len > 1e-8) {
+            const inv = 1.0 / len;
+            out[0] *= inv; out[1] *= inv; out[2] *= inv; out[3] *= inv;
+          } else {
+            out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 1;
+          }
+        }
+      };
+
+      if (t <= timestamps[0]) {
+        copyKeyframe(0);
+        normalizeQuat();
+        return;
+      }
+      if (t >= timestamps[count - 1]) {
+        copyKeyframe(count - 1);
+        normalizeQuat();
+        return;
+      }
+
+      // Binary search for surrounding keyframes k and k+1
+      let lo = 0, hi = count - 1;
+      while (lo + 1 < hi) {
+        const mid = (lo + hi) >> 1;
+        if (timestamps[mid] <= t) lo = mid;
+        else hi = mid;
+      }
+      const k = lo;
+      const k1 = Math.min(k + 1, count - 1);
+
+      if (k === k1 || sampler.interpolation === 'STEP') {
+        copyKeyframe(k);
+        normalizeQuat();
+        return;
+      }
+
+      const t0 = timestamps[k];
+      const t1 = timestamps[k1];
+      const dt = t1 - t0;
+      const alpha = dt > 1e-7 ? Math.max(0.0, Math.min(1.0, (t - t0) / dt)) : 0.0;
+
+      if (sampler.interpolation === 'LINEAR') {
+        const off0 = k * stride;
+        const off1 = k1 * stride;
+        if (off1 + stride > values.length) return;
+
+        if (path === 'rotation' && stride >= 4) {
+          let ax = values[off0 + 0], ay = values[off0 + 1], az = values[off0 + 2], aw = values[off0 + 3];
+          let bx = values[off1 + 0], by = values[off1 + 1], bz = values[off1 + 2], bw = values[off1 + 3];
+          let dot = ax * bx + ay * by + az * bz + aw * bw;
+          if (dot < 0.0) {
+            dot = -dot;
+            bx = -bx; by = -by; bz = -bz; bw = -bw;
+          }
+          let s0, s1;
+          if (dot > 0.9995) {
+            s0 = 1.0 - alpha;
+            s1 = alpha;
+          } else {
+            const omega = Math.acos(Math.min(1.0, dot));
+            const sinOmega = Math.sin(omega);
+            s0 = Math.sin((1.0 - alpha) * omega) / sinOmega;
+            s1 = Math.sin(alpha * omega) / sinOmega;
+          }
+          out[0] = s0 * ax + s1 * bx;
+          out[1] = s0 * ay + s1 * by;
+          out[2] = s0 * az + s1 * bz;
+          out[3] = s0 * aw + s1 * bw;
+          normalizeQuat();
+        } else {
+          for (let i = 0; i < stride; ++i) {
+            out[i] = values[off0 + i] + (values[off1 + i] - values[off0 + i]) * alpha;
+          }
+        }
+        return;
+      }
+
+      if (sampler.interpolation === 'CUBICSPLINE') {
+        const kStride3 = k * 3 * stride;
+        const k1Stride3 = k1 * 3 * stride;
+        if (k1Stride3 + 3 * stride > values.length) return;
+
+        const v0Off = kStride3 + stride;
+        const b0Off = kStride3 + 2 * stride;
+        const a1Off = k1Stride3;
+        const v1Off = k1Stride3 + stride;
+
+        const s = alpha, s2 = s * s, s3 = s2 * s;
+        const h00 = 2 * s3 - 3 * s2 + 1;
+        const h10 = s3 - 2 * s2 + s;
+        const h01 = -2 * s3 + 3 * s2;
+        const h11 = s3 - s2;
+
+        for (let i = 0; i < stride; ++i) {
+          out[i] = h00 * values[v0Off + i] + h10 * dt * values[b0Off + i] + h01 * values[v1Off + i] + h11 * dt * values[a1Off + i];
+        }
+        normalizeQuat();
+      }
+    },
+
+    evaluateAnimation(animIdx, time) {
+      if (animIdx < 0 || animIdx >= this.animations.length) return;
+      const anim = this.animations[animIdx];
+      const val = this._scratchSampleVal;
+      for (let i = 0; i < anim.channels.length; ++i) {
+        const ch = anim.channels[i];
+        const sampler = anim.samplers[ch.sampler];
+        const node = this.nodes[ch.targetNode];
+        if (!sampler || !node) continue;
+
+        this.sampleAnimationSampler(sampler, time, ch.path, val);
+        if (ch.path === 'translation') {
+          node.translation[0] = val[0];
+          node.translation[1] = val[1];
+          node.translation[2] = val[2];
+          node.matrix = null;
+        } else if (ch.path === 'rotation') {
+          node.rotation[0] = val[0];
+          node.rotation[1] = val[1];
+          node.rotation[2] = val[2];
+          node.rotation[3] = val[3];
+          node.matrix = null;
+        } else if (ch.path === 'scale') {
+          node.scale[0] = val[0];
+          node.scale[1] = val[1];
+          node.scale[2] = val[2];
+          node.matrix = null;
+        }
+      }
+      this.updateNodeHierarchy();
+    },
+
+    updateSkinMatrices() {
+      if (!this.device || this.skins.length === 0) return;
+      const invMeshWorld = this._scratchInvMat;
+      const jointMat = this._scratchJointMat;
+      for (let s = 0; s < this.skins.length; ++s) {
+        const skin = this.skins[s];
+        const meshNode = (skin.meshNodeIdx >= 0 && this.nodes[skin.meshNodeIdx]) ? this.nodes[skin.meshNodeIdx] : null;
+        if (meshNode) {
+          this.mat4.invert(invMeshWorld, meshNode.worldMatrix);
+        } else {
+          this.mat4.identity(invMeshWorld);
+        }
+        const out = skin.jointMatricesData;
+        for (let j = 0; j < skin.joints.length; ++j) {
+          const jNode = this.nodes[skin.joints[j]];
+          if (jNode) {
+            const ibm = skin.inverseBindMatrices.subarray(j * 16, j * 16 + 16);
+            this.mat4.multiply(jointMat, jNode.worldMatrix, ibm);
+            this.mat4.multiply(out.subarray(j * 16, j * 16 + 16), invMeshWorld, jointMat);
+          }
+        }
+        this.device.queue.writeBuffer(skin.jointBuffer, 0, out);
+      }
+    },
+
+    setAnimation(index) {
+      if (index >= 0 && index < this.animations.length) {
+        this.activeAnimationIndex = index;
+        this.animationTime = 0.0;
+        this.animationPlaying = true;
+        this.evaluateAnimation(index, 0.0);
+        this.updateSkinMatrices();
+      } else {
+        this.activeAnimationIndex = -1;
+      }
+    },
+
+    setAnimationPlaying(playing) {
+      this.animationPlaying = !!playing;
     },
 
     generateMipmaps(gpuTex, width, height, mipLevelCount) {
@@ -3175,8 +3976,17 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       }
 
       const nowMs = performance.now();
-      const dtSec = this._lastDrawMs ? Math.min((nowMs - this._lastDrawMs) * 0.001, 0.1) : (1.0 / 60.0);
+      const dtSec = this._lastDrawMs ? Math.max(0.0, Math.min((nowMs - this._lastDrawMs) * 0.001, 0.1)) : (1.0 / 60.0);
       this._lastDrawMs = nowMs;
+
+      if (this.animations.length > 0 && this.activeAnimationIndex >= 0 && this.animationPlaying) {
+        const anim = this.animations[this.activeAnimationIndex];
+        if (anim && anim.duration > 0.0) {
+          this.animationTime = (this.animationTime + dtSec * this.animationSpeed) % anim.duration;
+          this.evaluateAnimation(this.activeAnimationIndex, this.animationTime);
+          this.updateSkinMatrices();
+        }
+      }
 
       if (typeof BglState !== 'undefined' && BglState.isDayNightCycleActive) {
         const speed = (BglState.dayNightSpeed !== undefined) ? BglState.dayNightSpeed : 1.0;
@@ -3267,8 +4077,45 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       const uboF32 = this._scratchUboF32;
       const uboU32 = this._scratchUboU32;
 
+      // Adaptive Auto-LOD 60 FPS Feedback Loop
+      if (typeof BglState !== 'undefined' && BglState.isAutoLodActive && BglState.isLodActive) {
+        if (dtSec > 0.0185) {
+          BglState.lodBias = Math.min(4.0, (BglState.lodBias || 1.0) + dtSec * 0.45);
+        } else if (dtSec < 0.0155) {
+          BglState.lodBias = Math.max(0.5, (BglState.lodBias || 1.0) - dtSec * 0.25);
+        }
+        const sliderLod = document.getElementById('slider-lod-bias');
+        if (sliderLod) sliderLod.value = BglState.lodBias.toFixed(2);
+        const labelLod = document.getElementById('val-lod-bias');
+        if (labelLod) labelLod.textContent = `${BglState.lodBias.toFixed(2)}×`;
+      }
+
+      const isLodActive = (typeof BglState !== 'undefined' && BglState.isLodActive !== undefined) ? BglState.isLodActive : true;
+      const lodBias = (typeof BglState !== 'undefined' && BglState.lodBias !== undefined) ? BglState.lodBias : 1.0;
+      const debugViewMode = (typeof BglState !== 'undefined' && BglState.debugViewMode !== undefined) ? BglState.debugViewMode : 0;
+
+      let frameRenderedTris = 0;
+      let frameTotalTris = 0;
+      const frameLodCounts = [0, 0, 0, 0];
+
       for (const prim of this.primitives) {
         this.mat4.normalMatrix4(normalMat, prim.modelMatrix);
+
+        // Compute world-space primitive center & radius for Screen-Space Error LOD selection
+        const lc = prim.localCenter || [0, 0, 0];
+        const m = prim.modelMatrix;
+        const wx = m[0] * lc[0] + m[4] * lc[1] + m[8] * lc[2] + m[12];
+        const wy = m[1] * lc[0] + m[5] * lc[1] + m[9] * lc[2] + m[13];
+        const wz = m[2] * lc[0] + m[6] * lc[1] + m[10] * lc[2] + m[14];
+        const sx = Math.hypot(m[0], m[1], m[2]);
+        const sy = Math.hypot(m[4], m[5], m[6]);
+        const sz = Math.hypot(m[8], m[9], m[10]);
+        const maxScale = Math.max(sx, sy, sz, 0.001);
+        const worldRadius = (prim.localRadius || 1.0) * maxScale;
+        const distToCam = Math.hypot(eye[0] - wx, eye[1] - wy, eye[2] - wz);
+        const lodEval = this.evaluatePrimitiveLod(distToCam, worldRadius, lodBias, isLodActive);
+        const activeLod = prim.isSkinned ? 0 : lodEval.lodLevel;
+        frameLodCounts[activeLod] = (frameLodCounts[activeLod] || 0) + 1;
 
         uboF32.set(viewProj, 0);
         uboF32.set(prim.modelMatrix, 16);
@@ -3314,18 +4161,57 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32[82] = windStrength;
         uboF32[83] = timeSec;
 
+        if (uboF32.length >= 88) {
+          uboF32[84] = activeLod;
+          uboF32[85] = lodEval.lodTransition;
+          uboF32[86] = debugViewMode;
+          uboF32[87] = lodBias;
+        }
+
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
-        const pipeline = prim.doubleSided ? this.pipelineDoubleSided : this.pipeline;
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, prim.bindGroup);
-        pass.setVertexBuffer(0, prim.vertexBuffer);
+        if (prim.isSkinned && prim.skinIdx >= 0 && this.skins[prim.skinIdx] && this.skinnedPipeline) {
+          const pipeline = prim.doubleSided ? this.skinnedPipelineDoubleSided : this.skinnedPipeline;
+          pass.setPipeline(pipeline);
+          pass.setBindGroup(0, prim.bindGroup);
+          pass.setBindGroup(1, this.skins[prim.skinIdx].bindGroup);
+          pass.setVertexBuffer(0, prim.vertexBuffer);
+          pass.setVertexBuffer(1, prim.skinVertexBuffer);
+        } else {
+          const pipeline = prim.doubleSided ? this.pipelineDoubleSided : this.pipeline;
+          pass.setPipeline(pipeline);
+          pass.setBindGroup(0, prim.bindGroup);
+          pass.setVertexBuffer(0, prim.vertexBuffer);
+        }
 
         if (prim.hasIndices) {
           pass.setIndexBuffer(prim.indexBuffer, prim.indexFormat);
-          pass.drawIndexed(prim.indexCount);
+          const slice = (prim.lodSlices && prim.lodSlices[activeLod])
+            ? prim.lodSlices[activeLod]
+            : { firstIndex: 0, indexCount: prim.indexCount };
+          frameTotalTris += Math.floor(prim.indexCount / 3);
+          frameRenderedTris += Math.floor(slice.indexCount / 3);
+          if (slice.firstIndex > 0) {
+            pass.drawIndexed(slice.indexCount, 1, slice.firstIndex, 0, 0);
+          } else {
+            pass.drawIndexed(slice.indexCount);
+          }
         } else {
+          const tris = Math.floor(prim.vertexCount / 3);
+          frameTotalTris += tris;
+          frameRenderedTris += tris;
           pass.draw(prim.vertexCount);
+        }
+      }
+
+      if (typeof BglState !== 'undefined') {
+        BglState.renderedTriangles = frameRenderedTris;
+        BglState.totalTriangles = frameTotalTris;
+        BglState.lodCounts = frameLodCounts;
+        const elLod = (typeof BglUI !== 'undefined' && BglUI.elLodTelemetry) || document.getElementById('lod-telemetry');
+        if (elLod && frameTotalTris > 0) {
+          const savedPct = Math.max(0, Math.round(((frameTotalTris - frameRenderedTris) / frameTotalTris) * 100));
+          elLod.textContent = `${frameRenderedTris.toLocaleString()} / ${frameTotalTris.toLocaleString()} Tris (-${savedPct}%) [L0:${frameLodCounts[0]} L1:${frameLodCounts[1]} L2:${frameLodCounts[2]} L3:${frameLodCounts[3]}]`;
         }
       }
 
@@ -3362,6 +4248,77 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       });
     }
   }
+
+  function updateAnimationDropdown() {
+    const select = document.getElementById('animation-select');
+    const playBtn = document.getElementById('btn-anim-play');
+    const animSection = document.getElementById('animation-controls-group');
+    if (!select) return;
+    const anims = BglWebGpuRenderer.animations || [];
+    select.innerHTML = '';
+    if (anims.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '-1';
+      opt.textContent = 'No Animations';
+      select.appendChild(opt);
+      select.disabled = true;
+      if (playBtn) playBtn.disabled = true;
+      if (animSection) animSection.style.opacity = '0.6';
+      return;
+    }
+    select.disabled = false;
+    if (playBtn) {
+      playBtn.disabled = false;
+      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? '⏸ Pause' : '▶ Play';
+      playBtn.classList.toggle('active', BglWebGpuRenderer.animationPlaying);
+    }
+    if (animSection) animSection.style.opacity = '1';
+    anims.forEach((anim, idx) => {
+      const opt = document.createElement('option');
+      opt.value = String(idx);
+      opt.textContent = `${anim.name} (${anim.duration.toFixed(2)}s)`;
+      if (idx === BglWebGpuRenderer.activeAnimationIndex) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  function onAnimationSelected(value) {
+    const idx = parseInt(value, 10);
+    BglWebGpuRenderer.setAnimation(idx);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_animation) {
+      BglState.wasmExports.bgl_set_animation(idx);
+    }
+    const playBtn = document.getElementById('btn-anim-play');
+    if (playBtn) {
+      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? '⏸ Pause' : '▶ Play';
+      playBtn.classList.toggle('active', BglWebGpuRenderer.animationPlaying);
+    }
+  }
+
+  function toggleAnimationPlayback() {
+    const next = !BglWebGpuRenderer.animationPlaying;
+    BglWebGpuRenderer.setAnimationPlaying(next);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_animation_playing) {
+      BglState.wasmExports.bgl_set_animation_playing(next ? 1 : 0);
+    }
+    const playBtn = document.getElementById('btn-anim-play');
+    if (playBtn) {
+      playBtn.textContent = next ? '⏸ Pause' : '▶ Play';
+      playBtn.classList.toggle('active', next);
+    }
+  }
+
+  function onAnimationSpeedSlider(value) {
+    const spd = Math.max(0.0, Math.min(3.0, parseFloat(value) || 0.0));
+    BglWebGpuRenderer.animationSpeed = spd;
+    const label = document.getElementById('val-anim-speed');
+    if (label) label.textContent = `${spd.toFixed(2)}x`;
+  }
+
+  window.updateAnimationDropdown = updateAnimationDropdown;
+  window.onAnimationSelected = onAnimationSelected;
+  window.toggleAnimationPlayback = toggleAnimationPlayback;
+  window.onAnimationSpeedSlider = onAnimationSpeedSlider;
 
   async function ingestModel(name, arrayBuffer) {
     BglLogger.timeStart('Model-Ingest');
@@ -4166,6 +5123,89 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   }
   window.onDayNightSpeedSlider = onDayNightSpeedSlider;
 
+  const DEBUG_VIEW_NAMES = ['Lit', 'LOD Map', 'Normals', 'PBR', 'UV Grid'];
+
+  function updateDebugViewUi() {
+    const mode = BglState.debugViewMode || 0;
+    const btnHeatmap = document.getElementById('btn-lod-heatmap') || (BglUI && BglUI.btnLodHeatmap);
+    if (btnHeatmap) {
+      const isHeat = (mode === 1);
+      btnHeatmap.classList.toggle('active', isHeat);
+      btnHeatmap.style.background = isHeat ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    const btnView = document.getElementById('btn-debug-view') || (BglUI && BglUI.btnDebugView);
+    if (btnView) {
+      const isDiag = (mode !== 0);
+      btnView.classList.toggle('active', isDiag);
+      btnView.style.background = isDiag ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+      btnView.textContent = `View: ${DEBUG_VIEW_NAMES[mode] || 'Lit'} [F9]`;
+    }
+  }
+
+  function toggleLod() {
+    BglState.isLodActive = !BglState.isLodActive;
+    const btn = document.getElementById('btn-lod') || (BglUI && BglUI.btnLod);
+    if (btn) {
+      btn.classList.toggle('active', BglState.isLodActive);
+      btn.style.background = BglState.isLodActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    BglLogger.log('Engine', `Multi-Level Mesh & Shader LOD System: ${BglState.isLodActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_lod) {
+      BglState.wasmExports.bgl_toggle_lod();
+    }
+  }
+  window.toggleLod = toggleLod;
+
+  function toggleAutoLod() {
+    BglState.isAutoLodActive = !BglState.isAutoLodActive;
+    const btn = document.getElementById('btn-auto-lod') || (BglUI && BglUI.btnAutoLod);
+    if (btn) {
+      btn.classList.toggle('active', BglState.isAutoLodActive);
+      btn.style.background = BglState.isAutoLodActive ? 'rgba(2, 132, 199, 0.25)' : '#1e293b';
+    }
+    BglLogger.log('Engine', `Adaptive 60 FPS Auto-LOD: ${BglState.isAutoLodActive ? 'ENABLED' : 'DISABLED'}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_toggle_auto_lod) {
+      BglState.wasmExports.bgl_toggle_auto_lod();
+    }
+  }
+  window.toggleAutoLod = toggleAutoLod;
+
+  function onLodBiasSlider(val) {
+    const num = Math.max(0.25, Math.min(4.0, Number(val)));
+    BglState.lodBias = num;
+    const label = document.getElementById('val-lod-bias');
+    if (label) label.textContent = `${num.toFixed(2)}×`;
+    const slider = document.getElementById('slider-lod-bias');
+    if (slider) slider.value = String(num);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_lod_bias) {
+      BglState.wasmExports.bgl_set_lod_bias(num);
+    }
+  }
+  window.onLodBiasSlider = onLodBiasSlider;
+
+  function setDebugView(mode) {
+    const clamped = Math.max(0, Math.min(4, Number(mode) | 0));
+    BglState.debugViewMode = clamped;
+    updateDebugViewUi();
+    BglLogger.log('Engine', `Diagnostic Debug View: ${DEBUG_VIEW_NAMES[clamped]}`);
+    if (BglState.wasmExports && BglState.wasmExports.bgl_set_debug_view) {
+      BglState.wasmExports.bgl_set_debug_view(clamped);
+    }
+  }
+  window.setDebugView = setDebugView;
+
+  function cycleDebugView() {
+    const next = ((BglState.debugViewMode || 0) + 1) % 5;
+    setDebugView(next);
+  }
+  window.cycleDebugView = cycleDebugView;
+
+  function toggleLodHeatmap() {
+    const next = (BglState.debugViewMode === 1) ? 0 : 1;
+    setDebugView(next);
+  }
+  window.toggleLodHeatmap = toggleLodHeatmap;
+
   function saveBookmark(slot) {
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_save_bookmark) {
       BglState.wasmExports.bgl_camera_save_bookmark(slot);
@@ -4371,6 +5411,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         case 'F7': toggleSmoke(); break;
         case 'I':
         case 'F8': toggleDayNightCycle(); break;
+        case 'F9': cycleDebugView(); break;
+        case 'F10': toggleLodHeatmap(); break;
+        case 'F11': toggleLod(); break;
+        case 'F12': toggleAutoLod(); break;
+        case ';': onLodBiasSlider((BglState.lodBias || 1.0) - 0.15); break;
+        case '\'': onLodBiasSlider((BglState.lodBias || 1.0) + 0.15); break;
         case '+':
         case '=':
           if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);

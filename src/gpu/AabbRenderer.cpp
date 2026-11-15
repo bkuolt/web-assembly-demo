@@ -16,6 +16,34 @@ AabbRenderer::~AabbRenderer() {
     Shutdown();
 }
 
+AabbRenderer::AabbRenderer(AabbRenderer&& other) noexcept
+    : device_{std::exchange(other.device_, nullptr)}, queue_{std::exchange(other.queue_, nullptr)},
+      aabbPipeline_{std::move(other.aabbPipeline_)}, aabbBindGroupLayout_{std::move(other.aabbBindGroupLayout_)},
+      aabbVertexBuffer_{std::move(other.aabbVertexBuffer_)}, aabbUniformBuffer_{std::move(other.aabbUniformBuffer_)},
+      aabbBindGroup_{std::move(other.aabbBindGroup_)},
+      aabbVertexBufferSize_{std::exchange(other.aabbVertexBufferSize_, 0)},
+      aabbFrameByteOffset_{std::exchange(other.aabbFrameByteOffset_, 0)},
+      batchedAabbVertices_{std::move(other.batchedAabbVertices_)},
+      cachedSceneAabbVertices_{std::move(other.cachedSceneAabbVertices_)} {}
+
+AabbRenderer& AabbRenderer::operator=(AabbRenderer&& other) noexcept {
+    if (this != &other) {
+        Shutdown();
+        device_ = std::exchange(other.device_, nullptr);
+        queue_ = std::exchange(other.queue_, nullptr);
+        aabbPipeline_ = std::move(other.aabbPipeline_);
+        aabbBindGroupLayout_ = std::move(other.aabbBindGroupLayout_);
+        aabbVertexBuffer_ = std::move(other.aabbVertexBuffer_);
+        aabbUniformBuffer_ = std::move(other.aabbUniformBuffer_);
+        aabbBindGroup_ = std::move(other.aabbBindGroup_);
+        aabbVertexBufferSize_ = std::exchange(other.aabbVertexBufferSize_, 0);
+        aabbFrameByteOffset_ = std::exchange(other.aabbFrameByteOffset_, 0);
+        batchedAabbVertices_ = std::move(other.batchedAabbVertices_);
+        cachedSceneAabbVertices_ = std::move(other.cachedSceneAabbVertices_);
+    }
+    return *this;
+}
+
 void AabbRenderer::Shutdown() noexcept {
     if (aabbUniformBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(AabbUniforms));
@@ -41,6 +69,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     if (!device || !queue) {
         return std::unexpected("Cannot initialize AabbRenderer with null WebGPU device or queue");
     }
+    Shutdown();
     device_ = device;
     queue_ = queue;
 
@@ -72,6 +101,11 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbBglDesc.entries = &aabbBglEntry;
     aabbBglDesc.label = ToWgpuStringView("AABB_BindGroupLayout");
     aabbBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &aabbBglDesc);
+    if (!aabbBindGroupLayout_) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create AABB bind group layout");
+    }
 
     // 3. Create Pipeline Layout
     WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -79,6 +113,11 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbPlDesc.bindGroupLayouts = aabbBindGroupLayout_.AddressOf();
     aabbPlDesc.label = ToWgpuStringView("AABB_PipelineLayout");
     WGPUPipelineLayout aabbPl = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
+    if (!aabbPl) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create AABB pipeline layout");
+    }
 
     // 4. Vertex Layout (Position 3x Float32 + Color 4x Float32)
     std::array<WGPUVertexAttribute, 2> aabbAttrs{};
@@ -142,16 +181,22 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     wgpuShaderModuleRelease(shaderModule);
 
     if (!aabbPipeline_) {
+        Shutdown();
         return std::unexpected("Failed to create AABB wireframe render pipeline");
     }
 
     // 7. Allocate Dynamic Vertex Buffer and Uniform Buffer
-    aabbVertexBufferSize_ = 512 * 1024;
+    constexpr size_t kInitialVertexBytes{512 * 1024};
     WGPUBufferDescriptor boxVbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    boxVbDesc.size = aabbVertexBufferSize_;
+    boxVbDesc.size = kInitialVertexBytes;
     boxVbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
     boxVbDesc.label = ToWgpuStringView("AABB_DynamicVertexBuffer");
     aabbVertexBuffer_ = wgpuDeviceCreateBuffer(device_, &boxVbDesc);
+    if (!aabbVertexBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to allocate AABB dynamic vertex buffer");
+    }
+    aabbVertexBufferSize_ = kInitialVertexBytes;
     core::MemoryTracker::Instance().TrackBufferAlloc(aabbVertexBufferSize_);
 
     WGPUBufferDescriptor aabbUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -159,6 +204,10 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     aabbUbDesc.label = ToWgpuStringView("AABB_Uniforms");
     aabbUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &aabbUbDesc);
+    if (!aabbUniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to allocate AABB uniform buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(AabbUniforms));
 
     WGPUBindGroupEntry aabbBgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -172,6 +221,10 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbBgDesc.entryCount = 1;
     aabbBgDesc.entries = &aabbBgEntry;
     aabbBindGroup_ = wgpuDeviceCreateBindGroup(device_, &aabbBgDesc);
+    if (!aabbBindGroup_) {
+        Shutdown();
+        return std::unexpected("Failed to create AABB bind group");
+    }
 
     BGL_LOG_INFO("AabbRenderer initialized successfully (Dynamic VBO: {} KB, LineList topology)",
                  aabbVertexBufferSize_ / 1024);
@@ -198,7 +251,7 @@ void AabbRenderer::AppendAABBLines(const core::AABB& aabb, const glm::vec4& colo
 }
 
 void AabbRenderer::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& viewProj) {
-    if (!pass || !aabbPipeline_ || batchedAabbVertices_.empty()) {
+    if (!pass || !aabbPipeline_ || !aabbUniformBuffer_ || !aabbBindGroup_ || batchedAabbVertices_.empty()) {
         batchedAabbVertices_.clear();
         return;
     }
@@ -208,13 +261,22 @@ void AabbRenderer::FlushAABBLines(WGPURenderPassEncoder pass, const glm::mat4& v
     const size_t totalNeeded{writeOffset + requiredBytes};
 
     if (totalNeeded > aabbVertexBufferSize_ || !aabbVertexBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(aabbVertexBufferSize_);
-        aabbVertexBufferSize_ = std::max(totalNeeded * 2, size_t{512 * 1024});
+        if (aabbVertexBuffer_) {
+            core::MemoryTracker::Instance().TrackBufferFree(aabbVertexBufferSize_);
+            aabbVertexBuffer_.Reset();
+            aabbVertexBufferSize_ = 0;
+        }
+        const size_t newSize = std::max(totalNeeded * 2, size_t{512 * 1024});
         WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        vbDesc.size = aabbVertexBufferSize_;
+        vbDesc.size = newSize;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         vbDesc.label = ToWgpuStringView("AABB_DynamicVertexBuffer");
         aabbVertexBuffer_.Reset(wgpuDeviceCreateBuffer(device_, &vbDesc));
+        if (!aabbVertexBuffer_) {
+            batchedAabbVertices_.clear();
+            return;
+        }
+        aabbVertexBufferSize_ = newSize;
         core::MemoryTracker::Instance().TrackBufferAlloc(aabbVertexBufferSize_);
         writeOffset = 0;
     }

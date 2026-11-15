@@ -372,3 +372,53 @@ TEST(QuadtreeTest, OcclusionBufferScreenEdgeClipping) {
     // Point in front must not be occluded
     EXPECT_FALSE(occBuffer.IsOccluded(glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, 0.5f), 0.1f));
 }
+
+TEST(QuadtreeTest, MultiLevelLod0ToLod3AndBiasScaling) {
+    bgl::core::AABB worldBounds;
+    worldBounds.minBound = glm::vec3(-250.0f);
+    worldBounds.maxBound = glm::vec3(250.0f);
+
+    bgl::scene::Quadtree quadtree(worldBounds);
+
+    auto makeNodeAt = [&](float distX) {
+        auto n = std::make_shared<bgl::scene::SceneNode>();
+        // Size = (1.15, 1.15, 1.15), half-Extents = (0.577, 0.577, 0.577) -> radius = length(Extents) ~ 1.0f
+        n->worldAABB.minBound = glm::vec3(distX - 0.577f, -0.577f, -0.577f);
+        n->worldAABB.maxBound = glm::vec3(distX + 0.577f, 0.577f, 0.577f);
+        quadtree.Insert(n);
+        return n;
+    };
+
+    auto nLod0 = makeNodeAt(3.0f);   // metric ~ 3.0 < 8.0 -> LOD0
+    auto nLod1 = makeNodeAt(14.0f);  // metric ~ 14.0 in [8, 25) -> LOD1
+    auto nLod2 = makeNodeAt(45.0f);  // metric ~ 45.0 in [25, 85) -> LOD2
+    auto nLod3 = makeNodeAt(120.0f); // metric ~ 120.0 >= 85.0 -> LOD3
+
+    const glm::vec3 camPos(0.0f);
+    auto visibleDefault = quadtree.QueryVisible(camPos, 1.0f);
+    ASSERT_EQ(visibleDefault.size(), 4u);
+
+    for (const auto& item : visibleDefault) {
+        EXPECT_GE(item.lodTransition, 0.0f);
+        EXPECT_LE(item.lodTransition, 1.0f);
+        if (item.node == nLod0) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD0);
+        } else if (item.node == nLod1) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD1);
+        } else if (item.node == nLod2) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD2);
+        } else if (item.node == nLod3) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD3);
+        }
+    }
+
+    // High LOD bias (3.0x) shifts nLod0 (dist ~3 -> metric ~9) into LOD1 and nLod2 (dist ~45 -> metric ~135) into LOD3
+    auto visibleHighBias = quadtree.QueryVisible(camPos, 3.0f);
+    for (const auto& item : visibleHighBias) {
+        if (item.node == nLod0) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD1);
+        } else if (item.node == nLod2) {
+            EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD3);
+        }
+    }
+}

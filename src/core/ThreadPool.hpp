@@ -105,6 +105,7 @@ public:
             }));
         }
 
+        std::exception_ptr firstException{};
         for (auto& f : futures) {
             while (f.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 std::function<void()> task;
@@ -121,7 +122,16 @@ public:
                     std::this_thread::yield();
                 }
             }
-            f.get();
+            try {
+                f.get();
+            } catch (...) {
+                if (!firstException) {
+                    firstException = std::current_exception();
+                }
+            }
+        }
+        if (firstException) {
+            std::rethrow_exception(firstException);
         }
     }
 

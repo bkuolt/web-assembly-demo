@@ -5,15 +5,16 @@
  */
 #pragma once
 
-#include <cstdint>
 #include <string_view>
+#include <cstdint>
 
 namespace bgl {
 
-inline constexpr std::string_view kEngineVersion = "0.9.15";
+inline constexpr std::string_view kEngineVersion = "0.9.16";
 inline constexpr std::string_view kEngineName = "WebAssembly and WebGPU Demo";
 inline constexpr uint32_t kEngineVersionMajor = 0;
 inline constexpr uint32_t kEngineVersionMinor = 9;
-inline constexpr uint32_t kEngineVersionPatch = 15;
+inline constexpr uint32_t kEngineVersionPatch = 16;
 
 } // namespace bgl
+

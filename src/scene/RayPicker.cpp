@@ -35,12 +35,17 @@ bool RayPicker::IntersectTriangle(const core::Ray& ray, const glm::vec3& v0, con
 
     outDistance = t;
     outHitPoint = ray.origin + t * ray.direction;
-    outNormal = glm::normalize(glm::cross(edge1, edge2));
+    const glm::vec3 faceCross{glm::cross(edge1, edge2)};
+    const float crossLenSq{glm::dot(faceCross, faceCross)};
+    outNormal = (crossLenSq > 1e-12f) ? (faceCross * (1.0f / std::sqrt(crossLenSq))) : glm::vec3{0.0f, 1.0f, 0.0f};
     return true;
 }
 
 std::optional<RayHit> RayPicker::Pick(const core::Ray& ray,
                                       std::span<const std::shared_ptr<SceneNode>> rootNodes) noexcept {
+    if (glm::dot(ray.direction, ray.direction) <= 1e-12f) {
+        return std::nullopt;
+    }
     std::optional<RayHit> closestHit{};
     float minDistance{1e30f};
 

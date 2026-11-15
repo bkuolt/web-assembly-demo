@@ -15,10 +15,13 @@
 namespace bgl::scene {
 
 enum class LODLevel : uint8_t {
-    LOD0 = 0, // High detail (Near)
-    LOD1 = 1, // Medium detail (Mid)
-    LOD2 = 2  // Low detail (Far)
+    LOD0 = 0, // High detail (Near: 100% geometry)
+    LOD1 = 1, // Medium detail (Mid: ~50% geometry)
+    LOD2 = 2, // Low detail (Far: ~25% geometry)
+    LOD3 = 3  // Ultra-low detail (Distant: ~10% geometry)
 };
+
+inline constexpr size_t kMaxLODLevels{4};
 
 /**
  * @struct QuadtreeItem
@@ -30,6 +33,8 @@ struct QuadtreeItem {
     core::AABB aabb{};
     LODLevel currentLOD{LODLevel::LOD0};
     float distanceToCamera{0.0f};
+    float lodTransition{0.0f};   ///< Smooth transition factor [0.0..1.0] near LOD boundary
+    float screenSpaceArea{1.0f}; ///< Projected NDC area [0.0..4.0]
 };
 
 /**
@@ -83,7 +88,7 @@ public:
     void ForceInsert(const QuadtreeItem& item) { items_.push_back(item); }
     void QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut,
                       const glm::mat4* viewProj = nullptr, OcclusionBuffer* occlusionBuf = nullptr,
-                      size_t* occludedCountOut = nullptr) const;
+                      size_t* occludedCountOut = nullptr, float lodBias = 1.0f) const;
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
     [[nodiscard]] const core::AABB& GetLooseBounds() const noexcept { return looseBounds_; }
@@ -147,23 +152,28 @@ public:
      */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                          const glm::mat4& viewProj,
-                                                         bool enableOcclusionCulling = true) const;
+                                                         bool enableOcclusionCulling = true,
+                                                         float lodBias = 1.0f) const;
 
     /**
      * @brief Queries visible items using view frustum culling only.
      * @param frustum 6-plane view frustum.
      * @param cameraPos Camera eye position for LOD and distance calculation.
+     * @param lodBias Multiplier for LOD distance thresholds (default 1.0).
      * @return Vector of visible QuadtreeItems.
      */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
-                                                         const glm::vec3& cameraPos) const;
+                                                         const glm::vec3& cameraPos,
+                                                         float lodBias = 1.0f) const;
 
     /**
      * @brief Queries all items in the spatial tree with distance-based LOD calculation.
      * @param cameraPos Camera eye position for LOD and distance calculation.
+     * @param lodBias Multiplier for LOD distance thresholds (default 1.0).
      * @return Vector of all QuadtreeItems.
      */
-    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos) const;
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos,
+                                                         float lodBias = 1.0f) const;
 
     /**
      * @brief Collects all spatial cell bounding boxes for 3D debug wireframe visualization.
@@ -175,6 +185,19 @@ public:
      * @brief Returns the total number of allocated quadtree partition nodes.
      */
     [[nodiscard]] size_t GetNodeCount() const noexcept;
+
+    /**
+     * @brief Result of evaluating distance/SSE metric against LOD thresholds.
+     */
+    struct LodEvaluation {
+        LODLevel level{LODLevel::LOD0};
+        float transition{0.0f};
+    };
+
+    /**
+     * @brief Evaluates discrete LOD level and [0..1] boundary transition factor for an effective distance metric.
+     */
+    [[nodiscard]] static LodEvaluation EvaluateLodForMetric(float effectiveMetric) noexcept;
 
     /**
      * @brief Returns the number of primitives discarded by occlusion culling in the previous query.

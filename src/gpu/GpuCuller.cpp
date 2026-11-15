@@ -83,7 +83,8 @@ GpuCuller::GpuCuller(GpuCuller&& other) noexcept
       bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_}, uniformBuffer_{other.uniformBuffer_},
       boundsStorageBuffer_{other.boundsStorageBuffer_}, visibilityStorageBuffer_{other.visibilityStorageBuffer_},
       atomicCounterBuffer_{other.atomicCounterBuffer_}, primitiveCount_{other.primitiveCount_},
-      boundsBufferSize_{other.boundsBufferSize_}, cpuBounds_{std::move(other.cpuBounds_)} {
+      boundsBufferSize_{other.boundsBufferSize_}, visibilityBufferSize_{other.visibilityBufferSize_},
+      cpuBounds_{std::move(other.cpuBounds_)} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.computePipeline_ = nullptr;
@@ -95,6 +96,7 @@ GpuCuller::GpuCuller(GpuCuller&& other) noexcept
     other.atomicCounterBuffer_ = nullptr;
     other.primitiveCount_ = 0;
     other.boundsBufferSize_ = 0;
+    other.visibilityBufferSize_ = 0;
 }
 
 GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
@@ -111,6 +113,7 @@ GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
         atomicCounterBuffer_ = other.atomicCounterBuffer_;
         primitiveCount_ = other.primitiveCount_;
         boundsBufferSize_ = other.boundsBufferSize_;
+        visibilityBufferSize_ = other.visibilityBufferSize_;
         cpuBounds_ = std::move(other.cpuBounds_);
 
         other.device_ = nullptr;
@@ -124,6 +127,7 @@ GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
         other.atomicCounterBuffer_ = nullptr;
         other.primitiveCount_ = 0;
         other.boundsBufferSize_ = 0;
+        other.visibilityBufferSize_ = 0;
     }
     return *this;
 }
@@ -139,7 +143,7 @@ void GpuCuller::Shutdown() noexcept {
         atomicCounterBuffer_ = nullptr;
     }
     if (visibilityStorageBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
+        core::MemoryTracker::Instance().TrackBufferFree(visibilityBufferSize_);
         wgpuBufferRelease(visibilityStorageBuffer_);
         visibilityStorageBuffer_ = nullptr;
     }
@@ -164,6 +168,7 @@ void GpuCuller::Shutdown() noexcept {
     cpuBounds_.clear();
     primitiveCount_ = 0;
     boundsBufferSize_ = 0;
+    visibilityBufferSize_ = 0;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -301,31 +306,46 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     const size_t neededBytes = primitiveCount_ * sizeof(GpuBoundingBox);
     const size_t visNeededBytes = primitiveCount_ * sizeof(uint32_t);
 
-    if (neededBytes > boundsBufferSize_ || !boundsStorageBuffer_) {
+    if (neededBytes > boundsBufferSize_ || visNeededBytes > visibilityBufferSize_ || !boundsStorageBuffer_ ||
+        !visibilityStorageBuffer_) {
         if (boundsStorageBuffer_) {
             core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
             wgpuBufferRelease(boundsStorageBuffer_);
+            boundsStorageBuffer_ = nullptr;
+            boundsBufferSize_ = 0;
         }
         if (visibilityStorageBuffer_) {
-            core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
+            core::MemoryTracker::Instance().TrackBufferFree(visibilityBufferSize_);
             wgpuBufferRelease(visibilityStorageBuffer_);
+            visibilityStorageBuffer_ = nullptr;
+            visibilityBufferSize_ = 0;
         }
 
-        boundsBufferSize_ = std::max(neededBytes * 2, size_t{64 * 1024});
-
+        const size_t newBoundsSize = std::max(neededBytes * 2, size_t{64 * 1024});
         WGPUBufferDescriptor bDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        bDesc.size = boundsBufferSize_;
+        bDesc.size = newBoundsSize;
         bDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
         bDesc.label = ToWgpuStringView("GpuCull_BoundsStorage");
         boundsStorageBuffer_ = wgpuDeviceCreateBuffer(device_, &bDesc);
+        if (!boundsStorageBuffer_) {
+            primitiveCount_ = 0;
+            return;
+        }
+        boundsBufferSize_ = newBoundsSize;
         core::MemoryTracker::Instance().TrackBufferAlloc(boundsBufferSize_);
 
+        const size_t newVisSize = std::max(visNeededBytes * 2, size_t{16 * 1024});
         WGPUBufferDescriptor vDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        vDesc.size = std::max(visNeededBytes * 2, size_t{16 * 1024});
+        vDesc.size = newVisSize;
         vDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
         vDesc.label = ToWgpuStringView("GpuCull_VisibilityStorage");
         visibilityStorageBuffer_ = wgpuDeviceCreateBuffer(device_, &vDesc);
-        core::MemoryTracker::Instance().TrackBufferAlloc(vDesc.size);
+        if (!visibilityStorageBuffer_) {
+            primitiveCount_ = 0;
+            return;
+        }
+        visibilityBufferSize_ = newVisSize;
+        core::MemoryTracker::Instance().TrackBufferAlloc(visibilityBufferSize_);
 
         if (bindGroup_)
             wgpuBindGroupRelease(bindGroup_);

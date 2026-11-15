@@ -39,6 +39,32 @@ struct GpuRayPickResult {
 @group(0) @binding(1) var<storage, read> bounds: array<GpuBoundingBox>;
 @group(0) @binding(2) var<storage, read_write> result: GpuRayPickResult;
 
+fn intersectRayAabb(ro: vec3<f32>, rd: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>, maxT: f32) -> f32 {
+    var tmin : f32 = -1e30;
+    var tmax : f32 = maxT;
+
+    for (var axis : u32 = 0u; axis < 3u; axis = axis + 1u) {
+        let d = rd[axis];
+        if (abs(d) < 1e-8) {
+            if (ro[axis] < bmin[axis] || ro[axis] > bmax[axis]) {
+                return -1.0;
+            }
+        } else {
+            let invD = 1.0 / d;
+            let t0 = (bmin[axis] - ro[axis]) * invD;
+            let t1 = (bmax[axis] - ro[axis]) * invD;
+            tmin = max(tmin, min(t0, t1));
+            tmax = min(tmax, max(t0, t1));
+        }
+    }
+
+    if (tmax < max(tmin, 0.0)) {
+        return -1.0;
+    }
+    let hitDist = select(tmin, tmax, tmin < 0.0);
+    return select(-1.0, hitDist, hitDist > 0.0 && hitDist < maxT);
+}
+
 @compute @workgroup_size(64)
 fn cs_pick(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
@@ -48,29 +74,33 @@ fn cs_pick(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     let b = bounds[index];
-    let ro = uniforms.rayOrigin.xyz;
-    let rd = uniforms.rayDirection.xyz;
+    let hitDist = intersectRayAabb(uniforms.rayOrigin.xyz, uniforms.rayDirection.xyz, b.minBound.xyz, b.maxBound.xyz,
+                                   uniforms.rayOrigin.w);
+    if (hitDist > 0.0) {
+        atomicMin(&result.hitDistanceBits, bitcast<u32>(hitDist));
+    }
+}
 
-    let invD = 1.0 / rd;
-    let t0 = (b.minBound.xyz - ro) * invD;
-    let t1 = (b.maxBound.xyz - ro) * invD;
+@compute @workgroup_size(64)
+fn cs_resolve(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let index = global_id.x;
+    let count = u32(uniforms.rayDirection.w);
+    if (index >= count) {
+        return;
+    }
 
-    let tmin_v = min(t0, t1);
-    let tmax_v = max(t0, t1);
+    let minDistBits = atomicLoad(&result.hitDistanceBits);
+    if (minDistBits == 0x7F7FFFFFu) {
+        return;
+    }
 
-    let tmin = max(max(tmin_v.x, tmin_v.y), tmin_v.z);
-    let tmax = min(min(tmax_v.x, tmax_v.y), tmax_v.z);
-
-    if (tmax >= max(tmin, 0.0)) {
-        let hitDist = select(tmin, tmax, tmin < 0.0);
-        if (hitDist > 0.0 && hitDist < uniforms.rayOrigin.w) {
-            let distBits = bitcast<u32>(hitDist);
-            let prevMin = atomicMin(&result.hitDistanceBits, distBits);
-            if (distBits < prevMin) {
-                atomicStore(&result.hitNodeIndex, b.nodeIndex);
-                atomicStore(&result.hitPrimitiveIndex, b.primitiveIndex);
-                atomicStore(&result.hitFound, 1u);
-            }
+    let b = bounds[index];
+    let hitDist = intersectRayAabb(uniforms.rayOrigin.xyz, uniforms.rayDirection.xyz, b.minBound.xyz, b.maxBound.xyz,
+                                   uniforms.rayOrigin.w);
+    if (hitDist > 0.0 && bitcast<u32>(hitDist) == minDistBits) {
+        if (atomicExchange(&result.hitFound, 1u) == 0u) {
+            atomicStore(&result.hitNodeIndex, b.nodeIndex);
+            atomicStore(&result.hitPrimitiveIndex, b.primitiveIndex);
         }
     }
 }
@@ -82,42 +112,28 @@ GpuRayPicker::~GpuRayPicker() {
     Shutdown();
 }
 
-GpuRayPicker::GpuRayPicker(GpuRayPicker&& other) noexcept
-    : device_{other.device_}, queue_{other.queue_}, computePipeline_{other.computePipeline_},
-      bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_}, uniformBuffer_{other.uniformBuffer_},
-      resultBuffer_{other.resultBuffer_}, cachedBoundsBuffer_{other.cachedBoundsBuffer_} {
-    other.device_ = nullptr;
-    other.queue_ = nullptr;
-    other.computePipeline_ = nullptr;
-    other.bindGroupLayout_ = nullptr;
-    other.bindGroup_ = nullptr;
-    other.uniformBuffer_ = nullptr;
-    other.resultBuffer_ = nullptr;
-    other.cachedBoundsBuffer_ = nullptr;
+GpuRayPicker::GpuRayPicker(GpuRayPicker&& other) noexcept {
+    MoveFrom(other);
 }
 
 GpuRayPicker& GpuRayPicker::operator=(GpuRayPicker&& other) noexcept {
     if (this != &other) {
         Shutdown();
-        device_ = other.device_;
-        queue_ = other.queue_;
-        computePipeline_ = other.computePipeline_;
-        bindGroupLayout_ = other.bindGroupLayout_;
-        bindGroup_ = other.bindGroup_;
-        uniformBuffer_ = other.uniformBuffer_;
-        resultBuffer_ = other.resultBuffer_;
-        cachedBoundsBuffer_ = other.cachedBoundsBuffer_;
-
-        other.device_ = nullptr;
-        other.queue_ = nullptr;
-        other.computePipeline_ = nullptr;
-        other.bindGroupLayout_ = nullptr;
-        other.bindGroup_ = nullptr;
-        other.uniformBuffer_ = nullptr;
-        other.resultBuffer_ = nullptr;
-        other.cachedBoundsBuffer_ = nullptr;
+        MoveFrom(other);
     }
     return *this;
+}
+
+void GpuRayPicker::MoveFrom(GpuRayPicker& other) noexcept {
+    device_ = std::exchange(other.device_, nullptr);
+    queue_ = std::exchange(other.queue_, nullptr);
+    computePipeline_ = std::exchange(other.computePipeline_, nullptr);
+    resolvePipeline_ = std::exchange(other.resolvePipeline_, nullptr);
+    bindGroupLayout_ = std::exchange(other.bindGroupLayout_, nullptr);
+    bindGroup_ = std::exchange(other.bindGroup_, nullptr);
+    uniformBuffer_ = std::exchange(other.uniformBuffer_, nullptr);
+    resultBuffer_ = std::exchange(other.resultBuffer_, nullptr);
+    cachedBoundsBuffer_ = std::exchange(other.cachedBoundsBuffer_, nullptr);
 }
 
 void GpuRayPicker::Shutdown() noexcept {
@@ -134,6 +150,10 @@ void GpuRayPicker::Shutdown() noexcept {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(GpuRayPickUniforms));
         wgpuBufferRelease(uniformBuffer_);
         uniformBuffer_ = nullptr;
+    }
+    if (resolvePipeline_) {
+        wgpuComputePipelineRelease(resolvePipeline_);
+        resolvePipeline_ = nullptr;
     }
     if (computePipeline_) {
         wgpuComputePipelineRelease(computePipeline_);
@@ -152,6 +172,7 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     if (!device || !queue) {
         return std::unexpected("Cannot initialize GpuRayPicker with null WebGPU device or queue");
     }
+    Shutdown();
     device_ = device;
     queue_ = queue;
 
@@ -198,6 +219,11 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     bglDesc.entries = entries.data();
     bglDesc.label = ToWgpuStringView("GpuRayPick_BindGroupLayout");
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!bindGroupLayout_) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create GPU RayPicker bind group layout");
+    }
 
     // 3. Compute Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -205,6 +231,11 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     plDesc.bindGroupLayouts = &bindGroupLayout_;
     plDesc.label = ToWgpuStringView("GpuRayPick_PipelineLayout");
     WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!pl) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create GPU RayPicker pipeline layout");
+    }
 
     WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
     cpDesc.layout = pl;
@@ -213,11 +244,20 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     cpDesc.label = ToWgpuStringView("GpuRayPick_ComputePipeline");
 
     computePipeline_ = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
+
+    WGPUComputePipelineDescriptor resolveDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    resolveDesc.layout = pl;
+    resolveDesc.compute.module = shaderModule;
+    resolveDesc.compute.entryPoint = ToWgpuStringView("cs_resolve");
+    resolveDesc.label = ToWgpuStringView("GpuRayPick_ResolvePipeline");
+    resolvePipeline_ = wgpuDeviceCreateComputePipeline(device_, &resolveDesc);
+
     wgpuPipelineLayoutRelease(pl);
     wgpuShaderModuleRelease(shaderModule);
 
-    if (!computePipeline_) {
-        return std::unexpected("Failed to create GPU RayPicker compute pipeline");
+    if (!computePipeline_ || !resolvePipeline_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU RayPicker compute pipelines");
     }
 
     // 4. Uniform & Result Buffers
@@ -226,6 +266,10 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     ubDesc.label = ToWgpuStringView("GpuRayPick_Uniforms");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+    if (!uniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU RayPicker uniform buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(GpuRayPickUniforms));
 
     WGPUBufferDescriptor resDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -233,6 +277,10 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     resDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
     resDesc.label = ToWgpuStringView("GpuRayPick_Result");
     resultBuffer_ = wgpuDeviceCreateBuffer(device_, &resDesc);
+    if (!resultBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU RayPicker result buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(GpuRayPickResult));
 
     BGL_LOG_INFO("GpuRayPicker initialized successfully (WebGPU Compute Parallel Ray Picker)");
@@ -241,7 +289,8 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
 
 void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount,
                             const core::Ray& ray) {
-    if (!encoder || !computePipeline_ || !boundsBuffer || primitiveCount == 0)
+    if (!encoder || !computePipeline_ || !resolvePipeline_ || !boundsBuffer || !uniformBuffer_ || !resultBuffer_ ||
+        primitiveCount == 0)
         return;
 
     if (cachedBoundsBuffer_ != boundsBuffer || !bindGroup_) {
@@ -260,7 +309,7 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
         bgEntries[1].binding = 1;
         bgEntries[1].buffer = boundsBuffer;
         bgEntries[1].offset = 0;
-        bgEntries[1].size = primitiveCount * sizeof(glm::vec4) * 3;
+        bgEntries[1].size = static_cast<uint64_t>(primitiveCount) * sizeof(glm::vec4) * 3;
 
         bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[2].binding = 2;
@@ -274,6 +323,10 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
         bgDesc.entries = bgEntries.data();
         bgDesc.label = ToWgpuStringView("GpuRayPick_BindGroup");
         bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        if (!bindGroup_) {
+            cachedBoundsBuffer_ = nullptr;
+            return;
+        }
     }
 
     GpuRayPickUniforms uniforms{};
@@ -288,19 +341,24 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
     initialResult.hitFound = 0;
     wgpuQueueWriteBuffer(queue_, resultBuffer_, 0, &initialResult, sizeof(initialResult));
 
-    WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-    cpDesc.label = ToWgpuStringView("GpuRayPick_Pass");
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &cpDesc);
-    if (!pass)
-        return;
-
-    wgpuComputePassEncoderSetPipeline(pass, computePipeline_);
-    wgpuComputePassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
-
     const uint32_t workgroups = (primitiveCount + 63) / 64;
-    wgpuComputePassEncoderDispatchWorkgroups(pass, workgroups, 1, 1);
-    wgpuComputePassEncoderEnd(pass);
-    wgpuComputePassEncoderRelease(pass);
+
+    auto dispatchStage = [&](WGPUComputePipeline pipeline, const char* label) {
+        WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+        cpDesc.label = ToWgpuStringView(label);
+        WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &cpDesc);
+        if (!pass)
+            return;
+        wgpuComputePassEncoderSetPipeline(pass, pipeline);
+        wgpuComputePassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(pass, workgroups, 1, 1);
+        wgpuComputePassEncoderEnd(pass);
+        wgpuComputePassEncoderRelease(pass);
+    };
+
+    // Two-pass atomic resolution prevents data races on winning node/primitive indices across workgroups.
+    dispatchStage(computePipeline_, "GpuRayPick_DistancePass");
+    dispatchStage(resolvePipeline_, "GpuRayPick_ResolvePass");
 }
 
 } // namespace bgl::gpu

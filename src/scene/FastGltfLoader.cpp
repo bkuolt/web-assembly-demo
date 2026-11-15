@@ -286,6 +286,9 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                                                      .isCompressed = decoded->isCompressed,
                                                      .compressionFormat = decoded->compressionFormat,
                                                      .mipLevels = std::move(decoded->mipLevels)};
+                    if (TextureDecoder::IsKtx2Data(rawBytes)) {
+                        decodedImages[imgIdx]->ktx2SourceBytes.assign(rawBytes.begin(), rawBytes.end());
+                    }
                     BGL_LOG_DEBUG(
                         "  * Image #{} (BufferView #{}): '{}' -> Decoded {} {}x{} (Mips: {}, Payload: {:.2f} MB)",
                         imgIdx, sourceBvIdx, imgName,
@@ -688,6 +691,11 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
 
             // Flat normals fallback if NORMAL attribute is absent
             if (normIt == prim.attributes.end() && !meshPrim.vertices.empty()) {
+                auto safeFaceNormal = [](const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2) noexcept {
+                    const glm::vec3 cp{glm::cross(p1 - p0, p2 - p0)};
+                    const float lenSq{glm::dot(cp, cp)};
+                    return (lenSq > 1e-12f) ? (cp * (1.0f / std::sqrt(lenSq))) : glm::vec3{0.0f, 1.0f, 0.0f};
+                };
                 if (!meshPrim.indices.empty()) {
                     for (size_t i{0}; i + 2 < meshPrim.indices.size(); i += 3) {
                         const uint32_t i0{meshPrim.indices[i]};
@@ -695,12 +703,9 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                         const uint32_t i2{meshPrim.indices[i + 2]};
                         if (i0 < meshPrim.vertices.size() && i1 < meshPrim.vertices.size() &&
                             i2 < meshPrim.vertices.size()) {
-                            const glm::vec3 p0{meshPrim.vertices[i0].position};
-                            const glm::vec3 p1{meshPrim.vertices[i1].position};
-                            const glm::vec3 p2{meshPrim.vertices[i2].position};
-                            glm::vec3 fn{glm::normalize(glm::cross(p1 - p0, p2 - p0))};
-                            if (glm::any(glm::isnan(fn)))
-                                fn = glm::vec3{0.0f, 1.0f, 0.0f};
+                            const glm::vec3 fn{safeFaceNormal(meshPrim.vertices[i0].position,
+                                                              meshPrim.vertices[i1].position,
+                                                              meshPrim.vertices[i2].position)};
                             meshPrim.vertices[i0].normal += fn;
                             meshPrim.vertices[i1].normal += fn;
                             meshPrim.vertices[i2].normal += fn;
@@ -712,12 +717,9 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                     }
                 } else {
                     for (size_t i{0}; i + 2 < meshPrim.vertices.size(); i += 3) {
-                        const glm::vec3 p0{meshPrim.vertices[i].position};
-                        const glm::vec3 p1{meshPrim.vertices[i + 1].position};
-                        const glm::vec3 p2{meshPrim.vertices[i + 2].position};
-                        glm::vec3 fn{glm::normalize(glm::cross(p1 - p0, p2 - p0))};
-                        if (glm::any(glm::isnan(fn)))
-                            fn = glm::vec3{0.0f, 1.0f, 0.0f};
+                        const glm::vec3 fn{safeFaceNormal(meshPrim.vertices[i].position,
+                                                          meshPrim.vertices[i + 1].position,
+                                                          meshPrim.vertices[i + 2].position)};
                         meshPrim.vertices[i].normal = fn;
                         meshPrim.vertices[i + 1].normal = fn;
                         meshPrim.vertices[i + 2].normal = fn;
@@ -737,6 +739,9 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
             if (needsTangentCompute) {
                 meshPrim.ComputeTangents();
             }
+
+            // Generate multi-tier geometry LODs (LOD0..LOD3) in parallel per primitive
+            meshPrim.GenerateLODs();
 
             sharedMesh->primitives.push_back(std::move(meshPrim));
         }

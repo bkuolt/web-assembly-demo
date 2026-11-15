@@ -7,6 +7,7 @@
 #include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -21,9 +22,19 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
 
 CliOptions CliOptions::Parse(std::span<const char* const> args) {
     CliOptions opt{};
+    const auto parseFiniteFloat = [](const char* raw, float minV, float maxV, float& out) {
+        if (!raw)
+            return;
+        try {
+            const float val = std::stof(raw);
+            if (std::isfinite(val)) {
+                out = std::clamp(val, minV, maxV);
+            }
+        } catch (...) {}
+    };
 
     for (size_t i{1}; i < args.size(); ++i) {
-        std::string_view arg{args[i]};
+        std::string_view arg{args[i] ? args[i] : ""};
 
         if (arg == "-h" || arg == "--help") {
             opt.showHelp = true;
@@ -36,7 +47,7 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             return opt;
         } else if (arg == "--test-crash") {
             opt.testCrash = true;
-            if (i + 1 < args.size() && args[i + 1][0] != '-') {
+            if (i + 1 < args.size() && args[i + 1] && args[i + 1][0] != '-') {
                 std::string_view type{args[++i]};
                 if (type == "abrt" || type == "abort") {
                     opt.testCrashSignal = 1;
@@ -98,6 +109,31 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             opt.enableOcclusionCulling = false;
         } else if (arg == "--occlusion") {
             opt.enableOcclusionCulling = true;
+        } else if (arg == "--no-lod") {
+            opt.enableLod = false;
+        } else if (arg == "--lod") {
+            opt.enableLod = true;
+        } else if (arg == "--no-auto-lod") {
+            opt.enableAutoLod = false;
+        } else if (arg == "--auto-lod") {
+            opt.enableAutoLod = true;
+        } else if (arg == "--lod-bias" && i + 1 < args.size()) {
+            parseFiniteFloat(args[++i], 0.25f, 4.0f, opt.lodBias);
+        } else if (arg == "--lod-heatmap") {
+            opt.debugViewMode = 1;
+        } else if (arg == "--debug-view" && i + 1 < args.size()) {
+            std::string_view dv{args[++i]};
+            if (dv == "lod" || dv == "heatmap" || dv == "1") {
+                opt.debugViewMode = 1;
+            } else if (dv == "normals" || dv == "normal" || dv == "2") {
+                opt.debugViewMode = 2;
+            } else if (dv == "pbr" || dv == "mrao" || dv == "3") {
+                opt.debugViewMode = 3;
+            } else if (dv == "uv" || dv == "checker" || dv == "4") {
+                opt.debugViewMode = 4;
+            } else {
+                opt.debugViewMode = 0;
+            }
         } else if (arg == "--rain") {
             opt.weatherMode = 1;
         } else if (arg == "--snow") {
@@ -120,30 +156,26 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
                 opt.weatherMode = 0;
             }
         } else if (arg == "--weather-intensity" && i + 1 < args.size()) {
-            try {
-                const float val = std::stof(args[++i]);
-                opt.weatherIntensity = std::clamp(val, 0.0f, 2.0f);
-            } catch (...) {}
+            parseFiniteFloat(args[++i], 0.0f, 2.0f, opt.weatherIntensity);
         } else if (arg == "--wind" && i + 1 < args.size()) {
-            try {
-                const float val = std::stof(args[++i]);
-                opt.windStrength = std::clamp(val, -1.0f, 1.0f);
-            } catch (...) {}
+            parseFiniteFloat(args[++i], -1.0f, 1.0f, opt.windStrength);
         } else if (arg == "--time" && i + 1 < args.size()) {
-            try {
-                float val = std::fmod(std::stof(args[++i]), 24.0f);
-                if (val < 0.0f) {
-                    val += 24.0f;
-                }
-                opt.timeOfDay = val;
-            } catch (...) {}
+            if (args[i + 1]) {
+                try {
+                    const float raw = std::stof(args[++i]);
+                    if (std::isfinite(raw)) {
+                        float val = std::fmod(raw, 24.0f);
+                        if (val < 0.0f) {
+                            val += 24.0f;
+                        }
+                        opt.timeOfDay = val;
+                    }
+                } catch (...) {}
+            }
         } else if (arg == "--day-night-cycle") {
             opt.enableDayNightCycle = true;
         } else if (arg == "--day-night-speed" && i + 1 < args.size()) {
-            try {
-                const float val = std::stof(args[++i]);
-                opt.dayNightSpeed = std::clamp(val, 0.05f, 12.0f);
-            } catch (...) {}
+            parseFiniteFloat(args[++i], 0.05f, 12.0f, opt.dayNightSpeed);
         } else if (arg == "--headless") {
             opt.headless = true;
         } else if (!arg.starts_with("-")) {
@@ -194,6 +226,11 @@ RENDERING TOGGLES:
   --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
   --no-ao / --ao                Disable / enable glTF Ambient Occlusion (default: ON)
   --no-occlusion / --occlusion  Disable / enable Quadtree Hierarchical Occlusion Culling (default: ON)
+  --no-lod / --lod              Disable / enable Multi-Level Mesh & Shader LOD System (default: ON)
+  --auto-lod / --no-auto-lod    Enable / disable Adaptive 60 FPS Auto-LOD scaling (default: OFF)
+  --lod-bias <0.25-4.0>         Set Screen-Space Error LOD distance bias multiplier (default: 1.0)
+  --lod-heatmap                 Start in LOD Heatmap diagnostic visualization mode
+  --debug-view <lit|lod|normals|pbr|uv> Select initial diagnostic shading mode (default: lit)
   --rain / --snow / --fog / --smoke Start with Rain, Snow, Fog, or Smoke shader active
   --weather <clear|rain|snow|fog|smoke> Select initial atmospheric weather mode (default: clear)
   --weather-intensity <0.0-2.0> Set precipitation, fog, and smoke density intensity (default: 1.0)
@@ -224,6 +261,11 @@ INTERACTIVE CONTROLS:
   Y                             Cycle Atmospheric Weather (Clear / Rain / Snow / Fog / Smoke)
   F4 / F5 / F6 / F7             Toggle Rain (F4) / Snow (F5) / Fog (F6) / Smoke (F7)
   I / F8                        Toggle Automatic Day/Night Sun & Moon Cycle
+  N / F9                        Cycle Diagnostic Debug View (Lit / LOD Heatmap / Normals / PBR / UV)
+  F10                           Toggle LOD Heatmap Diagnostic View
+  F11                           Toggle Multi-Level Mesh & Shader LOD System (LOD0-LOD3)
+  F12                           Toggle Adaptive 60 FPS Auto-LOD Bias Scaling
+  ; / '                         Decrease / Increase LOD Bias (-0.15 / +0.15)
   , / .                         Step Time of Day backward / forward (-30m / +30m)
   C                             Switch Camera Navigation Mode (Orbit / First-Person Fly)
   T                             Toggle Turntable Autorotation

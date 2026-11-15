@@ -7,6 +7,7 @@
 
 #include "core/Types.hpp"
 #include <cstdint>
+#include <memory_resource>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -96,6 +97,21 @@ public:
      * @return DecodedImage structure with transcoded mip chain on success, or an error string.
      */
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target);
+
+    /**
+     * @brief Transcodes KTX2 Basis Universal texture data using a caller-supplied std::pmr staging arena.
+     * @param data Byte span containing the KTX2 file data.
+     * @param target Desired transcoding target (RGBA32, BC7, ASTC, or ETC2).
+     * @param scratchResource Polymorphic memory resource for zero-fragmentation staging buffers.
+     * @return DecodedImage structure with transcoded mip chain on success, or an error string.
+     */
+    static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target,
+                                                 std::pmr::memory_resource* scratchResource);
+
+    /**
+     * @brief Returns true if the input byte buffer starts with the 12-byte KTX2 magic identifier.
+     */
+    [[nodiscard]] static bool IsKtx2Data(std::span<const uint8_t> data) noexcept;
 
     /**
      * @brief Transcodes KTX2 Basis Universal texture data to the active default GPU compression format.

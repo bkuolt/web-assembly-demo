@@ -17,6 +17,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <memory_resource>
 #include <span>
 #include <utility>
 #if !defined(__EMSCRIPTEN__)
@@ -1900,6 +1901,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             texDesc.label = ToWgpuStringView("glTF_KTX2_CompressedTexture");
             WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
 
+            size_t compressedVramBytes{0};
             for (uint32_t level{0}; level < validCompressedMips; ++level) {
                 const uint32_t mipW{(level < img.mipLevels.size()) ? img.mipLevels[level].width : img.width};
                 const uint32_t mipH{(level < img.mipLevels.size()) ? img.mipLevels[level].height : img.height};
@@ -1924,6 +1926,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
                 WGPUExtent3D writeSize{mipW, mipH, 1};
                 wgpuQueueWriteTexture(queue_, &copyDst, mipBytes.data(), mipBytes.size(), &dataLayout, &writeSize);
+                compressedVramBytes += static_cast<size_t>(blocksX) * blocksY * 16u;
             }
 
             WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
@@ -1932,8 +1935,11 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].sampler = defaultSampler_;
             scene.gpuTextures[i].width = img.width;
             scene.gpuTextures[i].height = img.height;
-            BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels)", i,
-                          img.width, img.height, fmtName, validCompressedMips);
+            scene.gpuTextures[i].vramBytes = compressedVramBytes;
+            scene.gpuTextures[i].format = img.compressionFormat;
+            BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels, {:.2f} KB VRAM)",
+                          i, img.width, img.height, fmtName, validCompressedMips,
+                          static_cast<double>(compressedVramBytes) / 1024.0);
             continue;
         }
 
@@ -1987,15 +1993,22 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
         WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
 
+        size_t rgbaVramBytes{static_cast<size_t>(img.width) * img.height * 4u};
+        for (const auto& mipBuf : mipChain) {
+            rgbaVramBytes += static_cast<size_t>(mipBuf.width) * mipBuf.height * 4u;
+        }
+
         scene.gpuTextures[i].texture = tex;
         scene.gpuTextures[i].view = view;
         scene.gpuTextures[i].sampler = defaultSampler_;
         scene.gpuTextures[i].width = img.width;
         scene.gpuTextures[i].height = img.height;
+        scene.gpuTextures[i].vramBytes = rgbaVramBytes;
+        scene.gpuTextures[i].format = scene::KtxTranscodeTarget::Rgba32;
         BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote "
-                      "{} bytes to GPU",
+                      "{} bytes to GPU ({:.2f} KB VRAM)",
                       i, img.width, img.height, isSrgbTexture[i] ? "RGBA8UnormSrgb" : "RGBA8Unorm", mipLevels,
-                      isNormalTexture[i] ? "Yes" : "No", img.rgba.size());
+                      isNormalTexture[i] ? "Yes" : "No", img.rgba.size(), static_cast<double>(rgbaVramBytes) / 1024.0);
     }
 
     // 2. Prepare vertex buffers, index buffers, uniform buffers, and shadow/main bind groups for each primitive
@@ -2004,7 +2017,6 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             return;
 
         const size_t vbSize{prim.vertices.size() * sizeof(core::Vertex)};
-        const size_t ibSize{prim.indices.size() * sizeof(uint32_t)};
 
         if (!prim.gpuVertexBuffer) {
             WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -2016,12 +2028,31 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         }
 
         if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
+            if (prim.lodIndices[0].empty()) {
+                prim.GenerateLODs();
+            }
+            std::vector<uint32_t> combinedIndices{};
+            size_t totalLodIndices{0};
+            for (size_t lvl{0}; lvl < 4; ++lvl) {
+                totalLodIndices += prim.lodIndices[lvl].empty() ? prim.indices.size() : prim.lodIndices[lvl].size();
+            }
+            combinedIndices.reserve(totalLodIndices);
+            for (size_t lvl{0}; lvl < 4; ++lvl) {
+                const auto& srcIndices = prim.lodIndices[lvl];
+                const std::span<const uint32_t> slice =
+                    srcIndices.empty() ? std::span<const uint32_t>{prim.indices.data(), prim.indices.size()}
+                                       : std::span<const uint32_t>{srcIndices.data(), srcIndices.size()};
+                prim.lodLevels[lvl].firstIndex = static_cast<uint32_t>(combinedIndices.size());
+                prim.lodLevels[lvl].indexCount = static_cast<uint32_t>(slice.size());
+                combinedIndices.insert(combinedIndices.end(), slice.begin(), slice.end());
+            }
+
             const bool useUint16 = (prim.vertices.size() < 65536);
             prim.indexFormat = useUint16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
             if (useUint16) {
                 std::vector<uint16_t> indices16;
-                indices16.reserve(prim.indices.size() + 1);
-                for (uint32_t idx : prim.indices) {
+                indices16.reserve(combinedIndices.size() + 1);
+                for (uint32_t idx : combinedIndices) {
                     indices16.push_back(static_cast<uint16_t>(idx));
                 }
                 if (indices16.size() % 2 != 0) {
@@ -2031,16 +2062,17 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
                 ibDesc.size = ib16Size;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = ToWgpuStringView("IndexBuffer_U16");
+                ibDesc.label = ToWgpuStringView("IndexBuffer_U16_MultiLOD");
                 prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
                 wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, indices16.data(), ib16Size);
             } else {
+                const size_t combinedBytes{combinedIndices.size() * sizeof(uint32_t)};
                 WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ibDesc.size = (ibSize + 3) & ~3;
+                ibDesc.size = (combinedBytes + 3) & ~3;
                 ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = ToWgpuStringView("IndexBuffer_U32");
+                ibDesc.label = ToWgpuStringView("IndexBuffer_U32_MultiLOD");
                 prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
-                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, prim.indices.data(), ibSize);
+                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, combinedIndices.data(), combinedBytes);
             }
         }
 
@@ -2154,6 +2186,56 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
     RebuildMaterialBindGroups(scene);
     shadowMapDirty_ = true;
+}
+
+void PipelineManager::RetranscodeKtxTextures(scene::Scene& scene, scene::KtxTranscodeTarget target) {
+    if (!device_ || !queue_) {
+        return;
+    }
+
+    std::vector<std::byte> arenaBacking(2 * 1024 * 1024);
+    std::pmr::monotonic_buffer_resource stagingArena{arenaBacking.data(), arenaBacking.size()};
+    size_t retranscodedCount{0};
+
+    for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
+        auto& cpuImg = scene.cpuImages[i];
+        if (cpuImg.ktx2SourceBytes.empty()) {
+            continue;
+        }
+        stagingArena.release();
+        auto decoded = scene::TextureDecoder::DecodeKTX2(cpuImg.ktx2SourceBytes, target, &stagingArena);
+        if (!decoded) {
+            BGL_LOG_WARN("[KTX2] Failed to re-transcode texture #{} to {}: {}", i,
+                         scene::TextureDecoder::GetKtxTargetName(target), decoded.error());
+            continue;
+        }
+
+        cpuImg.width = decoded->width;
+        cpuImg.height = decoded->height;
+        cpuImg.rgba = std::move(decoded->rgbaData);
+        cpuImg.isCompressed = decoded->isCompressed;
+        cpuImg.compressionFormat = decoded->compressionFormat;
+        cpuImg.mipLevels = std::move(decoded->mipLevels);
+
+        if (i < scene.gpuTextures.size()) {
+            if (scene.gpuTextures[i].view) {
+                wgpuTextureViewRelease(scene.gpuTextures[i].view);
+                scene.gpuTextures[i].view = nullptr;
+            }
+            if (scene.gpuTextures[i].texture) {
+                wgpuTextureRelease(scene.gpuTextures[i].texture);
+                scene.gpuTextures[i].texture = nullptr;
+            }
+            scene.gpuTextures[i].vramBytes = 0;
+        }
+        ++retranscodedCount;
+    }
+
+    if (retranscodedCount > 0) {
+        PrepareScene(scene);
+        BGL_LOG_INFO("[KTX2] Re-transcoded {} KTX2 texture(s) to {} using std::pmr staging arena", retranscodedCount,
+                     scene::TextureDecoder::GetKtxTargetName(target));
+    }
 }
 
 void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix,
@@ -2372,10 +2454,17 @@ void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene&
                                              prim.vertices.size() * sizeof(core::Vertex));
 
         if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-            const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+            const uint32_t firstIdx = (lodEnabled_ && prim.lodLevels[1].indexCount > 0)
+                                          ? prim.lodLevels[1].firstIndex
+                                          : prim.lodLevels[0].firstIndex;
+            const uint32_t idxCount =
+                (lodEnabled_ && prim.lodLevels[1].indexCount > 0)
+                    ? prim.lodLevels[1].indexCount
+                    : ((prim.lodLevels[0].indexCount > 0) ? prim.lodLevels[0].indexCount
+                                                          : static_cast<uint32_t>(prim.indices.size()));
             wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
-                                                prim.indices.size() * indexSize);
-            wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
+                                                wgpuBufferGetSize(prim.gpuIndexBuffer));
+            wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
         } else {
             wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
         }
@@ -2406,6 +2495,9 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     const core::Frustum frustum{core::Frustum::FromViewProjection(viewProj)};
     lastVisiblePrimitiveCount_ = 0;
     lastOccludedPrimitiveCount_ = 0;
+    lastRenderedTriangleCount_ = 0;
+    lastTotalVisibleTriangleCount_ = 0;
+    lastLodCounts_ = {0, 0, 0, 0};
 
     struct RenderItem {
         std::shared_ptr<scene::SceneNode> node;
@@ -2414,12 +2506,15 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         float distance;
         int materialIndex;
         bool isTransparent;
+        uint32_t lodLevel;
+        float lodTransition;
     };
 
     std::vector<RenderItem> items;
 
     if (spatialIndex) {
-        auto visibleItems = spatialIndex->QueryVisible(frustum, cameraPos, viewProj, occlusionCullingEnabled_);
+        auto visibleItems =
+            spatialIndex->QueryVisible(frustum, cameraPos, viewProj, occlusionCullingEnabled_, lodBias_);
         lastVisiblePrimitiveCount_ = visibleItems.size();
         lastOccludedPrimitiveCount_ = spatialIndex->GetLastOccludedCount();
 
@@ -2434,12 +2529,15 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
             const bool isTransparent =
                 (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
                 (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+            const uint32_t activeLod = lodEnabled_ ? static_cast<uint32_t>(vis.currentLOD) : 0u;
             items.push_back(RenderItem{.node = vis.node,
                                        .primitiveIndex = vis.primitiveIndex,
                                        .worldTransform = vis.node->worldTransform,
                                        .distance = vis.distanceToCamera,
                                        .materialIndex = prim.materialIndex,
-                                       .isTransparent = isTransparent});
+                                       .isTransparent = isTransparent,
+                                       .lodLevel = std::min(activeLod, 3u),
+                                       .lodTransition = lodEnabled_ ? vis.lodTransition : 0.0f});
         }
     } else {
         auto collectNode = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
@@ -2453,7 +2551,26 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
             auto prims = node->GetPrimitives();
             for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
                 const auto& prim = prims[pIdx];
-                const float dist = glm::length(prim.boundingBox.Transformed(worldMat).Center() - cameraPos);
+                const core::AABB worldBox = prim.boundingBox.Transformed(worldMat);
+                const float dist = glm::length(worldBox.Center() - cameraPos);
+                const float radius = std::max(0.001f, glm::length(worldBox.Extents()) * 0.5f);
+                const float metric = (dist / radius) * lodBias_;
+                uint32_t lodLvl = 0u;
+                float lodTrans = 0.0f;
+                if (lodEnabled_) {
+                    if (metric < 8.0f) {
+                        lodLvl = 0u;
+                        lodTrans = std::clamp((metric - 6.4f) / 1.6f, 0.0f, 1.0f);
+                    } else if (metric < 25.0f) {
+                        lodLvl = 1u;
+                        lodTrans = std::clamp((metric - 20.0f) / 5.0f, 0.0f, 1.0f);
+                    } else if (metric < 85.0f) {
+                        lodLvl = 2u;
+                        lodTrans = std::clamp((metric - 68.0f) / 17.0f, 0.0f, 1.0f);
+                    } else {
+                        lodLvl = 3u;
+                    }
+                }
                 const bool isTransparent =
                     (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
                     (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
@@ -2462,7 +2579,9 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                                            .worldTransform = worldMat,
                                            .distance = dist,
                                            .materialIndex = prim.materialIndex,
-                                           .isTransparent = isTransparent});
+                                           .isTransparent = isTransparent,
+                                           .lodLevel = lodLvl,
+                                           .lodTransition = lodTrans});
             }
             for (const auto& child : node->children) {
                 self(self, child, worldMat);
@@ -2493,7 +2612,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         auto prims = item.node->GetPrimitives();
         auto& prim = prims[item.primitiveIndex];
         RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline,
-                        item.node.get());
+                        item.node.get(), item.lodLevel, item.lodTransition);
     }
 }
 
@@ -2510,7 +2629,8 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
     const auto prims = node.GetPrimitives();
     lastVisiblePrimitiveCount_ += prims.size();
     for (auto& prim : prims) {
-        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node);
+        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node, 0,
+                        0.0f);
     }
 
     for (const auto& child : node.children) {
@@ -2523,7 +2643,7 @@ void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene
 void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim,
                                       const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos,
                                       bool wireframe, WGPURenderPipeline& currentBoundPipeline,
-                                      const scene::SceneNode* node) {
+                                      const scene::SceneNode* node, uint32_t lodLevel, float lodTransition) {
     if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer)
         return;
 
@@ -2620,7 +2740,12 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
             isDoubleSided = true;
         }
     }
+
+    const uint32_t clampedLod = lodEnabled_ ? std::min(lodLevel, 3u) : 0u;
+    flags |= ((clampedLod & 3u) << MaterialFlags::LodLevelShift);
+    flags |= ((static_cast<uint32_t>(debugViewMode_) & 7u) << MaterialFlags::DebugViewShift);
     uniforms.flags = flags;
+    uniforms.specularColorFactor.w = lodEnabled_ ? std::clamp(lodTransition, 0.0f, 1.0f) : 0.0f;
 
     if (!wireframe && opaqueBackCulledPipeline_ && opaquePipeline_) {
         WGPURenderPipeline desiredPipeline{isDoubleSided ? opaquePipeline_ : opaqueBackCulledPipeline_};
@@ -2635,17 +2760,30 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
 
+    const uint32_t fullTriCount =
+        !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
+                              : static_cast<uint32_t>(prim.vertices.size() / 3);
+    lastTotalVisibleTriangleCount_ += fullTriCount;
+    ++lastLodCounts_[clampedLod];
+
     if (wireframe && prim.gpuWireframeIndexBuffer && prim.wireframeIndexCount > 0) {
         wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuWireframeIndexBuffer, WGPUIndexFormat_Uint32, 0,
                                             prim.wireframeIndexCount * sizeof(uint32_t));
         wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
+        lastRenderedTriangleCount_ += fullTriCount;
     } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-        const size_t indexSize = (prim.indexFormat == WGPUIndexFormat_Uint16) ? sizeof(uint16_t) : sizeof(uint32_t);
+        const auto& slice =
+            (prim.lodLevels[clampedLod].indexCount > 0) ? prim.lodLevels[clampedLod] : prim.lodLevels[0];
+        const uint32_t firstIdx = (slice.indexCount > 0) ? slice.firstIndex : 0u;
+        const uint32_t idxCount =
+            (slice.indexCount > 0) ? slice.indexCount : static_cast<uint32_t>(prim.indices.size());
         wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
-                                            prim.indices.size() * indexSize);
-        wgpuRenderPassEncoderDrawIndexed(pass, static_cast<uint32_t>(prim.indices.size()), 1, 0, 0, 0);
+                                            wgpuBufferGetSize(prim.gpuIndexBuffer));
+        wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
+        lastRenderedTriangleCount_ += (idxCount / 3);
     } else {
         wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
+        lastRenderedTriangleCount_ += fullTriCount;
     }
 }
 
@@ -2761,13 +2899,22 @@ float PipelineManager::EvaluateSnowAccumulationFactor(float normalY, float inten
     return smooth * std::clamp(clampedInt, 0.0f, 1.5f);
 }
 
-void PipelineManager::SetTimeOfDay(float hour) noexcept {
+namespace {
+
+[[nodiscard]] inline float WrapHour24(float hour) noexcept {
     float wrapped = std::fmod(hour, 24.0f);
-    if (wrapped < 0.0f) {
-        wrapped += 24.0f;
-    }
-    timeOfDay_ = wrapped;
-    solarElevation_ = -std::cos((timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    return (wrapped < 0.0f) ? (wrapped + 24.0f) : wrapped;
+}
+
+[[nodiscard]] inline float ComputeSolarElevation(float hour) noexcept {
+    return -std::cos((WrapHour24(hour) / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+}
+
+} // namespace
+
+void PipelineManager::SetTimeOfDay(float hour) noexcept {
+    timeOfDay_ = WrapHour24(hour);
+    solarElevation_ = ComputeSolarElevation(timeOfDay_);
 }
 
 float PipelineManager::EvaluateFogFactor(float distance, float worldY, float intensity) noexcept {
@@ -2790,11 +2937,7 @@ float PipelineManager::EvaluateSmokeDensity(float worldY, float intensity) noexc
 }
 
 glm::vec3 PipelineManager::EvaluateDiurnalSunRadiance(float timeOfDayHours) noexcept {
-    float wrapped = std::fmod(timeOfDayHours, 24.0f);
-    if (wrapped < 0.0f) {
-        wrapped += 24.0f;
-    }
-    const float solarElev = -std::cos((wrapped / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    const float solarElev = ComputeSolarElevation(timeOfDayHours);
     const glm::vec3 noonSun{1.0f, 0.98f, 0.95f};
     const glm::vec3 goldenSun{1.0f, 0.48f, 0.18f};
     const glm::vec3 nightMoon{0.28f, 0.44f, 0.78f};
@@ -2805,17 +2948,12 @@ glm::vec3 PipelineManager::EvaluateDiurnalSunRadiance(float timeOfDayHours) noex
     } else if (solarElev >= -0.10f) {
         const float t = std::clamp((solarElev + 0.10f) / 0.45f, 0.0f, 1.0f);
         return glm::mix(nightMoon * 0.55f, goldenSun * 2.2f, t);
-    } else {
-        return nightMoon * 0.55f;
     }
+    return nightMoon * 0.55f;
 }
 
 glm::vec3 PipelineManager::EvaluateDiurnalAmbientScale(float timeOfDayHours) noexcept {
-    float wrapped = std::fmod(timeOfDayHours, 24.0f);
-    if (wrapped < 0.0f) {
-        wrapped += 24.0f;
-    }
-    const float solarElev = -std::cos((wrapped / 24.0f) * 2.0f * std::numbers::pi_v<float>);
+    const float solarElev = ComputeSolarElevation(timeOfDayHours);
     const glm::vec3 dayScale{1.0f, 1.0f, 1.0f};
     const glm::vec3 duskScale{0.82f, 0.60f, 0.52f};
     const glm::vec3 nightScale{0.16f, 0.22f, 0.38f};
@@ -2826,9 +2964,46 @@ glm::vec3 PipelineManager::EvaluateDiurnalAmbientScale(float timeOfDayHours) noe
     } else if (solarElev >= -0.15f) {
         const float t = std::clamp((solarElev + 0.15f) / 0.40f, 0.0f, 1.0f);
         return glm::mix(nightScale, duskScale, t);
-    } else {
-        return nightScale;
     }
+    return nightScale;
+}
+
+void PipelineManager::UpdateAutoLod(float deltaTime) noexcept {
+    if (!autoLodEnabled_ || deltaTime <= 0.0f) {
+        return;
+    }
+    // Target 60 FPS (16.67 ms): if frame time exceeds 18.0 ms, increase LOD bias to simplify earlier;
+    // if frame time is comfortably below 14.0 ms, relax LOD bias back toward 1.0f.
+    constexpr float kSlowFrameSec{1.0f / 55.0f};
+    constexpr float kFastFrameSec{1.0f / 72.0f};
+    if (deltaTime > kSlowFrameSec) {
+        lodBias_ = std::clamp(lodBias_ + deltaTime * 0.85f, 0.25f, 4.0f);
+    } else if (deltaTime < kFastFrameSec && lodBias_ > 1.0f) {
+        lodBias_ = std::max(1.0f, lodBias_ - deltaTime * 0.45f);
+    }
+}
+
+glm::vec3 PipelineManager::EvaluateLodHeatmapColor(uint32_t lodLevel, float transition) noexcept {
+    constexpr std::array<glm::vec3, 4> kPalette{{
+        {0.10f, 0.92f, 0.38f}, // LOD0: Emerald Green
+        {0.96f, 0.82f, 0.12f}, // LOD1: Amber Yellow
+        {0.98f, 0.45f, 0.10f}, // LOD2: Deep Orange
+        {0.95f, 0.16f, 0.22f}  // LOD3: Crimson Red
+    }};
+    const uint32_t cur = std::min(lodLevel, 3u);
+    const uint32_t next = std::min(cur + 1u, 3u);
+    return glm::mix(kPalette[cur], kPalette[next], std::clamp(transition, 0.0f, 1.0f));
+}
+
+float PipelineManager::EvaluateBayerDither4x4(uint32_t x, uint32_t y) noexcept {
+    constexpr std::array<float, 16> kBayer{{
+        0.0f / 16.0f,  8.0f / 16.0f,  2.0f / 16.0f,  10.0f / 16.0f,
+        12.0f / 16.0f, 4.0f / 16.0f,  14.0f / 16.0f, 6.0f / 16.0f,
+        3.0f / 16.0f,  11.0f / 16.0f, 1.0f / 16.0f,  9.0f / 16.0f,
+        15.0f / 16.0f, 7.0f / 16.0f,  13.0f / 16.0f, 5.0f / 16.0f
+    }};
+    const uint32_t idx = ((y & 3u) * 4u) + (x & 3u);
+    return kBayer[idx];
 }
 
 } // namespace bgl::gpu

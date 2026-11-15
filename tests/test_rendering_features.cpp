@@ -1685,3 +1685,114 @@ TEST(RenderingFeaturesTest, TiledUvMikkTSpaceTangentsOrthogonality) {
         EXPECT_NEAR(std::abs(v.tangent.w), 1.0f, 1e-4f);
     }
 }
+
+TEST(RenderingFeaturesTest, MeshPrimitiveMultiLevelLodGeneration) {
+    // 1. Build a 24x24 grid mesh (576 vertices, 1058 triangles = 3174 indices)
+    scene::MeshPrimitive prim{};
+    constexpr uint32_t kGrid = 24;
+    prim.vertices.resize(kGrid * kGrid);
+    for (uint32_t y = 0; y < kGrid; ++y) {
+        for (uint32_t x = 0; x < kGrid; ++x) {
+            auto& v = prim.vertices[y * kGrid + x];
+            v.position = glm::vec3(static_cast<float>(x) * 0.5f, std::sin(static_cast<float>(x + y) * 0.2f),
+                                   static_cast<float>(y) * 0.5f);
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.uv = glm::vec2(static_cast<float>(x) / kGrid, static_cast<float>(y) / kGrid);
+        }
+    }
+    for (uint32_t y = 0; y + 1 < kGrid; ++y) {
+        for (uint32_t x = 0; x + 1 < kGrid; ++x) {
+            const uint32_t i0 = y * kGrid + x;
+            const uint32_t i1 = i0 + 1;
+            const uint32_t i2 = (y + 1) * kGrid + x;
+            const uint32_t i3 = i2 + 1;
+            prim.indices.push_back(i0);
+            prim.indices.push_back(i2);
+            prim.indices.push_back(i1);
+            prim.indices.push_back(i1);
+            prim.indices.push_back(i2);
+            prim.indices.push_back(i3);
+        }
+    }
+    prim.boundingBox.Expand(glm::vec3(0.0f, -1.0f, 0.0f));
+    prim.boundingBox.Expand(glm::vec3(12.0f, 1.0f, 12.0f));
+
+    prim.GenerateLODs();
+
+    EXPECT_EQ(prim.lodIndices[0].size(), prim.indices.size());
+    EXPECT_LT(prim.lodIndices[1].size(), prim.lodIndices[0].size());
+    EXPECT_LT(prim.lodIndices[2].size(), prim.lodIndices[1].size());
+    EXPECT_LE(prim.lodIndices[3].size(), prim.lodIndices[2].size());
+    EXPECT_GE(prim.lodIndices[3].size(), 9u);
+
+    // Every generated index must be valid and divisible by 3
+    for (size_t lod = 0; lod < 4; ++lod) {
+        EXPECT_EQ(prim.lodIndices[lod].size() % 3, 0u);
+        for (uint32_t idx : prim.lodIndices[lod]) {
+            EXPECT_LT(idx, prim.vertices.size());
+        }
+    }
+
+    // 2. Small mesh (< 12 triangles) keeps 100% of triangles across all LOD levels
+    scene::MeshPrimitive smallPrim{};
+    smallPrim.vertices.resize(4);
+    smallPrim.indices = {0, 1, 2, 1, 3, 2};
+    smallPrim.GenerateLODs();
+    for (size_t lod = 0; lod < 4; ++lod) {
+        EXPECT_EQ(smallPrim.lodIndices[lod].size(), 6u);
+    }
+}
+
+TEST(RenderingFeaturesTest, PipelineManagerLodDebugViewsAndBayerDithering) {
+    gpu::PipelineManager pm{};
+
+    // 1. Default LOD & DebugView state
+    EXPECT_TRUE(pm.IsLodEnabled());
+    EXPECT_FALSE(pm.IsAutoLodEnabled());
+    EXPECT_FLOAT_EQ(pm.GetLodBias(), 1.0f);
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LitPbr);
+
+    // 2. Toggle & clamp LOD bias
+    pm.SetLodBias(10.0f);
+    EXPECT_FLOAT_EQ(pm.GetLodBias(), 4.0f);
+    pm.SetLodBias(0.05f);
+    EXPECT_FLOAT_EQ(pm.GetLodBias(), 0.25f);
+    pm.SetLodBias(1.0f);
+
+    // 3. Adaptive Auto-LOD feedback loop
+    pm.SetAutoLodEnabled(true);
+    for (int i = 0; i < 10; ++i) {
+        pm.UpdateAutoLod(0.033f); // 30 FPS slow frame -> should increase lodBias
+    }
+    EXPECT_GT(pm.GetLodBias(), 1.0f);
+
+    // 4. Debug View mode cycling & LOD Heatmap toggle
+    pm.ToggleLodHeatmap();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LodHeatmap);
+    pm.ToggleLodHeatmap();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LitPbr);
+
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LodHeatmap);
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::Normals);
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::MetallicRoughnessAo);
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::UvChecker);
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LitPbr);
+
+    // 5. Bayer 4x4 dithering and LOD heatmap colors
+    for (uint32_t y = 0; y < 4; ++y) {
+        for (uint32_t x = 0; x < 4; ++x) {
+            const float d = gpu::PipelineManager::EvaluateBayerDither4x4(x, y);
+            EXPECT_GE(d, 0.0f);
+            EXPECT_LT(d, 1.0f);
+        }
+    }
+    const glm::vec3 c0 = gpu::PipelineManager::EvaluateLodHeatmapColor(0);
+    const glm::vec3 c3 = gpu::PipelineManager::EvaluateLodHeatmapColor(3);
+    EXPECT_GT(c0.g, c0.r); // LOD0 is emerald green
+    EXPECT_GT(c3.r, c3.g); // LOD3 is rose red
+}

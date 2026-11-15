@@ -325,11 +325,22 @@ KtxTranscodeTarget TextureDecoder::GetDefaultKtxTarget() noexcept {
     return g_defaultKtxTarget.load(std::memory_order_relaxed);
 }
 
+bool TextureDecoder::IsKtx2Data(std::span<const uint8_t> data) noexcept {
+    static constexpr std::array<uint8_t, 12> kKtx2Ident{0xAB, 'K',  'T',  'X',  ' ',  '2',
+                                                        '0',  0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
+    return data.size() >= 12 && std::memcmp(data.data(), kKtx2Ident.data(), 12) == 0;
+}
+
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data) {
-    return DecodeKTX2(data, GetDefaultKtxTarget());
+    return DecodeKTX2(data, GetDefaultKtxTarget(), nullptr);
 }
 
 core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target) {
+    return DecodeKTX2(data, target, nullptr);
+}
+
+core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target,
+                                                      std::pmr::memory_resource* scratchResource) {
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_KTX)
     static constexpr std::array<uint8_t, 12> kKtx2Ident{0xAB, 'K',  'T',  'X',  ' ',  '2',
                                                         '0',  0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
@@ -350,9 +361,17 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         return std::unexpected("Data is not a valid KTX1 or KTX2 texture signature");
     }
 
+    // Use caller's PMR arena or a local stack-backed monotonic buffer resource for staging
+    std::array<std::byte, 4096> localStackBuf{};
+    std::pmr::monotonic_buffer_resource localPmr{localStackBuf.data(), localStackBuf.size()};
+    std::pmr::memory_resource* arena = scratchResource ? scratchResource : &localPmr;
+    std::pmr::vector<uint8_t> pmrStaging{arena};
+    pmrStaging.assign(data.begin(), data.end());
+
     ktxTexture* rawKtx{nullptr};
     KTX_error_code result{
-        ktxTexture_CreateFromMemory(data.data(), data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &rawKtx)};
+        ktxTexture_CreateFromMemory(pmrStaging.data(), pmrStaging.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+                                    &rawKtx)};
 
     if (result != KTX_SUCCESS || !rawKtx) {
         return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));

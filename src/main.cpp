@@ -350,6 +350,48 @@ void bgl_toggle_occlusion() {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_lod() {
+    if (g_pApp)
+        g_pApp->ToggleLod();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_auto_lod() {
+    if (g_pApp)
+        g_pApp->ToggleAutoLod();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_lod_bias(float bias) {
+    if (g_pApp)
+        g_pApp->SetLodBias(bias);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_cycle_debug_view() {
+    if (g_pApp)
+        g_pApp->CycleDebugViewMode();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_debug_view(int mode) {
+    if (g_pApp) {
+        const auto m = (mode == 1)   ? bgl::gpu::DebugViewMode::LodHeatmap
+                       : (mode == 2) ? bgl::gpu::DebugViewMode::Normals
+                       : (mode == 3) ? bgl::gpu::DebugViewMode::MetallicRoughnessAo
+                       : (mode == 4) ? bgl::gpu::DebugViewMode::UvChecker
+                                     : bgl::gpu::DebugViewMode::LitPbr;
+        g_pApp->SetDebugViewMode(m);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_toggle_lod_heatmap() {
+    if (g_pApp)
+        g_pApp->ToggleLodHeatmap();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) {
     if (g_pApp && name && buffer && size > 0) {
         g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));
@@ -360,6 +402,30 @@ EMSCRIPTEN_KEEPALIVE
 void bgl_load_url(const char* url) {
     if (g_pApp && url) {
         (void)g_pApp->LoadSceneFromUri(url);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+int bgl_get_animation_count() {
+    return g_pApp ? static_cast<int>(g_pApp->GetAnimationCount()) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int bgl_get_active_animation() {
+    return g_pApp ? g_pApp->GetActiveAnimationIndex() : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_animation(int index) {
+    if (g_pApp) {
+        g_pApp->SetAnimation(index);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void bgl_set_animation_playing(int playing) {
+    if (g_pApp) {
+        g_pApp->SetAnimationPlaying(playing != 0);
     }
 }
 }
@@ -427,6 +493,10 @@ int main(int argc, char** argv) {
     config.enableReflections = cli.enableReflections;
     config.enableAmbientOcclusion = cli.enableAmbientOcclusion;
     config.enableOcclusionCulling = cli.enableOcclusionCulling;
+    config.enableLod = cli.enableLod;
+    config.enableAutoLod = cli.enableAutoLod;
+    config.lodBias = cli.lodBias;
+    config.debugViewMode = static_cast<bgl::gpu::DebugViewMode>(cli.debugViewMode);
     config.weatherMode = static_cast<bgl::gpu::WeatherMode>(cli.weatherMode);
     config.weatherIntensity = cli.weatherIntensity;
     config.windStrength = cli.windStrength;

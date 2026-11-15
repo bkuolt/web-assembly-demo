@@ -40,8 +40,8 @@ public:
 
     AabbRenderer(const AabbRenderer&) = delete;
     AabbRenderer& operator=(const AabbRenderer&) = delete;
-    AabbRenderer(AabbRenderer&& other) noexcept = default;
-    AabbRenderer& operator=(AabbRenderer&& other) noexcept = default;
+    AabbRenderer(AabbRenderer&& other) noexcept;
+    AabbRenderer& operator=(AabbRenderer&& other) noexcept;
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
                                   uint32_t sampleCount, WGPUTextureFormat depthFormat = WGPUTextureFormat_Depth24Plus);

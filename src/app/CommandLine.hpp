@@ -39,6 +39,10 @@ struct CliOptions {
     bool enableReflections{true};
     bool enableAmbientOcclusion{true};
     bool enableOcclusionCulling{true};
+    bool enableLod{true};
+    bool enableAutoLod{false};
+    float lodBias{1.0f};
+    uint32_t debugViewMode{0}; // 0=LitPbr, 1=LodHeatmap, 2=Normals, 3=MetallicRoughnessAo, 4=UvChecker
 
     uint32_t weatherMode{0}; // 0=None/Clear, 1=Rain, 2=Snow, 3=Fog, 4=Smoke
     float weatherIntensity{1.0f};

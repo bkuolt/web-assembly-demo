@@ -78,6 +78,7 @@ private:
 
     size_t primitiveCount_{0};
     size_t boundsBufferSize_{0};
+    size_t visibilityBufferSize_{0};
     std::vector<GpuBoundingBox> cpuBounds_{};
 };
 

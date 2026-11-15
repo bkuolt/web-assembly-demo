@@ -78,7 +78,14 @@ public:
 
     [[nodiscard]] bool IsInitialized() const noexcept { return tonemapPipeline_ != nullptr; }
 
+    /**
+     * @brief Invalidates the cached HDR resolve bind group (e.g., after swapchain/HDR resize).
+     */
+    void InvalidateBindGroup() noexcept;
+
 private:
+    void MoveFrom(PostProcessPass& other) noexcept;
+
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};

@@ -536,10 +536,10 @@ fn vs_shadow(in : VertexInput) -> VertexOutput {
     var localPos = in.position;
 
     if (ubo.jointCount > 0u) {
-        let i0 = in.joints.x;
-        let i1 = in.joints.y;
-        let i2 = in.joints.z;
-        let i3 = in.joints.w;
+        let i0 = min(in.joints.x, 127u);
+        let i1 = min(in.joints.y, 127u);
+        let i2 = min(in.joints.z, 127u);
+        let i3 = min(in.joints.w, 127u);
         let skinMat = in.weights.x * ubo.jointMatrices[i0] +
                       in.weights.y * ubo.jointMatrices[i1] +
                       in.weights.z * ubo.jointMatrices[i2] +
@@ -725,10 +725,10 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     var localTan = in.tangent.xyz;
 
     if (ubo.jointCount > 0u) {
-        let i0 = in.joints.x;
-        let i1 = in.joints.y;
-        let i2 = in.joints.z;
-        let i3 = in.joints.w;
+        let i0 = min(in.joints.x, 127u);
+        let i1 = min(in.joints.y, 127u);
+        let i2 = min(in.joints.z, 127u);
+        let i3 = min(in.joints.w, 127u);
         let skinMat = in.weights.x * ubo.jointMatrices[i0] +
                       in.weights.y * ubo.jointMatrices[i1] +
                       in.weights.z * ubo.jointMatrices[i2] +
@@ -827,18 +827,46 @@ fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
     let compareDepth = projCoords.z - slopeBias;
     let texelSize = 1.0 / 2048.0;
 
+    // Shader-LOD: distant LOD2/LOD3 primitives use fast 1-tap hardware comparison instead of 9-tap PCF
+    let lodLevel = (ubo.flags >> 19u) & 3u;
     var shadow = 0.0;
-    for (var y : i32 = -1; y <= 1; y = y + 1) {
-        for (var x : i32 = -1; x <= 1; x = x + 1) {
-            let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
-            shadow = shadow + textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, compareDepth);
+    if (lodLevel >= 2u) {
+        shadow = textureSampleCompareLevel(shadowMap, shadowSampler, uv, compareDepth);
+    } else {
+        for (var y : i32 = -1; y <= 1; y = y + 1) {
+            for (var x : i32 = -1; x <= 1; x = x + 1) {
+                let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
+                shadow = shadow + textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, compareDepth);
+            }
         }
+        shadow = shadow / 9.0;
     }
-    shadow = shadow / 9.0;
 
     let edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     let borderFade = smoothstep(0.0, 0.04, edgeDist);
     return mix(1.0, shadow, borderFade);
+}
+
+fn bayerDither4x4(fragCoord : vec2<f32>) -> f32 {
+    let x = u32(fragCoord.x) & 3u;
+    let y = u32(fragCoord.y) & 3u;
+    let idx = y * 4u + x;
+    let bayer = array<f32, 16>(
+         0.0 / 16.0,  8.0 / 16.0,  2.0 / 16.0, 10.0 / 16.0,
+        12.0 / 16.0,  4.0 / 16.0, 14.0 / 16.0,  6.0 / 16.0,
+         3.0 / 16.0, 11.0 / 16.0,  1.0 / 16.0,  9.0 / 16.0,
+        15.0 / 16.0,  7.0 / 16.0, 13.0 / 16.0,  5.0 / 16.0
+    );
+    return bayer[idx];
+}
+
+fn evaluateLodHeatmapColor(lodLevel : u32) -> vec3<f32> {
+    switch (lodLevel) {
+        case 0u: { return vec3<f32>(0.10, 0.92, 0.38); } // LOD0: Emerald Green (100% Detail)
+        case 1u: { return vec3<f32>(0.96, 0.82, 0.12); } // LOD1: Amber Yellow (~50% Detail)
+        case 2u: { return vec3<f32>(0.98, 0.45, 0.10); } // LOD2: Deep Orange (~25% Detail)
+        default: { return vec3<f32>(0.95, 0.16, 0.22); } // LOD3: Crimson Red (~10% Detail)
+    }
 }
 
 fn evaluateDirectLobe(
@@ -1235,10 +1263,14 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     // Primary sun direction is already world-space oriented to match the rotated environment
     let sunL = normalize(ubo.lightDir.xyz);
 
-    // Parallax Occlusion Mapping (POM) if flag bit 15 is active and bump mapping is enabled
+    let lodLevel = (ubo.flags >> 19u) & 3u;
+    let debugViewMode = (ubo.flags >> 21u) & 7u;
+    let lodTransition = clamp(ubo.specularColorFactor.w, 0.0, 1.0);
+
+    // Shader-LOD: Parallax Occlusion Mapping (POM) only evaluated at near-field LOD0
     var uv = in.uv;
     var pomShadow = 1.0;
-    if ((ubo.flags & 32768u) != 0u && (ubo.flags & 1024u) != 0u) {
+    if (lodLevel == 0u && (ubo.flags & 32768u) != 0u && (ubo.flags & 1024u) != 0u) {
         let isNormalMapped = (ubo.flags & 4u) != 0u;
         let baseScale = select(0.035, 0.005, isNormalMapped);
         let pomScale = max(ubo.bumpScale * baseScale, 0.001);
@@ -1291,7 +1323,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
         var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
         var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
-        if ((ubo.flags & 16u) != 0u) {
+        if (lodLevel < 2u && (ubo.flags & 16u) != 0u) {
             let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
             let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
             let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
@@ -1521,13 +1553,15 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     var finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
+    // Hoist screen-space derivatives into uniform control flow before non-uniform transFactor branch.
+    let screenDim = max(sceneLighting.gridParams.xy, vec2<f32>(1.0, 1.0));
+    let screenUV = in.clipPos.xy / screenDim;
+    let refrDpdx = dpdx(screenUV);
+    let refrDpdy = dpdy(screenUV);
+
     var outAlpha = baseColor.a;
     if (transFactor > 0.001) {
         let fresnelGlass = fresnelSchlick(NdotV, vec3<f32>(f0_dielectric)).r;
-
-        // Screen-space refraction coordinate
-        let screenDim = max(sceneLighting.gridParams.xy, vec2<f32>(1.0, 1.0));
-        let screenUV = in.clipPos.xy / screenDim;
 
         // Physical Snell's law refraction in view space
         let ior = max(ubo.ior, 1.0);
@@ -1541,7 +1575,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let refrOffset = (N_view.xy * (1.0 - eta)) * (thickness / viewZ) * 0.12;
         let refrUV = clamp(screenUV + refrOffset, vec2<f32>(0.001), vec2<f32>(0.999));
 
-        var bgSample = textureSample(opaqueColorTexture, defaultSampler, refrUV).rgb;
+        var bgSample = textureSampleGrad(opaqueColorTexture, defaultSampler, refrUV, refrDpdx, refrDpdy).rgb;
 
         // Beer-Lambert volume attenuation (KHR_materials_volume)
         if (ubo.thicknessFactor > 0.0 && ubo.attenuationDistance < 1e8) {
@@ -1567,6 +1601,25 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         finalColor = calculateFogEffect(finalColor, in.worldPos, ubo.cameraPos.xyz, sunL, solarElev, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
         finalColor = calculateSmokePlumes(finalColor, in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+    }
+
+    // Multi-Mode Debug Visualization & Screen-Space Bayer Dithered LOD Heatmap
+    if (debugViewMode == 1u) {
+        let baseLodCol = evaluateLodHeatmapColor(lodLevel);
+        let nextLodCol = evaluateLodHeatmapColor(min(lodLevel + 1u, 3u));
+        let ditherPick = select(0.0, 1.0, lodTransition > bayerDither4x4(in.clipPos.xy));
+        let heatCol = mix(baseLodCol, nextLodCol, ditherPick);
+        let ndotlShade = 0.32 + 0.68 * max(dot(N, sunL), 0.0);
+        finalColor = mix(heatCol * ndotlShade, finalColor, 0.18);
+    } else if (debugViewMode == 2u) {
+        finalColor = N * 0.5 + vec3<f32>(0.5);
+    } else if (debugViewMode == 3u) {
+        finalColor = vec3<f32>(ao, roughness, metallic);
+    } else if (debugViewMode == 4u) {
+        let grid = floor(uv * 16.0);
+        let parity = f32((i32(grid.x) + i32(grid.y)) & 1);
+        let uvTint = vec3<f32>(fract(uv.x), fract(uv.y), 0.55);
+        finalColor = mix(uvTint * 0.35, uvTint * 1.15, parity);
     }
 
     return vec4<f32>(finalColor, outAlpha);
@@ -1670,11 +1723,25 @@ struct VertexInput {
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
     @location(3) uv : vec2<f32>,
+    @location(4) joints : vec4<u32>,
+    @location(5) weights : vec4<f32>,
 };
 
 @vertex
 fn vs_main(in : VertexInput) -> @builtin(position) vec4<f32> {
-    return ubo.viewProj * ubo.model * vec4<f32>(in.position, 1.0);
+    var localPos = in.position;
+    if (ubo.jointCount > 0u) {
+        let i0 = min(in.joints.x, 127u);
+        let i1 = min(in.joints.y, 127u);
+        let i2 = min(in.joints.z, 127u);
+        let i3 = min(in.joints.w, 127u);
+        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
+                      in.weights.y * ubo.jointMatrices[i1] +
+                      in.weights.z * ubo.jointMatrices[i2] +
+                      in.weights.w * ubo.jointMatrices[i3];
+        localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
+    }
+    return ubo.viewProj * ubo.model * vec4<f32>(localPos, 1.0);
 }
 
 @fragment

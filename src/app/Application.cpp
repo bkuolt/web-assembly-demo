@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <ranges>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -75,6 +76,10 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetReflectionsEnabled(config.enableReflections);
     pipelineManager_.SetAmbientOcclusionEnabled(config.enableAmbientOcclusion);
     pipelineManager_.SetOcclusionCullingEnabled(config.enableOcclusionCulling);
+    pipelineManager_.SetLodEnabled(config.enableLod);
+    pipelineManager_.SetAutoLodEnabled(config.enableAutoLod);
+    pipelineManager_.SetLodBias(config.lodBias);
+    pipelineManager_.SetDebugViewMode(config.debugViewMode);
     pipelineManager_.SetWeatherMode(config.weatherMode);
     pipelineManager_.SetWeatherIntensity(config.weatherIntensity);
     pipelineManager_.SetWindStrength(config.windStrength);
@@ -96,6 +101,27 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         BGL_LOG_WARN("Could not initialize Debug Overlay: {}", res.error());
     }
     debugOverlay_.SetVisible(config.enableDebugOverlay);
+
+    if (auto res = settingsUi_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
+                                          gpuContext_.GetPreferredFormat(), 1);
+        !res) {
+        BGL_LOG_WARN("Could not initialize ImmediateUI: {}", res.error());
+    }
+    switch (scene::TextureDecoder::GetDefaultKtxTarget()) {
+    case scene::KtxTranscodeTarget::Bc7:
+        selectedKtxOption_ = 1;
+        break;
+    case scene::KtxTranscodeTarget::Astc4x4:
+        selectedKtxOption_ = 2;
+        break;
+    case scene::KtxTranscodeTarget::Etc2Rgba:
+        selectedKtxOption_ = 3;
+        break;
+    case scene::KtxTranscodeTarget::Rgba32:
+    default:
+        selectedKtxOption_ = 4;
+        break;
+    }
 
     soundEngine_.Initialize();
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
@@ -134,6 +160,17 @@ void Application::Update(float deltaTime) {
     if (!running_)
         return;
 
+    uiInput_.mousePressed = false;
+    uiInput_.mouseReleased = false;
+    bool pendingPick = false;
+    float pickX = 0.0f;
+    float pickY = 0.0f;
+    float orbitDx = 0.0f;
+    float orbitDy = 0.0f;
+    float panDx = 0.0f;
+    float panDy = 0.0f;
+    float wheelDelta = 0.0f;
+
 #if defined(BGL_PLATFORM_NATIVE)
     if (nativeWindow_) {
         SDL_Event event;
@@ -147,7 +184,10 @@ void Application::Update(float deltaTime) {
                                        static_cast<uint32_t>(event.window.data2));
                 }
             } else if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
+                if (event.key.keysym.sym == SDLK_F2) {
+                    ToggleSettingsUI();
+                    BGL_LOG_INFO("Toggled VRAM & Compression Settings UI: {}", showSettingsUi_ ? "ON" : "OFF");
+                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
                     running_ = false;
                     return;
                 } else if (event.key.keysym.sym == SDLK_b) {
@@ -233,6 +273,28 @@ void Application::Update(float deltaTime) {
                     BGL_LOG_INFO("Toggled Automatic Day/Night Cycle: {} (Time: {:02d}:{:02d})",
                                  dayNightCycleActive_ ? "ON" : "OFF", static_cast<int>(timeOfDay_),
                                  static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
+                } else if (event.key.keysym.sym == SDLK_n || event.key.keysym.sym == SDLK_F9) {
+                    CycleDebugViewMode();
+                    BGL_LOG_INFO("Switched Diagnostic Debug View: {}",
+                                 pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode()));
+                } else if (event.key.keysym.sym == SDLK_F10) {
+                    ToggleLodHeatmap();
+                    BGL_LOG_INFO("Toggled LOD Heatmap View: {}",
+                                 pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode()));
+                } else if (event.key.keysym.sym == SDLK_F11) {
+                    ToggleLod();
+                    BGL_LOG_INFO("Toggled Multi-Level Mesh & Shader LOD System: {}",
+                                 pipelineManager_.IsLodEnabled() ? "ON" : "OFF");
+                } else if (event.key.keysym.sym == SDLK_F12) {
+                    ToggleAutoLod();
+                    BGL_LOG_INFO("Toggled Adaptive 60 FPS Auto-LOD: {} (LOD Bias: {:.2f}x)",
+                                 pipelineManager_.IsAutoLodEnabled() ? "ON" : "OFF", pipelineManager_.GetLodBias());
+                } else if (event.key.keysym.sym == SDLK_SEMICOLON) {
+                    SetLodBias(pipelineManager_.GetLodBias() - 0.15f);
+                    BGL_LOG_INFO("LOD Bias decreased: {:.2f}x", pipelineManager_.GetLodBias());
+                } else if (event.key.keysym.sym == SDLK_QUOTE) {
+                    SetLodBias(pipelineManager_.GetLodBias() + 0.15f);
+                    BGL_LOG_INFO("LOD Bias increased: {:.2f}x", pipelineManager_.GetLodBias());
                 } else if (event.key.keysym.sym == SDLK_COMMA) {
                     SetTimeOfDay(timeOfDay_ - 0.5f);
                     BGL_LOG_INFO("Time of Day stepped back: {:02d}:{:02d}", static_cast<int>(timeOfDay_),
@@ -283,19 +345,38 @@ void Application::Update(float deltaTime) {
                 } else if (event.key.keysym.sym == SDLK_RIGHTBRACKET) {
                     RotateEnvironment(0.0872665f); // +5 degrees
                 }
-            } else if (event.type == SDL_MOUSEBUTTONDOWN &&
-                       (event.button.button == SDL_BUTTON_MIDDLE ||
-                        (event.button.button == SDL_BUTTON_LEFT && event.button.clicks == 2))) {
-                PickNodeAt(static_cast<float>(event.button.x), static_cast<float>(event.button.y),
-                           static_cast<float>(gpuContext_.GetWidth()), static_cast<float>(gpuContext_.GetHeight()));
-            } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_LMASK)) {
-                camera_.Orbit(event.motion.xrel * 0.005f, -event.motion.yrel * 0.005f);
-            } else if (event.type == SDL_MOUSEMOTION && (event.motion.state & SDL_BUTTON_RMASK)) {
-                camera_.Pan(-event.motion.xrel * 0.0005f * camera_.GetDistance(),
-                            event.motion.yrel * 0.0005f * camera_.GetDistance());
+            } else if (event.type == SDL_MOUSEBUTTONDOWN) {
+                uiInput_.mouseX = static_cast<float>(event.button.x);
+                uiInput_.mouseY = static_cast<float>(event.button.y);
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    uiInput_.mouseDown = true;
+                    uiInput_.mousePressed = true;
+                }
+                if (event.button.button == SDL_BUTTON_MIDDLE ||
+                    (event.button.button == SDL_BUTTON_LEFT && event.button.clicks == 2)) {
+                    pendingPick = true;
+                    pickX = static_cast<float>(event.button.x);
+                    pickY = static_cast<float>(event.button.y);
+                }
+            } else if (event.type == SDL_MOUSEBUTTONUP) {
+                uiInput_.mouseX = static_cast<float>(event.button.x);
+                uiInput_.mouseY = static_cast<float>(event.button.y);
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    uiInput_.mouseDown = false;
+                    uiInput_.mouseReleased = true;
+                }
+            } else if (event.type == SDL_MOUSEMOTION) {
+                uiInput_.mouseX = static_cast<float>(event.motion.x);
+                uiInput_.mouseY = static_cast<float>(event.motion.y);
+                if (event.motion.state & SDL_BUTTON_LMASK) {
+                    orbitDx += static_cast<float>(event.motion.xrel);
+                    orbitDy += static_cast<float>(event.motion.yrel);
+                } else if (event.motion.state & SDL_BUTTON_RMASK) {
+                    panDx += static_cast<float>(event.motion.xrel);
+                    panDy += static_cast<float>(event.motion.yrel);
+                }
             } else if (event.type == SDL_MOUSEWHEEL) {
-                float zoomStep = camera_.GetDistance() * 0.12f;
-                camera_.Zoom(event.wheel.y * zoomStep);
+                wheelDelta += static_cast<float>(event.wheel.y);
             } else if (event.type == SDL_DROPFILE || event.type == SDL_DROPTEXT) {
                 char* droppedStr{event.drop.file};
                 if (droppedStr) {
@@ -360,6 +441,7 @@ void Application::Update(float deltaTime) {
     }
 
     pipelineManager_.AdvanceWeatherTime(deltaTime);
+    pipelineManager_.UpdateAutoLod(deltaTime);
     if (dayNightCycleActive_) {
         SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * deltaTime);
     }
@@ -388,6 +470,12 @@ void Application::Update(float deltaTime) {
     stats.reflectionsEnabled = pipelineManager_.IsReflectionsEnabled();
     stats.ambientOcclusionEnabled = pipelineManager_.IsAmbientOcclusionEnabled();
     stats.occlusionCullingEnabled = pipelineManager_.IsOcclusionCullingEnabled();
+    stats.lodEnabled = pipelineManager_.IsLodEnabled();
+    stats.autoLodEnabled = pipelineManager_.IsAutoLodEnabled();
+    stats.lodBias = pipelineManager_.GetLodBias();
+    stats.renderedTriangles = pipelineManager_.GetRenderedTriangleCount();
+    stats.totalVisibleTriangles = pipelineManager_.GetTotalVisibleTriangleCount();
+    stats.debugViewName = std::string{pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode())};
     stats.weatherModeName = std::string{pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode())};
     stats.timeOfDay = timeOfDay_;
     stats.dayNightCycleEnabled = dayNightCycleActive_;
@@ -396,17 +484,42 @@ void Application::Update(float deltaTime) {
     auto memTelemetry = core::MemoryTracker::Instance().Query();
     stats.residentRamBytes = memTelemetry.residentRamBytes;
     size_t vramBytes = memTelemetry.TotalGpuBytes();
+    size_t textureVramBytes = 0;
     if (activeScene_) {
         for (const auto& tex : activeScene_->gpuTextures) {
-            vramBytes += static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
+            const size_t texBytes = (tex.vramBytes > 0)
+                                        ? tex.vramBytes
+                                        : static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
+            textureVramBytes += texBytes;
         }
+        vramBytes += textureVramBytes;
         vramBytes += totalVertices_ * sizeof(core::Vertex);
         vramBytes += totalIndices_ * sizeof(uint32_t);
     }
+    // RGBA16F and Depth24 MSAA targets are not tracked in MemoryTracker; ShadowPass depth is already included via TotalGpuBytes().
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 8 * 4); // RGBA16F 4x MSAA
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 4 * 4); // Depth24 4x MSAA
-    vramBytes += 2048 * 2048 * 4;                                                               // Shadow map Depth32F
     stats.vramBytes = vramBytes;
+    lastVramBytes_ = vramBytes;
+    lastTextureVramBytes_ = textureVramBytes;
+
+    // Immediate Mode Settings UI & Mouse Event Consumption (blocks 3D camera/picking when interacting with UI)
+    UpdateSettingsUI();
+    if (!settingsUi_.WantsMouse()) {
+        if (pendingPick) {
+            PickNodeAt(pickX, pickY, static_cast<float>(gpuContext_.GetWidth()),
+                       static_cast<float>(gpuContext_.GetHeight()));
+        }
+        if (orbitDx != 0.0f || orbitDy != 0.0f) {
+            camera_.Orbit(orbitDx * 0.005f, -orbitDy * 0.005f);
+        }
+        if (panDx != 0.0f || panDy != 0.0f) {
+            camera_.Pan(-panDx * 0.0005f * camera_.GetDistance(), panDy * 0.0005f * camera_.GetDistance());
+        }
+        if (wheelDelta != 0.0f) {
+            camera_.Zoom(wheelDelta * camera_.GetDistance() * 0.12f);
+        }
+    }
 
     stats.gamepadConnected = gp.connected;
     stats.isDualSense = gp.isDualSense;
@@ -490,8 +603,11 @@ void Application::Render() {
                                        camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,
                                        skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
 
-    // 6. In-Engine 2D Debug Overlay (FPS, HarfBuzz text, telemetry HUD) onto swapchain
+    // 6. In-Engine 2D Debug Overlay & Immediate Mode Settings UI onto swapchain
     debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+    if (showSettingsUi_) {
+        settingsUi_.Render(swapchainPass);
+    }
 
     gpuContext_.EndFrame(swapchainPass);
 }
@@ -582,6 +698,7 @@ void Application::Shutdown() {
     quadtree_.reset();
     gltfLoader_.reset();
     assetManager_.Clear();
+    settingsUi_.Shutdown();
     skybox_.Shutdown();
     pipelineManager_.Shutdown();
     soundEngine_.Shutdown();
@@ -747,6 +864,111 @@ void Application::UpdateSunDirection() noexcept {
     const float cosEl = std::cos(sunElevation_);
     sunDir_ = glm::normalize(
         glm::vec3{cosEl * std::sin(sunAzimuth_), std::sin(sunElevation_), cosEl * std::cos(sunAzimuth_)});
+}
+
+void Application::SetKtxCompressionTarget(scene::KtxTranscodeTarget target) {
+    if (!activeScene_) {
+        return;
+    }
+    scene::KtxTranscodeTarget resolved = target;
+    if (resolved == scene::KtxTranscodeTarget::Bc7 && !gpuContext_.SupportsBC()) {
+        resolved = scene::KtxTranscodeTarget::Rgba32;
+    } else if (resolved == scene::KtxTranscodeTarget::Astc4x4 && !gpuContext_.SupportsASTC()) {
+        resolved = scene::KtxTranscodeTarget::Rgba32;
+    } else if (resolved == scene::KtxTranscodeTarget::Etc2Rgba && !gpuContext_.SupportsETC2()) {
+        resolved = scene::KtxTranscodeTarget::Rgba32;
+    }
+    pipelineManager_.RetranscodeKtxTextures(*activeScene_, resolved);
+}
+
+void Application::UpdateSettingsUI() {
+    int winW = 1280;
+    int winH = 720;
+    if (nativeWindow_) {
+        SDL_GetWindowSize(nativeWindow_, &winW, &winH);
+    }
+    const uint32_t vpW = static_cast<uint32_t>(std::max(1, winW));
+    const uint32_t vpH = static_cast<uint32_t>(std::max(1, winH));
+    settingsUi_.BeginFrame(uiInput_, vpW, vpH);
+
+    if (!showSettingsUi_) {
+        settingsUi_.EndFrame();
+        return;
+    }
+
+    settingsUi_.BeginWindow("Engine & VRAM Settings", 16.0f, 16.0f, 330.0f);
+
+    char vramBuf[96];
+    const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
+    const double texMb = static_cast<double>(lastTextureVramBytes_) / (1024.0 * 1024.0);
+    std::snprintf(vramBuf, sizeof(vramBuf), "Total VRAM: %.2f MB", totalMb);
+    bgl::ui::UI::Label(vramBuf);
+
+    std::snprintf(vramBuf, sizeof(vramBuf), "Textures VRAM: %.2f MB", texMb);
+    bgl::ui::UI::Label(vramBuf, glm::vec4{0.72f, 0.86f, 0.98f, 1.0f});
+
+    std::snprintf(
+        vramBuf,
+        sizeof(vramBuf),
+        "GPU Caps: BC7=%s ASTC=%s ETC2=%s",
+        gpuContext_.SupportsBC() ? "yes" : "no",
+        gpuContext_.SupportsASTC() ? "yes" : "no",
+        gpuContext_.SupportsETC2() ? "yes" : "no");
+    bgl::ui::UI::Label(vramBuf, glm::vec4{0.68f, 0.72f, 0.78f, 1.0f});
+
+    static constexpr const char* kKtxOptions[] = {
+        "Auto (Hardware)",
+        "BC7 (Desktop)",
+        "ASTC 4x4 (Mobile)",
+        "ETC2 RGBA",
+        "RGBA32 (Uncompressed)",
+    };
+
+    if (bgl::ui::UI::Dropdown("KTX2 Compression", kKtxOptions, selectedKtxOption_)) {
+        scene::KtxTranscodeTarget target = scene::KtxTranscodeTarget::Rgba32;
+        switch (selectedKtxOption_) {
+            case 0:
+                if (gpuContext_.SupportsBC()) {
+                    target = scene::KtxTranscodeTarget::Bc7;
+                } else if (gpuContext_.SupportsASTC()) {
+                    target = scene::KtxTranscodeTarget::Astc4x4;
+                } else if (gpuContext_.SupportsETC2()) {
+                    target = scene::KtxTranscodeTarget::Etc2Rgba;
+                }
+                break;
+            case 1:
+                target = scene::KtxTranscodeTarget::Bc7;
+                break;
+            case 2:
+                target = scene::KtxTranscodeTarget::Astc4x4;
+                break;
+            case 3:
+                target = scene::KtxTranscodeTarget::Etc2Rgba;
+                break;
+            case 4:
+            default:
+                target = scene::KtxTranscodeTarget::Rgba32;
+                break;
+        }
+        SetKtxCompressionTarget(target);
+    }
+
+    bool mipmaps = pipelineManager_.IsMipmappingEnabled();
+    if (bgl::ui::UI::Checkbox("Mipmapping", mipmaps)) {
+        ToggleMipmapping();
+    }
+
+    bool shadows = pipelineManager_.IsShadowsEnabled();
+    if (bgl::ui::UI::Checkbox("Shadows", shadows)) {
+        ToggleShadows();
+    }
+
+    if (bgl::ui::UI::Button("Frame All")) {
+        FrameAll();
+    }
+
+    settingsUi_.EndWindow();
+    settingsUi_.EndFrame();
 }
 
 } // namespace bgl::app

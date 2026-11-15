@@ -8,6 +8,24 @@
 
 namespace bgl::core {
 
+namespace {
+
+[[nodiscard]] glm::vec3 SafeNormalize(const glm::vec3& v, const glm::vec3& fallback) noexcept {
+    const float lenSq = glm::dot(v, v);
+    if (lenSq > 1e-10f) {
+        return v * (1.0f / std::sqrt(lenSq));
+    }
+    return fallback;
+}
+
+[[nodiscard]] glm::vec3 SafeRightFromForward(const glm::vec3& forward) noexcept {
+    const glm::vec3 worldUp =
+        (std::abs(forward.y) > 0.999f) ? glm::vec3{0.0f, 0.0f, -1.0f} : glm::vec3{0.0f, 1.0f, 0.0f};
+    return SafeNormalize(glm::cross(forward, worldUp), glm::vec3{1.0f, 0.0f, 0.0f});
+}
+
+} // namespace
+
 Camera::Camera(glm::vec3 target, float distance) : target_{target}, distance_{distance} {
     Update(16.0f / 9.0f);
 }
@@ -19,9 +37,9 @@ void Camera::Orbit(float deltaYaw, float deltaPitch) noexcept {
 }
 
 void Camera::Pan(float deltaX, float deltaY) noexcept {
-    const glm::vec3 forward{glm::normalize(target_ - position_)};
-    const glm::vec3 right{glm::normalize(glm::cross(forward, glm::vec3{0.0f, 1.0f, 0.0f}))};
-    const glm::vec3 up{glm::normalize(glm::cross(right, forward))};
+    const glm::vec3 forward{SafeNormalize(target_ - position_, glm::vec3{0.0f, 0.0f, -1.0f})};
+    const glm::vec3 right{SafeRightFromForward(forward)};
+    const glm::vec3 up{SafeNormalize(glm::cross(right, forward), glm::vec3{0.0f, 1.0f, 0.0f})};
     const glm::vec3 delta = right * deltaX + up * deltaY;
     target_ += delta;
     if (mode_ == CameraMode::Fly) {
@@ -32,11 +50,7 @@ void Camera::Pan(float deltaX, float deltaY) noexcept {
 void Camera::MoveForward(float delta) noexcept {
     glm::vec3 forward{target_ - position_};
     forward.y = 0.0f; // Constrain to ground plane for smooth WASD navigation
-    if (glm::length(forward) > 1e-4f) {
-        forward = glm::normalize(forward);
-    } else {
-        forward = glm::vec3{0.0f, 0.0f, -1.0f};
-    }
+    forward = SafeNormalize(forward, glm::vec3{0.0f, 0.0f, -1.0f});
     target_ += forward * delta;
     if (mode_ == CameraMode::Fly) {
         position_ += forward * delta;
@@ -46,12 +60,8 @@ void Camera::MoveForward(float delta) noexcept {
 void Camera::MoveRight(float delta) noexcept {
     glm::vec3 forward{target_ - position_};
     forward.y = 0.0f;
-    if (glm::length(forward) > 1e-4f) {
-        forward = glm::normalize(forward);
-    } else {
-        forward = glm::vec3{0.0f, 0.0f, -1.0f};
-    }
-    const glm::vec3 right{glm::normalize(glm::cross(forward, glm::vec3{0.0f, 1.0f, 0.0f}))};
+    forward = SafeNormalize(forward, glm::vec3{0.0f, 0.0f, -1.0f});
+    const glm::vec3 right{SafeRightFromForward(forward)};
     target_ += right * delta;
     if (mode_ == CameraMode::Fly) {
         position_ += right * delta;
@@ -127,7 +137,7 @@ void Camera::SetPositionAndTarget(const glm::vec3& position, const glm::vec3& ta
     target_ = target;
     const glm::vec3 diff = target - position;
     distance_ = std::max(glm::length(diff), 0.001f);
-    const glm::vec3 dir = glm::normalize(diff);
+    const glm::vec3 dir = SafeNormalize(diff, glm::vec3{0.0f, 0.0f, -1.0f});
     pitch_ = std::asin(std::clamp(dir.y, -0.999f, 0.999f));
     yaw_ = std::atan2(-dir.x, -dir.z);
     Update(16.0f / 9.0f);
@@ -136,7 +146,7 @@ void Camera::SetPositionAndTarget(const glm::vec3& position, const glm::vec3& ta
 void Camera::SetFromTransform(const glm::mat4& transform, float fovY, float nearPlane, float farPlane) noexcept {
     position_ = glm::vec3(transform[3]);
     // glTF camera looks toward -Z
-    const glm::vec3 forward = -glm::normalize(glm::vec3(transform[2]));
+    const glm::vec3 forward = -SafeNormalize(glm::vec3(transform[2]), glm::vec3{0.0f, 0.0f, 1.0f});
     distance_ = 5.0f;
     target_ = position_ + forward * distance_;
     pitch_ = std::asin(std::clamp(forward.y, -0.999f, 0.999f));
@@ -149,6 +159,7 @@ void Camera::SetFromTransform(const glm::mat4& transform, float fovY, float near
 }
 
 void Camera::Update(float aspectRatio) noexcept {
+    const float safeAspect = (aspectRatio > 1e-4f && std::isfinite(aspectRatio)) ? aspectRatio : (16.0f / 9.0f);
     if (mode_ == CameraMode::Orbit) {
         const float x{target_.x + distance_ * std::cos(pitch_) * std::sin(yaw_)};
         const float y{target_.y + distance_ * std::sin(pitch_)};
@@ -164,23 +175,32 @@ void Camera::Update(float aspectRatio) noexcept {
     dynamicNear_ = std::max(0.0005f, std::min(nearPlane_, distance_ * 0.01f));
     dynamicFar_ = std::max(farPlane_, distance_ * 10.0f);
     // Use WebGPU 0..1 depth clip space
-    projMatrix_ = glm::perspectiveRH_ZO(fovY_, aspectRatio, dynamicNear_, dynamicFar_);
+    projMatrix_ = glm::perspectiveRH_ZO(fovY_, safeAspect, dynamicNear_, dynamicFar_);
 }
 
 Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, float screenHeight) const noexcept {
+    Ray ray{};
+    ray.origin = position_;
+    ray.direction = SafeNormalize(target_ - position_, glm::vec3{0.0f, 0.0f, -1.0f});
+    if (screenWidth <= 0.0f || screenHeight <= 0.0f) {
+        return ray;
+    }
+
     const float ndcX{(2.0f * screenX) / screenWidth - 1.0f};
     const float ndcY{1.0f - (2.0f * screenY) / screenHeight};
 
     const glm::mat4 invVP{glm::inverse(projMatrix_ * viewMatrix_)};
     glm::vec4 nearPoint{invVP * glm::vec4{ndcX, ndcY, 0.0f, 1.0f}};
     glm::vec4 farPoint{invVP * glm::vec4{ndcX, ndcY, 1.0f, 1.0f}};
+    if (std::abs(nearPoint.w) <= 1e-6f || std::abs(farPoint.w) <= 1e-6f) {
+        return ray;
+    }
 
     nearPoint /= nearPoint.w;
     farPoint /= farPoint.w;
 
-    Ray ray{};
     ray.origin = glm::vec3{nearPoint};
-    ray.direction = glm::normalize(glm::vec3{farPoint - nearPoint});
+    ray.direction = SafeNormalize(glm::vec3{farPoint - nearPoint}, ray.direction);
     return ray;
 }
 

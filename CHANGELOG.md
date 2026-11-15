@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.16] - 2026-11-15
+
+### End-to-End Multi-Level Mesh & Shader LOD System, Screen-Space Error (SSE), Bayer Dithered Cross-Fading & Diagnostic Render Views
+- **Multi-Level Mesh LOD Generation (`LOD0`–`LOD3`) (`src/scene/Scene.hpp`, `src/scene/Scene.cpp`, `src/scene/FastGltfLoader.cpp`, `web/app.js`):**
+  - Added `struct LodSubMesh { uint32_t firstIndex{0}; uint32_t indexCount{0}; float errorMetric{0.0f}; };` and `lodIndices[4]` / `lodLevels[4]` to `MeshPrimitive` (`kMaxLODLevels = 4`).
+  - Implemented `MeshPrimitive::GenerateLODs()` (C++23) and `BglWebGpuRenderer.generateLodData()` (WebGPU JS) using crease-preserving 3D spatial grid vertex clustering (with normal-octant preservation) and geometric area/stride fallback to build `LOD0` ($100\%$), `LOD1` ($\approx 55\%$), `LOD2` ($\approx 30\%$), and `LOD3` ($\approx 15\%$).
+  - Concatenates all 4 LOD index buffers into a single shared GPU index buffer per primitive, allowing zero-rebind `wgpuRenderPassEncoderDrawIndexed` / `pass.drawIndexed` slice selection via `firstIndex` and `indexCount`.
+- **Screen-Space Error (SSE) & Quadtree 4-Stage LOD Selection (`src/scene/Quadtree.hpp`, `src/scene/Quadtree.cpp`):**
+  - Expanded `scene::LODLevel` with `LOD3 = 3` and added `lodTransition` ($[0.0, 1.0]$) and `screenSpaceArea` to `QuadtreeItem`.
+  - Combines relative distance (`(dist / radius) * lodBias`) with projected NDC screen-space bounding area (`ndcArea`) to select `LOD0` (`< 8.0`), `LOD1` (`< 25.0`), `LOD2` (`< 85.0`), and `LOD3` (`>= 85.0`) along with smooth transition weights across the outer $20\%$ band of each LOD range.
+- **Shader-LOD, Shadow-Pass LOD & $4\times 4$ Bayer Dithering (`src/gpu/Shaders.hpp`, `src/gpu/Pipeline.cpp`, `src/gpu/ShadowPass.cpp`, `web/app.js`):**
+  - **Shader-LOD:** Automatically skips 32-step Parallax Occlusion Mapping (POM) raymarching and contact self-shadowing for `LOD1+`, and switches from 9-tap $3\times 3$ PCF shadows + 4-tap occlusion bump derivatives to fast single-tap evaluation for `LOD2+`.
+  - **Shadow-Pass LOD:** `ShadowPass::Render` and `PipelineManager::RenderShadowNode` automatically render `LOD1` geometry into the $2048\times 2048$ directional shadow map, cutting shadow vertex throughput by ~45% with zero visible shadow degradation.
+  - **Bayer $4\times 4$ Ordered Dithering:** Added `bayerDither4x4()` in WGSL and `PipelineManager::EvaluateBayerDither4x4()` for smooth screen-space LOD cross-fading.
+- **Multi-Mode Diagnostic Render Views & Adaptive 60 FPS Auto-LOD (`src/gpu/Pipeline.hpp`, `src/gpu/Pipeline.cpp`, `web/index.html`, `web/app.js`):**
+  - Added 5 real-time diagnostic shading modes (`[N]` / `[F9]` / `--debug-view <lit|lod|normals|pbr|uv>`):
+    - `0`: **Lit PBR** (Full Cook-Torrance GGX + IBL + Weather)
+    - `1`: **LOD Heatmap** (`[F10]` / `--lod-heatmap` — `LOD0` Emerald, `LOD1` Sky Cyan, `LOD2` Warm Amber, `LOD3` Deep Rose with $4\times 4$ Bayer dithered transitions)
+    - `2`: **World Normals** ($\vec{N} \cdot 0.5 + 0.5$)
+    - `3`: **Metallic / Roughness / AO** (`R = AO`, `G = Roughness`, `B = Metallic`)
+    - `4`: **UV Checkerboard** ($16\times 16$ procedural UV grid)
+  - Added **Adaptive Auto-LOD (`[F12]` / `--auto-lod`)** dynamically scaling `lodBias` ($[0.25\times, 4.0\times]$) using exponential frame-time smoothing to maintain a 60 FPS target.
+  - Added Sponza atrium WebGPU showcase screenshot (`assets/sponza_screenshot.png`) embedded in `README.md` and `web/README.md`.
+
+---
+
 ## [0.9.15] - 2026-11-01
 
 ### Atmospheric Weather Simulation (Rain, Snow, Fog, Smoke), Dynamic Day/Night Cycle & Sponza WebGPU Texturing

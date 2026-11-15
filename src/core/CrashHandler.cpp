@@ -305,7 +305,9 @@ void UninstallCrashHandler() noexcept {
     ::sigaction(SIGBUS, &g_oldActionBus, nullptr);
 
     if (g_altStackMemory) {
-        stack_t disableStack;
+        stack_t disableStack{};
+        disableStack.ss_sp = nullptr;
+        disableStack.ss_size = 0;
         disableStack.ss_flags = SS_DISABLE;
         ::sigaltstack(&disableStack, nullptr);
         std::free(g_altStackMemory);

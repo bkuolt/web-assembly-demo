@@ -16,6 +16,7 @@
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
 #include "ui/DebugOverlay.hpp"
+#include "ui/ImmediateUI.hpp"
 #include <memory>
 #include <string_view>
 
@@ -41,6 +42,10 @@ struct ApplicationConfig {
     bool enableReflections{true};
     bool enableAmbientOcclusion{true};
     bool enableOcclusionCulling{true};
+    bool enableLod{true};
+    bool enableAutoLod{false};
+    float lodBias{1.0f};
+    gpu::DebugViewMode debugViewMode{gpu::DebugViewMode::LitPbr};
     gpu::WeatherMode weatherMode{gpu::WeatherMode::None};
     float weatherIntensity{1.0f};
     float windStrength{0.3f};
@@ -200,6 +205,23 @@ public:
     /** @brief Toggles spatial Quadtree hierarchical occlusion culling. */
     void ToggleOcclusionCulling() noexcept { pipelineManager_.ToggleOcclusionCulling(); }
 
+    /** @brief Multi-level Mesh & Shader LOD and Diagnostic Debug View controls. */
+    void ToggleLod() noexcept { pipelineManager_.ToggleLod(); }
+    void SetLodEnabled(bool enabled) noexcept { pipelineManager_.SetLodEnabled(enabled); }
+    [[nodiscard]] bool IsLodEnabled() const noexcept { return pipelineManager_.IsLodEnabled(); }
+
+    void ToggleAutoLod() noexcept { pipelineManager_.ToggleAutoLod(); }
+    void SetAutoLodEnabled(bool enabled) noexcept { pipelineManager_.SetAutoLodEnabled(enabled); }
+    [[nodiscard]] bool IsAutoLodEnabled() const noexcept { return pipelineManager_.IsAutoLodEnabled(); }
+
+    void SetLodBias(float bias) noexcept { pipelineManager_.SetLodBias(bias); }
+    [[nodiscard]] float GetLodBias() const noexcept { return pipelineManager_.GetLodBias(); }
+
+    void SetDebugViewMode(gpu::DebugViewMode mode) noexcept { pipelineManager_.SetDebugViewMode(mode); }
+    void CycleDebugViewMode() noexcept { pipelineManager_.CycleDebugViewMode(); }
+    void ToggleLodHeatmap() noexcept { pipelineManager_.ToggleLodHeatmap(); }
+    [[nodiscard]] gpu::DebugViewMode GetDebugViewMode() const noexcept { return pipelineManager_.GetDebugViewMode(); }
+
     /** @brief Cycles HDR tonemapping operator (Khronos PBR Neutral -> AgX -> ACES). */
     void CycleTonemapper() noexcept { pipelineManager_.CycleToneMapOperator(); }
 
@@ -321,10 +343,17 @@ public:
     [[nodiscard]] scene::AssetManager& GetAssetManager() noexcept { return assetManager_; }
     [[nodiscard]] audio::SoundEngine& GetSoundEngine() noexcept { return soundEngine_; }
     [[nodiscard]] ui::DebugOverlay& GetDebugOverlay() noexcept { return debugOverlay_; }
+    [[nodiscard]] ui::ImmediateUI& GetImmediateUI() noexcept { return settingsUi_; }
+
+    /** @brief Switches active KTX2 texture transcoding target at runtime and re-uploads loaded KTX2 assets. */
+    void SetKtxCompressionTarget(scene::KtxTranscodeTarget target);
+    void ToggleSettingsUI() noexcept { showSettingsUi_ = !showSettingsUi_; }
+    [[nodiscard]] bool IsSettingsUIVisible() const noexcept { return showSettingsUi_; }
 
 private:
     void ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri);
     void CacheSceneMetrics();
+    void UpdateSettingsUI();
 
     bool running_{false};
     bool showBoundingBoxes_{true};
@@ -336,6 +365,14 @@ private:
     gpu::PipelineManager pipelineManager_{};
     gpu::Skybox skybox_{};
     ui::DebugOverlay debugOverlay_{};
+    ui::ImmediateUI settingsUi_{};
+    ui::UiInputState uiInput_{};
+    bool prevGamepadY_{false};
+    bool prevGamepadX_{false};
+    bool showSettingsUi_{true};
+    size_t selectedKtxOption_{0};
+    size_t lastVramBytes_{0};
+    size_t lastTextureVramBytes_{0};
     audio::SoundEngine soundEngine_{};
     SDL_Window* nativeWindow_{nullptr};
     scene::AssetManager assetManager_{};

@@ -15,6 +15,34 @@
 
 namespace bgl::gpu {
 
+#if defined(BGL_PLATFORM_NATIVE)
+namespace {
+
+[[nodiscard]] WGPUPresentMode SelectPresentMode(WGPUSurface surface, WGPUAdapter adapter) noexcept {
+    WGPUPresentMode chosen{WGPUPresentMode_Fifo};
+    if (!surface || !adapter)
+        return chosen;
+
+    WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT;
+    wgpuSurfaceGetCapabilities(surface, adapter, &caps);
+    if (caps.presentModeCount > 0 && caps.presentModes != nullptr) {
+        for (size_t i{0}; i < caps.presentModeCount; ++i) {
+            if (caps.presentModes[i] == WGPUPresentMode_Immediate) {
+                chosen = WGPUPresentMode_Immediate;
+                break;
+            }
+            if (caps.presentModes[i] == WGPUPresentMode_Mailbox) {
+                chosen = WGPUPresentMode_Mailbox;
+            }
+        }
+    }
+    wgpuSurfaceCapabilitiesFreeMembers(caps);
+    return chosen;
+}
+
+} // namespace
+#endif
+
 Context::Context() = default;
 
 Context::~Context() {
@@ -285,18 +313,6 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         } else {
             format_ = WGPUTextureFormat_BGRA8Unorm;
         }
-
-        WGPUPresentMode chosenPresentMode{WGPUPresentMode_Fifo};
-        if (caps.presentModeCount > 0 && caps.presentModes != nullptr) {
-            for (size_t i{0}; i < caps.presentModeCount; ++i) {
-                if (caps.presentModes[i] == WGPUPresentMode_Immediate) {
-                    chosenPresentMode = WGPUPresentMode_Immediate;
-                    break;
-                } else if (caps.presentModes[i] == WGPUPresentMode_Mailbox) {
-                    chosenPresentMode = WGPUPresentMode_Mailbox;
-                }
-            }
-        }
         wgpuSurfaceCapabilitiesFreeMembers(caps);
 
         WGPUSurfaceConfiguration configSurface = {};
@@ -305,7 +321,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         configSurface.usage = WGPUTextureUsage_RenderAttachment;
         configSurface.width = width_;
         configSurface.height = height_;
-        configSurface.presentMode = chosenPresentMode;
+        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
         configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
 
         wgpuSurfaceConfigure(surface_, &configSurface);
@@ -327,28 +343,13 @@ void Context::Resize(uint32_t width, uint32_t height) {
     height_ = height;
 #if defined(BGL_PLATFORM_NATIVE)
     if (surface_ && device_ && adapter_) {
-        WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT;
-        wgpuSurfaceGetCapabilities(surface_, adapter_, &caps);
-        WGPUPresentMode chosenPresentMode{WGPUPresentMode_Fifo};
-        if (caps.presentModeCount > 0 && caps.presentModes != nullptr) {
-            for (size_t i{0}; i < caps.presentModeCount; ++i) {
-                if (caps.presentModes[i] == WGPUPresentMode_Immediate) {
-                    chosenPresentMode = WGPUPresentMode_Immediate;
-                    break;
-                } else if (caps.presentModes[i] == WGPUPresentMode_Mailbox) {
-                    chosenPresentMode = WGPUPresentMode_Mailbox;
-                }
-            }
-        }
-        wgpuSurfaceCapabilitiesFreeMembers(caps);
-
         WGPUSurfaceConfiguration configSurface = {};
         configSurface.device = device_;
         configSurface.format = format_;
         configSurface.usage = WGPUTextureUsage_RenderAttachment;
         configSurface.width = width_;
         configSurface.height = height_;
-        configSurface.presentMode = chosenPresentMode;
+        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
         configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
         wgpuSurfaceConfigure(surface_, &configSurface);
     }
@@ -368,30 +369,13 @@ bool Context::PrepareFrame() {
     wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
     if (surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Timeout ||
         surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
-        WGPUPresentMode chosenPresentMode{WGPUPresentMode_Fifo};
-        if (adapter_) {
-            WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT;
-            wgpuSurfaceGetCapabilities(surface_, adapter_, &caps);
-            if (caps.presentModeCount > 0 && caps.presentModes != nullptr) {
-                for (size_t i{0}; i < caps.presentModeCount; ++i) {
-                    if (caps.presentModes[i] == WGPUPresentMode_Immediate) {
-                        chosenPresentMode = WGPUPresentMode_Immediate;
-                        break;
-                    } else if (caps.presentModes[i] == WGPUPresentMode_Mailbox) {
-                        chosenPresentMode = WGPUPresentMode_Mailbox;
-                    }
-                }
-            }
-            wgpuSurfaceCapabilitiesFreeMembers(caps);
-        }
-
         WGPUSurfaceConfiguration configSurface = {};
         configSurface.device = device_;
         configSurface.format = format_;
         configSurface.usage = WGPUTextureUsage_RenderAttachment;
         configSurface.width = width_;
         configSurface.height = height_;
-        configSurface.presentMode = chosenPresentMode;
+        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
         configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
         wgpuSurfaceConfigure(surface_, &configSurface);
         return false;
@@ -410,7 +394,13 @@ bool Context::PrepareFrame() {
     }
 
     encoder_ = wgpuDeviceCreateCommandEncoder(device_, nullptr);
-    return encoder_ != nullptr;
+    if (!encoder_) {
+        currentView_.Reset();
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
+        return false;
+    }
+    return true;
 #else
     return false;
 #endif
@@ -507,8 +497,10 @@ void Context::EndFrame(WGPURenderPassEncoder pass) {
         CommandBufferHandle cmdBuf{wgpuCommandEncoderFinish(encoder_, nullptr)};
         encoder_.Reset();
 
-        WGPUCommandBuffer rawCmd{cmdBuf.Get()};
-        wgpuQueueSubmit(queue_, 1, &rawCmd);
+        if (cmdBuf && queue_) {
+            WGPUCommandBuffer rawCmd{cmdBuf.Get()};
+            wgpuQueueSubmit(queue_, 1, &rawCmd);
+        }
     }
 
     if (surface_) {

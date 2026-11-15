@@ -59,7 +59,7 @@ class MockGPUDevice {
   }
 
   createRenderPipeline(desc) {
-    assert(desc.vertex && (desc.vertex.entryPoint === 'vs_main' || desc.vertex.entryPoint === 'vs_mip'), 'Vertex entry point must be vs_main or vs_mip');
+    assert(desc.vertex && (desc.vertex.entryPoint === 'vs_main' || desc.vertex.entryPoint === 'vs_main_skinned' || desc.vertex.entryPoint === 'vs_mip'), 'Vertex entry point must be vs_main, vs_main_skinned, or vs_mip');
     assert(desc.fragment && (desc.fragment.entryPoint === 'fs_main' || desc.fragment.entryPoint === 'fs_mip'), 'Fragment entry point must be fs_main or fs_mip');
     return { id: Math.random(), desc };
   }
@@ -387,6 +387,53 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
     BglGltf.extractJson(corruptChunkLen);
   }, /Truncated GLB chunk/i, 'Oversized chunk length must throw descriptive error');
   console.log('✓ Corrupt/truncated GLB files safely rejected without crashing');
+
+  console.log('--- Step 9: Testing Skeletal Skinning & glTF Character Animations (RobotExpressive.glb & Soldier.glb) ---');
+  for (const charFile of ['web/assets/RobotExpressive.glb', 'web/assets/Soldier.glb']) {
+    if (!fs.existsSync(charFile)) continue;
+    const charBuf = fs.readFileSync(charFile);
+    const charArrayBuf = charBuf.buffer.slice(charBuf.byteOffset, charBuf.byteOffset + charBuf.byteLength);
+    const charGltf = BglGltf.extractJson(charArrayBuf);
+    BglWebGpuRenderer.loadModel(charGltf, charArrayBuf, charFile);
+
+    assert(BglWebGpuRenderer.animations.length > 0, `${charFile} must have animations`);
+    assert(BglWebGpuRenderer.skins.length > 0, `${charFile} must have skeletal skins`);
+    const skinnedPrims = BglWebGpuRenderer.primitives.filter(p => p.isSkinned);
+    assert(skinnedPrims.length > 0, `${charFile} must have at least one skinned primitive`);
+    for (const sp of skinnedPrims) {
+      assert(sp.skinVertexBuffer, 'Skinned primitive must have skinVertexBuffer');
+      assert(sp.skinIdx >= 0 && BglWebGpuRenderer.skins[sp.skinIdx], 'Skinned primitive must reference valid skin');
+    }
+
+    // Advance performance.now() to simulate animation playback
+    const origNow = global.performance.now;
+    let simTime = (BglWebGpuRenderer._lastDrawMs || 1000);
+    global.performance.now = () => { simTime += 33; return simTime; };
+    BglWebGpuRenderer.setAnimation(0);
+    BglWebGpuRenderer.draw();
+    BglWebGpuRenderer.draw();
+    global.performance.now = origNow;
+
+    assert(BglWebGpuRenderer.animationTime > 0, `${charFile} animationTime must advance during playback`);
+    console.log(`✓ ${charFile}: ${BglWebGpuRenderer.animations.length} animations, ${BglWebGpuRenderer.skins.length} skins, ${skinnedPrims.length} skinned primitives verified`);
+  }
+
+  console.log('--- Step 10: Testing Multi-Level Mesh LOD Selection & Telemetry in WebGPU Draw Loop ---');
+  BglWebGpuRenderer.loadModel(gltf, toyCarBuf.buffer, 'ToyCar.glb');
+  global.BglState.isLodActive = true;
+  global.BglState.lodBias = 1.0;
+  BglWebGpuRenderer.camera.distance = 0.05;
+  BglWebGpuRenderer.draw();
+  const nearRenderedTris = global.BglState.renderedTriangles;
+
+  BglWebGpuRenderer.camera.distance = 150.0;
+  global.BglState.lodBias = 3.5;
+  BglWebGpuRenderer.draw();
+  const farRenderedTris = global.BglState.renderedTriangles;
+
+  assert(nearRenderedTris > 0 && farRenderedTris > 0, 'Triangle telemetry must be positive');
+  assert(farRenderedTris < nearRenderedTris, `Far camera distance with LOD must render fewer triangles (${farRenderedTris} < ${nearRenderedTris})`);
+  console.log(`✓ Multi-LOD WebGPU rendering verified: Near=${nearRenderedTris.toLocaleString()} tris vs Far=${farRenderedTris.toLocaleString()} tris`);
 
   console.log('--- ALL WEBGPU PIPELINE TESTS PASSED (100%) ---');
   process.exit(0);

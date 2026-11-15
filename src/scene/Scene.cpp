@@ -7,6 +7,7 @@
 #include "core/ThreadPool.hpp"
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
 #endif
@@ -17,10 +18,11 @@ MeshPrimitive::MeshPrimitive(std::pmr::memory_resource* mr) : vertices{mr}, base
 
 MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
     : vertices{other.vertices}, baseVertices{other.baseVertices}, indices{other.indices},
+      lodIndices{other.lodIndices}, lodLevels{other.lodLevels},
       morphTargets{other.morphTargets}, morphDirty{other.morphDirty}, boundingBox{other.boundingBox},
       materialIndex{other.materialIndex}, indexFormat{other.indexFormat}, gpuVertexBuffer{nullptr},
       gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, wireframeIndexCount{0}, gpuUniformBuffer{nullptr},
-      gpuBindGroup{nullptr}, gpuShadowBindGroup{nullptr} {}
+      gpuShadowUniformBuffer{nullptr}, gpuBindGroup{nullptr}, gpuShadowBindGroup{nullptr} {}
 
 MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
     if (this != &other) {
@@ -28,6 +30,8 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
         vertices = other.vertices;
         baseVertices = other.baseVertices;
         indices = other.indices;
+        lodIndices = other.lodIndices;
+        lodLevels = other.lodLevels;
         morphTargets = other.morphTargets;
         morphDirty = other.morphDirty;
         boundingBox = other.boundingBox;
@@ -38,6 +42,7 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
         gpuWireframeIndexBuffer = nullptr;
         wireframeIndexCount = 0;
         gpuUniformBuffer = nullptr;
+        gpuShadowUniformBuffer = nullptr;
         gpuBindGroup = nullptr;
         gpuShadowBindGroup = nullptr;
     }
@@ -46,7 +51,8 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
 
 MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
     : vertices{std::move(other.vertices)}, baseVertices{std::move(other.baseVertices)},
-      indices{std::move(other.indices)}, morphTargets{std::move(other.morphTargets)},
+      indices{std::move(other.indices)}, lodIndices{std::move(other.lodIndices)}, lodLevels{other.lodLevels},
+      morphTargets{std::move(other.morphTargets)},
       morphDirty{std::exchange(other.morphDirty, false)}, boundingBox{other.boundingBox},
       materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
       gpuVertexBuffer{std::exchange(other.gpuVertexBuffer, nullptr)},
@@ -54,6 +60,7 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       gpuWireframeIndexBuffer{std::exchange(other.gpuWireframeIndexBuffer, nullptr)},
       wireframeIndexCount{std::exchange(other.wireframeIndexCount, 0)},
       gpuUniformBuffer{std::exchange(other.gpuUniformBuffer, nullptr)},
+      gpuShadowUniformBuffer{std::exchange(other.gpuShadowUniformBuffer, nullptr)},
       gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
       gpuShadowBindGroup{std::exchange(other.gpuShadowBindGroup, nullptr)} {}
 
@@ -63,6 +70,8 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         vertices = std::move(other.vertices);
         baseVertices = std::move(other.baseVertices);
         indices = std::move(other.indices);
+        lodIndices = std::move(other.lodIndices);
+        lodLevels = other.lodLevels;
         morphTargets = std::move(other.morphTargets);
         morphDirty = std::exchange(other.morphDirty, false);
         boundingBox = other.boundingBox;
@@ -73,6 +82,7 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         gpuWireframeIndexBuffer = std::exchange(other.gpuWireframeIndexBuffer, nullptr);
         wireframeIndexCount = std::exchange(other.wireframeIndexCount, 0);
         gpuUniformBuffer = std::exchange(other.gpuUniformBuffer, nullptr);
+        gpuShadowUniformBuffer = std::exchange(other.gpuShadowUniformBuffer, nullptr);
         gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
         gpuShadowBindGroup = std::exchange(other.gpuShadowBindGroup, nullptr);
     }
@@ -88,6 +98,8 @@ void MeshPrimitive::ReleaseGpu() noexcept {
         wgpuBindGroupRelease(bg);
     if (auto bg = std::exchange(gpuBindGroup, nullptr))
         wgpuBindGroupRelease(bg);
+    if (auto b = std::exchange(gpuShadowUniformBuffer, nullptr))
+        wgpuBufferRelease(b);
     if (auto b = std::exchange(gpuUniformBuffer, nullptr))
         wgpuBufferRelease(b);
     if (auto b = std::exchange(gpuIndexBuffer, nullptr))
@@ -149,47 +161,224 @@ void MeshPrimitive::ComputeTangents() {
         }
     }
 
-    auto orthogonalizeRange = [&](size_t beginIdx, size_t endIdx) {
-        for (size_t i{beginIdx}; i < endIdx; ++i) {
-            const glm::vec3& n{vertSpan[i].normal};
-            const glm::vec3& t{tan1[i]};
-            glm::vec3 orthoT{t - n * glm::dot(n, t)};
-            const float lenSq{glm::dot(orthoT, orthoT)};
-            if (lenSq > 1e-10f) {
-                orthoT *= (1.0f / std::sqrt(lenSq));
-                const float w{(glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f};
-                vertSpan[i].tangent = glm::vec4{orthoT, w};
-            } else {
-                const glm::vec3 up{(std::abs(n.y) < 0.999f) ? glm::vec3{0.0f, 1.0f, 0.0f}
-                                                            : glm::vec3{1.0f, 0.0f, 0.0f}};
-                vertSpan[i].tangent = glm::vec4{glm::normalize(glm::cross(up, n)), 1.0f};
-            }
+    auto orthogonalizeVertex = [&](size_t i) noexcept {
+        const glm::vec3& n{vertSpan[i].normal};
+        const glm::vec3& t{tan1[i]};
+        glm::vec3 orthoT{t - n * glm::dot(n, t)};
+        const float lenSq{glm::dot(orthoT, orthoT)};
+        if (lenSq > 1e-10f) {
+            orthoT *= (1.0f / std::sqrt(lenSq));
+            const float w{(glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f};
+            vertSpan[i].tangent = glm::vec4{orthoT, w};
+        } else {
+            const glm::vec3 up{(std::abs(n.y) < 0.999f) ? glm::vec3{0.0f, 1.0f, 0.0f} : glm::vec3{1.0f, 0.0f, 0.0f}};
+            const glm::vec3 fallback{glm::cross(up, n)};
+            const float fbLenSq{glm::dot(fallback, fallback)};
+            vertSpan[i].tangent =
+                glm::vec4{(fbLenSq > 1e-10f) ? (fallback * (1.0f / std::sqrt(fbLenSq))) : glm::vec3{1.0f, 0.0f, 0.0f},
+                          1.0f};
         }
     };
 
 #if !defined(__EMSCRIPTEN__)
     if (vertSpan.size() >= 8192) {
-        core::ThreadPool::Instance().ParallelFor(0, vertSpan.size(), [&](size_t i) {
-            const glm::vec3& n{vertSpan[i].normal};
-            const glm::vec3& t{tan1[i]};
-            glm::vec3 orthoT{t - n * glm::dot(n, t)};
-            const float lenSq{glm::dot(orthoT, orthoT)};
-            if (lenSq > 1e-10f) {
-                orthoT *= (1.0f / std::sqrt(lenSq));
-                const float w{(glm::dot(glm::cross(n, t), tan2[i]) < 0.0f) ? -1.0f : 1.0f};
-                vertSpan[i].tangent = glm::vec4{orthoT, w};
-            } else {
-                const glm::vec3 up{(std::abs(n.y) < 0.999f) ? glm::vec3{0.0f, 1.0f, 0.0f}
-                                                            : glm::vec3{1.0f, 0.0f, 0.0f}};
-                vertSpan[i].tangent = glm::vec4{glm::normalize(glm::cross(up, n)), 1.0f};
-            }
-        });
+        core::ThreadPool::Instance().ParallelFor(0, vertSpan.size(), orthogonalizeVertex);
     } else {
-        orthogonalizeRange(0, vertSpan.size());
+        for (size_t i{0}; i < vertSpan.size(); ++i) {
+            orthogonalizeVertex(i);
+        }
     }
 #else
-    orthogonalizeRange(0, vertSpan.size());
+    for (size_t i{0}; i < vertSpan.size(); ++i) {
+        orthogonalizeVertex(i);
+    }
 #endif
+}
+
+void MeshPrimitive::GenerateLODs() {
+    // LOD0 always contains 100% of original indices
+    lodIndices[0].assign(indices.begin(), indices.end());
+    lodLevels[0] = LodSubMesh{.firstIndex = 0,
+                              .indexCount = static_cast<uint32_t>(lodIndices[0].size()),
+                              .errorMetric = 0.0f};
+
+    // Small meshes (< 12 triangles) or unindexed primitives retain full geometry at all LOD tiers
+    if (vertices.empty() || indices.size() < 36) {
+        for (size_t lvl{1}; lvl < 4; ++lvl) {
+            lodIndices[lvl] = lodIndices[0];
+            lodLevels[lvl] = lodLevels[0];
+        }
+        return;
+    }
+
+    // Ensure valid full bounding box size for [0, 1]^3 spatial quantization
+    core::AABB box{boundingBox};
+    if (box.minBound.x > box.maxBound.x) {
+        for (const auto& v : vertices) {
+            box.Expand(v.position);
+        }
+    }
+    const glm::vec3 boxSize{glm::max(box.Size(), glm::vec3{1e-5f})};
+    const float maxSize{std::max({boxSize.x, boxSize.y, boxSize.z, 1e-4f})};
+
+    // Helper: cluster vertices on an adaptive 3D spatial grid with resolution `gridRes`
+    auto clusterWithGrid = [&](uint32_t gridRes) -> std::vector<uint32_t> {
+        const uint32_t gx{
+            std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(gridRes) * (boxSize.x / maxSize))))};
+        const uint32_t gy{
+            std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(gridRes) * (boxSize.y / maxSize))))};
+        const uint32_t gz{
+            std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(gridRes) * (boxSize.z / maxSize))))};
+
+        struct CellRep {
+            uint32_t vertexIndex{0};
+            float bestDistSq{1e30f};
+        };
+        std::unordered_map<uint64_t, CellRep> cellMap{};
+        cellMap.reserve(std::min<size_t>(vertices.size(), static_cast<size_t>(gridRes) * gridRes * 2));
+
+        std::vector<uint32_t> remap(vertices.size(), 0);
+        std::vector<uint64_t> vertKeys(vertices.size(), 0);
+
+        for (size_t i{0}; i < vertices.size(); ++i) {
+            const glm::vec3 normPos{
+                glm::clamp((vertices[i].position - box.minBound) / boxSize, glm::vec3{0.0f}, glm::vec3{0.99999f})};
+            const uint32_t ix{static_cast<uint32_t>(normPos.x * static_cast<float>(gx))};
+            const uint32_t iy{static_cast<uint32_t>(normPos.y * static_cast<float>(gy))};
+            const uint32_t iz{static_cast<uint32_t>(normPos.z * static_cast<float>(gz))};
+
+            // Pack normal octant sign (3 bits) + 20-bit cell coords to preserve sharp creases
+            const uint64_t nBits{(static_cast<uint64_t>(vertices[i].normal.x >= 0.0f ? 1 : 0) << 60u) |
+                                 (static_cast<uint64_t>(vertices[i].normal.y >= 0.0f ? 1 : 0) << 61u) |
+                                 (static_cast<uint64_t>(vertices[i].normal.z >= 0.0f ? 1 : 0) << 62u)};
+            const uint64_t key{nBits | (static_cast<uint64_t>(ix & 0xFFFFFu) << 40u) |
+                               (static_cast<uint64_t>(iy & 0xFFFFFu) << 20u) | static_cast<uint64_t>(iz & 0xFFFFFu)};
+            vertKeys[i] = key;
+
+            const glm::vec3 cellCenter{(static_cast<float>(ix) + 0.5f) / static_cast<float>(gx),
+                                       (static_cast<float>(iy) + 0.5f) / static_cast<float>(gy),
+                                       (static_cast<float>(iz) + 0.5f) / static_cast<float>(gz)};
+            const glm::vec3 diff{normPos - cellCenter};
+            const float distSq{glm::dot(diff, diff)};
+
+            auto it = cellMap.find(key);
+            if (it == cellMap.end()) {
+                cellMap.emplace(key, CellRep{static_cast<uint32_t>(i), distSq});
+            } else if (distSq < it->second.bestDistSq) {
+                it->second.vertexIndex = static_cast<uint32_t>(i);
+                it->second.bestDistSq = distSq;
+            }
+        }
+
+        for (size_t i{0}; i < vertices.size(); ++i) {
+            remap[i] = cellMap[vertKeys[i]].vertexIndex;
+        }
+
+        std::vector<uint32_t> simplified{};
+        simplified.reserve(indices.size());
+        for (size_t i{0}; i + 2 < indices.size(); i += 3) {
+            const uint32_t i0{indices[i]};
+            const uint32_t i1{indices[i + 1]};
+            const uint32_t i2{indices[i + 2]};
+            if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size())
+                continue;
+            const uint32_t r0{remap[i0]};
+            const uint32_t r1{remap[i1]};
+            const uint32_t r2{remap[i2]};
+            if (r0 == r1 || r1 == r2 || r2 == r0)
+                continue;
+
+            // Reject zero-area collapsed slivers
+            const glm::vec3 e1{vertices[r1].position - vertices[r0].position};
+            const glm::vec3 e2{vertices[r2].position - vertices[r0].position};
+            const glm::vec3 crossVec{glm::cross(e1, e2)};
+            if (glm::dot(crossVec, crossVec) <= 1e-12f)
+                continue;
+
+            simplified.push_back(r0);
+            simplified.push_back(r1);
+            simplified.push_back(r2);
+        }
+        return simplified;
+    };
+
+    const size_t baseTriCount{indices.size() / 3};
+    const float baseDim{std::sqrt(static_cast<float>(baseTriCount))};
+    constexpr std::array<float, 3> kTargetRatios{{0.55f, 0.30f, 0.14f}};
+    constexpr std::array<float, 3> kErrorMetrics{{0.015f, 0.045f, 0.120f}};
+
+    for (size_t tier{0}; tier < 3; ++tier) {
+        const size_t lvl{tier + 1};
+        const size_t prevIndexCount{lodIndices[lvl - 1].size()};
+        const size_t targetIndices{std::max<size_t>(12, static_cast<size_t>(indices.size() * kTargetRatios[tier]) / 3 * 3)};
+
+        uint32_t gridRes{std::max(2u, static_cast<uint32_t>( std::round(baseDim * std::sqrt(kTargetRatios[tier]) * 1.35f) ))};
+        std::vector<uint32_t> bestCandidate{};
+
+        // Search a few grid resolutions to hit target triangle reduction cleanly
+        for (int attempt{0}; attempt < 4; ++attempt) {
+            auto candidate = clusterWithGrid(gridRes);
+            if (candidate.size() >= 12) {
+                bestCandidate = std::move(candidate);
+                if (bestCandidate.size() <= targetIndices * 1.25 && bestCandidate.size() < prevIndexCount) {
+                    break;
+                }
+            }
+            if (gridRes <= 2u)
+                break;
+            gridRes = std::max(2u, (gridRes * 2u) / 3u);
+        }
+
+        // Fallback if spatial clustering left >= prevIndexCount or < 12 indices:
+        // retain triangles sorted/strided by geometric area so LOD strictly reduces triangle count
+        if (bestCandidate.size() < 12 || bestCandidate.size() >= prevIndexCount) {
+            const auto& src = (bestCandidate.size() >= 12) ? bestCandidate : lodIndices[lvl - 1];
+            const size_t srcTris{src.size() / 3};
+            const size_t keepTris{std::clamp<size_t>(
+                static_cast<size_t>(std::round(static_cast<double>(baseTriCount) * kTargetRatios[tier])),
+                4, std::max<size_t>(4, srcTris - 1))};
+
+            if (keepTris < srcTris) {
+                struct TriArea {
+                    size_t triIdx{0};
+                    float areaSq{0.0f};
+                };
+                std::vector<TriArea> areas(srcTris);
+                for (size_t t{0}; t < srcTris; ++t) {
+                    const uint32_t a{src[t * 3]};
+                    const uint32_t b{src[t * 3 + 1]};
+                    const uint32_t c{src[t * 3 + 2]};
+                    if (a >= vertices.size() || b >= vertices.size() || c >= vertices.size()) {
+                        areas[t] = TriArea{t, 0.0f};
+                        continue;
+                    }
+                    const glm::vec3 cp{glm::cross(vertices[b].position - vertices[a].position,
+                                                  vertices[c].position - vertices[a].position)};
+                    areas[t] = TriArea{t, glm::dot(cp, cp)};
+                }
+                std::nth_element(areas.begin(), areas.begin() + static_cast<std::ptrdiff_t>(keepTris), areas.end(),
+                                 [](const TriArea& x, const TriArea& y) { return x.areaSq > y.areaSq; });
+                areas.resize(keepTris);
+                std::sort(areas.begin(), areas.end(),
+                          [](const TriArea& x, const TriArea& y) { return x.triIdx < y.triIdx; });
+
+                bestCandidate.clear();
+                bestCandidate.reserve(keepTris * 3);
+                for (const auto& entry : areas) {
+                    bestCandidate.push_back(src[entry.triIdx * 3]);
+                    bestCandidate.push_back(src[entry.triIdx * 3 + 1]);
+                    bestCandidate.push_back(src[entry.triIdx * 3 + 2]);
+                }
+            } else {
+                bestCandidate = lodIndices[lvl - 1];
+            }
+        }
+
+        lodIndices[lvl] = std::move(bestCandidate);
+        lodLevels[lvl] = LodSubMesh{.firstIndex = 0,
+                                    .indexCount = static_cast<uint32_t>(lodIndices[lvl].size()),
+                                    .errorMetric = kErrorMetrics[tier]};
+    }
 }
 
 void MeshPrimitive::ApplyMorphTargets(std::span<const float> weights) {

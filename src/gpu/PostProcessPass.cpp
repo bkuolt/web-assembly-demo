@@ -27,57 +27,47 @@ PostProcessPass::~PostProcessPass() {
     Shutdown();
 }
 
-PostProcessPass::PostProcessPass(PostProcessPass&& other) noexcept
-    : device_{other.device_}, queue_{other.queue_}, tonemapPipeline_{other.tonemapPipeline_},
-      tonemapBindGroupLayout_{other.tonemapBindGroupLayout_}, tonemapUniformBuffer_{other.tonemapUniformBuffer_},
-      tonemapVertexBuffer_{other.tonemapVertexBuffer_}, tonemapSampler_{other.tonemapSampler_},
-      tonemapBindGroup_{other.tonemapBindGroup_}, cachedHdrResolveView_{other.cachedHdrResolveView_},
-      exposure_{other.exposure_}, toneMapOp_{other.toneMapOp_}, enableLensFlare_{other.enableLensFlare_},
-      lensFlareIntensity_{other.lensFlareIntensity_}, enableSsao_{other.enableSsao_},
-      ssaoIntensity_{other.ssaoIntensity_}, enableBloom_{other.enableBloom_}, bloomIntensity_{other.bloomIntensity_} {
-    other.device_ = nullptr;
-    other.queue_ = nullptr;
-    other.tonemapPipeline_ = nullptr;
-    other.tonemapBindGroupLayout_ = nullptr;
-    other.tonemapUniformBuffer_ = nullptr;
-    other.tonemapVertexBuffer_ = nullptr;
-    other.tonemapSampler_ = nullptr;
-    other.tonemapBindGroup_ = nullptr;
-    other.cachedHdrResolveView_ = nullptr;
+PostProcessPass::PostProcessPass(PostProcessPass&& other) noexcept {
+    MoveFrom(other);
 }
 
 PostProcessPass& PostProcessPass::operator=(PostProcessPass&& other) noexcept {
     if (this != &other) {
         Shutdown();
-        device_ = other.device_;
-        queue_ = other.queue_;
-        tonemapPipeline_ = other.tonemapPipeline_;
-        tonemapBindGroupLayout_ = other.tonemapBindGroupLayout_;
-        tonemapUniformBuffer_ = other.tonemapUniformBuffer_;
-        tonemapVertexBuffer_ = other.tonemapVertexBuffer_;
-        tonemapSampler_ = other.tonemapSampler_;
-        tonemapBindGroup_ = other.tonemapBindGroup_;
-        cachedHdrResolveView_ = other.cachedHdrResolveView_;
-        exposure_ = other.exposure_;
-        toneMapOp_ = other.toneMapOp_;
-        enableLensFlare_ = other.enableLensFlare_;
-        lensFlareIntensity_ = other.lensFlareIntensity_;
-        enableSsao_ = other.enableSsao_;
-        ssaoIntensity_ = other.ssaoIntensity_;
-        enableBloom_ = other.enableBloom_;
-        bloomIntensity_ = other.bloomIntensity_;
-
-        other.device_ = nullptr;
-        other.queue_ = nullptr;
-        other.tonemapPipeline_ = nullptr;
-        other.tonemapBindGroupLayout_ = nullptr;
-        other.tonemapUniformBuffer_ = nullptr;
-        other.tonemapVertexBuffer_ = nullptr;
-        other.tonemapSampler_ = nullptr;
-        other.tonemapBindGroup_ = nullptr;
-        other.cachedHdrResolveView_ = nullptr;
+        MoveFrom(other);
     }
     return *this;
+}
+
+void PostProcessPass::MoveFrom(PostProcessPass& other) noexcept {
+    device_ = std::exchange(other.device_, nullptr);
+    queue_ = std::exchange(other.queue_, nullptr);
+    surfaceFormat_ = other.surfaceFormat_;
+    tonemapPipeline_ = std::exchange(other.tonemapPipeline_, nullptr);
+    tonemapBindGroupLayout_ = std::exchange(other.tonemapBindGroupLayout_, nullptr);
+    tonemapUniformBuffer_ = std::exchange(other.tonemapUniformBuffer_, nullptr);
+    tonemapVertexBuffer_ = std::exchange(other.tonemapVertexBuffer_, nullptr);
+    tonemapSampler_ = std::exchange(other.tonemapSampler_, nullptr);
+    tonemapBindGroup_ = std::exchange(other.tonemapBindGroup_, nullptr);
+    cachedHdrResolveView_ = std::exchange(other.cachedHdrResolveView_, nullptr);
+    exposure_ = other.exposure_;
+    toneMapOp_ = other.toneMapOp_;
+    enableLensFlare_ = other.enableLensFlare_;
+    lensFlareIntensity_ = other.lensFlareIntensity_;
+    enableSsao_ = other.enableSsao_;
+    ssaoIntensity_ = other.ssaoIntensity_;
+    ssaoRadius_ = other.ssaoRadius_;
+    enableBloom_ = other.enableBloom_;
+    bloomIntensity_ = other.bloomIntensity_;
+    bloomThreshold_ = other.bloomThreshold_;
+}
+
+void PostProcessPass::InvalidateBindGroup() noexcept {
+    if (tonemapBindGroup_) {
+        wgpuBindGroupRelease(tonemapBindGroup_);
+        tonemapBindGroup_ = nullptr;
+    }
+    cachedHdrResolveView_ = nullptr;
 }
 
 void PostProcessPass::Shutdown() noexcept {
@@ -116,6 +106,7 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     if (!device || !queue) {
         return std::unexpected("Cannot initialize PostProcessPass with null WebGPU device or queue");
     }
+    Shutdown();
     device_ = device;
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;
@@ -159,6 +150,11 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     bglDesc.entries = entries.data();
     bglDesc.label = ToWgpuStringView("Tonemap_BindGroupLayout");
     tonemapBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!tonemapBindGroupLayout_) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create tonemap bind group layout");
+    }
 
     // 3. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -166,6 +162,11 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     plDesc.bindGroupLayouts = &tonemapBindGroupLayout_;
     plDesc.label = ToWgpuStringView("Tonemap_PipelineLayout");
     WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!pl) {
+        wgpuShaderModuleRelease(shaderModule);
+        Shutdown();
+        return std::unexpected("Failed to create tonemap pipeline layout");
+    }
 
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
     colorTarget.format = surfaceFormat;
@@ -197,6 +198,7 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     wgpuShaderModuleRelease(shaderModule);
 
     if (!tonemapPipeline_) {
+        Shutdown();
         return std::unexpected("Failed to create tonemap post-process render pipeline");
     }
 
@@ -206,6 +208,10 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     ubDesc.label = ToWgpuStringView("Tonemap_Uniforms");
     tonemapUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+    if (!tonemapUniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create tonemap uniform buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(TonemapUniforms));
 
     // 5. Sampler
@@ -219,6 +225,10 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     sampDesc.maxAnisotropy = 1;
     sampDesc.label = ToWgpuStringView("Tonemap_Sampler");
     tonemapSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
+    if (!tonemapSampler_) {
+        Shutdown();
+        return std::unexpected("Failed to create tonemap sampler");
+    }
 
     BGL_LOG_INFO("PostProcessPass initialized successfully (Tonemapping + SSAO + Bloom + Lens Flares)");
     return {};
@@ -227,7 +237,7 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
 void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
                              const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& lightDir,
                              float envRotation, uint32_t viewportW, uint32_t viewportH) {
-    if (!swapchainPass || !hdrResolveView || !tonemapPipeline_)
+    if (!swapchainPass || !hdrResolveView || !tonemapPipeline_ || !tonemapUniformBuffer_ || !tonemapSampler_)
         return;
 
     if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
@@ -256,11 +266,17 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureVie
         bgDesc.entries = bgEntries.data();
         bgDesc.label = ToWgpuStringView("Tonemap_BindGroup");
         tonemapBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        if (!tonemapBindGroup_) {
+            cachedHdrResolveView_ = nullptr;
+            return;
+        }
     }
 
     // Project sun vector to screen NDC for real-time lens flares
-    const glm::vec3 rotatedSun = glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) *
-                                 glm::vec4{glm::normalize(lightDir), 0.0f};
+    const float lightLen = glm::length(lightDir);
+    const glm::vec3 safeLightDir = (lightLen > 1e-4f) ? (lightDir / lightLen) : glm::vec3{0.0f, 1.0f, 0.0f};
+    const glm::vec3 rotatedSun =
+        glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) * glm::vec4{safeLightDir, 0.0f};
     const glm::vec4 sunWorldPos = glm::vec4{cameraPos + rotatedSun * 1000.0f, 1.0f};
     const glm::vec4 sunClip = viewProj * sunWorldPos;
 

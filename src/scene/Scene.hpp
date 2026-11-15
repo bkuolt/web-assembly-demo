@@ -24,6 +24,8 @@ struct TextureGpuResource {
     WGPUSampler sampler{nullptr};
     uint32_t width{0};
     uint32_t height{0};
+    size_t vramBytes{0};
+    KtxTranscodeTarget format{KtxTranscodeTarget::Rgba32};
 };
 
 struct CpuImage {
@@ -33,6 +35,7 @@ struct CpuImage {
     bool isCompressed{false};
     KtxTranscodeTarget compressionFormat{KtxTranscodeTarget::Rgba32};
     std::vector<DecodedMipLevel> mipLevels{};
+    std::vector<uint8_t> ktx2SourceBytes{};
 };
 
 /**
@@ -132,13 +135,25 @@ struct Material {
 };
 
 /**
+ * @struct LodSubMesh
+ * @brief Index buffer slice and error metric for a single geometry LOD tier.
+ */
+struct LodSubMesh {
+    uint32_t firstIndex{0};
+    uint32_t indexCount{0};
+    float errorMetric{0.0f};
+};
+
+/**
  * @struct MeshPrimitive
- * @brief PMR-backed mesh primitive holding GPU vertices, indices, and WebGPU buffers.
+ * @brief PMR-backed mesh primitive holding GPU vertices, indices, multi-tier LOD slices, and WebGPU buffers.
  */
 struct MeshPrimitive {
     std::pmr::vector<core::Vertex> vertices;
     std::pmr::vector<core::Vertex> baseVertices;
     std::pmr::vector<uint32_t> indices;
+    std::array<std::vector<uint32_t>, 4> lodIndices{};
+    std::array<LodSubMesh, 4> lodLevels{};
     std::vector<MorphTarget> morphTargets{};
     bool morphDirty{false};
     core::AABB boundingBox{};
@@ -150,6 +165,7 @@ struct MeshPrimitive {
     WGPUBuffer gpuWireframeIndexBuffer{nullptr};
     uint32_t wireframeIndexCount{0};
     WGPUBuffer gpuUniformBuffer{nullptr};
+    WGPUBuffer gpuShadowUniformBuffer{nullptr};
     WGPUBindGroup gpuBindGroup{nullptr};
     WGPUBindGroup gpuShadowBindGroup{nullptr};
 
@@ -166,6 +182,27 @@ struct MeshPrimitive {
      * @brief Compute MikkTSpace/Lengyel tangent vectors and handedness from triangle UVs and positions.
      */
     void ComputeTangents();
+
+    /**
+     * @brief Generate multi-level geometry LOD index buffers (LOD0..LOD3) via spatial vertex clustering
+     *        and topology-preserving edge decimation.
+     */
+    void GenerateLODs();
+
+    /**
+     * @brief Resolves the active index-buffer slice for a requested LOD tier [0..3], falling back to LOD0.
+     */
+    [[nodiscard]] LodSubMesh GetLodSlice(uint32_t level) const noexcept {
+        const size_t idx = std::min<size_t>(level, 3);
+        if (lodLevels[idx].indexCount > 0) {
+            return lodLevels[idx];
+        }
+        if (lodLevels[0].indexCount > 0) {
+            return lodLevels[0];
+        }
+        return LodSubMesh{
+            .firstIndex = 0, .indexCount = static_cast<uint32_t>(indices.size()), .errorMetric = 0.0f};
+    }
 
     /**
      * @brief Apply morph target deltas weighted by active weights onto vertices.

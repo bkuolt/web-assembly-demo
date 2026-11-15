@@ -192,7 +192,7 @@ void OcclusionBuffer::RasterizeOccluder(const glm::vec2& ndcMin, const glm::vec2
 
 void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos,
                                 std::vector<QuadtreeItem>& visibleItemsOut, const glm::mat4* viewProj,
-                                OcclusionBuffer* occlusionBuf, size_t* occludedCountOut) const {
+                                OcclusionBuffer* occlusionBuf, size_t* occludedCountOut, float lodBias) const {
     // 1. Broad-phase Frustum Culling: cull whole quadtree quadrant if outside frustum
     const core::AABB& testBounds{(looseBounds_.minBound.x <= looseBounds_.maxBound.x) ? looseBounds_ : bounds_};
     if (!frustum.IntersectsAABB(testBounds)) {
@@ -214,51 +214,62 @@ void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& c
         }
     }
 
+    const float clampedBias{std::clamp(lodBias, 0.25f, 4.0f)};
+
     // 2. Narrow-phase Frustum + Occlusion + Contribution Culling for items in this node
     const size_t startIdx{visibleItemsOut.size()};
     for (const auto& item : items_) {
         if (frustum.IntersectsAABB(item.aabb)) {
-            const float radius{std::max(0.001f, glm::length(item.aabb.Extents()) * 0.5f)};
+            const float radius{std::max(0.001f, glm::length(item.aabb.Extents()))};
             const float dist{glm::distance(camPos, item.aabb.Center())};
             const float relativeDist{dist / radius};
+            float ndcArea{1.0f};
 
-            if (viewProj && occlusionBuf) {
+            if (viewProj) {
                 glm::vec2 itemNdcMin{}, itemNdcMax{};
                 float itemMinZ{0.0f}, itemMaxZ{1.0f};
                 if (OcclusionBuffer::ProjectAABB(item.aabb, *viewProj, itemNdcMin, itemNdcMax, itemMinZ, itemMaxZ)) {
                     const glm::vec2 ndcSpan{itemNdcMax - itemNdcMin};
-                    const float ndcArea{ndcSpan.x * ndcSpan.y};
+                    ndcArea = ndcSpan.x * ndcSpan.y;
 
-                    // Sub-pixel contribution culling for distant micro-primitives (< ~1.5x1.5 px at 1080p)
-                    if (relativeDist > 22.0f && ndcArea < 0.000012f) {
-                        if (occludedCountOut)
-                            (*occludedCountOut)++;
-                        continue;
-                    }
+                    if (occlusionBuf) {
+                        // Sub-pixel contribution culling for distant micro-primitives (< ~1.5x1.5 px at 1080p)
+                        if (relativeDist > 22.0f && ndcArea < 0.000012f) {
+                            if (occludedCountOut)
+                                (*occludedCountOut)++;
+                            continue;
+                        }
 
-                    // Screen-space Hi-Z tile occlusion test
-                    if (occlusionBuf->IsOccluded(itemNdcMin, itemNdcMax, itemMinZ)) {
-                        if (occludedCountOut)
-                            (*occludedCountOut)++;
-                        continue;
-                    }
+                        // Screen-space Hi-Z tile occlusion test
+                        if (occlusionBuf->IsOccluded(itemNdcMin, itemNdcMax, itemMinZ)) {
+                            if (occludedCountOut)
+                                (*occludedCountOut)++;
+                            continue;
+                        }
 
-                    // Register large near/mid objects as conservative occluders
-                    if (ndcArea > 0.035f) {
-                        occlusionBuf->RasterizeOccluder(itemNdcMin, itemNdcMax, itemMaxZ);
+                        // Register large near/mid objects as conservative occluders
+                        if (ndcArea > 0.035f) {
+                            occlusionBuf->RasterizeOccluder(itemNdcMin, itemNdcMax, itemMaxZ);
+                        }
                     }
                 }
             }
 
             QuadtreeItem visibleItem{item};
             visibleItem.distanceToCamera = dist;
-            if (relativeDist < 8.0f) {
-                visibleItem.currentLOD = LODLevel::LOD0;
-            } else if (relativeDist < 25.0f) {
-                visibleItem.currentLOD = LODLevel::LOD1;
-            } else {
-                visibleItem.currentLOD = LODLevel::LOD2;
+            visibleItem.screenSpaceArea = ndcArea;
+
+            // Combine relative distance with user/auto LOD bias and screen-space area (SSE)
+            float effectiveMetric{relativeDist * clampedBias};
+            if (viewProj && ndcArea < 0.015f && relativeDist > 6.0f) {
+                // Boost LOD metric when projected screen-space footprint is small
+                const float sseBoost{std::clamp(0.015f / std::max(ndcArea, 0.0001f), 1.0f, 2.5f)};
+                effectiveMetric *= std::sqrt(sseBoost);
             }
+
+            const auto lodEval = Quadtree::EvaluateLodForMetric(effectiveMetric);
+            visibleItem.currentLOD = lodEval.level;
+            visibleItem.lodTransition = lodEval.transition;
             visibleItemsOut.push_back(std::move(visibleItem));
         }
     }
@@ -288,7 +299,7 @@ void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& c
         for (const auto& entry : order) {
             if (children_[entry.index]) {
                 children_[entry.index]->QueryFrustum(frustum, camPos, visibleItemsOut, viewProj, occlusionBuf,
-                                                     occludedCountOut);
+                                                     occludedCountOut, lodBias);
             }
         }
     }
@@ -327,20 +338,7 @@ void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
                     QuadtreeItem item;
                     item.node = n;
                     item.primitiveIndex = pIdx;
-
-                    // Compute primitive world-space bounding box
-                    core::AABB primWorldAABB;
-                    glm::vec3 c = prim.boundingBox.Center();
-                    glm::vec3 e = prim.boundingBox.Extents();
-                    glm::vec3 corners[8] = {c + glm::vec3(-e.x, -e.y, -e.z), c + glm::vec3(e.x, -e.y, -e.z),
-                                            c + glm::vec3(-e.x, e.y, -e.z),  c + glm::vec3(e.x, e.y, -e.z),
-                                            c + glm::vec3(-e.x, -e.y, e.z),  c + glm::vec3(e.x, -e.y, e.z),
-                                            c + glm::vec3(-e.x, e.y, e.z),   c + glm::vec3(e.x, e.y, e.z)};
-                    for (const auto& corner : corners) {
-                        glm::vec4 worldCorner = n->worldTransform * glm::vec4(corner, 1.0f);
-                        primWorldAABB.Expand(glm::vec3(worldCorner));
-                    }
-                    item.aabb = primWorldAABB;
+                    item.aabb = prim.boundingBox.Transformed(n->worldTransform);
                     if (!root_->Insert(item)) {
                         root_->ForceInsert(item);
                     }
@@ -365,36 +363,50 @@ void Quadtree::Reset(const core::AABB& worldBounds) {
 }
 
 std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
-                                                 const glm::mat4& viewProj, bool enableOcclusionCulling) const {
+                                                 const glm::mat4& viewProj, bool enableOcclusionCulling,
+                                                 float lodBias) const {
     std::vector<QuadtreeItem> results{};
     lastOccludedCount_ = 0;
     if (root_) {
         if (enableOcclusionCulling) {
             OcclusionBuffer occlusionBuf{};
-            root_->QueryFrustum(frustum, cameraPos, results, &viewProj, &occlusionBuf, &lastOccludedCount_);
+            root_->QueryFrustum(frustum, cameraPos, results, &viewProj, &occlusionBuf, &lastOccludedCount_, lodBias);
         } else {
-            root_->QueryFrustum(frustum, cameraPos, results, nullptr, nullptr, nullptr);
+            root_->QueryFrustum(frustum, cameraPos, results, &viewProj, nullptr, nullptr, lodBias);
         }
     }
     return results;
 }
 
-std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos) const {
+std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
+                                                 float lodBias) const {
     std::vector<QuadtreeItem> results{};
     lastOccludedCount_ = 0;
     if (root_) {
-        root_->QueryFrustum(frustum, cameraPos, results, nullptr, nullptr, nullptr);
+        root_->QueryFrustum(frustum, cameraPos, results, nullptr, nullptr, nullptr, lodBias);
     }
     return results;
 }
 
-std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos) const {
+std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos, float lodBias) const {
     core::Frustum infiniteFrustum;
     for (auto& plane : infiniteFrustum.planes) {
         plane.normal = glm::vec3(0.0f);
         plane.distance = 1e30f;
     }
-    return QueryVisible(infiniteFrustum, cameraPos);
+    return QueryVisible(infiniteFrustum, cameraPos, lodBias);
+}
+
+Quadtree::LodEvaluation Quadtree::EvaluateLodForMetric(float effectiveMetric) noexcept {
+    constexpr std::array<float, 3> kThresholds{{8.0f, 25.0f, 85.0f}};
+    for (size_t lvl{0}; lvl < kThresholds.size(); ++lvl) {
+        const float th{kThresholds[lvl]};
+        if (effectiveMetric < th) {
+            return {static_cast<LODLevel>(lvl),
+                    std::clamp((effectiveMetric - th * 0.80f) / (th * 0.20f), 0.0f, 1.0f)};
+        }
+    }
+    return {LODLevel::LOD3, 0.0f};
 }
 
 void Quadtree::GetNodeBounds(std::vector<core::AABB>& boundsOut) const {

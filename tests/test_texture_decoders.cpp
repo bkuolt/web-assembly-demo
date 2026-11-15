@@ -3,8 +3,10 @@
  * @brief Unit tests for texture format decoders (PNG, JPEG, WebP, KTX2) and magic-byte sniffing.
  */
 #include "gpu/Pipeline.hpp"
+#include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <gtest/gtest.h>
+#include <memory_resource>
 
 using namespace bgl::scene;
 
@@ -187,4 +189,25 @@ TEST(TextureDecoderTest, InvalidExtensionAndUnsupportedPayload) {
     std::vector<uint8_t> dummyData = {0x01, 0x02, 0x03, 0x04};
     auto resUnknown = TextureDecoder::DecodeAuto(dummyData, "texture.unsupported_extension");
     EXPECT_FALSE(resUnknown.has_value());
+}
+
+TEST(TextureDecoderTest, IsKtx2DataAndPmrDecodeOverload) {
+    const std::vector<uint8_t> ktxMagic = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A, 0x00};
+    const std::vector<uint8_t> pngMagic = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x00};
+    const std::vector<uint8_t> tooShort = {0xAB, 'K', 'T', 'X'};
+
+    EXPECT_TRUE(TextureDecoder::IsKtx2Data(ktxMagic));
+    EXPECT_FALSE(TextureDecoder::IsKtx2Data(pngMagic));
+    EXPECT_FALSE(TextureDecoder::IsKtx2Data(tooShort));
+    EXPECT_FALSE(TextureDecoder::IsKtx2Data({}));
+
+    std::array<std::byte, 4096> scratchBuf{};
+    std::pmr::monotonic_buffer_resource arena(scratchBuf.data(), scratchBuf.size());
+
+    auto resTruncated = TextureDecoder::DecodeKTX2(ktxMagic, KtxTranscodeTarget::Bc7, &arena);
+    EXPECT_FALSE(resTruncated.has_value());
+
+    TextureGpuResource texRes;
+    EXPECT_EQ(texRes.vramBytes, 0u);
+    EXPECT_EQ(texRes.format, KtxTranscodeTarget::Rgba32);
 }

@@ -7,6 +7,8 @@ A high-performance, zero-allocation native WebGPU 3D scene viewer and glTF 2.0 P
 [![PBR](https://img.shields.io/badge/Shading-Cook--Torrance_GGX-blue?style=for-the-badge)](web/app.js)
 [![Tests Passing](https://img.shields.io/badge/E2E_Tests-100%25_Passing-22c55e?style=for-the-badge)](tests/test_browsers_e2e.py)
 
+![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
+
 ---
 
 ## Table of Contents

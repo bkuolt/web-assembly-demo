@@ -43,6 +43,12 @@ struct OverlayStats {
     bool reflectionsEnabled{true};
     bool ambientOcclusionEnabled{true};
     bool occlusionCullingEnabled{true};
+    bool lodEnabled{true};
+    bool autoLodEnabled{false};
+    float lodBias{1.0f};
+    size_t renderedTriangles{0};
+    size_t totalVisibleTriangles{0};
+    std::string debugViewName{"Lit PBR"};
     std::string weatherModeName{"Clear"};
     float timeOfDay{14.0f};
     bool dayNightCycleEnabled{false};

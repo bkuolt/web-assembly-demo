@@ -50,13 +50,18 @@ public:
      */
     void Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount, const core::Ray& ray);
 
-    [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
+    [[nodiscard]] bool IsInitialized() const noexcept {
+        return computePipeline_ != nullptr && resolvePipeline_ != nullptr;
+    }
 
 private:
+    void MoveFrom(GpuRayPicker& other) noexcept;
+
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
     WGPUComputePipeline computePipeline_{nullptr};
+    WGPUComputePipeline resolvePipeline_{nullptr};
     WGPUBindGroupLayout bindGroupLayout_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
 

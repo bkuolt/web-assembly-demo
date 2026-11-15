@@ -28,15 +28,18 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
 
     // True binary content hashing over loaded payload
     const uint64_t contentHash = Fnv1a64(*dataResult);
+    std::shared_ptr<DecodedImage> contentMatch{};
     {
         std::shared_lock lock(mutex_);
-        auto it = textureCache_.find(contentHash);
-        if (it != textureCache_.end()) {
-            BGL_LOG_DEBUG("AssetManager: Content hash deduplication hit for '{}' (hash: {:x})", path, contentHash);
-            std::unique_lock writeLock(mutex_);
-            textureCache_[pathHash] = it->second;
-            return it->second;
+        if (auto it = textureCache_.find(contentHash); it != textureCache_.end()) {
+            contentMatch = it->second;
         }
+    }
+    if (contentMatch) {
+        BGL_LOG_DEBUG("AssetManager: Content hash deduplication hit for '{}' (hash: {:x})", path, contentHash);
+        std::unique_lock writeLock(mutex_);
+        textureCache_.try_emplace(pathHash, contentMatch);
+        return contentMatch;
     }
 
     auto decodedResult = TextureDecoder::DecodeAuto(*dataResult, path);

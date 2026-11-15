@@ -146,11 +146,12 @@ void Skybox::Shutdown() noexcept {
 
 core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat hdrFormat,
                                       uint32_t sampleCount) {
-    device_ = device;
-    queue_ = queue;
-    if (!device_ || !queue_) {
+    if (!device || !queue) {
         return std::unexpected("Cannot initialize Skybox without valid WGPUDevice and WGPUQueue");
     }
+    Shutdown();
+    device_ = device;
+    queue_ = queue;
 
     // 1. Compile WGSL Shader
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
@@ -188,12 +189,20 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     bglDesc.entryCount = bglEntries.size();
     bglDesc.entries = bglEntries.data();
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!bindGroupLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create Skybox bind group layout");
+    }
 
     // 3. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
     PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
+    if (!pipelineLayout) {
+        Shutdown();
+        return std::unexpected("Failed to create Skybox pipeline layout");
+    }
 
     // 4. Color Target & Depth State (renders into RGBA16Float 4x MSAA HDR target)
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
@@ -227,6 +236,10 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    if (!pipeline_) {
+        Shutdown();
+        return std::unexpected("Failed to create Skybox render pipeline");
+    }
 
     // 6. Uniform Buffer
     WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -234,6 +247,10 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     ubDesc.label = ToWgpuStringView("SkyboxUniformBuffer");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+    if (!uniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to allocate Skybox uniform buffer");
+    }
 
     // 7. Create 1x1x6 fallback cubemap and trilinear sampler
     WGPUTextureDescriptor cubeDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -245,6 +262,10 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     cubeDesc.sampleCount = 1;
     cubeDesc.label = ToWgpuStringView("SkyboxFallbackCubemap");
     fallbackCubeTexture_ = wgpuDeviceCreateTexture(device_, &cubeDesc);
+    if (!fallbackCubeTexture_) {
+        Shutdown();
+        return std::unexpected("Failed to allocate Skybox fallback cubemap");
+    }
 
     WGPUTextureViewDescriptor cubeViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
     cubeViewDesc.format = WGPUTextureFormat_RGBA8Unorm;
@@ -272,6 +293,10 @@ core::Result<void> Skybox::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTe
     RebuildBindGroup(fallbackCubeView_, fallbackSampler_);
 
     initialized_ = (pipeline_ != nullptr && uniformBuffer_ != nullptr && bindGroup_ != nullptr);
+    if (!initialized_) {
+        Shutdown();
+        return std::unexpected("Failed to finalize Skybox resources");
+    }
     BGL_LOG_INFO("HDR Skybox pipeline initialized successfully (RGBA16Float, 4x MSAA, Sharp/Blurred/Hidden modes)!");
     return {};
 }
@@ -314,7 +339,10 @@ void Skybox::Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const
 
     SkyboxUniforms uniforms{};
     uniforms.invViewProj = glm::inverse(viewProj);
-    uniforms.sunDir = glm::vec4{glm::normalize(sunDir), solarElevation};
+    const float sunLen = glm::length(sunDir);
+    const glm::vec3 safeSun =
+        (sunLen > 1e-4f) ? (sunDir / sunLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
+    uniforms.sunDir = glm::vec4{safeSun, solarElevation};
     uniforms.cameraPos = glm::vec4{cameraPos, static_cast<float>(weatherMode)};
     const float blurLod{(mode_ == SkyboxMode::Blurred) ? (blurRoughness_ * 5.0f) : 0.0f};
     uniforms.params = glm::vec4{rotation_, blurLod, hasCustomCubemap_ ? 1.0f : 0.0f, weatherIntensity};
