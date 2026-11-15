@@ -37,6 +37,23 @@ ThreadPool::~ThreadPool() {
     Shutdown();
 }
 
+bool ThreadPool::TryExecuteOneTask() {
+    std::function<void()> task;
+    {
+        std::unique_lock<std::mutex> lock(queueMutex_);
+        if (tasks_.empty()) {
+            return false;
+        }
+        task = std::move(tasks_.front());
+        tasks_.pop();
+    }
+    if (task) {
+        task();
+        return true;
+    }
+    return false;
+}
+
 void ThreadPool::Shutdown() noexcept {
     {
         std::unique_lock<std::mutex> lock(queueMutex_);

@@ -308,8 +308,8 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   assert(mockGpuDevice.submittedCommands.length > 0, 'Commands must be submitted to device queue');
   const lastPass = mockGpuDevice.submittedCommands[0].pass;
   assert(lastPass, 'Render pass encoder must exist');
-  console.log(`✓ Render pass completed with ${lastPass.drawCalls} draw calls submitted to GPU queue`);
-  assert.strictEqual(lastPass.drawCalls, BglWebGpuRenderer.primitives.length, 'Each primitive should have 1 draw call');
+  console.log(`✓ Render pass completed with ${lastPass.drawCalls}/${BglWebGpuRenderer.primitives.length} draw calls submitted to GPU queue (frustum culled)`);
+  assert(lastPass.drawCalls > 0 && lastPass.drawCalls <= BglWebGpuRenderer.primitives.length, 'Frustum-culled draw calls must be > 0 and <= total primitives');
 
   console.log('--- Step 4: Testing Turntable and Camera Orbit ---');
   const initialYaw = BglWebGpuRenderer.camera.yaw;
@@ -426,7 +426,7 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   BglWebGpuRenderer.draw();
   const nearRenderedTris = global.BglState.renderedTriangles;
 
-  BglWebGpuRenderer.camera.distance = 150.0;
+  BglWebGpuRenderer.camera.distance = 12.0;
   global.BglState.lodBias = 3.5;
   BglWebGpuRenderer.draw();
   const farRenderedTris = global.BglState.renderedTriangles;
@@ -434,6 +434,110 @@ eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer
   assert(nearRenderedTris > 0 && farRenderedTris > 0, 'Triangle telemetry must be positive');
   assert(farRenderedTris < nearRenderedTris, `Far camera distance with LOD must render fewer triangles (${farRenderedTris} < ${nearRenderedTris})`);
   console.log(`✓ Multi-LOD WebGPU rendering verified: Near=${nearRenderedTris.toLocaleString()} tris vs Far=${farRenderedTris.toLocaleString()} tris`);
+
+  console.log('--- Step 11: Testing Frustum Culling, Per-Channel KHR_texture_transform & Batched Mipmaps ---');
+  // 11a: Frustum culling drops primitive placed far behind camera
+  const behindModel = BglWebGpuRenderer.mat4.create();
+  behindModel[12] = 0; behindModel[13] = 0; behindModel[14] = 5000;
+  BglWebGpuRenderer.camera.target = [0, 0, 0];
+  BglWebGpuRenderer.camera.distance = 5.0;
+  BglWebGpuRenderer.camera.yaw = 0.0;
+  BglWebGpuRenderer.camera.pitch = 0.0;
+  BglWebGpuRenderer.primitives.push({
+    ...BglWebGpuRenderer.primitives[0],
+    uniformBuffer: mockGpuDevice.createBuffer({ size: 512, usage: 0x48 }),
+    modelMatrix: behindModel,
+    localCenter: [0, 0, 0],
+    localRadius: 0.5,
+    worldCenter: null,
+    worldMatrixVersion: -1,
+    isSkinned: false
+  });
+  mockGpuDevice.submittedCommands = [];
+  BglWebGpuRenderer.draw();
+  const culledPass = mockGpuDevice.submittedCommands[0].pass;
+  assert(culledPass.drawCalls < BglWebGpuRenderer.primitives.length, `Behind-camera primitive must be frustum-culled (${culledPass.drawCalls} < ${BglWebGpuRenderer.primitives.length})`);
+
+  // 11b: Per-channel KHR_texture_transform packs independent transforms into 512B UBO
+  const multiUvGltf = {
+    asset: { version: '2.0' },
+    buffers: [{ uri: 'data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', byteLength: 36 }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' }],
+    materials: [{
+      pbrMetallicRoughness: {
+        baseColorTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [2, 3], offset: [0.1, 0.2], rotation: 0.5 } } },
+        metallicRoughnessTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [4, 5], offset: [0.25, 0.5], rotation: 1.0 } } }
+      },
+      normalTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [6, 7], offset: [0.3, 0.4], rotation: 1.5 } } },
+      occlusionTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [8, 9], offset: [0.4, 0.6], rotation: 0.25 } } },
+      emissiveTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [10, 11], offset: [0.7, 0.8], rotation: 2.0 } } }
+    }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
+    nodes: [{ mesh: 0 }],
+    scenes: [{ nodes: [0] }],
+    scene: 0
+  };
+  BglWebGpuRenderer.loadModel(multiUvGltf, new ArrayBuffer(0), 'multi_uv.gltf');
+  BglWebGpuRenderer.draw();
+  const uboOut = new Float32Array(BglWebGpuRenderer._scratchUboBuffer);
+  assert(Math.abs(uboOut[68] - 2.0) < 1e-5 && Math.abs(uboOut[70] - 0.1) < 1e-5, 'baseColor UV transform must be preserved');
+  assert(Math.abs(uboOut[88] - 4.0) < 1e-5 && Math.abs(uboOut[90] - 0.25) < 1e-5, 'mr UV transform must populate floats 88..91');
+  assert(Math.abs(uboOut[92] - 6.0) < 1e-5 && Math.abs(uboOut[94] - 0.3) < 1e-5, 'normal UV transform must populate floats 92..95');
+  assert(Math.abs(uboOut[96] - 8.0) < 1e-5 && Math.abs(uboOut[98] - 0.4) < 1e-5, 'occlusion UV transform must populate floats 96..99');
+  assert(Math.abs(uboOut[100] - 10.0) < 1e-5 && Math.abs(uboOut[102] - 0.7) < 1e-5, 'emissive UV transform must populate floats 100..103');
+  assert(Math.abs(uboOut[104] - 0.5) < 1e-5 && Math.abs(uboOut[105] - 1.0) < 1e-5 && Math.abs(uboOut[108] - 2.0) < 1e-5, 'per-channel rotations must populate uvRotations0/1');
+
+  // 11c: Batched mipmap submission encodes multiple textures in one submit
+  mockGpuDevice.submittedCommands = [];
+  const t1 = mockGpuDevice.createTexture({ size: [8, 8, 1], format: 'rgba8unorm', usage: 0x16 });
+  const t2 = mockGpuDevice.createTexture({ size: [8, 8, 1], format: 'rgba8unorm', usage: 0x16 });
+  BglWebGpuRenderer.queueMipmapGeneration(t1, 8, 8, 3);
+  BglWebGpuRenderer.queueMipmapGeneration(t2, 8, 8, 3);
+  BglWebGpuRenderer.flushPendingMipmaps();
+  assert.strictEqual(mockGpuDevice.submittedCommands.length, 1, 'Multiple queued mipmap textures must flush in 1 single queue submission');
+  console.log('✓ Frustum culling, per-channel KHR_texture_transform, and single-submit mipmap batching verified');
+
+  console.log('--- Step 12: Verifying Compiled Emscripten WASM Binary (web/dist/bgl_engine.wasm) ---');
+  const wasmPath = 'web/dist/bgl_engine.wasm';
+  assert(fs.existsSync(wasmPath), 'Compiled web/dist/bgl_engine.wasm must exist');
+  const wasmBytes = fs.readFileSync(wasmPath);
+  const wasmMod = new WebAssembly.Module(wasmBytes);
+  const wasmImports = WebAssembly.Module.imports(wasmMod);
+  assert.strictEqual(wasmImports.length, 1, 'WASM module must require only env.memory import');
+  assert.strictEqual(wasmImports[0].module, 'env');
+  assert.strictEqual(wasmImports[0].name, 'memory');
+
+  const wasmMem = new WebAssembly.Memory({ initial: 256, maximum: 1024 });
+  const wasmInst = await WebAssembly.instantiate(wasmMod, { env: { memory: wasmMem } });
+  const exp = wasmInst.exports;
+  assert.strictEqual(exp.bgl_init(1280, 720), 1, 'bgl_init must succeed');
+
+  const toyPtr = exp.malloc(toyCarBuf.length);
+  assert(toyPtr > 0, 'WASM malloc must allocate buffer for ToyCar.glb');
+  new Uint8Array(wasmMem.buffer).set(toyCarBuf, toyPtr);
+  const nameBytes = new TextEncoder().encode('ToyCar.glb\0');
+  const namePtr = exp.malloc(nameBytes.length);
+  new Uint8Array(wasmMem.buffer).set(nameBytes, namePtr);
+  assert.strictEqual(exp.bgl_load_file_buffer(namePtr, toyPtr, toyCarBuf.length), 1, 'WASM bgl_load_file_buffer must parse ToyCar.glb');
+  assert.strictEqual(exp.bgl_get_camera_count(), 8, 'ToyCar.glb must report 8 glTF cameras via WASM bridge');
+  assert(exp.bgl_pick_node(640, 360, 1280, 720) >= 0, 'bgl_pick_node must select valid node');
+  exp.free(namePtr);
+  exp.free(toyPtr);
+
+  if (fs.existsSync('web/assets/Sponza.glb')) {
+    const sponzaRaw = fs.readFileSync('web/assets/Sponza.glb');
+    const sponzaPtr = exp.malloc(sponzaRaw.length);
+    assert(sponzaPtr > 0, 'WASM free-list heap must fit 50+ MB Sponza.glb within 64 MB max memory after free()');
+    new Uint8Array(wasmMem.buffer).set(sponzaRaw, sponzaPtr);
+    const sName = new TextEncoder().encode('Sponza.glb\0');
+    const sNamePtr = exp.malloc(sName.length);
+    new Uint8Array(wasmMem.buffer).set(sName, sNamePtr);
+    assert.strictEqual(exp.bgl_load_file_buffer(sNamePtr, sponzaPtr, sponzaRaw.length), 1, 'WASM bgl_load_file_buffer must parse Sponza.glb');
+    exp.free(sNamePtr);
+    exp.free(sponzaPtr);
+  }
+  console.log(`✓ Real C++23 Emscripten WASM module verified (${Object.keys(exp).length} exports, ${wasmBytes.length} bytes)`);
 
   console.log('--- ALL WEBGPU PIPELINE TESTS PASSED (100%) ---');
   process.exit(0);

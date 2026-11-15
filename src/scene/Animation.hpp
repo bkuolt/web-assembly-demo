@@ -13,6 +13,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <webgpu/webgpu.h>
 
 namespace bgl::scene {
 
@@ -92,6 +93,31 @@ struct Skin {
     std::vector<glm::mat4> inverseBindMatrices{};
     int skeletonRootNodeIndex{-1};
     std::vector<int> joints{};
+    WGPUBuffer gpuJointBuffer{nullptr};
+    WGPUBindGroup gpuBindGroup{nullptr};
+    mutable std::vector<glm::mat4> cachedJointMatrices{};
+    mutable uint64_t cachedFrameId{0};
+    mutable uint64_t cachedUploadedFrameId{0};
+    mutable const SceneNode* cachedMeshNode{nullptr};
+    mutable uint32_t cachedJointCount{0};
+
+    Skin() = default;
+    Skin(const Skin& other);
+    Skin& operator=(const Skin& other);
+    Skin(Skin&& other) noexcept;
+    Skin& operator=(Skin&& other) noexcept;
+    ~Skin();
+
+    void ReleaseGpu() noexcept;
+
+    [[nodiscard]] bool NeedsGpuUpload(uint64_t frameId, const SceneNode* meshNode) const noexcept {
+        return frameId == 0 || cachedUploadedFrameId != frameId || cachedMeshNode != meshNode;
+    }
+
+    void MarkGpuUploaded(uint64_t frameId, const SceneNode* meshNode) const noexcept {
+        cachedUploadedFrameId = frameId;
+        cachedMeshNode = meshNode;
+    }
 
     /**
      * @brief Computes skinning joint matrices for a mesh instance:
@@ -104,6 +130,13 @@ struct Skin {
     [[nodiscard]] uint32_t ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,
                                                 std::span<const std::shared_ptr<SceneNode>> allNodes,
                                                 std::span<glm::mat4> outJointMatrices) const noexcept;
+
+    /**
+     * @brief Returns per-frame cached joint matrices for (frameId, meshNode), computing on miss.
+     */
+    [[nodiscard]] std::span<const glm::mat4>
+    GetOrComputeJointMatrices(uint64_t frameId, const SceneNode* meshNode, const glm::mat4& meshNodeWorldTransform,
+                              std::span<const std::shared_ptr<SceneNode>> allNodes) const noexcept;
 };
 
 /**

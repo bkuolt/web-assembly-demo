@@ -7,7 +7,7 @@
 #include "core/ThreadPool.hpp"
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
+#include <utility>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
 #endif
@@ -20,8 +20,10 @@ MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
     : vertices{other.vertices}, baseVertices{other.baseVertices}, indices{other.indices}, lodIndices{other.lodIndices},
       lodLevels{other.lodLevels}, morphTargets{other.morphTargets}, morphDirty{other.morphDirty},
       boundingBox{other.boundingBox}, materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
-      gpuVertexBuffer{nullptr}, gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, wireframeIndexCount{0},
-      gpuUniformBuffer{nullptr}, gpuShadowUniformBuffer{nullptr}, gpuBindGroup{nullptr}, gpuShadowBindGroup{nullptr} {}
+      gpuVertexBuffer{nullptr}, gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, gpuVertexBufferSize{0},
+      gpuIndexBufferSize{0}, wireframeIndexCount{0}, gpuUniformBuffer{nullptr}, gpuShadowUniformBuffer{nullptr},
+      gpuMorphDeltaBuffer{nullptr}, gpuMorphTargetCount{0}, gpuMorphVertexCount{0}, gpuBindGroup{nullptr},
+      gpuShadowBindGroup{nullptr} {}
 
 MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
     if (this != &other) {
@@ -39,9 +41,14 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
         gpuVertexBuffer = nullptr;
         gpuIndexBuffer = nullptr;
         gpuWireframeIndexBuffer = nullptr;
+        gpuVertexBufferSize = 0;
+        gpuIndexBufferSize = 0;
         wireframeIndexCount = 0;
         gpuUniformBuffer = nullptr;
         gpuShadowUniformBuffer = nullptr;
+        gpuMorphDeltaBuffer = nullptr;
+        gpuMorphTargetCount = 0;
+        gpuMorphVertexCount = 0;
         gpuBindGroup = nullptr;
         gpuShadowBindGroup = nullptr;
     }
@@ -56,9 +63,14 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       gpuVertexBuffer{std::exchange(other.gpuVertexBuffer, nullptr)},
       gpuIndexBuffer{std::exchange(other.gpuIndexBuffer, nullptr)},
       gpuWireframeIndexBuffer{std::exchange(other.gpuWireframeIndexBuffer, nullptr)},
+      gpuVertexBufferSize{std::exchange(other.gpuVertexBufferSize, 0)},
+      gpuIndexBufferSize{std::exchange(other.gpuIndexBufferSize, 0)},
       wireframeIndexCount{std::exchange(other.wireframeIndexCount, 0)},
       gpuUniformBuffer{std::exchange(other.gpuUniformBuffer, nullptr)},
       gpuShadowUniformBuffer{std::exchange(other.gpuShadowUniformBuffer, nullptr)},
+      gpuMorphDeltaBuffer{std::exchange(other.gpuMorphDeltaBuffer, nullptr)},
+      gpuMorphTargetCount{std::exchange(other.gpuMorphTargetCount, 0)},
+      gpuMorphVertexCount{std::exchange(other.gpuMorphVertexCount, 0)},
       gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
       gpuShadowBindGroup{std::exchange(other.gpuShadowBindGroup, nullptr)} {}
 
@@ -78,9 +90,14 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         gpuVertexBuffer = std::exchange(other.gpuVertexBuffer, nullptr);
         gpuIndexBuffer = std::exchange(other.gpuIndexBuffer, nullptr);
         gpuWireframeIndexBuffer = std::exchange(other.gpuWireframeIndexBuffer, nullptr);
+        gpuVertexBufferSize = std::exchange(other.gpuVertexBufferSize, 0);
+        gpuIndexBufferSize = std::exchange(other.gpuIndexBufferSize, 0);
         wireframeIndexCount = std::exchange(other.wireframeIndexCount, 0);
         gpuUniformBuffer = std::exchange(other.gpuUniformBuffer, nullptr);
         gpuShadowUniformBuffer = std::exchange(other.gpuShadowUniformBuffer, nullptr);
+        gpuMorphDeltaBuffer = std::exchange(other.gpuMorphDeltaBuffer, nullptr);
+        gpuMorphTargetCount = std::exchange(other.gpuMorphTargetCount, 0);
+        gpuMorphVertexCount = std::exchange(other.gpuMorphVertexCount, 0);
         gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
         gpuShadowBindGroup = std::exchange(other.gpuShadowBindGroup, nullptr);
     }
@@ -96,17 +113,23 @@ void MeshPrimitive::ReleaseGpu() noexcept {
         wgpuBindGroupRelease(bg);
     if (auto bg = std::exchange(gpuBindGroup, nullptr))
         wgpuBindGroupRelease(bg);
+    if (auto b = std::exchange(gpuMorphDeltaBuffer, nullptr))
+        wgpuBufferRelease(b);
+    gpuMorphTargetCount = 0;
+    gpuMorphVertexCount = 0;
     if (auto b = std::exchange(gpuShadowUniformBuffer, nullptr))
         wgpuBufferRelease(b);
     if (auto b = std::exchange(gpuUniformBuffer, nullptr))
         wgpuBufferRelease(b);
     if (auto b = std::exchange(gpuIndexBuffer, nullptr))
         wgpuBufferRelease(b);
+    gpuIndexBufferSize = 0;
     if (auto b = std::exchange(gpuWireframeIndexBuffer, nullptr))
         wgpuBufferRelease(b);
     wireframeIndexCount = 0;
     if (auto b = std::exchange(gpuVertexBuffer, nullptr))
         wgpuBufferRelease(b);
+    gpuVertexBufferSize = 0;
 }
 
 void MeshPrimitive::ComputeTangents() {
@@ -118,7 +141,7 @@ void MeshPrimitive::ComputeTangents() {
     std::span<core::Vertex> vertSpan{vertices.data(), vertices.size()};
     std::span<const uint32_t> idxSpan{indices.data(), indices.size()};
 
-    auto processTri = [&](size_t i0, size_t i1, size_t i2) {
+    auto processTri = [&](size_t i0, size_t i1, size_t i2, std::vector<glm::vec3>& t1, std::vector<glm::vec3>& t2) {
         if (i0 >= vertSpan.size() || i1 >= vertSpan.size() || i2 >= vertSpan.size())
             return;
         const glm::vec3& p0{vertSpan[i0].position};
@@ -140,24 +163,67 @@ void MeshPrimitive::ComputeTangents() {
             const glm::vec3 sdir{(e1 * duv2.y - e2 * duv1.y) * r};
             const glm::vec3 tdir{(e2 * duv1.x - e1 * duv2.x) * r};
 
-            tan1[i0] += sdir;
-            tan1[i1] += sdir;
-            tan1[i2] += sdir;
-            tan2[i0] += tdir;
-            tan2[i1] += tdir;
-            tan2[i2] += tdir;
+            t1[i0] += sdir;
+            t1[i1] += sdir;
+            t1[i2] += sdir;
+            t2[i0] += tdir;
+            t2[i1] += tdir;
+            t2[i2] += tdir;
         }
     };
 
-    if (!idxSpan.empty()) {
-        for (size_t i{0}; i + 2 < idxSpan.size(); i += 3) {
-            processTri(idxSpan[i], idxSpan[i + 1], idxSpan[i + 2]);
+    const bool hasIndices = !idxSpan.empty();
+    const size_t triCount = hasIndices ? (idxSpan.size() / 3) : (vertSpan.size() / 3);
+    auto accumRange = [&](size_t triStart, size_t triEnd, std::vector<glm::vec3>& t1, std::vector<glm::vec3>& t2) {
+        if (hasIndices) {
+            for (size_t t = triStart; t < triEnd; ++t) {
+                const size_t b = t * 3;
+                processTri(idxSpan[b], idxSpan[b + 1], idxSpan[b + 2], t1, t2);
+            }
+        } else {
+            for (size_t t = triStart; t < triEnd; ++t) {
+                const size_t b = t * 3;
+                processTri(b, b + 1, b + 2, t1, t2);
+            }
+        }
+    };
+
+#if !defined(__EMSCRIPTEN__)
+    const size_t maxWorkers = core::ThreadPool::Instance().GetThreadCount();
+    const size_t bytesPerChunk = vertSpan.size() * sizeof(glm::vec3) * 2;
+    const size_t maxChunksByMem = (bytesPerChunk > 0) ? ((32u * 1024u * 1024u) / bytesPerChunk) + 1u : 1u;
+    const size_t chunkCount =
+        (triCount >= 32768 && maxWorkers > 1) ? std::min({maxWorkers, triCount / 8192u, maxChunksByMem}) : 1u;
+    if (chunkCount > 1u) {
+        const size_t extraChunks = chunkCount - 1u;
+        std::vector<std::vector<glm::vec3>> extraTan1(extraChunks,
+                                                      std::vector<glm::vec3>(vertSpan.size(), glm::vec3{0.0f}));
+        std::vector<std::vector<glm::vec3>> extraTan2(extraChunks,
+                                                      std::vector<glm::vec3>(vertSpan.size(), glm::vec3{0.0f}));
+        core::ThreadPool::Instance().ParallelFor(
+            0, chunkCount,
+            [&](size_t chunkIdx) {
+                const size_t tStart = (chunkIdx * triCount) / chunkCount;
+                const size_t tEnd = ((chunkIdx + 1) * triCount) / chunkCount;
+                if (chunkIdx == 0) {
+                    accumRange(tStart, tEnd, tan1, tan2);
+                } else {
+                    accumRange(tStart, tEnd, extraTan1[chunkIdx - 1], extraTan2[chunkIdx - 1]);
+                }
+            },
+            1);
+        for (size_t c = 0; c < extraChunks; ++c) {
+            for (size_t v = 0; v < vertSpan.size(); ++v) {
+                tan1[v] += extraTan1[c][v];
+                tan2[v] += extraTan2[c][v];
+            }
         }
     } else {
-        for (size_t i{0}; i + 2 < vertSpan.size(); i += 3) {
-            processTri(i, i + 1, i + 2);
-        }
+        accumRange(0, triCount, tan1, tan2);
     }
+#else
+    accumRange(0, triCount, tan1, tan2);
+#endif
 
     auto orthogonalizeVertex = [&](size_t i) noexcept {
         const glm::vec3& n{vertSpan[i].normal};
@@ -217,6 +283,14 @@ void MeshPrimitive::GenerateLODs() {
     const glm::vec3 boxSize{glm::max(box.Size(), glm::vec3{1e-5f})};
     const float maxSize{std::max({boxSize.x, boxSize.y, boxSize.z, 1e-4f})};
 
+    struct CellSample {
+        uint64_t key{0};
+        uint32_t vertexIndex{0};
+        float distSq{0.0f};
+    };
+    std::vector<CellSample> cellSamples(vertices.size());
+    std::vector<uint32_t> remap(vertices.size(), 0);
+
     // Helper: cluster vertices on an adaptive 3D spatial grid with resolution `gridRes`
     auto clusterWithGrid = [&](uint32_t gridRes) -> std::vector<uint32_t> {
         const uint32_t gx{
@@ -225,16 +299,6 @@ void MeshPrimitive::GenerateLODs() {
             std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(gridRes) * (boxSize.y / maxSize))))};
         const uint32_t gz{
             std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(gridRes) * (boxSize.z / maxSize))))};
-
-        struct CellRep {
-            uint32_t vertexIndex{0};
-            float bestDistSq{1e30f};
-        };
-        std::unordered_map<uint64_t, CellRep> cellMap{};
-        cellMap.reserve(std::min<size_t>(vertices.size(), static_cast<size_t>(gridRes) * gridRes * 2));
-
-        std::vector<uint32_t> remap(vertices.size(), 0);
-        std::vector<uint64_t> vertKeys(vertices.size(), 0);
 
         for (size_t i{0}; i < vertices.size(); ++i) {
             const glm::vec3 normPos{
@@ -249,7 +313,6 @@ void MeshPrimitive::GenerateLODs() {
                                  (static_cast<uint64_t>(vertices[i].normal.z >= 0.0f ? 1 : 0) << 62u)};
             const uint64_t key{nBits | (static_cast<uint64_t>(ix & 0xFFFFFu) << 40u) |
                                (static_cast<uint64_t>(iy & 0xFFFFFu) << 20u) | static_cast<uint64_t>(iz & 0xFFFFFu)};
-            vertKeys[i] = key;
 
             const glm::vec3 cellCenter{(static_cast<float>(ix) + 0.5f) / static_cast<float>(gx),
                                        (static_cast<float>(iy) + 0.5f) / static_cast<float>(gy),
@@ -257,17 +320,24 @@ void MeshPrimitive::GenerateLODs() {
             const glm::vec3 diff{normPos - cellCenter};
             const float distSq{glm::dot(diff, diff)};
 
-            auto it = cellMap.find(key);
-            if (it == cellMap.end()) {
-                cellMap.emplace(key, CellRep{static_cast<uint32_t>(i), distSq});
-            } else if (distSq < it->second.bestDistSq) {
-                it->second.vertexIndex = static_cast<uint32_t>(i);
-                it->second.bestDistSq = distSq;
-            }
+            cellSamples[i] = CellSample{.key = key, .vertexIndex = static_cast<uint32_t>(i), .distSq = distSq};
         }
 
-        for (size_t i{0}; i < vertices.size(); ++i) {
-            remap[i] = cellMap[vertKeys[i]].vertexIndex;
+        std::sort(cellSamples.begin(), cellSamples.end(), [](const CellSample& a, const CellSample& b) noexcept {
+            if (a.key != b.key) {
+                return a.key < b.key;
+            }
+            return a.distSq < b.distSq;
+        });
+
+        size_t sIdx{0};
+        while (sIdx < cellSamples.size()) {
+            const uint64_t cellKey{cellSamples[sIdx].key};
+            const uint32_t repVertex{cellSamples[sIdx].vertexIndex};
+            while (sIdx < cellSamples.size() && cellSamples[sIdx].key == cellKey) {
+                remap[cellSamples[sIdx].vertexIndex] = repVertex;
+                ++sIdx;
+            }
         }
 
         std::vector<uint32_t> simplified{};
@@ -306,8 +376,9 @@ void MeshPrimitive::GenerateLODs() {
     for (size_t tier{0}; tier < 3; ++tier) {
         const size_t lvl{tier + 1};
         const size_t prevIndexCount{lodIndices[lvl - 1].size()};
-        const size_t targetIndices{
-            std::max<size_t>(12, static_cast<size_t>(indices.size() * kTargetRatios[tier]) / 3 * 3)};
+        const size_t targetIndices{std::max<size_t>(
+            12, static_cast<size_t>(static_cast<double>(indices.size()) * static_cast<double>(kTargetRatios[tier])) /
+                    3 * 3)};
 
         uint32_t gridRes{
             std::max(2u, static_cast<uint32_t>(std::round(baseDim * std::sqrt(kTargetRatios[tier]) * 1.35f)))};
@@ -318,7 +389,8 @@ void MeshPrimitive::GenerateLODs() {
             auto candidate = clusterWithGrid(gridRes);
             if (candidate.size() >= 12) {
                 bestCandidate = std::move(candidate);
-                if (bestCandidate.size() <= targetIndices * 1.25 && bestCandidate.size() < prevIndexCount) {
+                if (static_cast<double>(bestCandidate.size()) <= static_cast<double>(targetIndices) * 1.25 &&
+                    bestCandidate.size() < prevIndexCount) {
                     break;
                 }
             }
@@ -333,9 +405,10 @@ void MeshPrimitive::GenerateLODs() {
             const auto& src = (bestCandidate.size() >= 12) ? bestCandidate : lodIndices[lvl - 1];
             const size_t srcTris{src.size() / 3};
             const size_t maxKeepTris{(srcTris > 4) ? (srcTris - 1) : 4};
-            const size_t keepTris{std::clamp<size_t>(
-                static_cast<size_t>(std::round(static_cast<double>(baseTriCount) * kTargetRatios[tier])), 4,
-                maxKeepTris)};
+            const size_t keepTris{
+                std::clamp<size_t>(static_cast<size_t>(std::round(static_cast<double>(baseTriCount) *
+                                                                  static_cast<double>(kTargetRatios[tier]))),
+                                   4, maxKeepTris)};
 
             if (keepTris < srcTris) {
                 struct TriArea {
@@ -432,7 +505,7 @@ void SceneNode::ApplyMorphWeights() {
     if (morphWeights.empty())
         return;
     for (auto& prim : GetPrimitives()) {
-        if (!prim.morphTargets.empty()) {
+        if (!prim.morphTargets.empty() && prim.gpuMorphDeltaBuffer == nullptr) {
             prim.ApplyMorphTargets(morphWeights);
         }
     }
@@ -562,6 +635,68 @@ void Scene::SetAnimation(int index) noexcept {
     }
 }
 
+Skin::Skin(const Skin& other)
+    : name{other.name}, inverseBindMatrices{other.inverseBindMatrices},
+      skeletonRootNodeIndex{other.skeletonRootNodeIndex}, joints{other.joints}, gpuJointBuffer{nullptr},
+      gpuBindGroup{nullptr} {}
+
+Skin& Skin::operator=(const Skin& other) {
+    if (this != &other) {
+        ReleaseGpu();
+        name = other.name;
+        inverseBindMatrices = other.inverseBindMatrices;
+        skeletonRootNodeIndex = other.skeletonRootNodeIndex;
+        joints = other.joints;
+        cachedJointMatrices.clear();
+        cachedFrameId = 0;
+        cachedUploadedFrameId = 0;
+        cachedMeshNode = nullptr;
+        cachedJointCount = 0;
+    }
+    return *this;
+}
+
+Skin::Skin(Skin&& other) noexcept
+    : name{std::move(other.name)}, inverseBindMatrices{std::move(other.inverseBindMatrices)},
+      skeletonRootNodeIndex{std::exchange(other.skeletonRootNodeIndex, -1)}, joints{std::move(other.joints)},
+      gpuJointBuffer{std::exchange(other.gpuJointBuffer, nullptr)},
+      gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
+      cachedJointMatrices{std::move(other.cachedJointMatrices)}, cachedFrameId{std::exchange(other.cachedFrameId, 0)},
+      cachedUploadedFrameId{std::exchange(other.cachedUploadedFrameId, 0)},
+      cachedMeshNode{std::exchange(other.cachedMeshNode, nullptr)},
+      cachedJointCount{std::exchange(other.cachedJointCount, 0)} {}
+
+Skin& Skin::operator=(Skin&& other) noexcept {
+    if (this != &other) {
+        ReleaseGpu();
+        name = std::move(other.name);
+        inverseBindMatrices = std::move(other.inverseBindMatrices);
+        skeletonRootNodeIndex = std::exchange(other.skeletonRootNodeIndex, -1);
+        joints = std::move(other.joints);
+        gpuJointBuffer = std::exchange(other.gpuJointBuffer, nullptr);
+        gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
+        cachedJointMatrices = std::move(other.cachedJointMatrices);
+        cachedFrameId = std::exchange(other.cachedFrameId, 0);
+        cachedUploadedFrameId = std::exchange(other.cachedUploadedFrameId, 0);
+        cachedMeshNode = std::exchange(other.cachedMeshNode, nullptr);
+        cachedJointCount = std::exchange(other.cachedJointCount, 0);
+    }
+    return *this;
+}
+
+Skin::~Skin() {
+    ReleaseGpu();
+}
+
+void Skin::ReleaseGpu() noexcept {
+    if (auto bg = std::exchange(gpuBindGroup, nullptr)) {
+        wgpuBindGroupRelease(bg);
+    }
+    if (auto b = std::exchange(gpuJointBuffer, nullptr)) {
+        wgpuBufferRelease(b);
+    }
+}
+
 uint32_t Skin::ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,
                                     std::span<const std::shared_ptr<SceneNode>> allNodes,
                                     std::span<glm::mat4> outJointMatrices) const noexcept {
@@ -580,6 +715,22 @@ uint32_t Skin::ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,
         outJointMatrices[j] = invWorld * jointWorld * ibm;
     }
     return count;
+}
+
+std::span<const glm::mat4>
+Skin::GetOrComputeJointMatrices(uint64_t frameId, const SceneNode* meshNode, const glm::mat4& meshNodeWorldTransform,
+                                std::span<const std::shared_ptr<SceneNode>> allNodes) const noexcept {
+    if (frameId != 0 && cachedFrameId == frameId && cachedMeshNode == meshNode && !cachedJointMatrices.empty()) {
+        return std::span<const glm::mat4>{cachedJointMatrices.data(), cachedJointCount};
+    }
+    const size_t count = std::max<size_t>(1, joints.size());
+    if (cachedJointMatrices.size() < count) {
+        cachedJointMatrices.resize(count, glm::mat4{1.0f});
+    }
+    cachedJointCount = ComputeJointMatrices(meshNodeWorldTransform, allNodes, cachedJointMatrices);
+    cachedFrameId = frameId;
+    cachedMeshNode = meshNode;
+    return std::span<const glm::mat4>{cachedJointMatrices.data(), cachedJointCount};
 }
 
 } // namespace bgl::scene

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.17] - 2026-11-15
+
+### Architecture Hardening, GPU Skinning/Morphs/Mipmaps, Dynamic Per-Draw Ring & Performance Optimizations
+- **Dynamic Uniform Ring & Shared 4-Group Pipeline Layout (`src/gpu/Uniforms.hpp`, `src/gpu/DrawHelpers.hpp`, `src/gpu/Pipeline.cpp`, `src/gpu/ShadowPass.cpp`, `src/gpu/Shaders.hpp`):**
+  - Replaced legacy per-primitive `PrimitiveUniforms` and 8608-byte `ShadowUniforms` with a unified 256-byte-aligned `DynamicUniformRing<PerDrawUniforms>`, static `MaterialUniforms`, and `SceneLightingUniforms`.
+  - Shared `PopulatePerDrawMorphAndSkin()` helper and 4-group (`SceneGlobals`, `PerDrawDynamic`, `MaterialStatic`, `SkinStorage`) / 3-group shadow bindings eliminate redundant uniform rebuilds and enable independent per-instance transforms, morph weights, and animation states on shared meshes.
+  - Moved GPU skeletal skinning matrices to a dynamically sized `@group(3)` storage buffer (`Skin` SSBO with per-frame joint matrix upload caching), removing the previous 128-joint ceiling (`Scene.cpp`, `Shaders.hpp`).
+  - Offloaded morph target blending (`morphTargetCount` up to 8 active targets) and multi-level mipmap generation (`kMipGenShaderWGSL`) directly to GPU compute/render passes.
+- **Per-Channel `KHR_texture_transform`, Frustum Culling & CPU/Threading Optimizations (`src/scene/*`, `src/core/*`, `src/app/*`):**
+  - Parsed independent `KHR_texture_transform` (`offset`, `scale`, `rotation`) for all 5 PBR texture channels (`baseColor`, `metallicRoughness`, `normal`, `occlusion`, `emissive`) on both Native WebGPU (`Material::UvTransform`, `Shaders.hpp`) and Client WebGPU (`web/app.js` 512B UBO + `transformUv` / `transformUvDeriv`).
+  - Upgraded `ThreadPool` (`src/core/ThreadPool.cpp`) to per-worker deques with work-stealing and bounded nesting recursion depth (`t_parallelDepth < 2`); parallelized `ComputeTangents`, `FastGltfLoader` primitive ingestion, LOD index packing, wireframe index extraction, and flat sorted `GenerateLODs()`.
+  - Added shadow-pass light frustum culling (`Quadtree::QueryVisible` / recursive node AABB tests), zero-allocation `Quadtree` visibility queries, cached `OcclusionBuffer`, 4 Hz single-read `/proc/self/statm` memory telemetry (`MemoryTracker.cpp`), and cached UI overlay strings (`Application.cpp`).
+- **Real Emscripten WASM Bridge, Web Worker Offloading & Unified Browser Frame Loop (`src/wasm/wasm_bridge.cpp`, `web/gltf_worker.js`, `web/app.js`, `web/dist/bgl_engine.wasm`):**
+  - Implemented freestanding C++23 Emscripten WASM engine bridge (`src/wasm/wasm_bridge.cpp`) compiled with `em++` + `wasm-ld` exporting `malloc`, `free`, and all `bgl_*` C-ABI functions with `--import-memory` (`{ env: { memory } }`).
+  - Offloaded GLB/glTF JSON extraction, AABB telemetry, and base64 buffer decoding to Web Worker `web/gltf_worker.js` with synchronous fallback for workerless hosts.
+  - Consolidated 4 separate `requestAnimationFrame` loops into `BglFrameScheduler`, added cached DOM references, throttled telemetry DOM writes (200 ms), camera frustum culling, `normalMatrix` caching, sorted draw batching with pipeline/bindGroup/buffer state caching, and single-submit mipmap encoding (`queueMipmapGeneration` / `flushPendingMipmaps`).
+- **Build Config, Quality Tooling & Dependencies (`conanfile.py`, `conan.lock`, `.clang-tidy`, `CMakePresets.json`, `.github/workflows/ci.yml`):**
+  - Updated `miniaudio` dependency to `0.11.25` and regenerated `conan.lock`.
+  - Added `.clang-tidy`, `clang` preset in `CMakePresets.json`, and updated CI workflows (`clang-tidy`, Emscripten `.wasm` build verification, `gltf_worker.js` syntax check & GitHub Pages staging).
+
+---
+
 ## [0.9.16] - 2026-11-15
 
 ### End-to-End Multi-Level Mesh & Shader LOD System, Screen-Space Error (SSE), Bayer Dithered Cross-Fading & Diagnostic Render Views

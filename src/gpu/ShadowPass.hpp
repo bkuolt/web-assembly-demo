@@ -5,52 +5,14 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include "gpu/Uniforms.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
 #include <glm/glm.hpp>
+#include <vector>
 #include <webgpu/webgpu.h>
 
 namespace bgl::gpu {
-
-struct alignas(16) ShadowUniforms {
-    glm::mat4 viewProj{1.0f};
-    glm::mat4 model{1.0f};
-    glm::mat4 lightViewProj{1.0f};
-    glm::vec4 cameraPos{0.0f};
-    glm::vec4 lightDir{0.577f, 0.577f, 0.577f, 0.0f};
-    glm::vec4 baseColorFactor{1.0f};
-    float metallicFactor{1.0f};
-    float roughnessFactor{1.0f};
-    float normalScale{1.0f};
-    float occlusionStrength{1.0f};
-    glm::vec4 emissiveFactor{0.0f, 0.0f, 0.0f, 1.0f};
-    float alphaCutoff{0.5f};
-    uint32_t alphaMode{0};
-    uint32_t flags{0};
-    float ior{1.5f};
-    float clearcoatFactor{0.0f};
-    float clearcoatRoughness{0.0f};
-    float transmissionFactor{0.0f};
-    float specularFactor{1.0f};
-    glm::vec4 sheenColorFactor{0.0f};
-    glm::vec4 specularColorFactor{1.0f};
-    float bumpScale{1.0f};
-    float reflectionIntensity{1.0f};
-    float shadowBias{0.0015f};
-    float envMipCount{8.0f};
-    float thicknessFactor{0.0f};
-    float attenuationDistance{1e9f};
-    glm::vec2 uvScale{1.0f, 1.0f};
-    glm::vec4 attenuationColor{1.0f};
-
-    uint32_t jointCount{0};
-    uint32_t morphTargetCount{0};
-    glm::vec2 uvOffset{0.0f, 0.0f};
-    glm::vec4 morphWeights{0.0f};
-    glm::mat4 jointMatrices[128]{};
-};
-
-static_assert(sizeof(ShadowUniforms) == 8608, "ShadowUniforms must be 8608 bytes");
 
 class ShadowPass {
 public:
@@ -64,8 +26,12 @@ public:
     ShadowPass(ShadowPass&& other) noexcept;
     ShadowPass& operator=(ShadowPass&& other) noexcept;
 
-    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUSampler defaultSampler,
-                                  WGPUTextureView defaultWhiteView);
+    /**
+     * @brief Initializes shadow depth target, PCF sampler, shared 3-group pipeline layout, and dynamic UBO ring.
+     */
+    core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout perDrawBgl,
+                                  WGPUBindGroupLayout materialBgl, WGPUBindGroupLayout skinBgl,
+                                  WGPUBindGroup dummySkinBindGroup);
     void Shutdown() noexcept;
 
     /**
@@ -88,34 +54,35 @@ public:
      * @brief Records directional shadow map depth pre-pass (cached for static scenes).
      */
     void Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
-                const scene::Quadtree* spatialIndex = nullptr);
+                const scene::Quadtree* spatialIndex = nullptr, uint64_t skinFrameId = 0);
 
-    /**
-     * @brief Creates a shadow-pass bind group compatible with ShadowPass's pipeline layout.
-     */
-    [[nodiscard]] WGPUBindGroup CreateShadowBindGroup(WGPUBuffer shadowUniformBuffer,
-                                                      WGPUTextureView baseColorView) const noexcept;
-
-    [[nodiscard]] WGPUBindGroupLayout GetShadowBindGroupLayout() const noexcept { return shadowBindGroupLayout_; }
     [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_; }
     [[nodiscard]] WGPUSampler GetShadowSampler() const noexcept { return shadowSampler_; }
     [[nodiscard]] glm::mat4 GetLightViewProjMatrix() const noexcept { return lightViewProj_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return shadowPipeline_ != nullptr; }
 
 private:
+    struct ShadowDrawItem {
+        scene::MeshPrimitive* prim{nullptr};
+        WGPUBindGroup skinBindGroup{nullptr};
+        uint32_t dynamicOffset{0};
+    };
+
     void MoveFrom(ShadowPass& other) noexcept;
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
     WGPURenderPipeline shadowPipeline_{nullptr};
-    WGPUBindGroupLayout shadowBindGroupLayout_{nullptr};
     WGPUTexture shadowTexture_{nullptr};
     WGPUTextureView shadowTextureView_{nullptr};
     WGPUSampler shadowSampler_{nullptr};
+    WGPUBindGroup dummySkinBindGroup_{nullptr};
 
-    WGPUSampler defaultSampler_{nullptr};
-    WGPUTextureView defaultWhiteView_{nullptr};
+    DynamicUniformRing<PerDrawUniforms> perDrawRing_{};
+    std::vector<scene::QuadtreeItem> visibleItemsScratch_{};
+    std::vector<ShadowDrawItem> drawItemsScratch_{};
+    std::vector<PerDrawUniforms> perDrawScratch_{};
 
     glm::mat4 lightViewProj_{1.0f};
     bool dirty_{true};

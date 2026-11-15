@@ -314,7 +314,7 @@ void Quadtree::InsertNodes(std::span<const std::shared_ptr<SceneNode>> nodes) {
     }
 }
 
-void Quadtree::Insert(std::shared_ptr<SceneNode> node) {
+void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
     if (!node)
         return;
     auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n) -> void {
@@ -362,29 +362,42 @@ void Quadtree::Reset(const core::AABB& worldBounds) {
     root_ = std::make_unique<QuadtreeNode>(worldBounds_);
 }
 
+void Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos, const glm::mat4& viewProj,
+                            std::vector<QuadtreeItem>& resultsOut, bool enableOcclusionCulling, float lodBias) const {
+    resultsOut.clear();
+    lastOccludedCount_ = 0;
+    if (root_) {
+        if (enableOcclusionCulling) {
+            occlusionBuffer_.Clear();
+            root_->QueryFrustum(frustum, cameraPos, resultsOut, &viewProj, &occlusionBuffer_, &lastOccludedCount_,
+                                lodBias);
+        } else {
+            root_->QueryFrustum(frustum, cameraPos, resultsOut, &viewProj, nullptr, nullptr, lodBias);
+        }
+    }
+}
+
+void Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
+                            std::vector<QuadtreeItem>& resultsOut, float lodBias) const {
+    resultsOut.clear();
+    lastOccludedCount_ = 0;
+    if (root_) {
+        root_->QueryFrustum(frustum, cameraPos, resultsOut, nullptr, nullptr, nullptr, lodBias);
+    }
+}
+
 std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                  const glm::mat4& viewProj, bool enableOcclusionCulling,
                                                  float lodBias) const {
     std::vector<QuadtreeItem> results{};
-    lastOccludedCount_ = 0;
-    if (root_) {
-        if (enableOcclusionCulling) {
-            OcclusionBuffer occlusionBuf{};
-            root_->QueryFrustum(frustum, cameraPos, results, &viewProj, &occlusionBuf, &lastOccludedCount_, lodBias);
-        } else {
-            root_->QueryFrustum(frustum, cameraPos, results, &viewProj, nullptr, nullptr, lodBias);
-        }
-    }
+    QueryVisible(frustum, cameraPos, viewProj, results, enableOcclusionCulling, lodBias);
     return results;
 }
 
 std::vector<QuadtreeItem> Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                  float lodBias) const {
     std::vector<QuadtreeItem> results{};
-    lastOccludedCount_ = 0;
-    if (root_) {
-        root_->QueryFrustum(frustum, cameraPos, results, nullptr, nullptr, nullptr, lodBias);
-    }
+    QueryVisible(frustum, cameraPos, results, lodBias);
     return results;
 }
 

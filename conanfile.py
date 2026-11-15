@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "0.9.16"
+    version = "0.9.17"
     package_type = "application"
     required_conan_version = ">=2.28"
     settings = "os", "arch", "compiler", "build_type"
@@ -40,7 +40,7 @@ class BglEngineRecipe(ConanFile):
         if self.options.with_ktx:
             self.requires("ktx/4.3.2")
         if self.options.with_audio:
-            self.requires("miniaudio/0.11.21")
+            self.requires("miniaudio/0.11.25")
         self.requires("freetype/2.13.2")
         self.requires("harfbuzz/8.3.0")
         if self.options.with_testing:

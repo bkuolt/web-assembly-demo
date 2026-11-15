@@ -475,48 +475,59 @@ fn fs_tonemap(in : VertexOutput) -> @location(0) vec4<f32> {
  * @brief Depth-only directional Shadow Map WGSL shader.
  */
 inline constexpr std::string_view kShadowShaderWGSL = R"(
-struct Uniforms {
+struct PerDrawUniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
     lightViewProj : mat4x4<f32>,
-    cameraPos : vec4<f32>,
-    lightDir : vec4<f32>,
+    morphWeights0 : vec4<f32>,
+    morphWeights1 : vec4<f32>,
+    jointCount : u32,
+    morphTargetCount : u32,
+    vertexCount : u32,
+    drawFlags : u32,
+    drawParams : vec4<f32>,
+};
+
+struct MaterialUniforms {
     baseColorFactor : vec4<f32>,
+    emissiveFactor : vec4<f32>,
+    sheenColorFactor : vec4<f32>,
+    specularColorFactor : vec4<f32>,
+    attenuationColor : vec4<f32>,
     metallicFactor : f32,
     roughnessFactor : f32,
     normalScale : f32,
     occlusionStrength : f32,
-    emissiveFactor : vec4<f32>,
+    bumpScale : f32,
     alphaCutoff : f32,
     alphaMode : u32,
-    flags : u32,
+    materialFlags : u32,
     ior : f32,
     clearcoatFactor : f32,
     clearcoatRoughness : f32,
     transmissionFactor : f32,
     specularFactor : f32,
-    sheenColorFactor : vec4<f32>,
-    specularColorFactor : vec4<f32>,
-    bumpScale : f32,
-    reflectionIntensity : f32,
-    shadowBias : f32,
-    envMipCount : f32,
     thicknessFactor : f32,
     attenuationDistance : f32,
-    uvScale : vec2<f32>,
-    attenuationColor : vec4<f32>,
-    jointCount : u32,
-    morphTargetCount : u32,
-    uvOffset : vec2<f32>,
-    morphWeights : vec4<f32>,
-    jointMatrices : array<mat4x4<f32>, 128>,
+    reflectionIntensity : f32,
+    baseColorUvTransform : vec4<f32>,
+    metallicRoughnessUvTransform : vec4<f32>,
+    normalUvTransform : vec4<f32>,
+    occlusionUvTransform : vec4<f32>,
+    emissiveUvTransform : vec4<f32>,
+    uvRotations0 : vec4<f32>,
+    uvRotations1 : vec4<f32>,
 };
 
-@group(0) @binding(0) var<uniform> ubo : Uniforms;
-@group(0) @binding(1) var defaultSampler : sampler;
-@group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
+@group(0) @binding(0) var<uniform> drawUbo : PerDrawUniforms;
+@group(1) @binding(0) var<uniform> matUbo : MaterialUniforms;
+@group(1) @binding(1) var defaultSampler : sampler;
+@group(1) @binding(2) var baseColorTexture : texture_2d<f32>;
+@group(1) @binding(10) var<storage, read> morphDeltas : array<vec4<f32>>;
+@group(2) @binding(0) var<storage, read> jointMatrices : array<mat4x4<f32>>;
 
 struct VertexInput {
+    @builtin(vertex_index) vertexIndex : u32,
     @location(0) position : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
@@ -530,44 +541,68 @@ struct VertexOutput {
     @location(0) uv : vec2<f32>,
 };
 
+fn transformUv(uv : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let s = sin(rot);
+    let c = cos(rot);
+    let su = uv * scaleOffset.xy;
+    return vec2<f32>(c * su.x + s * su.y, -s * su.x + c * su.y) + scaleOffset.zw;
+}
+
 @vertex
 fn vs_shadow(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
     var localPos = in.position;
 
-    if (ubo.jointCount > 0u) {
-        let i0 = min(in.joints.x, 127u);
-        let i1 = min(in.joints.y, 127u);
-        let i2 = min(in.joints.z, 127u);
-        let i3 = min(in.joints.w, 127u);
-        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
-                      in.weights.y * ubo.jointMatrices[i1] +
-                      in.weights.z * ubo.jointMatrices[i2] +
-                      in.weights.w * ubo.jointMatrices[i3];
+    let morphCount = min(drawUbo.morphTargetCount, 8u);
+    if (morphCount > 0u && drawUbo.vertexCount > 0u && (drawUbo.drawFlags & 262144u) != 0u) {
+        for (var t : u32 = 0u; t < morphCount; t = t + 1u) {
+            let wVec = select(drawUbo.morphWeights0, drawUbo.morphWeights1, t >= 4u);
+            let wComp = t & 3u;
+            var w = wVec.x;
+            if (wComp == 1u) { w = wVec.y; }
+            else if (wComp == 2u) { w = wVec.z; }
+            else if (wComp == 3u) { w = wVec.w; }
+            if (abs(w) > 1e-6) {
+                let baseIdx = (t * drawUbo.vertexCount + in.vertexIndex) * 3u;
+                localPos = localPos + w * morphDeltas[baseIdx].xyz;
+            }
+        }
+    }
+
+    if (drawUbo.jointCount > 0u) {
+        let maxJoint = drawUbo.jointCount - 1u;
+        let i0 = min(in.joints.x, maxJoint);
+        let i1 = min(in.joints.y, maxJoint);
+        let i2 = min(in.joints.z, maxJoint);
+        let i3 = min(in.joints.w, maxJoint);
+        let skinMat = in.weights.x * jointMatrices[i0] +
+                      in.weights.y * jointMatrices[i1] +
+                      in.weights.z * jointMatrices[i2] +
+                      in.weights.w * jointMatrices[i3];
         localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
     }
 
-    let worldPos = ubo.model * vec4<f32>(localPos, 1.0);
-    out.clipPos = ubo.lightViewProj * worldPos;
-    out.uv = in.uv * ubo.uvScale + ubo.uvOffset;
+    let worldPos = drawUbo.model * vec4<f32>(localPos, 1.0);
+    out.clipPos = drawUbo.lightViewProj * worldPos;
+    out.uv = transformUv(in.uv, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
     return out;
 }
 
 @fragment
 fn fs_shadow(in : VertexOutput) {
-    var alpha = ubo.baseColorFactor.a;
-    if ((ubo.flags & 1u) != 0u) { // MaterialFlags::HasBaseColorTex
+    var alpha = matUbo.baseColorFactor.a;
+    if ((matUbo.materialFlags & 1u) != 0u) { // MaterialFlags::HasBaseColorTex
         let texColor = textureSample(baseColorTexture, defaultSampler, in.uv);
         alpha = alpha * texColor.a;
     }
 
     // alphaMode: 0 = Opaque, 1 = Mask, 2 = Blend
-    if (ubo.alphaMode == 1u) {
-        if (alpha < ubo.alphaCutoff) {
+    if (matUbo.alphaMode == 1u) {
+        if (alpha < matUbo.alphaCutoff) {
             discard;
         }
-    } else if (ubo.alphaMode == 2u) {
-        if (alpha < max(ubo.alphaCutoff, 0.5)) {
+    } else if (matUbo.alphaMode == 2u) {
+        if (alpha < max(matUbo.alphaCutoff, 0.5)) {
             discard;
         }
     }
@@ -582,41 +617,48 @@ fn fs_shadow(in : VertexOutput) {
  * Clustered Forward+ KHR_lights_punctual).
  */
 inline constexpr std::string_view kPbrShaderWGSL = R"(
-struct Uniforms {
+struct PerDrawUniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
     lightViewProj : mat4x4<f32>,
-    cameraPos : vec4<f32>,
-    lightDir : vec4<f32>,
+    morphWeights0 : vec4<f32>,
+    morphWeights1 : vec4<f32>,
+    jointCount : u32,
+    morphTargetCount : u32,
+    vertexCount : u32,
+    drawFlags : u32,
+    drawParams : vec4<f32>,
+};
+
+struct MaterialUniforms {
     baseColorFactor : vec4<f32>,
+    emissiveFactor : vec4<f32>,
+    sheenColorFactor : vec4<f32>,
+    specularColorFactor : vec4<f32>,
+    attenuationColor : vec4<f32>,
     metallicFactor : f32,
     roughnessFactor : f32,
     normalScale : f32,
     occlusionStrength : f32,
-    emissiveFactor : vec4<f32>,
+    bumpScale : f32,
     alphaCutoff : f32,
     alphaMode : u32,
-    flags : u32,
+    materialFlags : u32,
     ior : f32,
     clearcoatFactor : f32,
     clearcoatRoughness : f32,
     transmissionFactor : f32,
     specularFactor : f32,
-    sheenColorFactor : vec4<f32>,
-    specularColorFactor : vec4<f32>,
-    bumpScale : f32,
-    reflectionIntensity : f32,
-    shadowBias : f32,
-    envMipCount : f32,
     thicknessFactor : f32,
     attenuationDistance : f32,
-    uvScale : vec2<f32>,
-    attenuationColor : vec4<f32>,
-    jointCount : u32,
-    morphTargetCount : u32,
-    uvOffset : vec2<f32>,
-    morphWeights : vec4<f32>,
-    jointMatrices : array<mat4x4<f32>, 128>,
+    reflectionIntensity : f32,
+    baseColorUvTransform : vec4<f32>,
+    metallicRoughnessUvTransform : vec4<f32>,
+    normalUvTransform : vec4<f32>,
+    occlusionUvTransform : vec4<f32>,
+    emissiveUvTransform : vec4<f32>,
+    uvRotations0 : vec4<f32>,
+    uvRotations1 : vec4<f32>,
 };
 
 struct GpuPunctualLight {
@@ -634,26 +676,36 @@ struct SceneLightingUniforms {
     envParams : vec4<f32>,  // x = envRotation (rad), y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
     viewMatrix : mat4x4<f32>,
     weatherParams : vec4<f32>, // x = weatherMode (0=None, 1=Rain, 2=Snow), y = intensity, z = wind, w = timeSec
+    cameraPos : vec4<f32>,
+    lightDir : vec4<f32>,
+    renderParams : vec4<f32>, // x = envMipCount, y = shadowBias, z = aoIntensity, w = reserved
 };
 
-@group(0) @binding(0) var<uniform> ubo : Uniforms;
-@group(0) @binding(1) var defaultSampler : sampler;
-@group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
-@group(0) @binding(3) var metallicRoughnessTexture : texture_2d<f32>;
-@group(0) @binding(4) var normalTexture : texture_2d<f32>;
-@group(0) @binding(5) var emissiveTexture : texture_2d<f32>;
-@group(0) @binding(6) var occlusionTexture : texture_2d<f32>;
-@group(0) @binding(7) var clearcoatTexture : texture_2d<f32>;
-@group(0) @binding(8) var transmissionTexture : texture_2d<f32>;
-@group(0) @binding(9) var sheenTexture : texture_2d<f32>;
-@group(0) @binding(10) var envCubemap : texture_cube<f32>;
-@group(0) @binding(11) var shadowMap : texture_depth_2d;
-@group(0) @binding(12) var shadowSampler : sampler_comparison;
-@group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
-@group(0) @binding(14) var<uniform> sceneLighting : SceneLightingUniforms;
-@group(0) @binding(15) var opaqueColorTexture : texture_2d<f32>;
+@group(0) @binding(0) var<uniform> sceneLighting : SceneLightingUniforms;
+@group(0) @binding(1) var envCubemap : texture_cube<f32>;
+@group(0) @binding(2) var shadowMap : texture_depth_2d;
+@group(0) @binding(3) var shadowSampler : sampler_comparison;
+@group(0) @binding(4) var brdfLutTexture : texture_2d<f32>;
+@group(0) @binding(5) var opaqueColorTexture : texture_2d<f32>;
+
+@group(1) @binding(0) var<uniform> drawUbo : PerDrawUniforms;
+
+@group(2) @binding(0) var<uniform> matUbo : MaterialUniforms;
+@group(2) @binding(1) var defaultSampler : sampler;
+@group(2) @binding(2) var baseColorTexture : texture_2d<f32>;
+@group(2) @binding(3) var metallicRoughnessTexture : texture_2d<f32>;
+@group(2) @binding(4) var normalTexture : texture_2d<f32>;
+@group(2) @binding(5) var emissiveTexture : texture_2d<f32>;
+@group(2) @binding(6) var occlusionTexture : texture_2d<f32>;
+@group(2) @binding(7) var clearcoatTexture : texture_2d<f32>;
+@group(2) @binding(8) var transmissionTexture : texture_2d<f32>;
+@group(2) @binding(9) var sheenTexture : texture_2d<f32>;
+@group(2) @binding(10) var<storage, read> morphDeltas : array<vec4<f32>>;
+
+@group(3) @binding(0) var<storage, read> jointMatrices : array<mat4x4<f32>>;
 
 struct VertexInput {
+    @builtin(vertex_index) vertexIndex : u32,
     @location(0) position : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
@@ -717,6 +769,20 @@ fn getClusterLightMask(fragCoord : vec4<f32>, worldPos : vec3<f32>) -> u32 {
     return maskVec.w;
 }
 
+fn transformUv(uv : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let s = sin(rot);
+    let c = cos(rot);
+    let su = uv * scaleOffset.xy;
+    return vec2<f32>(c * su.x + s * su.y, -s * su.x + c * su.y) + scaleOffset.zw;
+}
+
+fn transformUvDeriv(d : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let s = sin(rot);
+    let c = cos(rot);
+    let sd = d * scaleOffset.xy;
+    return vec2<f32>(c * sd.x + s * sd.y, -s * sd.x + c * sd.y);
+}
+
 @vertex
 fn vs_main(in : VertexInput) -> VertexOutput {
     var out : VertexOutput;
@@ -724,44 +790,63 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     var localNorm = in.normal;
     var localTan = in.tangent.xyz;
 
-    if (ubo.jointCount > 0u) {
-        let i0 = min(in.joints.x, 127u);
-        let i1 = min(in.joints.y, 127u);
-        let i2 = min(in.joints.z, 127u);
-        let i3 = min(in.joints.w, 127u);
-        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
-                      in.weights.y * ubo.jointMatrices[i1] +
-                      in.weights.z * ubo.jointMatrices[i2] +
-                      in.weights.w * ubo.jointMatrices[i3];
+    let morphCount = min(drawUbo.morphTargetCount, 8u);
+    if (morphCount > 0u && drawUbo.vertexCount > 0u && (drawUbo.drawFlags & 262144u) != 0u) {
+        for (var t : u32 = 0u; t < morphCount; t = t + 1u) {
+            let wVec = select(drawUbo.morphWeights0, drawUbo.morphWeights1, t >= 4u);
+            let wComp = t & 3u;
+            var w = wVec.x;
+            if (wComp == 1u) { w = wVec.y; }
+            else if (wComp == 2u) { w = wVec.z; }
+            else if (wComp == 3u) { w = wVec.w; }
+            if (abs(w) > 1e-6) {
+                let baseIdx = (t * drawUbo.vertexCount + in.vertexIndex) * 3u;
+                localPos = localPos + w * morphDeltas[baseIdx + 0u].xyz;
+                localNorm = localNorm + w * morphDeltas[baseIdx + 1u].xyz;
+                localTan = localTan + w * morphDeltas[baseIdx + 2u].xyz;
+            }
+        }
+    }
+
+    if (drawUbo.jointCount > 0u) {
+        let maxJoint = drawUbo.jointCount - 1u;
+        let i0 = min(in.joints.x, maxJoint);
+        let i1 = min(in.joints.y, maxJoint);
+        let i2 = min(in.joints.z, maxJoint);
+        let i3 = min(in.joints.w, maxJoint);
+        let skinMat = in.weights.x * jointMatrices[i0] +
+                      in.weights.y * jointMatrices[i1] +
+                      in.weights.z * jointMatrices[i2] +
+                      in.weights.w * jointMatrices[i3];
 
         localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
         localNorm = (skinMat * vec4<f32>(localNorm, 0.0)).xyz;
         localTan = (skinMat * vec4<f32>(localTan, 0.0)).xyz;
     }
 
-    let world = ubo.model * vec4<f32>(localPos, 1.0);
+    let world = drawUbo.model * vec4<f32>(localPos, 1.0);
     out.worldPos = world.xyz;
-    out.clipPos = ubo.viewProj * world;
+    out.clipPos = drawUbo.viewProj * world;
 
-    let m0 = ubo.model[0].xyz;
-    let m1 = ubo.model[1].xyz;
-    let m2 = ubo.model[2].xyz;
+    let m0 = drawUbo.model[0].xyz;
+    let m1 = drawUbo.model[1].xyz;
+    let m2 = drawUbo.model[2].xyz;
     let adj0 = cross(m1, m2);
     let adj1 = cross(m2, m0);
     let adj2 = cross(m0, m1);
     let det = dot(m0, adj0);
-    let rawNorm = select((ubo.model * vec4<f32>(localNorm, 0.0)).xyz,
+    let rawNorm = select((drawUbo.model * vec4<f32>(localNorm, 0.0)).xyz,
                          adj0 * localNorm.x + adj1 * localNorm.y + adj2 * localNorm.z,
                          abs(det) > 1e-12);
     let normLen = length(rawNorm);
     out.normal = select(vec3<f32>(0.0, 1.0, 0.0), rawNorm / normLen, normLen > 1e-8);
 
-    let worldTan = (ubo.model * vec4<f32>(localTan, 0.0)).xyz;
+    let worldTan = (drawUbo.model * vec4<f32>(localTan, 0.0)).xyz;
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     let detSign = select(1.0, -1.0, det < 0.0);
     out.tangent = vec4<f32>(normTan, in.tangent.w * detSign);
-    out.uv = in.uv * ubo.uvScale + ubo.uvOffset;
+    out.uv = in.uv;
     return out;
 }
 
@@ -813,9 +898,10 @@ fn fresnelSchlickRoughness(cosTheta : f32, F0 : vec3<f32>, roughness : f32) -> v
 }
 
 fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
+    let shadowBias = sceneLighting.renderParams.y;
     let NdotL = max(dot(N, L), 0.0);
-    let normalOffset = N * clamp(ubo.shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL);
-    let lightClip = ubo.lightViewProj * vec4<f32>(worldPos + normalOffset, 1.0);
+    let normalOffset = N * clamp(shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL);
+    let lightClip = drawUbo.lightViewProj * vec4<f32>(worldPos + normalOffset, 1.0);
     let projCoords = lightClip.xyz / lightClip.w;
 
     let uv = vec2<f32>(projCoords.x * 0.5 + 0.5, 0.5 - projCoords.y * 0.5);
@@ -823,23 +909,23 @@ fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
         return 1.0;
     }
 
-    let slopeBias = max(ubo.shadowBias * (1.0 - NdotL), ubo.shadowBias * 0.35);
+    let slopeBias = max(shadowBias * (1.0 - NdotL), shadowBias * 0.35);
     let compareDepth = projCoords.z - slopeBias;
     let texelSize = 1.0 / 2048.0;
 
-    // Shader-LOD: distant LOD2/LOD3 primitives use fast 1-tap hardware comparison instead of 9-tap PCF
-    let lodLevel = (ubo.flags >> 19u) & 3u;
+    // Shader-LOD: distant LOD2/LOD3 primitives use fast 1-tap compare; LOD0/LOD1 use 5-tap Rotated-Grid PCF
+    let lodLevel = (drawUbo.drawFlags >> 19u) & 3u;
     var shadow = 0.0;
     if (lodLevel >= 2u) {
         shadow = textureSampleCompareLevel(shadowMap, shadowSampler, uv, compareDepth);
     } else {
-        for (var y : i32 = -1; y <= 1; y = y + 1) {
-            for (var x : i32 = -1; x <= 1; x = x + 1) {
-                let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
-                shadow = shadow + textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, compareDepth);
-            }
-        }
-        shadow = shadow / 9.0;
+        let r = texelSize * 1.15;
+        let s0 = textureSampleCompareLevel(shadowMap, shadowSampler, uv, compareDepth);
+        let s1 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>(-0.866,  0.500) * r, compareDepth);
+        let s2 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>( 0.500,  0.866) * r, compareDepth);
+        let s3 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>( 0.866, -0.500) * r, compareDepth);
+        let s4 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>(-0.500, -0.866) * r, compareDepth);
+        shadow = s0 * 0.28 + (s1 + s2 + s3 + s4) * 0.18;
     }
 
     let edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
@@ -931,12 +1017,18 @@ fn evaluateDirectLobe(
  */
 fn getSurfaceHeight(uv : vec2<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> f32 {
     var height = 0.5;
-    if ((ubo.flags & 16u) != 0u) {
+    if ((matUbo.materialFlags & 16u) != 0u) {
         // Occlusion texture red channel represents cavity depth (0 = deep crevice, 1 = surface plane)
-        height = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2).r;
+        let occUv = transformUv(uv, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+        let occD1 = transformUvDeriv(duv1, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+        let occD2 = transformUvDeriv(duv2, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+        height = textureSampleGrad(occlusionTexture, defaultSampler, occUv, occD1, occD2).r;
     } else {
         // Base color luminance fallback for materials without dedicated height/occlusion maps
-        let col = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2).rgb;
+        let baseUv = transformUv(uv, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+        let baseD1 = transformUvDeriv(duv1, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+        let baseD2 = transformUvDeriv(duv2, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+        let col = textureSampleGrad(baseColorTexture, defaultSampler, baseUv, baseD1, baseD2).rgb;
         height = dot(col, vec3<f32>(0.299, 0.587, 0.114));
     }
     return clamp(height, 0.0, 1.0);
@@ -1239,18 +1331,31 @@ fn calculateSmokePlumes(sceneColor : vec3<f32>, worldPos : vec3<f32>, cameraPos 
 
 @fragment
 fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
+    let flags = matUbo.materialFlags | drawUbo.drawFlags;
     let dp1 = dpdx(in.worldPos);
     let dp2 = dpdy(in.worldPos);
-    let duv1 = dpdx(in.uv);
-    let duv2 = dpdy(in.uv);
+    let rawDuv1 = dpdx(in.uv);
+    let rawDuv2 = dpdy(in.uv);
+    let duvBase1 = transformUvDeriv(rawDuv1, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+    let duvBase2 = transformUvDeriv(rawDuv2, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+    let duvMr1 = transformUvDeriv(rawDuv1, matUbo.metallicRoughnessUvTransform, matUbo.uvRotations0.y);
+    let duvMr2 = transformUvDeriv(rawDuv2, matUbo.metallicRoughnessUvTransform, matUbo.uvRotations0.y);
+    let duvNorm1 = transformUvDeriv(rawDuv1, matUbo.normalUvTransform, matUbo.uvRotations0.z);
+    let duvNorm2 = transformUvDeriv(rawDuv2, matUbo.normalUvTransform, matUbo.uvRotations0.z);
+    let duvOcc1 = transformUvDeriv(rawDuv1, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+    let duvOcc2 = transformUvDeriv(rawDuv2, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+    let duvEm1 = transformUvDeriv(rawDuv1, matUbo.emissiveUvTransform, matUbo.uvRotations1.x);
+    let duvEm2 = transformUvDeriv(rawDuv2, matUbo.emissiveUvTransform, matUbo.uvRotations1.x);
 
     var geomN = normalize(in.normal);
-    let viewDir = normalize(ubo.cameraPos.xyz - in.worldPos);
-    if ((ubo.flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
+    let camToFrag = sceneLighting.cameraPos.xyz - in.worldPos;
+    let viewDist = length(camToFrag);
+    let viewDir = camToFrag / max(viewDist, 1e-6);
+    if ((flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
         geomN = -geomN;
     }
 
-    let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duv1, duv2);
+    let tbn = getTBN(in.worldPos, geomN, in.uv, in.tangent, dp1, dp2, duvNorm1, duvNorm2);
 
     // Tangent-space view vector (TBN transpose * V)
     let V_tangent = vec3<f32>(
@@ -1260,78 +1365,84 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     );
 
     let envRot = sceneLighting.envParams.x;
-    // Primary sun direction is already world-space oriented to match the rotated environment
-    let sunL = normalize(ubo.lightDir.xyz);
+    let sunL = normalize(sceneLighting.lightDir.xyz);
 
-    let lodLevel = (ubo.flags >> 19u) & 3u;
-    let debugViewMode = (ubo.flags >> 21u) & 7u;
-    let lodTransition = clamp(ubo.specularColorFactor.w, 0.0, 1.0);
+    let lodLevel = (flags >> 19u) & 3u;
+    let debugViewMode = (flags >> 21u) & 7u;
+    let lodTransition = clamp(drawUbo.drawParams.x, 0.0, 1.0);
 
-    // Shader-LOD: Parallax Occlusion Mapping (POM) only evaluated at near-field LOD0
+    // Shader-LOD + smooth distance fade-out for Parallax Occlusion Mapping (POM)
     var uv = in.uv;
     var pomShadow = 1.0;
-    if (lodLevel == 0u && (ubo.flags & 32768u) != 0u && (ubo.flags & 1024u) != 0u) {
-        let isNormalMapped = (ubo.flags & 4u) != 0u;
+    let pomDistFade = 1.0 - smoothstep(10.0, 22.0, viewDist);
+    if (lodLevel == 0u && pomDistFade > 0.02 && (flags & 32768u) != 0u && (flags & 1024u) != 0u) {
+        let isNormalMapped = (flags & 4u) != 0u;
         let baseScale = select(0.035, 0.005, isNormalMapped);
-        let pomScale = max(ubo.bumpScale * baseScale, 0.001);
-        uv = parallaxOcclusionMapping(in.uv, V_tangent, duv1, duv2, pomScale);
+        let pomScale = max(matUbo.bumpScale * baseScale, 0.001) * pomDistFade;
+        uv = parallaxOcclusionMapping(in.uv, V_tangent, rawDuv1, rawDuv2, pomScale);
 
         let L_tangent = vec3<f32>(
             dot(tbn[0], sunL),
             dot(tbn[1], sunL),
             dot(tbn[2], sunL)
         );
-        pomShadow = computeParallaxShadow(uv, L_tangent, duv1, duv2, pomScale);
+        pomShadow = computeParallaxShadow(uv, L_tangent, rawDuv1, rawDuv2, pomScale);
     }
 
-    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2);
-    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, uv, duv1, duv2);
-    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, uv, duv1, duv2);
-    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uv, duv1, duv2);
-    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2);
-    let ccTexSample = textureSampleGrad(clearcoatTexture, defaultSampler, uv, duv1, duv2);
-    let transTexSample = textureSampleGrad(transmissionTexture, defaultSampler, uv, duv1, duv2);
-    let sheenTexSample = textureSampleGrad(sheenTexture, defaultSampler, uv, duv1, duv2);
+    let uvBase = transformUv(uv, matUbo.baseColorUvTransform, matUbo.uvRotations0.x);
+    let uvMr = transformUv(uv, matUbo.metallicRoughnessUvTransform, matUbo.uvRotations0.y);
+    let uvNorm = transformUv(uv, matUbo.normalUvTransform, matUbo.uvRotations0.z);
+    let uvOcc = transformUv(uv, matUbo.occlusionUvTransform, matUbo.uvRotations0.w);
+    let uvEm = transformUv(uv, matUbo.emissiveUvTransform, matUbo.uvRotations1.x);
 
-    var baseColor = ubo.baseColorFactor;
-    if ((ubo.flags & 1u) != 0u) {
+    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, uvBase, duvBase1, duvBase2);
+    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, uvMr, duvMr1, duvMr2);
+    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, uvNorm, duvNorm1, duvNorm2);
+    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uvEm, duvEm1, duvEm2);
+    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uvOcc, duvOcc1, duvOcc2);
+    let ccTexSample = textureSampleGrad(clearcoatTexture, defaultSampler, uvBase, duvBase1, duvBase2);
+    let transTexSample = textureSampleGrad(transmissionTexture, defaultSampler, uvBase, duvBase1, duvBase2);
+    let sheenTexSample = textureSampleGrad(sheenTexture, defaultSampler, uvBase, duvBase1, duvBase2);
+
+    var baseColor = matUbo.baseColorFactor;
+    if ((flags & 1u) != 0u) {
         baseColor = baseColor * baseTexSample;
     }
 
-    if (ubo.alphaMode == 1u && baseColor.a < ubo.alphaCutoff) {
+    if (matUbo.alphaMode == 1u && baseColor.a < matUbo.alphaCutoff) {
         discard;
     }
 
-    if ((ubo.flags & 256u) != 0u) {
+    if ((flags & 256u) != 0u) {
         return baseColor;
     }
 
     var N = geomN;
-    if ((ubo.flags & 4u) != 0u) {
+    if ((flags & 4u) != 0u) {
         let normTex = normTexSample.xyz * 2.0 - 1.0;
-        let scaledNorm = normalize(vec3<f32>(normTex.xy * ubo.normalScale, normTex.z));
+        let scaledNorm = normalize(vec3<f32>(normTex.xy * matUbo.normalScale, normTex.z));
         N = normalize(tbn * scaledNorm);
-    } else if ((ubo.flags & 1024u) != 0u && ((ubo.flags & 1u) != 0u || (ubo.flags & 16u) != 0u)) {
+    } else if ((flags & 1024u) != 0u && ((flags & 1u) != 0u || (flags & 16u) != 0u)) {
         let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
         let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
         let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
 
-        let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-        let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).rgb;
-        let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
-        let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).rgb;
+        let hR_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uvBase + vec2<f32>(texelStep.x, 0.0), duvBase1, duvBase2).rgb;
+        let hL_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uvBase - vec2<f32>(texelStep.x, 0.0), duvBase1, duvBase2).rgb;
+        let hU_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uvBase + vec2<f32>(0.0, texelStep.y), duvBase1, duvBase2).rgb;
+        let hD_rgb = textureSampleGrad(baseColorTexture, defaultSampler, uvBase - vec2<f32>(0.0, texelStep.y), duvBase1, duvBase2).rgb;
 
         var dHdU = dot(hR_rgb - hL_rgb, lumaWeights);
         var dHdV = dot(hU_rgb - hD_rgb, lumaWeights);
-        if (lodLevel < 2u && (ubo.flags & 16u) != 0u) {
-            let occR = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-            let occL = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(texelStep.x, 0.0), duv1, duv2).r;
-            let occU = textureSampleGrad(occlusionTexture, defaultSampler, uv + vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
-            let occD = textureSampleGrad(occlusionTexture, defaultSampler, uv - vec2<f32>(0.0, texelStep.y), duv1, duv2).r;
+        if (lodLevel < 2u && (flags & 16u) != 0u) {
+            let occR = textureSampleGrad(occlusionTexture, defaultSampler, uvOcc + vec2<f32>(texelStep.x, 0.0), duvOcc1, duvOcc2).r;
+            let occL = textureSampleGrad(occlusionTexture, defaultSampler, uvOcc - vec2<f32>(texelStep.x, 0.0), duvOcc1, duvOcc2).r;
+            let occU = textureSampleGrad(occlusionTexture, defaultSampler, uvOcc + vec2<f32>(0.0, texelStep.y), duvOcc1, duvOcc2).r;
+            let occD = textureSampleGrad(occlusionTexture, defaultSampler, uvOcc - vec2<f32>(0.0, texelStep.y), duvOcc1, duvOcc2).r;
             dHdU = dHdU + (occR - occL) * 0.75;
             dHdV = dHdV + (occU - occD) * 0.75;
         }
-        let bumpNorm = normalize(vec3<f32>(vec2<f32>(-dHdU, -dHdV) * (2.0 * ubo.bumpScale), 1.0));
+        let bumpNorm = normalize(vec3<f32>(vec2<f32>(-dHdU, -dHdV) * (2.0 * matUbo.bumpScale), 1.0));
         N = normalize(tbn * bumpNorm);
     }
 
@@ -1342,7 +1453,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let weatherTime = sceneLighting.weatherParams.w;
 
     if (weatherMode == 1.0 && weatherIntensity > 0.001 && geomN.y > 0.15) {
-        let rippleTan = calculateRainRipples(in.uv * 5.0 + in.worldPos.xz * 2.5, weatherTime);
+        let rippleTan = calculateRainRipples(uvBase * 5.0 + in.worldPos.xz * 2.5, weatherTime);
         let rippleWeight = smoothstep(0.15, 0.75, geomN.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
         N = normalize(mix(N, tbn * rippleTan, rippleWeight));
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomN.y > 0.2) {
@@ -1350,9 +1461,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
     }
 
-    var roughness = ubo.roughnessFactor;
-    var metallic = ubo.metallicFactor;
-    if ((ubo.flags & 2u) != 0u) {
+    var roughness = matUbo.roughnessFactor;
+    var metallic = matUbo.metallicFactor;
+    if ((flags & 2u) != 0u) {
         roughness = roughness * mrTexSample.g;
         metallic = metallic * mrTexSample.b;
     }
@@ -1368,16 +1479,14 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             metallic = mix(metallic, 0.0, snowAccum * 0.95);
         }
     } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
-        // Fog moisture condensation sheen
         roughness = mix(roughness, 0.30, clamp(weatherIntensity * 0.35, 0.0, 0.45));
     } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
-        // Smoke matte soot deposition
         roughness = mix(roughness, 0.88, clamp(weatherIntensity * 0.4, 0.0, 0.55));
     }
 
-    let ior = max(ubo.ior, 1.0);
+    let ior = max(matUbo.ior, 1.0);
     let f0_dielectric = pow((ior - 1.0) / (ior + 1.0), 2.0);
-    let specularColor = ubo.specularFactor * ubo.specularColorFactor.rgb;
+    let specularColor = matUbo.specularFactor * matUbo.specularColorFactor.rgb;
     let F0 = mix(vec3<f32>(f0_dielectric) * specularColor, baseColor.rgb, metallic);
     var diffuseColor = baseColor.rgb * (1.0 - metallic);
 
@@ -1392,39 +1501,38 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    var ccFactor = ubo.clearcoatFactor;
-    var ccRoughness = ubo.clearcoatRoughness;
-    if ((ubo.flags & 32u) != 0u) {
+    var ccFactor = matUbo.clearcoatFactor;
+    var ccRoughness = matUbo.clearcoatRoughness;
+    if ((flags & 32u) != 0u) {
         ccFactor = ccFactor * ccTexSample.r;
         ccRoughness = ccRoughness * ccTexSample.g;
     }
     ccRoughness = clamp(ccRoughness, 0.04, 1.0);
 
-    var sheenColor = ubo.sheenColorFactor.rgb;
-    let sheenRoughness = clamp(ubo.sheenColorFactor.w, 0.04, 1.0);
-    if ((ubo.flags & 128u) != 0u) {
+    var sheenColor = matUbo.sheenColorFactor.rgb;
+    let sheenRoughness = clamp(matUbo.sheenColorFactor.w, 0.04, 1.0);
+    if ((flags & 128u) != 0u) {
         sheenColor = sheenColor * sheenTexSample.rgb;
     }
 
-    var transmission = ubo.transmissionFactor;
-    if ((ubo.flags & 64u) != 0u) {
+    var transmission = matUbo.transmissionFactor;
+    if ((flags & 64u) != 0u) {
         transmission = transmission * transTexSample.r;
     }
     let transFactor = clamp(transmission, 0.0, 1.0);
 
     // Ground-truth Ambient Occlusion (glTF occlusion map + multi-bounce)
     var ao = 1.0;
-    if ((ubo.flags & 16384u) != 0u) { // Bit 14 = EnableAmbientOcclusion
-        if ((ubo.flags & 16u) != 0u) {
+    if ((flags & 16384u) != 0u) { // Bit 14 = EnableAmbientOcclusion
+        if ((flags & 16u) != 0u) {
             let occSample = occTexSample.r;
-            ao = 1.0 + ubo.occlusionStrength * (occSample - 1.0);
+            ao = clamp(1.0 + (matUbo.occlusionStrength * sceneLighting.renderParams.z) * (occSample - 1.0), 0.0, 1.0);
         }
-        // Jimenez multi-bounce approximation to preserve saturated diffuse tone in crevices
         ao = mix(ao, ao * (diffuseColor.r * (1.0 - ao) + 1.0), 0.2);
     }
 
-    var emissive = ubo.emissiveFactor.xyz * ubo.emissiveFactor.w;
-    if ((ubo.flags & 8u) != 0u) {
+    var emissive = matUbo.emissiveFactor.xyz * matUbo.emissiveFactor.w;
+    if ((flags & 8u) != 0u) {
         emissive = emissive * emTexSample.rgb;
     }
 
@@ -1432,10 +1540,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let NdotV = max(dot(N, V), 0.001);
 
     // 1. Primary Sun/Moon Light (Diurnal Cycle + Rotated with Environment) + Shadow Map
-    let solarElev = ubo.lightDir.w;
+    let solarElev = sceneLighting.lightDir.w;
     let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
     var shadowFactor = 1.0;
-    if ((ubo.flags & 4096u) != 0u) {
+    if ((flags & 4096u) != 0u) {
         shadowFactor = computePCFShadow(in.worldPos, geomN, sunL);
     }
 
@@ -1529,12 +1637,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var ambientDiffuse = kD_ibl * diffuseColor * shIrradiance * ao * (1.0 - transFactor);
     var ambientSpecular = vec3<f32>(0.0);
 
-    if ((ubo.flags & 8192u) != 0u) {
-        let maxMip = max(ubo.envMipCount - 1.0, 0.0);
+    if ((flags & 8192u) != 0u) {
+        let maxMip = max(sceneLighting.renderParams.x - 1.0, 0.0);
         let specMip = clamp(roughness * maxMip, 0.0, maxMip);
         let prefilteredEnv = textureSampleLevel(envCubemap, defaultSampler, R, specMip).rgb;
         let specBrdf = F_ibl * brdfSample.x + vec3<f32>(brdfSample.y);
-        ambientSpecular = prefilteredEnv * specBrdf * ubo.reflectionIntensity * ao;
+        ambientSpecular = prefilteredEnv * specBrdf * matUbo.reflectionIntensity * ao;
 
         if (ccFactor > 0.001) {
             let R_cc = rotateY(reflect(-V, geomN), envRot);
@@ -1542,7 +1650,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             let ccEnv = textureSampleLevel(envCubemap, defaultSampler, R_cc, ccMip).rgb;
             let ccBrdf = textureSampleLevel(brdfLutTexture, defaultSampler, vec2<f32>(NdotV, ccRoughness), 0.0).rg;
             let ccFresnel = vec3<f32>(0.04) * ccBrdf.x + vec3<f32>(ccBrdf.y);
-            ambientSpecular = ambientSpecular * (1.0 - ccFresnel * ccFactor) + ccEnv * ccFresnel * ccFactor * ubo.reflectionIntensity;
+            ambientSpecular = ambientSpecular * (1.0 - ccFresnel * ccFactor) + ccEnv * ccFresnel * ccFactor * matUbo.reflectionIntensity;
         }
     } else {
         ambientSpecular = (F_ibl * brdfSample.x + vec3<f32>(brdfSample.y)) * shIrradiance * (1.0 - roughness) * 0.25 * ao;
@@ -1564,12 +1672,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let fresnelGlass = fresnelSchlick(NdotV, vec3<f32>(f0_dielectric)).r;
 
         // Physical Snell's law refraction in view space
-        let ior = max(ubo.ior, 1.0);
-        let eta = 1.0 / ior;
+        let refrIor = max(matUbo.ior, 1.0);
+        let eta = 1.0 / refrIor;
         let viewPos = sceneLighting.viewMatrix * vec4<f32>(in.worldPos, 1.0);
         let viewZ = max(-viewPos.z, 0.1);
         let N_view = normalize((sceneLighting.viewMatrix * vec4<f32>(N, 0.0)).xyz);
-        let thickness = max(ubo.thicknessFactor, 0.05);
+        let thickness = max(matUbo.thicknessFactor, 0.05);
 
         // Chromatic dispersion & refraction UV offset
         let refrOffset = (N_view.xy * (1.0 - eta)) * (thickness / viewZ) * 0.12;
@@ -1578,11 +1686,11 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         var bgSample = textureSampleGrad(opaqueColorTexture, defaultSampler, refrUV, refrDpdx, refrDpdy).rgb;
 
         // Beer-Lambert volume attenuation (KHR_materials_volume)
-        if (ubo.thicknessFactor > 0.0 && ubo.attenuationDistance < 1e8) {
-            let attDist = max(ubo.attenuationDistance, 1e-4);
-            let attColor = clamp(ubo.attenuationColor.rgb, vec3<f32>(1e-4), vec3<f32>(1.0));
+        if (matUbo.thicknessFactor > 0.0 && matUbo.attenuationDistance < 1e8) {
+            let attDist = max(matUbo.attenuationDistance, 1e-4);
+            let attColor = clamp(matUbo.attenuationColor.rgb, vec3<f32>(1e-4), vec3<f32>(1.0));
             let extinction = -log(attColor) / attDist;
-            let opticalPath = ubo.thicknessFactor / max(NdotV, 0.1);
+            let opticalPath = matUbo.thicknessFactor / max(NdotV, 0.1);
             let transmittance = exp(-extinction * opticalPath);
             bgSample = bgSample * transmittance;
         }
@@ -1593,14 +1701,15 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         outAlpha = 1.0;
     }
 
+    let camPosW = sceneLighting.cameraPos.xyz;
     if (weatherMode == 1.0 && weatherIntensity > 0.001) {
-        finalColor = finalColor + calculateRainStreaks(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+        finalColor = finalColor + calculateRainStreaks(in.worldPos, camPosW, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
-        finalColor = finalColor + calculateSnowFlakes(in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+        finalColor = finalColor + calculateSnowFlakes(in.worldPos, camPosW, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 3.0 && weatherIntensity > 0.001) {
-        finalColor = calculateFogEffect(finalColor, in.worldPos, ubo.cameraPos.xyz, sunL, solarElev, weatherTime, windStrength, weatherIntensity);
+        finalColor = calculateFogEffect(finalColor, in.worldPos, camPosW, sunL, solarElev, weatherTime, windStrength, weatherIntensity);
     } else if (weatherMode == 4.0 && weatherIntensity > 0.001) {
-        finalColor = calculateSmokePlumes(finalColor, in.worldPos, ubo.cameraPos.xyz, weatherTime, windStrength, weatherIntensity);
+        finalColor = calculateSmokePlumes(finalColor, in.worldPos, camPosW, weatherTime, windStrength, weatherIntensity);
     }
 
     // Multi-Mode Debug Visualization & Screen-Space Bayer Dithered LOD Heatmap
@@ -1616,9 +1725,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     } else if (debugViewMode == 3u) {
         finalColor = vec3<f32>(ao, roughness, metallic);
     } else if (debugViewMode == 4u) {
-        let grid = floor(uv * 16.0);
+        let grid = floor(uvBase * 16.0);
         let parity = f32((i32(grid.x) + i32(grid.y)) & 1);
-        let uvTint = vec3<f32>(fract(uv.x), fract(uv.y), 0.55);
+        let uvTint = vec3<f32>(fract(uvBase.x), fract(uvBase.y), 0.55);
         finalColor = mix(uvTint * 0.35, uvTint * 1.15, parity);
     }
 
@@ -1664,61 +1773,25 @@ fn fs_aabb(in : LineVertexOutput) -> @location(0) vec4<f32> {
  * @brief Wireframe and Bounding-Box debug shader.
  */
 inline constexpr std::string_view kWireframeShaderWGSL = R"(
-struct Uniforms {
+struct PerDrawUniforms {
     viewProj : mat4x4<f32>,
     model : mat4x4<f32>,
     lightViewProj : mat4x4<f32>,
-    cameraPos : vec4<f32>,
-    lightDir : vec4<f32>,
-    baseColorFactor : vec4<f32>,
-    metallicFactor : f32,
-    roughnessFactor : f32,
-    normalScale : f32,
-    occlusionStrength : f32,
-    emissiveFactor : vec4<f32>,
-    alphaCutoff : f32,
-    alphaMode : u32,
-    flags : u32,
-    ior : f32,
-    clearcoatFactor : f32,
-    clearcoatRoughness : f32,
-    transmissionFactor : f32,
-    specularFactor : f32,
-    sheenColorFactor : vec4<f32>,
-    specularColorFactor : vec4<f32>,
-    bumpScale : f32,
-    reflectionIntensity : f32,
-    shadowBias : f32,
-    envMipCount : f32,
-    thicknessFactor : f32,
-    attenuationDistance : f32,
-    uvScale : vec2<f32>,
-    attenuationColor : vec4<f32>,
+    morphWeights0 : vec4<f32>,
+    morphWeights1 : vec4<f32>,
     jointCount : u32,
     morphTargetCount : u32,
-    uvOffset : vec2<f32>,
-    morphWeights : vec4<f32>,
-    jointMatrices : array<mat4x4<f32>, 128>,
+    vertexCount : u32,
+    drawFlags : u32,
+    drawParams : vec4<f32>,
 };
 
-@group(0) @binding(0) var<uniform> ubo : Uniforms;
-@group(0) @binding(1) var defaultSampler : sampler;
-@group(0) @binding(2) var baseColorTexture : texture_2d<f32>;
-@group(0) @binding(3) var metallicRoughnessTexture : texture_2d<f32>;
-@group(0) @binding(4) var normalTexture : texture_2d<f32>;
-@group(0) @binding(5) var emissiveTexture : texture_2d<f32>;
-@group(0) @binding(6) var occlusionTexture : texture_2d<f32>;
-@group(0) @binding(7) var clearcoatTexture : texture_2d<f32>;
-@group(0) @binding(8) var transmissionTexture : texture_2d<f32>;
-@group(0) @binding(9) var sheenTexture : texture_2d<f32>;
-@group(0) @binding(10) var envCubemap : texture_cube<f32>;
-@group(0) @binding(11) var shadowMap : texture_depth_2d;
-@group(0) @binding(12) var shadowSampler : sampler_comparison;
-@group(0) @binding(13) var brdfLutTexture : texture_2d<f32>;
-@group(0) @binding(14) var<uniform> sceneLighting : array<vec4<f32>, 305>;
-@group(0) @binding(15) var opaqueColorTexture : texture_2d<f32>;
+@group(1) @binding(0) var<uniform> drawUbo : PerDrawUniforms;
+@group(2) @binding(10) var<storage, read> morphDeltas : array<vec4<f32>>;
+@group(3) @binding(0) var<storage, read> jointMatrices : array<mat4x4<f32>>;
 
 struct VertexInput {
+    @builtin(vertex_index) vertexIndex : u32,
     @location(0) position : vec3<f32>,
     @location(1) normal : vec3<f32>,
     @location(2) tangent : vec4<f32>,
@@ -1730,23 +1803,79 @@ struct VertexInput {
 @vertex
 fn vs_main(in : VertexInput) -> @builtin(position) vec4<f32> {
     var localPos = in.position;
-    if (ubo.jointCount > 0u) {
-        let i0 = min(in.joints.x, 127u);
-        let i1 = min(in.joints.y, 127u);
-        let i2 = min(in.joints.z, 127u);
-        let i3 = min(in.joints.w, 127u);
-        let skinMat = in.weights.x * ubo.jointMatrices[i0] +
-                      in.weights.y * ubo.jointMatrices[i1] +
-                      in.weights.z * ubo.jointMatrices[i2] +
-                      in.weights.w * ubo.jointMatrices[i3];
+    let morphCount = min(drawUbo.morphTargetCount, 8u);
+    if (morphCount > 0u && drawUbo.vertexCount > 0u && (drawUbo.drawFlags & 262144u) != 0u) {
+        for (var t : u32 = 0u; t < morphCount; t = t + 1u) {
+            let wVec = select(drawUbo.morphWeights0, drawUbo.morphWeights1, t >= 4u);
+            let wComp = t & 3u;
+            var w = wVec.x;
+            if (wComp == 1u) { w = wVec.y; }
+            else if (wComp == 2u) { w = wVec.z; }
+            else if (wComp == 3u) { w = wVec.w; }
+            if (abs(w) > 1e-6) {
+                let baseIdx = (t * drawUbo.vertexCount + in.vertexIndex) * 3u;
+                localPos = localPos + w * morphDeltas[baseIdx].xyz;
+            }
+        }
+    }
+    if (drawUbo.jointCount > 0u) {
+        let maxJoint = drawUbo.jointCount - 1u;
+        let i0 = min(in.joints.x, maxJoint);
+        let i1 = min(in.joints.y, maxJoint);
+        let i2 = min(in.joints.z, maxJoint);
+        let i3 = min(in.joints.w, maxJoint);
+        let skinMat = in.weights.x * jointMatrices[i0] +
+                      in.weights.y * jointMatrices[i1] +
+                      in.weights.z * jointMatrices[i2] +
+                      in.weights.w * jointMatrices[i3];
         localPos = (skinMat * vec4<f32>(localPos, 1.0)).xyz;
     }
-    return ubo.viewProj * ubo.model * vec4<f32>(localPos, 1.0);
+    return drawUbo.viewProj * drawUbo.model * vec4<f32>(localPos, 1.0);
 }
 
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
     return vec4<f32>(0.22, 0.74, 0.97, 1.0);
+}
+)";
+
+/**
+ * @brief GPU hardware mipmap downsample shader for RGBA8Unorm / RGBA8UnormSrgb / Normal maps.
+ */
+inline constexpr std::string_view kMipGenShaderWGSL = R"(
+@group(0) @binding(0) var srcMip : texture_2d<f32>;
+
+@vertex
+fn vs_mip(@builtin(vertex_index) vid : u32) -> @builtin(position) vec4<f32> {
+    let x = f32((vid & 1u) << 2u) - 1.0;
+    let y = f32((vid & 2u) << 1u) - 1.0;
+    return vec4<f32>(x, y, 0.0, 1.0);
+}
+
+@fragment
+fn fs_mip(@builtin(position) fragPos : vec4<f32>) -> @location(0) vec4<f32> {
+    let maxCoord = max(vec2<i32>(textureDimensions(srcMip, 0)) - vec2<i32>(1, 1), vec2<i32>(0, 0));
+    let base = vec2<i32>(fragPos.xy) * 2;
+    let p0 = textureLoad(srcMip, clamp(base + vec2<i32>(0, 0), vec2<i32>(0), maxCoord), 0);
+    let p1 = textureLoad(srcMip, clamp(base + vec2<i32>(1, 0), vec2<i32>(0), maxCoord), 0);
+    let p2 = textureLoad(srcMip, clamp(base + vec2<i32>(0, 1), vec2<i32>(0), maxCoord), 0);
+    let p3 = textureLoad(srcMip, clamp(base + vec2<i32>(1, 1), vec2<i32>(0), maxCoord), 0);
+    return (p0 + p1 + p2 + p3) * 0.25;
+}
+
+@fragment
+fn fs_mip_normal(@builtin(position) fragPos : vec4<f32>) -> @location(0) vec4<f32> {
+    let maxCoord = max(vec2<i32>(textureDimensions(srcMip, 0)) - vec2<i32>(1, 1), vec2<i32>(0, 0));
+    let base = vec2<i32>(fragPos.xy) * 2;
+    let p0 = textureLoad(srcMip, clamp(base + vec2<i32>(0, 0), vec2<i32>(0), maxCoord), 0);
+    let p1 = textureLoad(srcMip, clamp(base + vec2<i32>(1, 0), vec2<i32>(0), maxCoord), 0);
+    let p2 = textureLoad(srcMip, clamp(base + vec2<i32>(0, 1), vec2<i32>(0), maxCoord), 0);
+    let p3 = textureLoad(srcMip, clamp(base + vec2<i32>(1, 1), vec2<i32>(0), maxCoord), 0);
+    let avg = (p0 + p1 + p2 + p3) * 0.25;
+    let n = avg.xyz * 2.0 - vec3<f32>(1.0);
+    let len = length(n);
+    let nn = select(vec3<f32>(0.0, 0.0, 1.0), n / len, len > 1e-4);
+    return vec4<f32>(nn * 0.5 + vec3<f32>(0.5), avg.w);
 }
 )";
 

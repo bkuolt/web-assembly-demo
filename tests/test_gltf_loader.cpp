@@ -182,7 +182,8 @@ TEST(GltfLoaderTest, LoadStressTestMegacityAsset) {
     EXPECT_GT(quadtree.GetNodeCount(), 1u);
 
     std::cout << "[STRESS TEST METRICS] Ingestion Duration: " << durationMs << " ms ("
-              << (static_cast<double>(fileSize) / (1024.0 * 1024.0)) / (durationMs / 1000.0) << " MB/s)\n"
+              << (static_cast<double>(fileSize) / (1024.0 * 1024.0)) / (static_cast<double>(durationMs) / 1000.0)
+              << " MB/s)\n"
               << "  * File Size:      " << fileSize / (1024 * 1024) << " MB\n"
               << "  * Root Nodes:     " << scene->rootNodes.size() << "\n"
               << "  * Total Meshes:   " << totalPrimitives << " primitives\n"

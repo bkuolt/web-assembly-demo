@@ -123,7 +123,7 @@ public:
      * @brief Inserts a scene node hierarchy and all its mesh primitives into the spatial index.
      * @param node Root or branch scene node to index.
      */
-    void Insert(std::shared_ptr<SceneNode> node);
+    void Insert(const std::shared_ptr<SceneNode>& node);
 
     /**
      * @brief Inserts a span of root scene nodes into the spatial index.
@@ -155,6 +155,13 @@ public:
                                                          float lodBias = 1.0f) const;
 
     /**
+     * @brief Zero-allocation variant writing visible items into caller-provided resultsOut buffer.
+     */
+    void QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos, const glm::mat4& viewProj,
+                      std::vector<QuadtreeItem>& resultsOut, bool enableOcclusionCulling = true,
+                      float lodBias = 1.0f) const;
+
+    /**
      * @brief Queries visible items using view frustum culling only.
      * @param frustum 6-plane view frustum.
      * @param cameraPos Camera eye position for LOD and distance calculation.
@@ -163,6 +170,12 @@ public:
      */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                          float lodBias = 1.0f) const;
+
+    /**
+     * @brief Zero-allocation frustum-only query writing visible items into caller-provided resultsOut buffer.
+     */
+    void QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos, std::vector<QuadtreeItem>& resultsOut,
+                      float lodBias = 1.0f) const;
 
     /**
      * @brief Queries all items in the spatial tree with distance-based LOD calculation.
@@ -204,6 +217,7 @@ public:
 private:
     core::AABB worldBounds_{};
     std::unique_ptr<QuadtreeNode> root_{nullptr};
+    mutable OcclusionBuffer occlusionBuffer_{};
     mutable size_t lastOccludedCount_{0};
 };
 

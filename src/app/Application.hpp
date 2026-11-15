@@ -7,6 +7,7 @@
 #include "audio/SoundEngine.hpp"
 #include "core/Camera.hpp"
 #include "core/Gamepad.hpp"
+#include "core/MemoryTracker.hpp"
 #include "gpu/Context.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/Skybox.hpp"
@@ -402,6 +403,9 @@ private:
     size_t totalVertices_{0};
     size_t totalIndices_{0};
     size_t cachedQuadtreeNodeCount_{0};
+    ui::OverlayStats cachedOverlayStats_{};
+    core::MemoryTelemetry cachedMemTelemetry_{};
+    float memTelemetryTimer_{0.25f};
 };
 
 } // namespace bgl::app

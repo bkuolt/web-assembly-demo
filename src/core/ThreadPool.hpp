@@ -66,72 +66,151 @@ public:
     }
 
     inline static thread_local bool t_isWorkerThread{false};
+    inline static thread_local int t_parallelDepth{0};
 
     /**
-     * @brief Execute a loop in parallel partitioned across workers, blocking until complete.
+     * @brief Pop and execute a single queued task from the pool if available.
+     * @return True if a task was executed, false if the queue was empty.
+     */
+    bool TryExecuteOneTask();
+
+    /**
+     * @brief Execute a loop in parallel partitioned across workers with dynamic work-stealing, blocking until complete.
      * @param start Inclusive starting index.
      * @param end Exclusive ending index.
-     * @param func Callable accepting loop index or slice (size_t).
+     * @param func Callable accepting loop index (size_t).
+     * @param minGrainSize Minimum chunk size fetched per atomic steal (0 = auto-computed).
      */
     template <typename Func>
         requires std::invocable<Func, size_t>
-    void ParallelFor(size_t start, size_t end, Func&& func) {
+    void ParallelFor(size_t start, size_t end, Func&& func, size_t minGrainSize = 0) {
         if (start >= end)
             return;
         const size_t totalWork = end - start;
-        const size_t numWorkers = std::min(totalWork, workers_.size());
-        // Prevent thread starvation deadlock if already running on a worker thread
-        if (t_isWorkerThread || numWorkers <= 1) {
+        const size_t poolSize = workers_.size();
+        if (totalWork == 1 || poolSize <= 1 || t_parallelDepth >= 2 || stop_.load(std::memory_order_acquire)) {
             for (size_t i = start; i < end; ++i) {
                 func(i);
             }
             return;
         }
 
-        const size_t chunkSize = (totalWork + numWorkers - 1) / numWorkers;
-        std::vector<std::future<void>> futures;
-        futures.reserve(numWorkers);
+        const size_t grainSize =
+            (minGrainSize > 0) ? minGrainSize : std::max<size_t>(1, totalWork / std::max<size_t>(1, poolSize * 4));
+        const size_t numChunks = (totalWork + grainSize - 1) / grainSize;
+        const size_t maxTasks = std::min(poolSize, numChunks);
+        if (maxTasks <= 1) {
+            for (size_t i = start; i < end; ++i) {
+                func(i);
+            }
+            return;
+        }
 
-        for (size_t w = 0; w < numWorkers; ++w) {
-            const size_t chunkStart = start + w * chunkSize;
-            const size_t chunkEnd = std::min(chunkStart + chunkSize, end);
-            if (chunkStart >= end)
-                break;
+        struct ParallelState {
+            std::atomic<size_t> nextOffset{0};
+            std::atomic<size_t> activeWorkers{0};
+            std::mutex doneMutex{};
+            std::condition_variable doneCv{};
+            std::mutex exceptionMutex{};
+            std::exception_ptr firstException{};
+        };
 
-            futures.push_back(Enqueue([chunkStart, chunkEnd, &func]() {
+        struct DepthGuard {
+            int& depth;
+            explicit DepthGuard(int& d) noexcept : depth(d) { ++depth; }
+            ~DepthGuard() noexcept { --depth; }
+        } depthGuard{t_parallelDepth};
+
+        ParallelState state{};
+        const size_t workersToSpawn = maxTasks - 1;
+        state.activeWorkers.store(workersToSpawn, std::memory_order_relaxed);
+
+        auto runWorkerLoop = [&]() {
+            while (true) {
+                const size_t offset = state.nextOffset.fetch_add(grainSize, std::memory_order_relaxed);
+                if (offset >= totalWork) {
+                    break;
+                }
+                const size_t chunkStart = start + offset;
+                const size_t chunkEnd = std::min(chunkStart + grainSize, end);
                 for (size_t i = chunkStart; i < chunkEnd; ++i) {
                     func(i);
                 }
-            }));
+            }
+        };
+
+        bool pushOk = true;
+        try {
+            std::unique_lock<std::mutex> lock(queueMutex_);
+            if (stop_.load(std::memory_order_relaxed)) {
+                pushOk = false;
+            } else {
+                for (size_t w = 0; w < workersToSpawn; ++w) {
+                    tasks_.emplace([&state, &runWorkerLoop]() {
+                        DepthGuard workerDepth{t_parallelDepth};
+                        try {
+                            runWorkerLoop();
+                        } catch (...) {
+                            std::lock_guard<std::mutex> exLock(state.exceptionMutex);
+                            if (!state.firstException) {
+                                state.firstException = std::current_exception();
+                            }
+                        }
+                        {
+                            std::lock_guard<std::mutex> doneLock(state.doneMutex);
+                            if (state.activeWorkers.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                                state.doneCv.notify_all();
+                            }
+                        }
+                    });
+                }
+            }
+        } catch (...) {
+            pushOk = false;
         }
 
-        std::exception_ptr firstException{};
-        for (auto& f : futures) {
-            while (f.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-                std::function<void()> task;
-                {
-                    std::unique_lock<std::mutex> lock(queueMutex_);
-                    if (!tasks_.empty()) {
-                        task = std::move(tasks_.front());
-                        tasks_.pop();
-                    }
-                }
-                if (task) {
-                    task();
-                } else {
-                    std::this_thread::yield();
-                }
+        if (!pushOk) {
+            state.activeWorkers.store(0, std::memory_order_release);
+            for (size_t i = start; i < end; ++i) {
+                func(i);
             }
-            try {
-                f.get();
-            } catch (...) {
-                if (!firstException) {
-                    firstException = std::current_exception();
-                }
+            return;
+        }
+
+        for (size_t w = 0; w < workersToSpawn; ++w) {
+            cv_.notify_one();
+        }
+
+        try {
+            runWorkerLoop();
+        } catch (...) {
+            std::lock_guard<std::mutex> exLock(state.exceptionMutex);
+            if (!state.firstException) {
+                state.firstException = std::current_exception();
             }
         }
-        if (firstException) {
-            std::rethrow_exception(firstException);
+
+        if (t_isWorkerThread) {
+            while (true) {
+                {
+                    std::unique_lock<std::mutex> doneLock(state.doneMutex);
+                    if (state.activeWorkers.load(std::memory_order_acquire) == 0) {
+                        break;
+                    }
+                }
+                if (!TryExecuteOneTask()) {
+                    std::unique_lock<std::mutex> doneLock(state.doneMutex);
+                    state.doneCv.wait_for(doneLock, std::chrono::microseconds(100),
+                                          [&]() { return state.activeWorkers.load(std::memory_order_acquire) == 0; });
+                }
+            }
+        } else {
+            std::unique_lock<std::mutex> doneLock(state.doneMutex);
+            state.doneCv.wait(doneLock, [&]() { return state.activeWorkers.load(std::memory_order_acquire) == 0; });
+        }
+
+        if (state.firstException) {
+            std::rethrow_exception(state.firstException);
         }
     }
 

@@ -92,9 +92,18 @@ struct Material {
     float bumpScale{1.0f};
     int occlusionTextureIndex{-1};
     float occlusionStrength{1.0f};
-    glm::vec2 uvOffset{0.0f, 0.0f};
-    glm::vec2 uvScale{1.0f, 1.0f};
-    float uvRotation{0.0f};
+
+    // 2b. Per-channel KHR_texture_transform UV parameters
+    struct UvTransform {
+        glm::vec2 offset{0.0f, 0.0f};
+        glm::vec2 scale{1.0f, 1.0f};
+        float rotation{0.0f};
+    };
+    UvTransform baseColorUvTransform{};
+    UvTransform metallicRoughnessUvTransform{};
+    UvTransform normalUvTransform{};
+    UvTransform occlusionUvTransform{};
+    UvTransform emissiveUvTransform{};
 
     // 3. Emissive & Extensions
     glm::vec3 emissiveFactor{0.0f};
@@ -163,9 +172,14 @@ struct MeshPrimitive {
     WGPUBuffer gpuVertexBuffer{nullptr};
     WGPUBuffer gpuIndexBuffer{nullptr};
     WGPUBuffer gpuWireframeIndexBuffer{nullptr};
+    uint64_t gpuVertexBufferSize{0};
+    uint64_t gpuIndexBufferSize{0};
     uint32_t wireframeIndexCount{0};
     WGPUBuffer gpuUniformBuffer{nullptr};
     WGPUBuffer gpuShadowUniformBuffer{nullptr};
+    WGPUBuffer gpuMorphDeltaBuffer{nullptr};
+    uint32_t gpuMorphTargetCount{0};
+    uint32_t gpuMorphVertexCount{0};
     WGPUBindGroup gpuBindGroup{nullptr};
     WGPUBindGroup gpuShadowBindGroup{nullptr};
 

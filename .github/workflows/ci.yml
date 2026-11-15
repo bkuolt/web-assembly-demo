@@ -24,6 +24,7 @@ jobs:
     - name: Validate Client JavaScript & Web Suites
       run: |
         node --check web/app.js
+        node --check web/gltf_worker.js
         node tests/test_web_unit.js
         node tests/test_webgpu_path.js
 
@@ -37,11 +38,15 @@ jobs:
     - name: Install Clang Tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y clang-format clang-tidy
+        sudo apt-get install -y clang-format clang-tidy clang
 
     - name: Check Clang-Format Compliance
       run: |
         find src tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
+
+    - name: Run Clang-Tidy Static Analysis (WASM Bridge)
+      run: |
+        clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc
 
   wasm-emscripten:
     name: Emscripten WebAssembly Build (WASM & JS)
@@ -57,14 +62,45 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
     - name: Setup Emscripten SDK
       uses: mymindstorm/setup-emsdk@v14
       with:
         version: '3.1.56'
 
-    - name: Verify Emscripten Toolchain
+    - name: Build & Verify Standalone WASM Binary
       run: |
-        emcc --version
+        em++ --version
+        mkdir -p web/dist
+        em++ -O3 -std=c++23 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -ffreestanding -c src/wasm/wasm_bridge.cpp -o /tmp/wasm_bridge.o
+        wasm-ld --no-entry --strip-debug --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
+          --export=malloc --export=free \
+          --export=bgl_init --export=bgl_resize --export=bgl_load_file_buffer \
+          --export=bgl_select_node --export=bgl_clear_selection --export=bgl_pick_node \
+          --export=bgl_get_camera_count --export=bgl_select_camera \
+          --export=bgl_set_animation --export=bgl_set_animation_playing \
+          --export=bgl_toggle_bbox --export=bgl_toggle_quadtree --export=bgl_toggle_skybox \
+          --export=bgl_toggle_debug_overlay --export=bgl_toggle_bump --export=bgl_toggle_mipmaps \
+          --export=bgl_toggle_shadows --export=bgl_toggle_reflections --export=bgl_toggle_ao \
+          --export=bgl_toggle_pom --export=bgl_toggle_lens_flare --export=bgl_toggle_ssao \
+          --export=bgl_toggle_bloom --export=bgl_toggle_occlusion --export=bgl_toggle_camera_mode \
+          --export=bgl_toggle_turntable --export=bgl_toggle_day_night_cycle \
+          --export=bgl_toggle_lod --export=bgl_toggle_auto_lod \
+          --export=bgl_set_ssao_intensity --export=bgl_set_bloom_intensity --export=bgl_set_ao_intensity \
+          --export=bgl_set_bump_scale --export=bgl_set_parallax_scale --export=bgl_set_lens_flare_intensity \
+          --export=bgl_set_weather_mode --export=bgl_set_weather_intensity --export=bgl_set_wind_strength \
+          --export=bgl_set_turntable_speed --export=bgl_set_time_of_day --export=bgl_set_day_night_speed \
+          --export=bgl_set_lod_bias --export=bgl_set_debug_view \
+          --export=bgl_camera_focus_selection --export=bgl_camera_frame_all \
+          --export=bgl_camera_save_bookmark --export=bgl_camera_restore_bookmark \
+          --export=bgl_camera_move --export=bgl_camera_zoom --export=bgl_camera_orbit --export=bgl_camera_pan \
+          --export=bgl_gamepad_state \
+          /tmp/wasm_bridge.o -o web/dist/bgl_engine.wasm
+        node -e "const fs = require('fs'); const m = new WebAssembly.Module(fs.readFileSync('web/dist/bgl_engine.wasm')); const imp = WebAssembly.Module.imports(m); if (imp.length !== 1 || imp[0].module !== 'env' || imp[0].name !== 'memory') throw new Error('Unexpected WASM imports');"
 
     - name: Package Minimal Web App
       run: |
@@ -187,12 +223,14 @@ jobs:
         cp -f web/index.html _site/index.html
         cp -f web/style.css _site/style.css
         cp -f web/app.js _site/app.js
+        cp -f web/gltf_worker.js _site/gltf_worker.js
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/dist/; fi
         cp -rf web/assets/* _site/assets/
         # 2. Subdirectory assets for subpath access (https://<user>.github.io/<repo>/web/index.html)
         cp -f web/index.html _site/web/index.html
         cp -f web/style.css _site/web/style.css
         cp -f web/app.js _site/web/app.js
+        cp -f web/gltf_worker.js _site/web/gltf_worker.js
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/web/dist/; fi
         cp -rf web/assets/* _site/web/assets/
         # 3. Add .nojekyll to prevent Jekyll from skipping underscore files or assets

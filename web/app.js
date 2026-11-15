@@ -73,7 +73,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.16 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v0.9.17 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -291,6 +291,16 @@
     elMax: document.getElementById('aabb-max'),
     elCenter: document.getElementById('aabb-center'),
     elPrims: document.getElementById('aabb-prims'),
+    elLodTelemetry: document.getElementById('lod-telemetry'),
+    sliderLodBias: document.getElementById('slider-lod-bias'),
+    valLodBias: document.getElementById('val-lod-bias'),
+    sliderTimeOfDay: document.getElementById('slider-time-of-day'),
+    valTimeOfDay: document.getElementById('val-time-of-day'),
+    hudFpsPill: document.getElementById('hud-fps-pill'),
+    modelNameLabel: document.getElementById('model-name-label'),
+    nodeCountBadge: document.getElementById('node-count-badge'),
+    gamepadBadge: document.getElementById('gamepad-badge'),
+    gamepadLabel: document.getElementById('gamepad-label'),
 
     setProgress(percent, msg) {
       if (this.pBar) {
@@ -875,17 +885,105 @@
       return JSON.parse(jsonStr);
     },
 
+    _worker: null,
+    _workerReqId: 0,
+    _workerPending: null,
+
+    /**
+     * Asynchronously parse glTF/GLB JSON, compute AABB telemetry, and decode embedded data-URI buffers
+     * inside a background Web Worker when supported, falling back to synchronous parsing in Node/workerless hosts.
+     * @param {ArrayBuffer} arrayBuffer - Raw glTF/GLB file buffer (never detached)
+     * @returns {Promise<Object>} Parsed glTF JSON object (with optional non-enumerable _bglEmbeddedBuffers/_bglTelemetry)
+     */
+    async extractJsonAsync(arrayBuffer) {
+      if (typeof Worker === 'undefined') {
+        return this.extractJson(arrayBuffer);
+      }
+      if (!arrayBuffer || arrayBuffer.byteLength < 4) {
+        return this.extractJson(arrayBuffer);
+      }
+
+      try {
+        if (!this._worker) {
+          this._worker = new Worker('gltf_worker.js');
+          this._workerPending = new Map();
+          this._worker.onmessage = (evt) => {
+            const msg = evt.data;
+            if (!msg || typeof msg.id !== 'number') return;
+            const entry = this._workerPending.get(msg.id);
+            if (!entry) return;
+            this._workerPending.delete(msg.id);
+            if (msg.ok) {
+              if (Array.isArray(msg.embeddedBuffers) && msg.embeddedBuffers.length > 0) {
+                Object.defineProperty(msg.gltf, '_bglEmbeddedBuffers', {
+                  value: msg.embeddedBuffers,
+                  enumerable: false,
+                  configurable: true
+                });
+              }
+              if (msg.telemetry) {
+                Object.defineProperty(msg.gltf, '_bglTelemetry', {
+                  value: msg.telemetry,
+                  enumerable: false,
+                  configurable: true
+                });
+              }
+              entry.resolve(msg.gltf);
+            } else {
+              entry.reject(new Error(msg.error || 'glTF worker parse failure'));
+            }
+          };
+          this._worker.onerror = (err) => {
+            const pending = this._workerPending ? Array.from(this._workerPending.values()) : [];
+            if (this._workerPending) this._workerPending.clear();
+            this._worker = null;
+            for (const entry of pending) {
+              entry.reject(new Error(err && err.message ? err.message : 'Worker crashed'));
+            }
+          };
+        }
+
+        const dv = new DataView(arrayBuffer);
+        const magic = dv.getUint32(0, true);
+        let payloadBuffer;
+        let cmd = 'parseBuffer';
+        if (magic === 0x46546C67 && arrayBuffer.byteLength >= 20) {
+          const chunkLength = dv.getUint32(12, true);
+          const chunkType = dv.getUint32(16, true);
+          if (chunkType === 0x4E4F534A && 20 + chunkLength <= arrayBuffer.byteLength) {
+            // Transfer only the JSON chunk slice so the full GLB buffer stays intact for WASM & WebGPU
+            payloadBuffer = arrayBuffer.slice(20, 20 + chunkLength);
+            cmd = 'parseJsonChunkOnly';
+          } else {
+            return this.extractJson(arrayBuffer);
+          }
+        } else {
+          payloadBuffer = arrayBuffer.slice(0);
+        }
+
+        const reqId = ++this._workerReqId;
+        return await new Promise((resolve, reject) => {
+          this._workerPending.set(reqId, { resolve, reject });
+          this._worker.postMessage({ id: reqId, cmd, buffer: payloadBuffer }, [payloadBuffer]);
+        });
+      } catch (workerErr) {
+        BglLogger.warn('glTF', `Web Worker parse fallback to main thread: ${workerErr.message || workerErr}`);
+        return this.extractJson(arrayBuffer);
+      }
+    },
+
     /**
      * Compute and display spatial AABB telemetry from glTF accessors.
      */
     updateTelemetry(gltf) {
       if (!gltf || !gltf.accessors) return;
-      let minB = [Infinity, Infinity, Infinity];
-      let maxB = [-Infinity, -Infinity, -Infinity];
-      let totalPrims = 0;
-      let totalVerts = 0;
+      const precomputed = gltf._bglTelemetry;
+      let minB = precomputed ? precomputed.minB : [Infinity, Infinity, Infinity];
+      let maxB = precomputed ? precomputed.maxB : [-Infinity, -Infinity, -Infinity];
+      let totalPrims = precomputed ? precomputed.totalPrims : 0;
+      let totalVerts = precomputed ? precomputed.totalVerts : 0;
 
-      if (gltf.meshes) {
+      if (!precomputed && gltf.meshes) {
         gltf.meshes.forEach(m => {
           if (m.primitives) {
             totalPrims += m.primitives.length;
@@ -1544,6 +1642,32 @@
         out[14] = v[2];
         out[15] = 1;
         return out;
+      },
+      extractFrustumPlanes(out, m) {
+        // Left, Right, Bottom, Top, Near, Far normalized planes from column-major viewProj
+        const setPlane = (idx, a, b, c, d) => {
+          const len = Math.hypot(a, b, c) || 1.0;
+          const inv = 1.0 / len;
+          out[idx * 4 + 0] = a * inv;
+          out[idx * 4 + 1] = b * inv;
+          out[idx * 4 + 2] = c * inv;
+          out[idx * 4 + 3] = d * inv;
+        };
+        setPlane(0, m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]);
+        setPlane(1, m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]);
+        setPlane(2, m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]);
+        setPlane(3, m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]);
+        setPlane(4, m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]);
+        setPlane(5, m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]);
+        return out;
+      },
+      isSphereInFrustum(planes, cx, cy, cz, radius) {
+        for (let i = 0; i < 6; ++i) {
+          const base = i * 4;
+          const dist = planes[base] * cx + planes[base + 1] * cy + planes[base + 2] * cz + planes[base + 3];
+          if (dist < -radius) return false;
+        }
+        return true;
       }
     },
 
@@ -1558,11 +1682,17 @@ struct Uniforms {
     baseColorFactor : vec4<f32>,
     pbrFactors : vec4<f32>,      // x=metallic, y=roughness, z=normalScale, w=occlusionStrength
     emissiveFactor : vec4<f32>,  // xyz=emissive, w=alphaCutoff
-    uvTransform : vec4<f32>,     // xy=scale, zw=offset
+    uvTransform : vec4<f32>,     // baseColor: xy=scale, zw=offset
     flags : vec4<u32>,           // x=texFlags, y=wireframe, z=doubleSided, w=alphaMode
     params : vec4<f32>,          // x=bumpScale, y=pomScale, z=isPomActive, w=isBumpActive
     weather : vec4<f32>,         // x=weatherMode (0=none, 1=rain, 2=snow), y=intensity, z=wind, w=timeSec
     lodParams : vec4<f32>,       // x=lodLevel, y=lodTransition, z=debugViewMode, w=lodBias
+    mrUvTransform : vec4<f32>,   // metallicRoughness: xy=scale, zw=offset
+    normalUvTransform : vec4<f32>,    // normal: xy=scale, zw=offset
+    occlusionUvTransform : vec4<f32>, // occlusion: xy=scale, zw=offset
+    emissiveUvTransform : vec4<f32>,  // emissive: xy=scale, zw=offset
+    uvRotations0 : vec4<f32>,    // x=baseColorRot, y=mrRot, z=normalRot, w=occlusionRot
+    uvRotations1 : vec4<f32>,    // x=emissiveRot, yzw=reserved
 };
 
 @group(0) @binding(0) var<uniform> ubo : Uniforms;
@@ -1987,6 +2117,26 @@ fn bayerDither4x4(fragCoord : vec2<f32>) -> f32 {
     return bayer[idx];
 }
 
+fn transformUv(uv : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let su = uv * scaleOffset.xy;
+    if (abs(rot) < 1e-6) {
+        return su + scaleOffset.zw;
+    }
+    let s = sin(rot);
+    let c = cos(rot);
+    return vec2<f32>(c * su.x + s * su.y, -s * su.x + c * su.y) + scaleOffset.zw;
+}
+
+fn transformUvDeriv(d : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let sd = d * scaleOffset.xy;
+    if (abs(rot) < 1e-6) {
+        return sd;
+    }
+    let s = sin(rot);
+    let c = cos(rot);
+    return vec2<f32>(c * sd.x + s * sd.y, -s * sd.x + c * sd.y);
+}
+
 fn getLodHeatmapColor(lod : u32) -> vec3<f32> {
     if (lod == 0u) {
         return vec3<f32>(0.15, 0.90, 0.35);
@@ -2013,7 +2163,7 @@ fn vs_main(in : VertexInput) -> VertexOutput {
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     out.tangent = vec4<f32>(normTan, in.tangent.w);
-    out.uv = in.uv * ubo.uvTransform.xy + ubo.uvTransform.zw;
+    out.uv = in.uv;
     out.clipPos = ubo.viewProj * worldPos4;
     return out;
 }
@@ -2053,7 +2203,7 @@ fn vs_main_skinned(in : SkinnedVertexInput) -> VertexOutput {
     let tanLen = length(worldTan);
     let normTan = select(vec3<f32>(1.0, 0.0, 0.0), worldTan / tanLen, tanLen > 1e-8);
     out.tangent = vec4<f32>(normTan, in.tangent.w);
-    out.uv = in.uv * ubo.uvTransform.xy + ubo.uvTransform.zw;
+    out.uv = in.uv;
     out.clipPos = ubo.viewProj * worldPos4;
     return out;
 }
@@ -2062,8 +2212,10 @@ fn vs_main_skinned(in : SkinnedVertexInput) -> VertexOutput {
 fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @location(0) vec4<f32> {
     let dp1 = dpdx(in.worldPos);
     let dp2 = dpdy(in.worldPos);
-    let duv1 = dpdx(in.uv);
-    let duv2 = dpdy(in.uv);
+    let rawDuv1 = dpdx(in.uv);
+    let rawDuv2 = dpdy(in.uv);
+    let normDuv1 = transformUvDeriv(rawDuv1, ubo.normalUvTransform, ubo.uvRotations0.z);
+    let normDuv2 = transformUvDeriv(rawDuv2, ubo.normalUvTransform, ubo.uvRotations0.z);
 
     // Wireframe debug override
     if (ubo.flags.y != 0u) {
@@ -2082,12 +2234,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         geomNormal = -geomNormal;
     }
 
-    let TBN = getTBN(in.worldPos, geomNormal, in.uv, in.tangent, dp1, dp2, duv1, duv2);
+    let TBN = getTBN(in.worldPos, geomNormal, in.uv, in.tangent, dp1, dp2, rawDuv1, rawDuv2);
     let invTBN = transpose(TBN);
     let V_tangent = invTBN * V;
 
     // 2. Parallax Occlusion Mapping (POM) & Surface Displacement
-    var uv = in.uv;
+    var baseRawUv = in.uv;
     var pomShadow = 1.0;
     let bumpScale = ubo.params.x;
     let pomScale = ubo.params.y;
@@ -2100,17 +2252,35 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     if (isPomActive && isBumpActive) {
         let isNormalMapped = (ubo.flags.x & 4u) != 0u;
         let effPomScale = select(pomScale, pomScale * 0.14, isNormalMapped);
-        uv = parallaxOcclusionMapping(in.uv, V_tangent, duv1, duv2, effPomScale);
+        baseRawUv = parallaxOcclusionMapping(in.uv, V_tangent, rawDuv1, rawDuv2, effPomScale);
         let L0_tangent = invTBN * normalize(ubo.lightDir.xyz);
-        pomShadow = computeParallaxShadow(uv, L0_tangent, duv1, duv2, effPomScale);
+        pomShadow = computeParallaxShadow(baseRawUv, L0_tangent, rawDuv1, rawDuv2, effPomScale);
     }
 
+    // Apply independent per-channel KHR_texture_transform coordinates & derivatives
+    let baseUv = transformUv(baseRawUv, ubo.uvTransform, ubo.uvRotations0.x);
+    let mrUv = transformUv(baseRawUv, ubo.mrUvTransform, ubo.uvRotations0.y);
+    let normUv = transformUv(baseRawUv, ubo.normalUvTransform, ubo.uvRotations0.z);
+    let occUv = transformUv(baseRawUv, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+    let emUv = transformUv(baseRawUv, ubo.emissiveUvTransform, ubo.uvRotations1.x);
+
+    let baseDuv1 = transformUvDeriv(rawDuv1, ubo.uvTransform, ubo.uvRotations0.x);
+    let baseDuv2 = transformUvDeriv(rawDuv2, ubo.uvTransform, ubo.uvRotations0.x);
+    let mrDuv1 = transformUvDeriv(rawDuv1, ubo.mrUvTransform, ubo.uvRotations0.y);
+    let mrDuv2 = transformUvDeriv(rawDuv2, ubo.mrUvTransform, ubo.uvRotations0.y);
+    let occDuv1 = transformUvDeriv(rawDuv1, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+    let occDuv2 = transformUvDeriv(rawDuv2, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+    let emDuv1 = transformUvDeriv(rawDuv1, ubo.emissiveUvTransform, ubo.uvRotations1.x);
+    let emDuv2 = transformUvDeriv(rawDuv2, ubo.emissiveUvTransform, ubo.uvRotations1.x);
+
     // Sample all PBR material maps using explicit screen-space gradients (uniformity-safe & anisotropic-correct)
-    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2);
-    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, uv, duv1, duv2);
-    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, uv, duv1, duv2);
-    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, uv, duv1, duv2);
-    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2);
+    let baseTexSample = textureSampleGrad(baseColorTexture, defaultSampler, baseUv, baseDuv1, baseDuv2);
+    let mrTexSample = textureSampleGrad(metallicRoughnessTexture, defaultSampler, mrUv, mrDuv1, mrDuv2);
+    let normTexSample = textureSampleGrad(normalTexture, defaultSampler, normUv, normDuv1, normDuv2);
+    let duv1 = rawDuv1;
+    let duv2 = rawDuv2;
+    let emTexSample = textureSampleGrad(emissiveTexture, defaultSampler, emUv, emDuv1, emDuv2);
+    let occTexSample = textureSampleGrad(occlusionTexture, defaultSampler, occUv, occDuv1, occDuv2);
 
     // 3. Base Color & Alpha (glTF baseColorFactor is already linear-space)
     var baseColor = ubo.baseColorFactor;
@@ -2683,8 +2853,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this._scratchProj = this.mat4.create();
         this._scratchView = this.mat4.create();
         this._scratchViewProj = this.mat4.create();
-        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 88);
+        this._scratchUboF32 = new Float32Array(this._scratchUboBuffer, 0, 128);
         this._scratchUboU32 = new Uint32Array(this._scratchUboBuffer, 288, 4);
+        this._scratchFrustum = new Float32Array(24);
+        this._pendingMipmaps = [];
+        this._mipBatchScheduled = false;
+        this._hierarchyVersion = 0;
+        this._lastDomTelemetryMs = 0;
+        this._sortedPrimitives = [];
 
         this.isActive = true;
         this.initEvents();
@@ -2975,12 +3151,16 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       }
       this.textureCache.clear();
       this.primitives = [];
+      this._sortedPrimitives = [];
+      this._pendingMipmaps = [];
+      this._mipBatchScheduled = false;
       this.nodes = [];
       this.rootNodes = [];
       this.skins = [];
       this.animations = [];
       this.activeAnimationIndex = -1;
       this.animationTime = 0.0;
+      this._hierarchyVersion = 0;
 
       let binBuffer = null;
       if (arrayBuffer && arrayBuffer.byteLength >= 12) {
@@ -3001,8 +3181,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         }
       }
 
-      const embeddedBuffers = [];
-      if (gltf.buffers) {
+      const predecoded = (gltf && Array.isArray(gltf._bglEmbeddedBuffers)) ? gltf._bglEmbeddedBuffers : null;
+      const embeddedBuffers = predecoded ? predecoded.slice() : [];
+      if (gltf.buffers && !predecoded) {
         for (let i = 0; i < gltf.buffers.length; ++i) {
           const buf = gltf.buffers[i];
           if (buf.uri && buf.uri.startsWith('data:')) {
@@ -3407,8 +3588,19 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             let alphaCutoff = 0.5;
             let alphaMode = 0; // 0=OPAQUE, 1=MASK, 2=BLEND
             let doubleSided = false;
-            let uvScale = [1.0, 1.0];
-            let uvOffset = [0.0, 0.0];
+            const extractUvTransform = (texInfo) => {
+              const tt = texInfo && texInfo.extensions && texInfo.extensions.KHR_texture_transform;
+              return {
+                scale: (tt && tt.scale) ? [tt.scale[0], tt.scale[1]] : [1.0, 1.0],
+                offset: (tt && tt.offset) ? [tt.offset[0], tt.offset[1]] : [0.0, 0.0],
+                rotation: (tt && tt.rotation !== undefined) ? tt.rotation : 0.0
+              };
+            };
+            let baseUvTx = extractUvTransform(null);
+            let mrUvTx = extractUvTransform(null);
+            let normalUvTx = extractUvTransform(null);
+            let occlusionUvTx = extractUvTransform(null);
+            let emissiveUvTx = extractUvTransform(null);
 
             if (prim.material !== undefined && gltf.materials && gltf.materials[prim.material]) {
               const mat = gltf.materials[prim.material];
@@ -3423,32 +3615,28 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 if (pbr.baseColorFactor) baseColorFactor = pbr.baseColorFactor;
                 if (pbr.metallicFactor !== undefined) metallicFactor = pbr.metallicFactor;
                 if (pbr.roughnessFactor !== undefined) roughnessFactor = pbr.roughnessFactor;
-                if (pbr.baseColorTexture && pbr.baseColorTexture.extensions && pbr.baseColorTexture.extensions.KHR_texture_transform) {
-                  const tt = pbr.baseColorTexture.extensions.KHR_texture_transform;
-                  if (tt.scale) uvScale = [tt.scale[0], tt.scale[1]];
-                  if (tt.offset) uvOffset = [tt.offset[0], tt.offset[1]];
-                }
+                if (pbr.baseColorTexture) baseUvTx = extractUvTransform(pbr.baseColorTexture);
+                if (pbr.metallicRoughnessTexture) mrUvTx = extractUvTransform(pbr.metallicRoughnessTexture);
               }
 
               if (mat.normalTexture) {
                 if (mat.normalTexture.scale !== undefined) normalScale = mat.normalTexture.scale;
-                const hasBaseColorTransform = Boolean(
-                  mat.pbrMetallicRoughness &&
-                  mat.pbrMetallicRoughness.baseColorTexture &&
-                  mat.pbrMetallicRoughness.baseColorTexture.extensions &&
-                  mat.pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform
-                );
-                if (!hasBaseColorTransform && mat.normalTexture.extensions && mat.normalTexture.extensions.KHR_texture_transform) {
-                  const tt = mat.normalTexture.extensions.KHR_texture_transform;
-                  if (tt.scale) uvScale = [tt.scale[0], tt.scale[1]];
-                  if (tt.offset) uvOffset = [tt.offset[0], tt.offset[1]];
-                }
+                normalUvTx = extractUvTransform(mat.normalTexture);
               }
 
-              if (mat.occlusionTexture && mat.occlusionTexture.strength !== undefined) {
-                occlusionStrength = mat.occlusionTexture.strength;
+              if (mat.occlusionTexture) {
+                if (mat.occlusionTexture.strength !== undefined) {
+                  occlusionStrength = mat.occlusionTexture.strength;
+                }
+                occlusionUvTx = extractUvTransform(mat.occlusionTexture);
+              }
+
+              if (mat.emissiveTexture) {
+                emissiveUvTx = extractUvTransform(mat.emissiveTexture);
               }
             }
+            const uvScale = baseUvTx.scale;
+            const uvOffset = baseUvTx.offset;
 
             const currentPrimRecords = [];
             for (const nIdx of nodeIdxList) {
@@ -3474,6 +3662,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 lodSlices,
                 localCenter,
                 localRadius,
+                worldCenter: [0, 0, 0],
+                worldRadius: localRadius,
+                normalMatrix: this.mat4.normalMatrix4(this.mat4.create(), worldMatrix),
+                worldMatrixVersion: -1,
                 vertexCount,
                 hasIndices: !!indexData,
                 uniformBuffer,
@@ -3489,6 +3681,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 doubleSided,
                 uvScale,
                 uvOffset,
+                uvTransforms: {
+                  baseColor: baseUvTx,
+                  mr: mrUvTx,
+                  normal: normalUvTx,
+                  occlusion: occlusionUvTx,
+                  emissive: emissiveUvTx
+                },
+                materialIdx: prim.material !== undefined ? prim.material : -1,
                 flags: 0,
                 baseColorView: null,
                 mrView: null,
@@ -3570,7 +3770,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                       [bmp.width, bmp.height]
                     );
                     if (mipLevelCount > 1) {
-                      this.generateMipmaps(gpuTex, bmp.width, bmp.height, mipLevelCount);
+                      this.queueMipmapGeneration(gpuTex, bmp.width, bmp.height, mipLevelCount);
                     }
                     if (typeof bmp.close === 'function') {
                       bmp.close();
@@ -3668,6 +3868,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this.updateNodeHierarchy();
       }
       this.updateSkinMatrices();
+      this.rebuildSortedPrimitives();
 
       if (typeof updateAnimationDropdown === 'function') {
         updateAnimationDropdown();
@@ -3676,7 +3877,23 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       BglLogger.log('WebGPU', `Loaded '${modelName}' into WebGPU rendering pipeline (${this.primitives.length} primitives, ${this.skins.length} skins, ${this.animations.length} animations).`);
     },
 
+    rebuildSortedPrimitives() {
+      this._sortedPrimitives = this.primitives.slice().sort((a, b) => {
+        const transA = a.alphaMode === 2 ? 1 : 0;
+        const transB = b.alphaMode === 2 ? 1 : 0;
+        if (transA !== transB) return transA - transB;
+        const skinA = a.isSkinned ? 1 : 0;
+        const skinB = b.isSkinned ? 1 : 0;
+        if (skinA !== skinB) return skinA - skinB;
+        const dsA = a.doubleSided ? 1 : 0;
+        const dsB = b.doubleSided ? 1 : 0;
+        if (dsA !== dsB) return dsA - dsB;
+        return (a.materialIdx || 0) - (b.materialIdx || 0);
+      });
+    },
+
     updateNodeHierarchy() {
+      this._hierarchyVersion = (this._hierarchyVersion || 0) + 1;
       const updateNode = (nodeIdx, parentWorld) => {
         const node = this.nodes[nodeIdx];
         if (!node) return;
@@ -3891,50 +4108,91 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       this.animationPlaying = !!playing;
     },
 
+    encodeMipmapPasses(encoder, gpuTex, mipLevelCount) {
+      for (let mip = 1; mip < mipLevelCount; ++mip) {
+        const srcView = gpuTex.createView({ baseMipLevel: mip - 1, mipLevelCount: 1 });
+        const dstView = gpuTex.createView({ baseMipLevel: mip, mipLevelCount: 1 });
+        const bindGroup = this.device.createBindGroup({
+          layout: this.mipmapBindGroupLayout,
+          entries: [
+            { binding: 1, resource: this.mipmapSampler || this.defaultSampler },
+            { binding: 2, resource: srcView }
+          ]
+        });
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: dstView,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }]
+        });
+        pass.setPipeline(this.mipmapPipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.draw(3);
+        pass.end();
+      }
+    },
+
+    queueMipmapGeneration(gpuTex, width, height, mipLevelCount) {
+      if (!this.device || !this.mipmapPipeline || mipLevelCount <= 1 || typeof this.device.createCommandEncoder !== 'function') return;
+      if (!this._pendingMipmaps) this._pendingMipmaps = [];
+      this._pendingMipmaps.push({ gpuTex, mipLevelCount });
+      if (!this._mipBatchScheduled) {
+        this._mipBatchScheduled = true;
+        const schedule = typeof queueMicrotask === 'function' ? queueMicrotask : (fn) => Promise.resolve().then(fn);
+        schedule(() => this.flushPendingMipmaps());
+      }
+    },
+
+    flushPendingMipmaps() {
+      this._mipBatchScheduled = false;
+      if (!this._pendingMipmaps || this._pendingMipmaps.length === 0) return;
+      if (!this.device || !this.mipmapPipeline || typeof this.device.createCommandEncoder !== 'function') {
+        this._pendingMipmaps.length = 0;
+        return;
+      }
+      const batch = this._pendingMipmaps.splice(0, this._pendingMipmaps.length);
+      try {
+        const encoder = this.device.createCommandEncoder();
+        for (let i = 0; i < batch.length; ++i) {
+          this.encodeMipmapPasses(encoder, batch[i].gpuTex, batch[i].mipLevelCount);
+        }
+        this.device.queue.submit([encoder.finish()]);
+      } catch (mipErr) {
+        BglLogger.warn('WebGPU', 'Batched mipmap generation notice:', mipErr);
+      }
+    },
+
     generateMipmaps(gpuTex, width, height, mipLevelCount) {
       if (!this.device || !this.mipmapPipeline || mipLevelCount <= 1 || typeof this.device.createCommandEncoder !== 'function') return;
       try {
         const encoder = this.device.createCommandEncoder();
-        for (let mip = 1; mip < mipLevelCount; ++mip) {
-          const srcView = gpuTex.createView({ baseMipLevel: mip - 1, mipLevelCount: 1 });
-          const dstView = gpuTex.createView({ baseMipLevel: mip, mipLevelCount: 1 });
-          const bindGroup = this.device.createBindGroup({
-            layout: this.mipmapBindGroupLayout,
-            entries: [
-              { binding: 1, resource: this.mipmapSampler || this.defaultSampler },
-              { binding: 2, resource: srcView }
-            ]
-          });
-          const pass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: dstView,
-              clearValue: { r: 0, g: 0, b: 0, a: 1 },
-              loadOp: 'clear',
-              storeOp: 'store'
-            }]
-          });
-          pass.setPipeline(this.mipmapPipeline);
-          pass.setBindGroup(0, bindGroup);
-          pass.draw(3);
-          pass.end();
-        }
+        this.encodeMipmapPasses(encoder, gpuTex, mipLevelCount);
         this.device.queue.submit([encoder.finish()]);
       } catch (mipErr) {
         BglLogger.warn('WebGPU', 'Mipmap generation notice:', mipErr);
       }
     },
 
+    stepFrame(time) {
+      if (!this.isActive || !this.device || !this.context) return;
+      const dt = (time - this.lastFrameTime) * 0.001;
+      this.lastFrameTime = time;
+      if (this.turntable) {
+        this.camera.yaw += this.turntableSpeed * dt;
+      }
+      this.draw();
+    },
+
     startLoop() {
+      if (typeof BglFrameScheduler !== 'undefined' && BglFrameScheduler.registerRenderer) {
+        BglFrameScheduler.registerRenderer((time) => this.stepFrame(time));
+        return;
+      }
       const render = (time) => {
         if (!this.isActive || !this.device || !this.context) return;
-        const dt = (time - this.lastFrameTime) * 0.001;
-        this.lastFrameTime = time;
-
-        if (this.turntable) {
-          this.camera.yaw += this.turntableSpeed * dt;
-        }
-
-        this.draw();
+        this.stepFrame(time);
         requestAnimationFrame(render);
       };
       requestAnimationFrame(render);
@@ -3942,6 +4200,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     draw() {
       if (!this.isActive || !this.device || !this.context) return;
+
+      this.flushPendingMipmaps();
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.max(1, Math.round((this.canvas.clientWidth || window.innerWidth) * dpr));
@@ -3978,6 +4238,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       const nowMs = performance.now();
       const dtSec = this._lastDrawMs ? Math.max(0.0, Math.min((nowMs - this._lastDrawMs) * 0.001, 0.1)) : (1.0 / 60.0);
       this._lastDrawMs = nowMs;
+      const shouldUpdateDom = !this._lastDomTelemetryMs || (nowMs - this._lastDomTelemetryMs) >= 200;
+      if (shouldUpdateDom) {
+        this._lastDomTelemetryMs = nowMs;
+      }
+      const uiCache = (typeof BglUI !== 'undefined') ? BglUI : null;
 
       if (this.animations.length > 0 && this.activeAnimationIndex >= 0 && this.animationPlaying) {
         const anim = this.animations[this.activeAnimationIndex];
@@ -3993,14 +4258,16 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let nextTod = ((BglState.timeOfDay !== undefined ? BglState.timeOfDay : 14.0) + speed * dtSec) % 24.0;
         if (nextTod < 0.0) nextTod += 24.0;
         BglState.timeOfDay = nextTod;
-        const sliderTod = document.getElementById('slider-time-of-day');
-        if (sliderTod) sliderTod.value = nextTod.toFixed(2);
-        const labelTod = document.getElementById('val-time-of-day');
-        if (labelTod) {
-          const hrs = Math.floor(nextTod) % 24;
-          const mins = Math.floor((nextTod - Math.floor(nextTod)) * 60) % 60;
-          const icon = (nextTod >= 7.0 && nextTod < 17.5) ? '☀️' : ((nextTod >= 5.5 && nextTod < 19.5) ? '🌅' : '🌙');
-          labelTod.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')} ${icon}`;
+        if (shouldUpdateDom) {
+          const sliderTod = uiCache ? uiCache.sliderTimeOfDay : document.getElementById('slider-time-of-day');
+          if (sliderTod) sliderTod.value = nextTod.toFixed(2);
+          const labelTod = uiCache ? uiCache.valTimeOfDay : document.getElementById('val-time-of-day');
+          if (labelTod) {
+            const hrs = Math.floor(nextTod) % 24;
+            const mins = Math.floor((nextTod - Math.floor(nextTod)) * 60) % 60;
+            const icon = (nextTod >= 7.0 && nextTod < 17.5) ? '☀️' : ((nextTod >= 5.5 && nextTod < 19.5) ? '🌅' : '🌙');
+            labelTod.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')} ${icon}`;
+          }
         }
       }
 
@@ -4064,6 +4331,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       const viewProj = this._scratchViewProj;
       this.mat4.multiply(viewProj, proj, view);
 
+      const frustum = this._scratchFrustum || (this._scratchFrustum = new Float32Array(24));
+      this.mat4.extractFrustumPlanes(frustum, viewProj);
+
       const azimuth = (tod / 24.0) * 2.0 * Math.PI;
       const activeElevSin = (solarElev >= 0.0) ? Math.max(solarElev, 0.08) : Math.max(-solarElev * 0.75, 0.15);
       const activeElevCos = Math.sqrt(Math.max(0.0, 1.0 - activeElevSin * activeElevSin));
@@ -4072,7 +4342,6 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
       lightDir[1] = activeElevSin;
       lightDir[2] = activeElevCos * Math.cos(azimuth);
 
-      const normalMat = this._scratchNormalMat;
       const uboBuffer = this._scratchUboBuffer;
       const uboF32 = this._scratchUboF32;
       const uboU32 = this._scratchUboU32;
@@ -4084,44 +4353,93 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         } else if (dtSec < 0.0155) {
           BglState.lodBias = Math.max(0.5, (BglState.lodBias || 1.0) - dtSec * 0.25);
         }
-        const sliderLod = document.getElementById('slider-lod-bias');
-        if (sliderLod) sliderLod.value = BglState.lodBias.toFixed(2);
-        const labelLod = document.getElementById('val-lod-bias');
-        if (labelLod) labelLod.textContent = `${BglState.lodBias.toFixed(2)}×`;
+        if (shouldUpdateDom) {
+          const sliderLod = uiCache ? uiCache.sliderLodBias : document.getElementById('slider-lod-bias');
+          if (sliderLod) sliderLod.value = BglState.lodBias.toFixed(2);
+          const labelLod = uiCache ? uiCache.valLodBias : document.getElementById('val-lod-bias');
+          if (labelLod) labelLod.textContent = `${BglState.lodBias.toFixed(2)}×`;
+        }
       }
 
       const isLodActive = (typeof BglState !== 'undefined' && BglState.isLodActive !== undefined) ? BglState.isLodActive : true;
       const lodBias = (typeof BglState !== 'undefined' && BglState.lodBias !== undefined) ? BglState.lodBias : 1.0;
       const debugViewMode = (typeof BglState !== 'undefined' && BglState.debugViewMode !== undefined) ? BglState.debugViewMode : 0;
+      const bumpScaleVal = (typeof BglState !== 'undefined' && BglState.bumpScale !== undefined) ? BglState.bumpScale : 1.5;
+      const pomScaleVal = (typeof BglState !== 'undefined' && BglState.pomScale !== undefined) ? BglState.pomScale : 0.035;
+      const isPomVal = (typeof BglState !== 'undefined' && BglState.isPomActive) ? 1.0 : 0.0;
+      const isBumpVal = (typeof BglState !== 'undefined' && BglState.isBumpActive !== undefined) ? (BglState.isBumpActive ? 1.0 : 0.0) : 1.0;
+      const weatherMode = wModeStr === 'rain' ? 1.0 : (wModeStr === 'snow' ? 2.0 : (wModeStr === 'fog' ? 3.0 : (wModeStr === 'smoke' ? 4.0 : 0.0)));
+      const windStrength = (typeof BglState !== 'undefined' && BglState.windStrength !== undefined) ? BglState.windStrength : 0.3;
+      const timeSec = nowMs * 0.001;
+
+      // Populate frame-invariant UBO fields once outside the per-primitive loop
+      uboF32.set(viewProj, 0);
+      uboF32[48] = eye[0]; uboF32[49] = eye[1]; uboF32[50] = eye[2]; uboF32[51] = 1.0;
+      uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = solarElev;
+      uboF32[76] = bumpScaleVal;
+      uboF32[77] = pomScaleVal;
+      uboF32[78] = isPomVal;
+      uboF32[79] = isBumpVal;
+      uboF32[80] = weatherMode;
+      uboF32[81] = weatherIntensity;
+      uboF32[82] = windStrength;
+      uboF32[83] = timeSec;
 
       let frameRenderedTris = 0;
       let frameTotalTris = 0;
       const frameLodCounts = [0, 0, 0, 0];
+      const hierarchyVer = this._hierarchyVersion || 0;
+      const drawList = (this._sortedPrimitives && this._sortedPrimitives.length === this.primitives.length)
+        ? this._sortedPrimitives
+        : this.primitives;
 
-      for (const prim of this.primitives) {
-        this.mat4.normalMatrix4(normalMat, prim.modelMatrix);
+      let lastPipeline = null;
+      let lastBg0 = null;
+      let lastBg1 = null;
+      let lastVb0 = null;
+      let lastVb1 = null;
+      let lastIb = null;
+      let lastIbFmt = null;
 
-        // Compute world-space primitive center & radius for Screen-Space Error LOD selection
-        const lc = prim.localCenter || [0, 0, 0];
+      for (let i = 0; i < drawList.length; ++i) {
+        const prim = drawList[i];
         const m = prim.modelMatrix;
-        const wx = m[0] * lc[0] + m[4] * lc[1] + m[8] * lc[2] + m[12];
-        const wy = m[1] * lc[0] + m[5] * lc[1] + m[9] * lc[2] + m[13];
-        const wz = m[2] * lc[0] + m[6] * lc[1] + m[10] * lc[2] + m[14];
-        const sx = Math.hypot(m[0], m[1], m[2]);
-        const sy = Math.hypot(m[4], m[5], m[6]);
-        const sz = Math.hypot(m[8], m[9], m[10]);
-        const maxScale = Math.max(sx, sy, sz, 0.001);
-        const worldRadius = (prim.localRadius || 1.0) * maxScale;
-        const distToCam = Math.hypot(eye[0] - wx, eye[1] - wy, eye[2] - wz);
+
+        if (prim.worldMatrixVersion !== hierarchyVer || !prim.normalMatrix || !prim.worldCenter) {
+          if (!prim.normalMatrix) prim.normalMatrix = this.mat4.create();
+          if (!prim.worldCenter) prim.worldCenter = [0, 0, 0];
+          this.mat4.normalMatrix4(prim.normalMatrix, m);
+          const lc = prim.localCenter || [0, 0, 0];
+          prim.worldCenter[0] = m[0] * lc[0] + m[4] * lc[1] + m[8] * lc[2] + m[12];
+          prim.worldCenter[1] = m[1] * lc[0] + m[5] * lc[1] + m[9] * lc[2] + m[13];
+          prim.worldCenter[2] = m[2] * lc[0] + m[6] * lc[1] + m[10] * lc[2] + m[14];
+          const sx = Math.hypot(m[0], m[1], m[2]);
+          const sy = Math.hypot(m[4], m[5], m[6]);
+          const sz = Math.hypot(m[8], m[9], m[10]);
+          prim.worldRadius = (prim.localRadius || 1.0) * Math.max(sx, sy, sz, 0.001);
+          prim.worldMatrixVersion = hierarchyVer;
+        }
+
+        const wc = prim.worldCenter;
+        const worldRadius = prim.worldRadius;
+        if (prim.hasIndices) {
+          frameTotalTris += Math.floor(prim.indexCount / 3);
+        } else {
+          frameTotalTris += Math.floor(prim.vertexCount / 3);
+        }
+
+        // View frustum culling for rigid primitives (skip skinned to preserve extreme bone poses)
+        if (!prim.isSkinned && !this.mat4.isSphereInFrustum(frustum, wc[0], wc[1], wc[2], worldRadius)) {
+          continue;
+        }
+
+        const distToCam = Math.hypot(eye[0] - wc[0], eye[1] - wc[1], eye[2] - wc[2]);
         const lodEval = this.evaluatePrimitiveLod(distToCam, worldRadius, lodBias, isLodActive);
         const activeLod = prim.isSkinned ? 0 : lodEval.lodLevel;
         frameLodCounts[activeLod] = (frameLodCounts[activeLod] || 0) + 1;
 
-        uboF32.set(viewProj, 0);
-        uboF32.set(prim.modelMatrix, 16);
-        uboF32.set(normalMat, 32);
-        uboF32[48] = eye[0]; uboF32[49] = eye[1]; uboF32[50] = eye[2]; uboF32[51] = 1.0;
-        uboF32[52] = lightDir[0]; uboF32[53] = lightDir[1]; uboF32[54] = lightDir[2]; uboF32[55] = solarElev;
+        uboF32.set(m, 16);
+        uboF32.set(prim.normalMatrix, 32);
         uboF32[56] = prim.baseColorFactor[0];
         uboF32[57] = prim.baseColorFactor[1];
         uboF32[58] = prim.baseColorFactor[2];
@@ -4137,59 +4455,89 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         uboF32[66] = prim.emissiveFactor[2];
         uboF32[67] = prim.alphaCutoff;
 
-        uboF32[68] = prim.uvScale[0];
-        uboF32[69] = prim.uvScale[1];
-        uboF32[70] = prim.uvOffset[0];
-        uboF32[71] = prim.uvOffset[1];
+        const uvTxs = prim.uvTransforms;
+        const baseScale = uvTxs ? uvTxs.baseColor.scale : (prim.uvScale || [1, 1]);
+        const baseOff = uvTxs ? uvTxs.baseColor.offset : (prim.uvOffset || [0, 0]);
+        uboF32[68] = baseScale[0];
+        uboF32[69] = baseScale[1];
+        uboF32[70] = baseOff[0];
+        uboF32[71] = baseOff[1];
 
         uboU32[0] = prim.flags;
         uboU32[1] = this.wireframe ? 1 : 0;
         uboU32[2] = prim.doubleSided ? 1 : 0;
         uboU32[3] = prim.alphaMode;
 
-        uboF32[76] = (typeof BglState !== 'undefined' && BglState.bumpScale !== undefined) ? BglState.bumpScale : 1.5;
-        uboF32[77] = (typeof BglState !== 'undefined' && BglState.pomScale !== undefined) ? BglState.pomScale : 0.035;
-        uboF32[78] = (typeof BglState !== 'undefined' && BglState.isPomActive) ? 1.0 : 0.0;
-        uboF32[79] = (typeof BglState !== 'undefined' && BglState.isBumpActive !== undefined) ? (BglState.isBumpActive ? 1.0 : 0.0) : 1.0;
-
-        const weatherMode = wModeStr === 'rain' ? 1.0 : (wModeStr === 'snow' ? 2.0 : (wModeStr === 'fog' ? 3.0 : (wModeStr === 'smoke' ? 4.0 : 0.0)));
-        const windStrength = (typeof BglState !== 'undefined' && BglState.windStrength !== undefined) ? BglState.windStrength : 0.3;
-        const timeSec = (nowMs * 0.001);
-
-        uboF32[80] = weatherMode;
-        uboF32[81] = weatherIntensity;
-        uboF32[82] = windStrength;
-        uboF32[83] = timeSec;
-
-        if (uboF32.length >= 88) {
+        if (uboF32.length >= 112) {
           uboF32[84] = activeLod;
           uboF32[85] = lodEval.lodTransition;
           uboF32[86] = debugViewMode;
           uboF32[87] = lodBias;
+
+          const mr = uvTxs ? uvTxs.mr : null;
+          const nm = uvTxs ? uvTxs.normal : null;
+          const oc = uvTxs ? uvTxs.occlusion : null;
+          const em = uvTxs ? uvTxs.emissive : null;
+
+          uboF32[88] = mr ? mr.scale[0] : 1.0;   uboF32[89] = mr ? mr.scale[1] : 1.0;
+          uboF32[90] = mr ? mr.offset[0] : 0.0;  uboF32[91] = mr ? mr.offset[1] : 0.0;
+
+          uboF32[92] = nm ? nm.scale[0] : 1.0;   uboF32[93] = nm ? nm.scale[1] : 1.0;
+          uboF32[94] = nm ? nm.offset[0] : 0.0;  uboF32[95] = nm ? nm.offset[1] : 0.0;
+
+          uboF32[96] = oc ? oc.scale[0] : 1.0;   uboF32[97] = oc ? oc.scale[1] : 1.0;
+          uboF32[98] = oc ? oc.offset[0] : 0.0;  uboF32[99] = oc ? oc.offset[1] : 0.0;
+
+          uboF32[100] = em ? em.scale[0] : 1.0;  uboF32[101] = em ? em.scale[1] : 1.0;
+          uboF32[102] = em ? em.offset[0] : 0.0; uboF32[103] = em ? em.offset[1] : 0.0;
+
+          uboF32[104] = uvTxs ? uvTxs.baseColor.rotation : 0.0;
+          uboF32[105] = mr ? mr.rotation : 0.0;
+          uboF32[106] = nm ? nm.rotation : 0.0;
+          uboF32[107] = oc ? oc.rotation : 0.0;
+          uboF32[108] = em ? em.rotation : 0.0;
         }
 
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
-        if (prim.isSkinned && prim.skinIdx >= 0 && this.skins[prim.skinIdx] && this.skinnedPipeline) {
-          const pipeline = prim.doubleSided ? this.skinnedPipelineDoubleSided : this.skinnedPipeline;
+        const isSkinnedDraw = !!(prim.isSkinned && prim.skinIdx >= 0 && this.skins[prim.skinIdx] && this.skinnedPipeline);
+        const pipeline = isSkinnedDraw
+          ? (prim.doubleSided ? this.skinnedPipelineDoubleSided : this.skinnedPipeline)
+          : (prim.doubleSided ? this.pipelineDoubleSided : this.pipeline);
+
+        if (pipeline !== lastPipeline) {
           pass.setPipeline(pipeline);
+          lastPipeline = pipeline;
+        }
+        if (prim.bindGroup !== lastBg0) {
           pass.setBindGroup(0, prim.bindGroup);
-          pass.setBindGroup(1, this.skins[prim.skinIdx].bindGroup);
+          lastBg0 = prim.bindGroup;
+        }
+        if (isSkinnedDraw) {
+          const skinBg = this.skins[prim.skinIdx].bindGroup;
+          if (skinBg !== lastBg1) {
+            pass.setBindGroup(1, skinBg);
+            lastBg1 = skinBg;
+          }
+        }
+        if (prim.vertexBuffer !== lastVb0) {
           pass.setVertexBuffer(0, prim.vertexBuffer);
+          lastVb0 = prim.vertexBuffer;
+        }
+        if (isSkinnedDraw && prim.skinVertexBuffer !== lastVb1) {
           pass.setVertexBuffer(1, prim.skinVertexBuffer);
-        } else {
-          const pipeline = prim.doubleSided ? this.pipelineDoubleSided : this.pipeline;
-          pass.setPipeline(pipeline);
-          pass.setBindGroup(0, prim.bindGroup);
-          pass.setVertexBuffer(0, prim.vertexBuffer);
+          lastVb1 = prim.skinVertexBuffer;
         }
 
         if (prim.hasIndices) {
-          pass.setIndexBuffer(prim.indexBuffer, prim.indexFormat);
+          if (prim.indexBuffer !== lastIb || prim.indexFormat !== lastIbFmt) {
+            pass.setIndexBuffer(prim.indexBuffer, prim.indexFormat);
+            lastIb = prim.indexBuffer;
+            lastIbFmt = prim.indexFormat;
+          }
           const slice = (prim.lodSlices && prim.lodSlices[activeLod])
             ? prim.lodSlices[activeLod]
             : { firstIndex: 0, indexCount: prim.indexCount };
-          frameTotalTris += Math.floor(prim.indexCount / 3);
           frameRenderedTris += Math.floor(slice.indexCount / 3);
           if (slice.firstIndex > 0) {
             pass.drawIndexed(slice.indexCount, 1, slice.firstIndex, 0, 0);
@@ -4198,7 +4546,6 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           }
         } else {
           const tris = Math.floor(prim.vertexCount / 3);
-          frameTotalTris += tris;
           frameRenderedTris += tris;
           pass.draw(prim.vertexCount);
         }
@@ -4208,10 +4555,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         BglState.renderedTriangles = frameRenderedTris;
         BglState.totalTriangles = frameTotalTris;
         BglState.lodCounts = frameLodCounts;
-        const elLod = (typeof BglUI !== 'undefined' && BglUI.elLodTelemetry) || document.getElementById('lod-telemetry');
-        if (elLod && frameTotalTris > 0) {
-          const savedPct = Math.max(0, Math.round(((frameTotalTris - frameRenderedTris) / frameTotalTris) * 100));
-          elLod.textContent = `${frameRenderedTris.toLocaleString()} / ${frameTotalTris.toLocaleString()} Tris (-${savedPct}%) [L0:${frameLodCounts[0]} L1:${frameLodCounts[1]} L2:${frameLodCounts[2]} L3:${frameLodCounts[3]}]`;
+        if (shouldUpdateDom && frameTotalTris > 0) {
+          const elLod = (uiCache && uiCache.elLodTelemetry) || document.getElementById('lod-telemetry');
+          if (elLod) {
+            const savedPct = Math.max(0, Math.round(((frameTotalTris - frameRenderedTris) / frameTotalTris) * 100));
+            elLod.textContent = `${frameRenderedTris.toLocaleString()} / ${frameTotalTris.toLocaleString()} Tris (-${savedPct}%) [L0:${frameLodCounts[0]} L1:${frameLodCounts[1]} L2:${frameLodCounts[2]} L3:${frameLodCounts[3]}]`;
+          }
         }
       }
 
@@ -4320,6 +4669,32 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
   window.toggleAnimationPlayback = toggleAnimationPlayback;
   window.onAnimationSpeedSlider = onAnimationSpeedSlider;
 
+  const BglFrameScheduler = {
+    _started: false,
+    _rendererStep: null,
+    _navStep: null,
+    _gamepadStep: null,
+    _fpsStep: null,
+
+    registerRenderer(fn) { this._rendererStep = fn; this.start(); },
+    registerNav(fn) { this._navStep = fn; this.start(); },
+    registerGamepad(fn) { this._gamepadStep = fn; this.start(); },
+    registerFps(fn) { this._fpsStep = fn; this.start(); },
+
+    start() {
+      if (this._started || typeof requestAnimationFrame !== 'function') return;
+      this._started = true;
+      const tick = (now) => {
+        if (this._navStep) this._navStep(now);
+        if (this._gamepadStep) this._gamepadStep(now);
+        if (this._rendererStep) this._rendererStep(now);
+        if (this._fpsStep) this._fpsStep(now);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  };
+
   async function ingestModel(name, arrayBuffer) {
     BglLogger.timeStart('Model-Ingest');
     BglLogger.log('glTF', `Ingesting 3D model '${name}' (${arrayBuffer.byteLength.toLocaleString()} bytes)...`);
@@ -4327,15 +4702,15 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     // 1. Pass to WebAssembly C++ engine
     BglWasmBridge.sendBufferToWasm(name, arrayBuffer);
 
-    // 2. Parse glTF for live inspector & telemetry
+    // 2. Parse glTF (via Web Worker when available) for live inspector & telemetry
     try {
-      const gltf = BglGltf.extractJson(arrayBuffer);
+      const gltf = BglGltf.extractJsonAsync ? await BglGltf.extractJsonAsync(arrayBuffer) : BglGltf.extractJson(arrayBuffer);
       BglState.currentGltf = gltf;
       BglState.currentModelBuffer = arrayBuffer;
       BglState.currentModelName = name;
 
-      const modelLabel = document.getElementById('model-name-label');
-      const countBadge = document.getElementById('node-count-badge');
+      const modelLabel = BglUI.modelNameLabel || document.getElementById('model-name-label');
+      const countBadge = BglUI.nodeCountBadge || document.getElementById('node-count-badge');
       if (modelLabel) modelLabel.textContent = name;
       const nodes = gltf.nodes || [];
       if (countBadge) countBadge.textContent = `${nodes.length} Nodes`;
@@ -5463,9 +5838,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           BglState.wasmExports.bgl_camera_zoom(zoom);
         }
       }
-      requestAnimationFrame(navLoop);
     }
-    requestAnimationFrame(navLoop);
+    BglFrameScheduler.registerNav(navLoop);
 
     // 3D Canvas Click-Picking and Touch Gestures
     const canvas = document.getElementById('canvas');
@@ -5567,8 +5941,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     // Web Gamepad API Polling Loop (PS5 DualSense & Gamepad detection)
     let lastGamepadConnected = false;
-    const gamepadBadge = document.getElementById('gamepad-badge');
-    const gamepadLabel = document.getElementById('gamepad-label');
+    const gamepadBadge = BglUI.gamepadBadge || document.getElementById('gamepad-badge');
+    const gamepadLabel = BglUI.gamepadLabel || document.getElementById('gamepad-label');
 
     function pollGamepad() {
       if (navigator.getGamepads) {
@@ -5633,9 +6007,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           BglLogger.log('Engine', 'Gamepad disconnected');
         }
       }
-      requestAnimationFrame(pollGamepad);
     }
-    requestAnimationFrame(pollGamepad);
+    BglFrameScheduler.registerGamepad(pollGamepad);
 
     // Viewport Resize
     window.addEventListener('resize', () => {
@@ -5724,18 +6097,18 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     BglLogger.banner();
     registerEventListeners();
 
-    // Start real-time UI performance telemetry ticker
+    // Start real-time UI performance telemetry ticker inside unified frame scheduler
     let lastTime = performance.now();
     let frameCount = 0;
-    const fpsPill = document.getElementById('hud-fps-pill');
-    function tickFps() {
+    const fpsPill = BglUI.hudFpsPill || document.getElementById('hud-fps-pill');
+    function tickFps(now) {
       frameCount++;
-      const now = performance.now();
-      const elapsed = now - lastTime;
+      const nowTime = (typeof now === 'number') ? now : performance.now();
+      const elapsed = nowTime - lastTime;
       if (elapsed >= 500) {
         const fps = (frameCount * 1000) / elapsed;
         frameCount = 0;
-        lastTime = now;
+        lastTime = nowTime;
         if (fpsPill) {
           fpsPill.textContent = `${fps.toFixed(1)} FPS`;
           if (fps >= 55) {
@@ -5753,9 +6126,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           }
         }
       }
-      requestAnimationFrame(tickFps);
     }
-    requestAnimationFrame(tickFps);
+    BglFrameScheduler.registerFps(tickFps);
 
     // Initialize Cache Storage UI status
     BglModelCache.updateCacheStatusUI().catch(e => BglLogger.warn('Cache', 'Initial cache check failed:', e));

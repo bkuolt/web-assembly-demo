@@ -55,7 +55,7 @@ TEST(MemoryPoolTest, MultiBlockChainExpansion) {
 
     // Allocate 10 elements (forces 3 blocks to be chained: 4 + 4 + 2)
     for (int i = 0; i < 10; ++i) {
-        TestStruct* p = pool.Allocate(i, static_cast<float>(i * 1.5f));
+        TestStruct* p = pool.Allocate(i, static_cast<float>(i) * 1.5f);
         ASSERT_NE(p, nullptr);
         ptrs.push_back(p);
     }
@@ -63,7 +63,7 @@ TEST(MemoryPoolTest, MultiBlockChainExpansion) {
 
     for (int i = 0; i < 10; ++i) {
         EXPECT_EQ(ptrs[i]->a, i);
-        EXPECT_FLOAT_EQ(ptrs[i]->b, static_cast<float>(i * 1.5f));
+        EXPECT_FLOAT_EQ(ptrs[i]->b, static_cast<float>(i) * 1.5f);
     }
 
     // Deallocate all in reverse order
@@ -209,7 +209,7 @@ TEST(MemoryPoolTest, LargeScaleStressAndInterleavedDeallocation) {
     ptrs.reserve(kTotalAllocations);
 
     for (size_t i = 0; i < kTotalAllocations; ++i) {
-        ptrs.push_back(pool.Allocate(static_cast<int>(i), static_cast<float>(i * 0.1f)));
+        ptrs.push_back(pool.Allocate(static_cast<int>(i), static_cast<float>(i) * 0.1f));
     }
     EXPECT_EQ(pool.AllocatedCount(), kTotalAllocations);
 

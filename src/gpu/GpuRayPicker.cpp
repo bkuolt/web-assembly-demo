@@ -134,6 +134,7 @@ void GpuRayPicker::MoveFrom(GpuRayPicker& other) noexcept {
     uniformBuffer_ = std::exchange(other.uniformBuffer_, nullptr);
     resultBuffer_ = std::exchange(other.resultBuffer_, nullptr);
     cachedBoundsBuffer_ = std::exchange(other.cachedBoundsBuffer_, nullptr);
+    cachedPrimitiveCount_ = std::exchange(other.cachedPrimitiveCount_, 0);
 }
 
 void GpuRayPicker::Shutdown() noexcept {
@@ -164,6 +165,7 @@ void GpuRayPicker::Shutdown() noexcept {
         bindGroupLayout_ = nullptr;
     }
     cachedBoundsBuffer_ = nullptr;
+    cachedPrimitiveCount_ = 0;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -293,8 +295,9 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
         primitiveCount == 0)
         return;
 
-    if (cachedBoundsBuffer_ != boundsBuffer || !bindGroup_) {
+    if (cachedBoundsBuffer_ != boundsBuffer || cachedPrimitiveCount_ != primitiveCount || !bindGroup_) {
         cachedBoundsBuffer_ = boundsBuffer;
+        cachedPrimitiveCount_ = primitiveCount;
         if (bindGroup_)
             wgpuBindGroupRelease(bindGroup_);
 

@@ -19,51 +19,50 @@ MemoryTracker& MemoryTracker::Instance() noexcept {
     return tracker;
 }
 
-size_t MemoryTracker::GetResidentRamBytes() const noexcept {
+void MemoryTracker::QueryProcessMemory(size_t& residentBytesOut, size_t& virtualBytesOut) const noexcept {
+    residentBytesOut = 0;
+    virtualBytesOut = 0;
 #if defined(BGL_PLATFORM_NATIVE)
+    long totalPages = 0;
     long residentPages = 0;
     FILE* f = std::fopen("/proc/self/statm", "r");
     if (f) {
-        long totalPages = 0;
         if (std::fscanf(f, "%ld %ld", &totalPages, &residentPages) == 2) {
             std::fclose(f);
             const long pageSize = sysconf(_SC_PAGESIZE);
-            return static_cast<size_t>(residentPages * pageSize);
+            if (pageSize > 0) {
+                virtualBytesOut = static_cast<size_t>(totalPages * pageSize);
+                residentBytesOut = static_cast<size_t>(residentPages * pageSize);
+                return;
+            }
+        } else {
+            std::fclose(f);
         }
-        std::fclose(f);
     }
 
-    // Fallback: getrusage (ru_maxrss in kilobytes on Linux)
     struct rusage usage{};
     if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        return static_cast<size_t>(usage.ru_maxrss * 1024L);
+        residentBytesOut = static_cast<size_t>(usage.ru_maxrss * 1024L);
     }
-    return 0;
 #elif defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
-    return static_cast<size_t>(emscripten_get_heap_size());
-#else
-    return 0;
+    const size_t heapBytes = static_cast<size_t>(emscripten_get_heap_size());
+    residentBytesOut = heapBytes;
+    virtualBytesOut = heapBytes;
 #endif
 }
 
+size_t MemoryTracker::GetResidentRamBytes() const noexcept {
+    size_t resBytes{0};
+    size_t virtBytes{0};
+    QueryProcessMemory(resBytes, virtBytes);
+    return resBytes;
+}
+
 size_t MemoryTracker::GetVirtualRamBytes() const noexcept {
-#if defined(BGL_PLATFORM_NATIVE)
-    long totalPages = 0;
-    FILE* f = std::fopen("/proc/self/statm", "r");
-    if (f) {
-        if (std::fscanf(f, "%ld", &totalPages) == 1) {
-            std::fclose(f);
-            const long pageSize = sysconf(_SC_PAGESIZE);
-            return static_cast<size_t>(totalPages * pageSize);
-        }
-        std::fclose(f);
-    }
-    return 0;
-#elif defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
-    return static_cast<size_t>(emscripten_get_heap_size());
-#else
-    return 0;
-#endif
+    size_t resBytes{0};
+    size_t virtBytes{0};
+    QueryProcessMemory(resBytes, virtBytes);
+    return virtBytes;
 }
 
 } // namespace bgl::core

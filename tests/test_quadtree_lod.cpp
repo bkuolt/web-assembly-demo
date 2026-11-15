@@ -171,8 +171,8 @@ TEST(QuadtreeTest, GridSubdivisionAndContainment) {
     for (int x = 0; x < 5; ++x) {
         for (int z = 0; z < 5; ++z) {
             auto node = std::make_shared<bgl::scene::SceneNode>();
-            float px = -35.0f + x * 5.0f;
-            float pz = -35.0f + z * 5.0f;
+            float px = -35.0f + static_cast<float>(x) * 5.0f;
+            float pz = -35.0f + static_cast<float>(z) * 5.0f;
             node->worldAABB.minBound = glm::vec3(px - 1.0f, -1.0f, pz - 1.0f);
             node->worldAABB.maxBound = glm::vec3(px + 1.0f, 1.0f, pz + 1.0f);
             quadtree.Insert(node);
@@ -208,8 +208,8 @@ TEST(QuadtreeTest, ResetAndClear) {
 
     for (int i = 0; i < 10; ++i) {
         auto node = std::make_shared<bgl::scene::SceneNode>();
-        node->worldAABB.minBound = glm::vec3(i * 0.5f);
-        node->worldAABB.maxBound = glm::vec3(i * 0.5f + 0.5f);
+        node->worldAABB.minBound = glm::vec3(static_cast<float>(i) * 0.5f);
+        node->worldAABB.maxBound = glm::vec3(static_cast<float>(i) * 0.5f + 0.5f);
         quadtree.Insert(node);
     }
     EXPECT_GT(quadtree.GetNodeCount(), 1);
@@ -329,8 +329,10 @@ TEST(QuadtreeTest, DeepSubdivisionAndMaxDepthSafety) {
     // Insert 60 objects tightly clustered within [1.0, 1.05]
     for (int i = 0; i < 60; ++i) {
         auto node = std::make_shared<bgl::scene::SceneNode>();
-        node->worldAABB.minBound = glm::vec3(1.0f + i * 0.0005f, 0.0f, 1.0f + i * 0.0005f);
-        node->worldAABB.maxBound = glm::vec3(1.0005f + i * 0.0005f, 1.0f, 1.0005f + i * 0.0005f);
+        node->worldAABB.minBound =
+            glm::vec3(1.0f + static_cast<float>(i) * 0.0005f, 0.0f, 1.0f + static_cast<float>(i) * 0.0005f);
+        node->worldAABB.maxBound =
+            glm::vec3(1.0005f + static_cast<float>(i) * 0.0005f, 1.0f, 1.0005f + static_cast<float>(i) * 0.0005f);
         quadtree.Insert(node);
     }
 

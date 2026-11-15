@@ -68,6 +68,7 @@ private:
     WGPUBuffer uniformBuffer_{nullptr};
     WGPUBuffer resultBuffer_{nullptr};
     WGPUBuffer cachedBoundsBuffer_{nullptr};
+    uint32_t cachedPrimitiveCount_{0};
 };
 
 } // namespace bgl::gpu

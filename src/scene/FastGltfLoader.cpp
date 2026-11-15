@@ -84,7 +84,8 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                                                                            size_t totalBytes) {
     BGL_LOG_INFO("================================================================================");
     BGL_LOG_INFO("[glTF Loader] Starting Ingestion of Asset: '{}' (Total size: {} bytes / {:.2f} MB)",
-                 baseUri.empty() ? "In-Memory Stream" : baseUri, totalBytes, totalBytes / (1024.0 * 1024.0));
+                 baseUri.empty() ? "In-Memory Stream" : baseUri, totalBytes,
+                 static_cast<double>(totalBytes) / (1024.0 * 1024.0));
     BGL_LOG_INFO("================================================================================");
 
     std::filesystem::path baseDir{std::filesystem::current_path()};
@@ -145,7 +146,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
         }
 
         BGL_LOG_DEBUG("  * Buffer #{}: {} bytes ({:.2f} MB), Source: {}", bIdx, buf.byteLength,
-                      buf.byteLength / (1024.0 * 1024.0), typeStr);
+                      static_cast<double>(buf.byteLength) / (1024.0 * 1024.0), typeStr);
     }
 
     BGL_LOG_INFO("[glTF Loader] --- BufferViews ({} total) ---", asset.bufferViews.size());
@@ -294,7 +295,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                         imgIdx, sourceBvIdx, imgName,
                         TextureDecoder::GetKtxTargetName(decodedImages[imgIdx]->compressionFormat), decoded->width,
                         decoded->height, std::max<size_t>(1, decodedImages[imgIdx]->mipLevels.size()),
-                        decodedImages[imgIdx]->rgba.size() / (1024.0 * 1024.0));
+                        static_cast<double>(decodedImages[imgIdx]->rgba.size()) / (1024.0 * 1024.0));
                 } else {
                     BGL_LOG_ERROR("  * Image #{}: Failed to decode: {}", imgIdx, decoded.error());
                 }
@@ -331,44 +332,46 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
         sceneMat.metallicFactor = mat.pbrData.metallicFactor;
         sceneMat.roughnessFactor = mat.pbrData.roughnessFactor;
 
+        auto extractUvTransform = [](const auto& texInfo, Material::UvTransform& dst) noexcept {
+            if (texInfo.transform) {
+                const auto& tf = *texInfo.transform;
+                dst.offset = glm::vec2{static_cast<float>(tf.uvOffset[0]), static_cast<float>(tf.uvOffset[1])};
+                dst.scale = glm::vec2{static_cast<float>(tf.uvScale[0]), static_cast<float>(tf.uvScale[1])};
+                dst.rotation = static_cast<float>(tf.rotation);
+            }
+        };
+
         if (mat.pbrData.baseColorTexture.has_value()) {
             sceneMat.baseColorTextureIndex = static_cast<int>(mat.pbrData.baseColorTexture->textureIndex);
-            if (mat.pbrData.baseColorTexture->transform) {
-                const auto& tf = *mat.pbrData.baseColorTexture->transform;
-                sceneMat.uvOffset = glm::vec2(tf.uvOffset[0], tf.uvOffset[1]);
-                sceneMat.uvScale = glm::vec2(tf.uvScale[0], tf.uvScale[1]);
-                sceneMat.uvRotation = static_cast<float>(tf.rotation);
-            }
+            extractUvTransform(*mat.pbrData.baseColorTexture, sceneMat.baseColorUvTransform);
         }
 
         // Metallic-Roughness Texture
         if (mat.pbrData.metallicRoughnessTexture.has_value()) {
             sceneMat.metallicRoughnessTextureIndex =
                 static_cast<int>(mat.pbrData.metallicRoughnessTexture->textureIndex);
+            extractUvTransform(*mat.pbrData.metallicRoughnessTexture, sceneMat.metallicRoughnessUvTransform);
         }
 
         // Normal Texture
         if (mat.normalTexture.has_value()) {
             sceneMat.normalTextureIndex = static_cast<int>(mat.normalTexture->textureIndex);
             sceneMat.normalScale = mat.normalTexture->scale;
-            if (mat.normalTexture->transform) {
-                const auto& tf = *mat.normalTexture->transform;
-                sceneMat.uvOffset = glm::vec2(tf.uvOffset[0], tf.uvOffset[1]);
-                sceneMat.uvScale = glm::vec2(tf.uvScale[0], tf.uvScale[1]);
-                sceneMat.uvRotation = static_cast<float>(tf.rotation);
-            }
+            extractUvTransform(*mat.normalTexture, sceneMat.normalUvTransform);
         }
 
         // Occlusion Texture
         if (mat.occlusionTexture.has_value()) {
             sceneMat.occlusionTextureIndex = static_cast<int>(mat.occlusionTexture->textureIndex);
             sceneMat.occlusionStrength = mat.occlusionTexture->strength;
+            extractUvTransform(*mat.occlusionTexture, sceneMat.occlusionUvTransform);
         }
 
         // Emissive
         sceneMat.emissiveFactor = glm::vec3(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
         if (mat.emissiveTexture.has_value()) {
             sceneMat.emissiveTextureIndex = static_cast<int>(mat.emissiveTexture->textureIndex);
+            extractUvTransform(*mat.emissiveTexture, sceneMat.emissiveUvTransform);
         }
         sceneMat.emissiveStrength = mat.emissiveStrength;
 
@@ -543,11 +546,13 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
 
     // 5. Parse glTF Meshes and primitives in parallel (shared zero-copy resources across instances)
     std::vector<std::shared_ptr<Mesh>> parsedMeshes(asset.meshes.size());
+    std::vector<std::vector<uint8_t>> meshPrimNeedsTangents(asset.meshes.size());
     core::ThreadPool::Instance().ParallelFor(0, asset.meshes.size(), [&](size_t mIdx) {
         const auto& mesh = asset.meshes[mIdx];
         auto sharedMesh = std::make_shared<Mesh>();
         sharedMesh->name = mesh.name.empty() ? ("Mesh_" + std::to_string(mIdx)) : std::string(mesh.name);
         sharedMesh->primitives.reserve(mesh.primitives.size());
+        meshPrimNeedsTangents[mIdx].reserve(mesh.primitives.size());
 
         for (const auto& prim : mesh.primitives) {
             if (prim.type != fastgltf::PrimitiveType::Triangles)
@@ -736,17 +741,40 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                     needsTangentCompute = true;
                 }
             }
-            if (needsTangentCompute) {
-                meshPrim.ComputeTangents();
-            }
-
-            // Generate multi-tier geometry LODs (LOD0..LOD3) in parallel per primitive
-            meshPrim.GenerateLODs();
-
+            meshPrimNeedsTangents[mIdx].push_back(needsTangentCompute ? 1u : 0u);
             sharedMesh->primitives.push_back(std::move(meshPrim));
         }
         parsedMeshes[mIdx] = std::move(sharedMesh);
     });
+
+    // Flatten all primitives across all meshes for balanced multi-core tangent & LOD generation
+    struct PrimitivePostTask {
+        MeshPrimitive* prim{nullptr};
+        bool computeTangents{false};
+    };
+    std::vector<PrimitivePostTask> postTasks{};
+    for (size_t mIdx{0}; mIdx < parsedMeshes.size(); ++mIdx) {
+        const auto& sharedMesh = parsedMeshes[mIdx];
+        if (!sharedMesh) {
+            continue;
+        }
+        for (size_t pIdx{0}; pIdx < sharedMesh->primitives.size(); ++pIdx) {
+            const bool needTan = pIdx < meshPrimNeedsTangents[mIdx].size() && meshPrimNeedsTangents[mIdx][pIdx] != 0;
+            postTasks.push_back(PrimitivePostTask{&sharedMesh->primitives[pIdx], needTan});
+        }
+    }
+    if (!postTasks.empty()) {
+        core::ThreadPool::Instance().ParallelFor(
+            0, postTasks.size(),
+            [&](size_t tIdx) {
+                const PrimitivePostTask task = postTasks[tIdx];
+                if (task.computeTangents) {
+                    task.prim->ComputeTangents();
+                }
+                task.prim->GenerateLODs();
+            },
+            1);
+    }
     scene->meshes = parsedMeshes;
 
     // 6. Instantiate Scene Graph Nodes in parallel
@@ -1011,7 +1039,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
     BGL_LOG_INFO("  * Total Materials:    {}", scene->materials.size());
     BGL_LOG_INFO("  * Total Textures:     {}", scene->cpuImages.size());
     BGL_LOG_INFO("  * Total Binary Size:  {} bytes ({:.2f} MB)", totalBufferBytes,
-                 totalBufferBytes / (1024.0 * 1024.0));
+                 static_cast<double>(totalBufferBytes) / (1024.0 * 1024.0));
     BGL_LOG_INFO("  * Scene Bounds (min): [{:.4f}, {:.4f}, {:.4f}]", minB.x, minB.y, minB.z);
     BGL_LOG_INFO("  * Scene Bounds (max): [{:.4f}, {:.4f}, {:.4f}]", maxB.x, maxB.y, maxB.z);
     BGL_LOG_INFO("  * Scene Center:       [{:.4f}, {:.4f}, {:.4f}]", center.x, center.y, center.z);

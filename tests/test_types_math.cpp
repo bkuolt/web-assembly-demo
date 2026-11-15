@@ -356,6 +356,9 @@ TEST(TypesMathTest, MeshPrimitiveCopySemanticsAndGPUHandleSafety) {
     EXPECT_EQ(copied.gpuWireframeIndexBuffer, nullptr);
     EXPECT_EQ(copied.gpuUniformBuffer, nullptr);
     EXPECT_EQ(copied.gpuShadowUniformBuffer, nullptr);
+    EXPECT_EQ(copied.gpuMorphDeltaBuffer, nullptr);
+    EXPECT_EQ(copied.gpuMorphTargetCount, 0u);
+    EXPECT_EQ(copied.gpuMorphVertexCount, 0u);
     EXPECT_EQ(copied.gpuBindGroup, nullptr);
     EXPECT_EQ(copied.gpuShadowBindGroup, nullptr);
 

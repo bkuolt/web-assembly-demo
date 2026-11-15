@@ -7,6 +7,7 @@
 #include "gpu/Pipeline.hpp"
 #include "core/Log.hpp"
 #include "core/ThreadPool.hpp"
+#include "gpu/DrawHelpers.hpp"
 #include "gpu/Shaders.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
@@ -85,6 +86,95 @@ namespace {
     return glm::normalize(dir);
 }
 
+void CollectUniquePrimitives(scene::Scene& scene, std::vector<scene::MeshPrimitive*>& outPrims) {
+    outPrims.clear();
+    for (auto& mesh : scene.meshes) {
+        if (mesh) {
+            for (auto& prim : mesh->primitives) {
+                outPrims.push_back(&prim);
+            }
+        }
+    }
+    auto collectNode = [&](auto& self, scene::SceneNode& node) -> void {
+        for (auto& prim : node.GetPrimitives()) {
+            outPrims.push_back(&prim);
+        }
+        for (auto& child : node.children) {
+            if (child) {
+                self(self, *child);
+            }
+        }
+    };
+    for (auto& root : scene.rootNodes) {
+        if (root) {
+            collectNode(collectNode, *root);
+        }
+    }
+    std::sort(outPrims.begin(), outPrims.end());
+    outPrims.erase(std::unique(outPrims.begin(), outPrims.end()), outPrims.end());
+}
+
+void FillMaterialUniforms(const scene::Material* mat, MaterialUniforms& out) noexcept {
+    out = MaterialUniforms{};
+    if (!mat) {
+        return;
+    }
+    out.baseColorFactor = mat->baseColorFactor;
+    out.emissiveFactor = glm::vec4{mat->emissiveFactor, mat->emissiveStrength};
+    out.sheenColorFactor = glm::vec4{mat->sheenColorFactor, mat->sheenRoughnessFactor};
+    out.specularColorFactor = glm::vec4{mat->specularColorFactor, 0.0f};
+    out.attenuationColor = glm::vec4{mat->attenuationColor, 1.0f};
+    out.metallicFactor = mat->metallicFactor;
+    out.roughnessFactor = mat->roughnessFactor;
+    out.normalScale = mat->normalScale;
+    out.occlusionStrength = mat->occlusionStrength;
+    out.bumpScale = mat->bumpScale;
+    out.alphaCutoff = mat->alphaCutoff;
+    out.alphaMode = std::to_underlying(mat->alphaMode);
+    out.ior = mat->ior;
+    out.clearcoatFactor = mat->clearcoatFactor;
+    out.clearcoatRoughness = mat->clearcoatRoughnessFactor;
+    out.transmissionFactor = mat->transmissionFactor;
+    out.specularFactor = mat->specularFactor;
+    out.thicknessFactor = mat->thicknessFactor;
+    out.attenuationDistance = mat->attenuationDistance;
+
+    out.baseColorUvTransform = glm::vec4{mat->baseColorUvTransform.scale, mat->baseColorUvTransform.offset};
+    out.metallicRoughnessUvTransform =
+        glm::vec4{mat->metallicRoughnessUvTransform.scale, mat->metallicRoughnessUvTransform.offset};
+    out.normalUvTransform = glm::vec4{mat->normalUvTransform.scale, mat->normalUvTransform.offset};
+    out.occlusionUvTransform = glm::vec4{mat->occlusionUvTransform.scale, mat->occlusionUvTransform.offset};
+    out.emissiveUvTransform = glm::vec4{mat->emissiveUvTransform.scale, mat->emissiveUvTransform.offset};
+    out.uvRotations0 = glm::vec4{mat->baseColorUvTransform.rotation, mat->metallicRoughnessUvTransform.rotation,
+                                 mat->normalUvTransform.rotation, mat->occlusionUvTransform.rotation};
+    out.uvRotations1 = glm::vec4{mat->emissiveUvTransform.rotation, 0.0f, 0.0f, 0.0f};
+
+    uint32_t flags{0};
+    if (mat->baseColorTextureIndex >= 0)
+        flags |= MaterialFlags::HasBaseColorTex;
+    if (mat->metallicRoughnessTextureIndex >= 0)
+        flags |= MaterialFlags::HasMetallicRoughnessTex;
+    if (mat->normalTextureIndex >= 0)
+        flags |= MaterialFlags::HasNormalTex;
+    if (mat->emissiveTextureIndex >= 0)
+        flags |= MaterialFlags::HasEmissiveTex;
+    if (mat->occlusionTextureIndex >= 0)
+        flags |= MaterialFlags::HasOcclusionTex;
+    if (mat->clearcoatTextureIndex >= 0)
+        flags |= MaterialFlags::HasClearcoatTex;
+    if (mat->transmissionTextureIndex >= 0)
+        flags |= MaterialFlags::HasTransmissionTex;
+    if (mat->thicknessTextureIndex >= 0)
+        flags |= MaterialFlags::HasThicknessTex;
+    if (mat->sheenColorTextureIndex >= 0)
+        flags |= MaterialFlags::HasSheenTex;
+    if (mat->unlit)
+        flags |= MaterialFlags::Unlit;
+    if (mat->doubleSided)
+        flags |= MaterialFlags::DoubleSided;
+    out.materialFlags = flags;
+}
+
 } // anonymous namespace
 
 PipelineManager::~PipelineManager() {
@@ -97,6 +187,18 @@ void PipelineManager::Shutdown() noexcept {
     aabbRenderer_.Shutdown();
     gpuCuller_.Shutdown();
     gpuRayPicker_.Shutdown();
+    perDrawRing_.Shutdown();
+
+    mipGenNormalPipeline_.Reset();
+    mipGenSrgbPipeline_.Reset();
+    mipGenUnormPipeline_.Reset();
+    mipGenBgl_.Reset();
+    mipGenShaderModule_.Reset();
+
+    dummySkinBindGroup_.Reset();
+    dummySkinBuffer_.Reset();
+    dummyMorphDeltaBuffer_.Reset();
+    sceneGlobalsBindGroup_.Reset();
 
     sceneLightingBuffer_.Reset();
     ggxPrefilterUniformBuffer_.Reset();
@@ -120,16 +222,44 @@ void PipelineManager::Shutdown() noexcept {
     wireframePipeline_.Reset();
     opaqueBackCulledPipeline_.Reset();
     opaquePipeline_.Reset();
-    bindGroupLayout_.Reset();
+    skinBgl_.Reset();
+    materialBgl_.Reset();
+    perDrawBgl_.Reset();
+    sceneGlobalsBgl_.Reset();
 
     opaqueColorCopyView_.Reset();
     opaqueColorCopyTexture_.Reset();
     opaqueCopyWidth_ = 0;
     opaqueCopyHeight_ = 0;
 
+    visibleItemsScratch_.clear();
+    renderItemsScratch_.clear();
+    drawCallsScratch_.clear();
+    mainPerDrawScratch_.clear();
+    skinFrameId_ = 1;
+    skinFrameAdvanced_ = false;
+
     device_ = nullptr;
     queue_ = nullptr;
     initialized_ = false;
+}
+
+GpuCuller& PipelineManager::GetGpuCuller() noexcept {
+    if (!gpuCuller_.IsInitialized() && device_ && queue_) {
+        if (auto res = gpuCuller_.Initialize(device_, queue_); !res) {
+            BGL_LOG_WARN("Failed to initialize GpuCuller lazily: {}", res.error());
+        }
+    }
+    return gpuCuller_;
+}
+
+GpuRayPicker& PipelineManager::GetGpuRayPicker() noexcept {
+    if (!gpuRayPicker_.IsInitialized() && device_ && queue_) {
+        if (auto res = gpuRayPicker_.Initialize(device_, queue_); !res) {
+            BGL_LOG_WARN("Failed to initialize GpuRayPicker lazily: {}", res.error());
+        }
+    }
+    return gpuRayPicker_;
 }
 
 uint32_t PipelineManager::CalculateMipLevels(uint32_t width, uint32_t height) noexcept {
@@ -878,9 +1008,11 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
     fullCubeViewDesc.arrayLayerCount = 6;
     fullCubeViewDesc.aspect = WGPUTextureAspect_All;
     envCubemapView_ = wgpuTextureCreateView(envCubemapTexture_, &fullCubeViewDesc);
+    RebuildSceneGlobalsBindGroup();
 }
 
 void PipelineManager::SetEnvironmentPreset(EnvironmentPreset preset, scene::Scene* activeScene) {
+    (void)activeScene;
     currentEnvPreset_ = preset;
     if (!device_ || !queue_)
         return;
@@ -898,9 +1030,6 @@ void PipelineManager::SetEnvironmentPreset(EnvironmentPreset preset, scene::Scen
 #endif
 
     BuildEnvironmentFromHdrFaces(hdrFaces, kEnvCubemapSize);
-    if (activeScene) {
-        RebuildMaterialBindGroups(*activeScene);
-    }
     BGL_LOG_INFO("Switched HDR Environment Preset to '{}' ({}x{} RGBA16F, {} GGX Mips, L2 SH Irradiance)",
                  GetEnvironmentPresetName(preset), kEnvCubemapSize, kEnvCubemapSize, envMipLevels_);
 }
@@ -940,11 +1069,9 @@ bool PipelineManager::LoadCustomHdrEnvironment(const scene::DecodedHdrImage& hdr
     }
 #endif
 
+    (void)activeScene;
     currentEnvPreset_ = EnvironmentPreset::CustomHdr;
     BuildEnvironmentFromHdrFaces(hdrFaces, faceSize);
-    if (activeScene) {
-        RebuildMaterialBindGroups(*activeScene);
-    }
     BGL_LOG_INFO("Loaded custom HDR Environment ({}x{} equirect -> {}x{}x6 RGBA16F cubemap, {} GGX mips)",
                  hdrImage.width, hdrImage.height, faceSize, faceSize, envMipLevels_);
     return true;
@@ -992,89 +1119,161 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     ShaderModuleHandle wfShaderModule{wgpuDeviceCreateShaderModule(device_, &wfSmDesc)};
 
-    // 3. Bind Group Layout (16 entries):
-    // 0: PrimitiveUniforms
-    // 1: Default Sampler
-    // 2..9: 2D Material Textures
-    // 10: HDR Environment Cubemap (texture_cube<f32>)
-    // 11: Shadow Depth Map (texture_depth_2d)
-    // 12: Shadow Comparison Sampler (sampler_comparison)
-    // 13: Split-Sum BRDF LUT (texture_2d<f32>)
-    // 14: SceneLightingUniforms (L2 SH + Clustered Forward+ KHR_lights_punctual)
-    // 15: Opaque Scene Color Copy (texture_2d<f32> for Screen-Space Refraction)
-    std::array<WGPUBindGroupLayoutEntry, 16> bglEntries{};
+    // 3. Shared 4-BindGroup Architecture:
+    // @group(0) SceneGlobals: Lighting + IBL + ShadowMap + BRDF LUT + Opaque Copy
+    // @group(1) PerDrawDynamic: 256-byte dynamic-offset PerDrawUniforms ring
+    // @group(2) MaterialStatic: 256-byte MaterialUniforms + Sampler + 8 Textures + MorphDeltas SSBO
+    // @group(3) SkinStorage: JointMatrices SSBO (reused across Shadow & Main passes)
+    std::array<WGPUBindGroupLayoutEntry, 6> sgEntries{};
+    sgEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[0].binding = 0;
+    sgEntries[0].visibility = WGPUShaderStage_Fragment;
+    sgEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
+    sgEntries[0].buffer.minBindingSize = sizeof(SceneLightingUniforms);
 
-    bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[0].binding = 0;
-    bglEntries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    bglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    bglEntries[0].buffer.minBindingSize = sizeof(PrimitiveUniforms);
+    sgEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[1].binding = 1;
+    sgEntries[1].visibility = WGPUShaderStage_Fragment;
+    sgEntries[1].texture.sampleType = WGPUTextureSampleType_Float;
+    sgEntries[1].texture.viewDimension = WGPUTextureViewDimension_Cube;
+    sgEntries[1].texture.multisampled = WGPU_FALSE;
 
-    bglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[1].binding = 1;
-    bglEntries[1].visibility = WGPUShaderStage_Fragment;
-    bglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+    sgEntries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[2].binding = 2;
+    sgEntries[2].visibility = WGPUShaderStage_Fragment;
+    sgEntries[2].texture.sampleType = WGPUTextureSampleType_Depth;
+    sgEntries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
+    sgEntries[2].texture.multisampled = WGPU_FALSE;
+
+    sgEntries[3] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[3].binding = 3;
+    sgEntries[3].visibility = WGPUShaderStage_Fragment;
+    sgEntries[3].sampler.type = WGPUSamplerBindingType_Comparison;
+
+    sgEntries[4] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[4].binding = 4;
+    sgEntries[4].visibility = WGPUShaderStage_Fragment;
+    sgEntries[4].texture.sampleType = WGPUTextureSampleType_Float;
+    sgEntries[4].texture.viewDimension = WGPUTextureViewDimension_2D;
+    sgEntries[4].texture.multisampled = WGPU_FALSE;
+
+    sgEntries[5] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[5].binding = 5;
+    sgEntries[5].visibility = WGPUShaderStage_Fragment;
+    sgEntries[5].texture.sampleType = WGPUTextureSampleType_Float;
+    sgEntries[5].texture.viewDimension = WGPUTextureViewDimension_2D;
+    sgEntries[5].texture.multisampled = WGPU_FALSE;
+
+    WGPUBindGroupLayoutDescriptor sgBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    sgBglDesc.entryCount = sgEntries.size();
+    sgBglDesc.entries = sgEntries.data();
+    sgBglDesc.label = ToWgpuStringView("SceneGlobals_BGL");
+    sceneGlobalsBgl_ = wgpuDeviceCreateBindGroupLayout(device_, &sgBglDesc);
+
+    WGPUBindGroupLayoutEntry pdEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    pdEntry.binding = 0;
+    pdEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    pdEntry.buffer.type = WGPUBufferBindingType_Uniform;
+    pdEntry.buffer.hasDynamicOffset = WGPU_TRUE;
+    pdEntry.buffer.minBindingSize = sizeof(PerDrawUniforms);
+
+    WGPUBindGroupLayoutDescriptor pdBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    pdBglDesc.entryCount = 1;
+    pdBglDesc.entries = &pdEntry;
+    pdBglDesc.label = ToWgpuStringView("PerDrawDynamic_BGL");
+    perDrawBgl_ = wgpuDeviceCreateBindGroupLayout(device_, &pdBglDesc);
+
+    std::array<WGPUBindGroupLayoutEntry, 11> matEntries{};
+    matEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    matEntries[0].binding = 0;
+    matEntries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    matEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
+    matEntries[0].buffer.minBindingSize = sizeof(MaterialUniforms);
+
+    matEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    matEntries[1].binding = 1;
+    matEntries[1].visibility = WGPUShaderStage_Fragment;
+    matEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
 
     for (uint32_t b{2}; b < 10; ++b) {
-        bglEntries[b] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        bglEntries[b].binding = b;
-        bglEntries[b].visibility = WGPUShaderStage_Fragment;
-        bglEntries[b].texture.sampleType = WGPUTextureSampleType_Float;
-        bglEntries[b].texture.viewDimension = WGPUTextureViewDimension_2D;
-        bglEntries[b].texture.multisampled = WGPU_FALSE;
+        matEntries[b] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+        matEntries[b].binding = b;
+        matEntries[b].visibility = WGPUShaderStage_Fragment;
+        matEntries[b].texture.sampleType = WGPUTextureSampleType_Float;
+        matEntries[b].texture.viewDimension = WGPUTextureViewDimension_2D;
+        matEntries[b].texture.multisampled = WGPU_FALSE;
     }
 
-    bglEntries[10] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[10].binding = 10;
-    bglEntries[10].visibility = WGPUShaderStage_Fragment;
-    bglEntries[10].texture.sampleType = WGPUTextureSampleType_Float;
-    bglEntries[10].texture.viewDimension = WGPUTextureViewDimension_Cube;
-    bglEntries[10].texture.multisampled = WGPU_FALSE;
+    matEntries[10] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    matEntries[10].binding = 10;
+    matEntries[10].visibility = WGPUShaderStage_Vertex;
+    matEntries[10].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+    matEntries[10].buffer.minBindingSize = 3u * sizeof(glm::vec4);
 
-    bglEntries[11] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[11].binding = 11;
-    bglEntries[11].visibility = WGPUShaderStage_Fragment;
-    bglEntries[11].texture.sampleType = WGPUTextureSampleType_Depth;
-    bglEntries[11].texture.viewDimension = WGPUTextureViewDimension_2D;
-    bglEntries[11].texture.multisampled = WGPU_FALSE;
+    WGPUBindGroupLayoutDescriptor matBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    matBglDesc.entryCount = matEntries.size();
+    matBglDesc.entries = matEntries.data();
+    matBglDesc.label = ToWgpuStringView("MaterialStatic_BGL");
+    materialBgl_ = wgpuDeviceCreateBindGroupLayout(device_, &matBglDesc);
 
-    bglEntries[12] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[12].binding = 12;
-    bglEntries[12].visibility = WGPUShaderStage_Fragment;
-    bglEntries[12].sampler.type = WGPUSamplerBindingType_Comparison;
+    WGPUBindGroupLayoutEntry skinEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    skinEntry.binding = 0;
+    skinEntry.visibility = WGPUShaderStage_Vertex;
+    skinEntry.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+    skinEntry.buffer.minBindingSize = sizeof(glm::mat4);
 
-    bglEntries[13] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[13].binding = 13;
-    bglEntries[13].visibility = WGPUShaderStage_Fragment;
-    bglEntries[13].texture.sampleType = WGPUTextureSampleType_Float;
-    bglEntries[13].texture.viewDimension = WGPUTextureViewDimension_2D;
-    bglEntries[13].texture.multisampled = WGPU_FALSE;
+    WGPUBindGroupLayoutDescriptor skinBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    skinBglDesc.entryCount = 1;
+    skinBglDesc.entries = &skinEntry;
+    skinBglDesc.label = ToWgpuStringView("SkinStorage_BGL");
+    skinBgl_ = wgpuDeviceCreateBindGroupLayout(device_, &skinBglDesc);
 
-    bglEntries[14] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[14].binding = 14;
-    bglEntries[14].visibility = WGPUShaderStage_Fragment;
-    bglEntries[14].buffer.type = WGPUBufferBindingType_Uniform;
-    bglEntries[14].buffer.minBindingSize = sizeof(SceneLightingUniforms);
-
-    bglEntries[15] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[15].binding = 15;
-    bglEntries[15].visibility = WGPUShaderStage_Fragment;
-    bglEntries[15].texture.sampleType = WGPUTextureSampleType_Float;
-    bglEntries[15].texture.viewDimension = WGPUTextureViewDimension_2D;
-    bglEntries[15].texture.multisampled = WGPU_FALSE;
-
-    WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = bglEntries.size();
-    bglDesc.entries = bglEntries.data();
-    bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
-    if (!bindGroupLayout_) {
-        return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
+    if (!sceneGlobalsBgl_ || !perDrawBgl_ || !materialBgl_ || !skinBgl_) {
+        return std::unexpected("Failed to create shared WebGPU BindGroupLayouts");
     }
 
-    // 5. Pipeline Layout
+    // 4. Create dummy fallback storage buffers for non-morphed / non-skinned primitives
+    constexpr std::array<glm::vec4, 3> kZeroMorphDeltas{};
+    WGPUBufferDescriptor dmDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    dmDesc.size = sizeof(kZeroMorphDeltas);
+    dmDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+    dmDesc.label = ToWgpuStringView("DummyMorphDeltas");
+    dummyMorphDeltaBuffer_ = wgpuDeviceCreateBuffer(device_, &dmDesc);
+    if (dummyMorphDeltaBuffer_) {
+        wgpuQueueWriteBuffer(queue_, dummyMorphDeltaBuffer_, 0, kZeroMorphDeltas.data(), sizeof(kZeroMorphDeltas));
+    }
+
+    const glm::mat4 kIdentityMat{1.0f};
+    WGPUBufferDescriptor dsDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    dsDesc.size = sizeof(glm::mat4);
+    dsDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+    dsDesc.label = ToWgpuStringView("DummySkinMatrices");
+    dummySkinBuffer_ = wgpuDeviceCreateBuffer(device_, &dsDesc);
+    if (dummySkinBuffer_) {
+        wgpuQueueWriteBuffer(queue_, dummySkinBuffer_, 0, &kIdentityMat, sizeof(glm::mat4));
+        WGPUBindGroupEntry dsEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+        dsEntry.binding = 0;
+        dsEntry.buffer = dummySkinBuffer_;
+        dsEntry.offset = 0;
+        dsEntry.size = sizeof(glm::mat4);
+        WGPUBindGroupDescriptor dsBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        dsBgDesc.layout = skinBgl_;
+        dsBgDesc.entryCount = 1;
+        dsBgDesc.entries = &dsEntry;
+        dsBgDesc.label = ToWgpuStringView("DummySkin_BindGroup");
+        dummySkinBindGroup_ = wgpuDeviceCreateBindGroup(device_, &dsBgDesc);
+    }
+
+    if (!dummyMorphDeltaBuffer_ || !dummySkinBuffer_ || !dummySkinBindGroup_) {
+        return std::unexpected("Failed to create dummy storage buffers for skinning/morphing");
+    }
+
+    // 5. Shared 4-Group Pipeline Layout
+    const std::array<WGPUBindGroupLayout, 4> plLayouts{sceneGlobalsBgl_.Get(), perDrawBgl_.Get(), materialBgl_.Get(),
+                                                       skinBgl_.Get()};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
+    plDesc.bindGroupLayoutCount = plLayouts.size();
+    plDesc.bindGroupLayouts = plLayouts.data();
     PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
 
     // 6. Vertex Layout (Position, Normal, Tangent, UV, Joints, Weights)
@@ -1260,28 +1459,216 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
         return std::unexpected("Failed to initialize PostProcessPass: " + res.error());
     }
-    if (auto res = shadowPass_.Initialize(device_, queue_, defaultSampler_.Get(), defaultWhiteTextureView_.Get());
+    if (auto res = shadowPass_.Initialize(device_, queue_, perDrawBgl_.Get(), materialBgl_.Get(), skinBgl_.Get(),
+                                          dummySkinBindGroup_.Get());
         !res) {
         return std::unexpected("Failed to initialize ShadowPass: " + res.error());
     }
 
-    initialized_ = (opaquePipeline_ != nullptr && postProcessPass_.IsInitialized() && shadowPass_.IsInitialized());
+    perDrawRing_.Initialize(device_, queue_, perDrawBgl_.Get(), "Main_PerDrawRing");
+    InitMipGenPipelines();
+    RebuildSceneGlobalsBindGroup();
 
-    // Initialize auxiliary passes and compute engines
+    initialized_ = (opaquePipeline_ != nullptr && postProcessPass_.IsInitialized() && shadowPass_.IsInitialized() &&
+                    sceneGlobalsBindGroup_ != nullptr);
+
+    // Initialize auxiliary AABB debug pass; compute engines initialize lazily on first use.
     if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
         !res) {
         BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());
     }
-    if (auto res = gpuCuller_.Initialize(device_, queue_); !res) {
-        BGL_LOG_WARN("Failed to initialize GpuCuller: {}", res.error());
-    }
-    if (auto res = gpuRayPicker_.Initialize(device_, queue_); !res) {
-        BGL_LOG_WARN("Failed to initialize GpuRayPicker: {}", res.error());
-    }
 
     BGL_LOG_INFO("Hardware WebGPU RenderPipeline initialized (RGBA16F HDR + Tonemapping + Compute IBL + Forward+ "
-                 "Lights + Native Compressed Textures)!");
+                 "Lights + Dynamic PerDraw UBO Ring + GPU Mipmaps)!");
     return {};
+}
+
+void PipelineManager::InitMipGenPipelines() {
+    if (!device_) {
+        return;
+    }
+
+    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
+    wgslDesc.code = ToWgpuStringView(kMipGenShaderWGSL);
+
+    WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
+    smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+    smDesc.label = ToWgpuStringView("MipGen_WGSL");
+    mipGenShaderModule_ = wgpuDeviceCreateShaderModule(device_, &smDesc);
+    if (!mipGenShaderModule_) {
+        BGL_LOG_WARN("Failed to compile MipGen WGSL module; uncompressed textures will skip GPU mips");
+        return;
+    }
+
+    WGPUBindGroupLayoutEntry bglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    bglEntry.binding = 0;
+    bglEntry.visibility = WGPUShaderStage_Fragment;
+    bglEntry.texture.sampleType = WGPUTextureSampleType_Float;
+    bglEntry.texture.viewDimension = WGPUTextureViewDimension_2D;
+    bglEntry.texture.multisampled = WGPU_FALSE;
+
+    WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    bglDesc.entryCount = 1;
+    bglDesc.entries = &bglEntry;
+    bglDesc.label = ToWgpuStringView("MipGen_BGL");
+    mipGenBgl_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!mipGenBgl_) {
+        return;
+    }
+
+    WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    plDesc.bindGroupLayoutCount = 1;
+    plDesc.bindGroupLayouts = mipGenBgl_.AddressOf();
+    plDesc.label = ToWgpuStringView("MipGen_PL");
+    PipelineLayoutHandle pl{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
+    if (!pl) {
+        return;
+    }
+
+    auto createMipPipeline = [&](WGPUTextureFormat fmt, std::string_view fsEntry,
+                                 std::string_view label) -> RenderPipelineHandle {
+        WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
+        colorTarget.format = fmt;
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
+        fragState.module = mipGenShaderModule_.Get();
+        fragState.entryPoint = ToWgpuStringView(fsEntry);
+        fragState.targetCount = 1;
+        fragState.targets = &colorTarget;
+
+        WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+        rpDesc.layout = pl.Get();
+        rpDesc.vertex.module = mipGenShaderModule_.Get();
+        rpDesc.vertex.entryPoint = ToWgpuStringView("vs_mip");
+        rpDesc.vertex.bufferCount = 0;
+        rpDesc.vertex.buffers = nullptr;
+        rpDesc.fragment = &fragState;
+        rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        rpDesc.primitive.cullMode = WGPUCullMode_None;
+        rpDesc.depthStencil = nullptr;
+        rpDesc.multisample.count = 1;
+        rpDesc.multisample.mask = 0xFFFFFFFF;
+        rpDesc.label = ToWgpuStringView(label);
+        return RenderPipelineHandle{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
+    };
+
+    mipGenUnormPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip", "MipGen_RGBA8Unorm");
+    mipGenSrgbPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8UnormSrgb, "fs_mip", "MipGen_RGBA8UnormSrgb");
+    mipGenNormalPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip_normal", "MipGen_Normal");
+}
+
+void PipelineManager::GenerateTextureMipsGpu(WGPUCommandEncoder encoder, WGPUTexture texture, uint32_t width,
+                                             uint32_t height, uint32_t mipLevels, bool isSrgb, bool isNormalMap) {
+    (void)width;
+    (void)height;
+    if (!encoder || !device_ || !mipGenBgl_ || !texture || mipLevels <= 1) {
+        return;
+    }
+
+    WGPURenderPipeline pipeline{nullptr};
+    if (isNormalMap) {
+        pipeline = mipGenNormalPipeline_.Get();
+    } else if (isSrgb) {
+        pipeline = mipGenSrgbPipeline_.Get();
+    } else {
+        pipeline = mipGenUnormPipeline_.Get();
+    }
+    if (!pipeline) {
+        return;
+    }
+
+    const WGPUTextureFormat fmt{isSrgb ? WGPUTextureFormat_RGBA8UnormSrgb : WGPUTextureFormat_RGBA8Unorm};
+    for (uint32_t level{1}; level < mipLevels; ++level) {
+        WGPUTextureViewDescriptor srcDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+        srcDesc.format = fmt;
+        srcDesc.dimension = WGPUTextureViewDimension_2D;
+        srcDesc.baseMipLevel = level - 1;
+        srcDesc.mipLevelCount = 1;
+        srcDesc.baseArrayLayer = 0;
+        srcDesc.arrayLayerCount = 1;
+        srcDesc.aspect = WGPUTextureAspect_All;
+        TextureViewHandle srcView{wgpuTextureCreateView(texture, &srcDesc)};
+
+        WGPUTextureViewDescriptor dstDesc = srcDesc;
+        dstDesc.baseMipLevel = level;
+        TextureViewHandle dstView{wgpuTextureCreateView(texture, &dstDesc)};
+        if (!srcView || !dstView) {
+            break;
+        }
+
+        WGPUBindGroupEntry bgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntry.binding = 0;
+        bgEntry.textureView = srcView.Get();
+
+        WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        bgDesc.layout = mipGenBgl_.Get();
+        bgDesc.entryCount = 1;
+        bgDesc.entries = &bgEntry;
+        BindGroupHandle srcBg{wgpuDeviceCreateBindGroup(device_, &bgDesc)};
+        if (!srcBg) {
+            break;
+        }
+
+        WGPURenderPassColorAttachment colorAtt = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+        colorAtt.view = dstView.Get();
+        colorAtt.loadOp = WGPULoadOp_Clear;
+        colorAtt.storeOp = WGPUStoreOp_Store;
+        colorAtt.clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
+
+        WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+        rpDesc.colorAttachmentCount = 1;
+        rpDesc.colorAttachments = &colorAtt;
+        rpDesc.label = ToWgpuStringView("GpuMipGenPass");
+
+        if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
+            wgpuRenderPassEncoderSetPipeline(pass.Get(), pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, srcBg.Get(), 0, nullptr);
+            wgpuRenderPassEncoderDraw(pass.Get(), 3, 1, 0, 0);
+            wgpuRenderPassEncoderEnd(pass.Get());
+        }
+    }
+}
+
+void PipelineManager::RebuildSceneGlobalsBindGroup() {
+    if (!device_ || !sceneGlobalsBgl_ || !sceneLightingBuffer_ || !envCubemapView_ || !shadowPass_.IsInitialized() ||
+        !defaultWhiteTextureView_) {
+        return;
+    }
+
+    std::array<WGPUBindGroupEntry, 6> sgEntries{};
+    sgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[0].binding = 0;
+    sgEntries[0].buffer = sceneLightingBuffer_.Get();
+    sgEntries[0].offset = 0;
+    sgEntries[0].size = sizeof(SceneLightingUniforms);
+
+    sgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[1].binding = 1;
+    sgEntries[1].textureView = envCubemapView_.Get();
+
+    sgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[2].binding = 2;
+    sgEntries[2].textureView = shadowPass_.GetShadowMapView();
+
+    sgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[3].binding = 3;
+    sgEntries[3].sampler = shadowPass_.GetShadowSampler();
+
+    sgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[4].binding = 4;
+    sgEntries[4].textureView = brdfLutView_ ? brdfLutView_.Get() : defaultWhiteTextureView_.Get();
+
+    sgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[5].binding = 5;
+    sgEntries[5].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
+
+    WGPUBindGroupDescriptor sgBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+    sgBgDesc.layout = sceneGlobalsBgl_.Get();
+    sgBgDesc.entryCount = sgEntries.size();
+    sgBgDesc.entries = sgEntries.data();
+    sgBgDesc.label = ToWgpuStringView("SceneGlobals_BindGroup");
+    sceneGlobalsBindGroup_ = wgpuDeviceCreateBindGroup(device_, &sgBgDesc);
 }
 
 void PipelineManager::SetMipmappingEnabled(bool enabled, scene::Scene* activeScene) {
@@ -1294,8 +1681,9 @@ void PipelineManager::SetMipmappingEnabled(bool enabled, scene::Scene* activeSce
 }
 
 void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
-    if (!device_ || !bindGroupLayout_)
+    if (!device_ || !materialBgl_) {
         return;
+    }
 
     auto getTexView = [&](int texIdx, WGPUTextureView fallback) -> WGPUTextureView {
         if (texIdx >= 0 && texIdx < static_cast<int>(scene.gpuTextures.size())) {
@@ -1308,9 +1696,14 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
     WGPUSampler activeSampler{mipmappingEnabled_ ? defaultSampler_.Get() : noMipSampler_.Get()};
 
-    auto rebuildPrimitive = [&](scene::MeshPrimitive& prim) -> void {
-        if (!prim.gpuUniformBuffer)
-            return;
+    std::vector<scene::MeshPrimitive*> uniquePrims;
+    CollectUniquePrimitives(scene, uniquePrims);
+
+    for (scene::MeshPrimitive* primPtr : uniquePrims) {
+        if (!primPtr || !primPtr->gpuUniformBuffer) {
+            continue;
+        }
+        auto& prim = *primPtr;
         if (prim.gpuBindGroup) {
             wgpuBindGroupRelease(prim.gpuBindGroup);
             prim.gpuBindGroup = nullptr;
@@ -1337,12 +1730,17 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
             sheenTexIdx = mat.sheenColorTextureIndex;
         }
 
-        std::array<WGPUBindGroupEntry, 16> bgEntries{};
+        const uint64_t morphBufferBytes =
+            (prim.gpuMorphDeltaBuffer && prim.gpuMorphTargetCount > 0 && prim.gpuMorphVertexCount > 0)
+                ? (static_cast<uint64_t>(prim.gpuMorphTargetCount) * prim.gpuMorphVertexCount * 3u * sizeof(glm::vec4))
+                : (3u * sizeof(glm::vec4));
+
+        std::array<WGPUBindGroupEntry, 11> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[0].binding = 0;
         bgEntries[0].buffer = prim.gpuUniformBuffer;
         bgEntries[0].offset = 0;
-        bgEntries[0].size = sizeof(PrimitiveUniforms);
+        bgEntries[0].size = sizeof(MaterialUniforms);
 
         bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[1].binding = 1;
@@ -1382,74 +1780,23 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
         bgEntries[10] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[10].binding = 10;
-        bgEntries[10].textureView = envCubemapView_;
-
-        bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
-        bgEntries[11].binding = 11;
-        bgEntries[11].textureView = shadowPass_.GetShadowMapView();
-
-        bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
-        bgEntries[12].binding = 12;
-        bgEntries[12].sampler = shadowPass_.GetShadowSampler();
-
-        bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
-        bgEntries[13].binding = 13;
-        bgEntries[13].textureView = brdfLutView_ ? brdfLutView_.Get() : defaultWhiteTextureView_.Get();
-
-        bgEntries[14] = WGPU_BIND_GROUP_ENTRY_INIT;
-        bgEntries[14].binding = 14;
-        bgEntries[14].buffer = sceneLightingBuffer_;
-        bgEntries[14].offset = 0;
-        bgEntries[14].size = sizeof(SceneLightingUniforms);
-
-        bgEntries[15] = WGPU_BIND_GROUP_ENTRY_INIT;
-        bgEntries[15].binding = 15;
-        bgEntries[15].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
+        bgEntries[10].buffer = prim.gpuMorphDeltaBuffer ? prim.gpuMorphDeltaBuffer : dummyMorphDeltaBuffer_.Get();
+        bgEntries[10].offset = 0;
+        bgEntries[10].size = morphBufferBytes;
 
         WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        bgDesc.layout = bindGroupLayout_;
+        bgDesc.layout = materialBgl_.Get();
         bgDesc.entryCount = bgEntries.size();
         bgDesc.entries = bgEntries.data();
+        bgDesc.label = ToWgpuStringView("MaterialStatic_BindGroup");
         prim.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
-
-        if (prim.gpuShadowBindGroup) {
-            wgpuBindGroupRelease(prim.gpuShadowBindGroup);
-            prim.gpuShadowBindGroup = nullptr;
-        }
-        if (shadowPass_.IsInitialized() && prim.gpuShadowUniformBuffer) {
-            WGPUTextureView baseView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
-            prim.gpuShadowBindGroup = shadowPass_.CreateShadowBindGroup(prim.gpuShadowUniformBuffer, baseView);
-        }
-    };
-
-    // Rebuild for all shared meshes
-    for (auto& mesh : scene.meshes) {
-        if (mesh) {
-            for (auto& prim : mesh->primitives) {
-                rebuildPrimitive(prim);
-            }
-        }
-    }
-
-    auto rebuildNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (auto& prim : node.GetPrimitives()) {
-            rebuildPrimitive(prim);
-        }
-        for (auto& child : node.children) {
-            if (child)
-                self(self, *child);
-        }
-    };
-
-    for (auto& rootNode : scene.rootNodes) {
-        if (rootNode)
-            rebuildNode(rebuildNode, *rootNode);
     }
 }
 
 void PipelineManager::PrepareScene(scene::Scene& scene) {
-    if (!device_ || !queue_ || !bindGroupLayout_)
+    if (!device_ || !queue_ || !materialBgl_ || !skinBgl_) {
         return;
+    }
 
     std::vector<bool> isNormalTexture(scene.cpuImages.size(), false);
     std::vector<bool> isSrgbTexture(scene.cpuImages.size(), false);
@@ -1476,66 +1823,26 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         }
     }
 
-    // Pre-generate CPU mip pyramids only for uncompressed RGBA8 textures
-    struct MipLevelBuffer {
+    struct PendingGpuMipGen {
+        WGPUTexture texture{nullptr};
         uint32_t width{0};
         uint32_t height{0};
-        std::vector<uint8_t> pixels{};
+        uint32_t mipLevels{1};
+        bool isSrgb{false};
+        bool isNormal{false};
     };
-    std::vector<std::vector<MipLevelBuffer>> precomputedMips(scene.cpuImages.size());
+    std::vector<PendingGpuMipGen> pendingMipGens;
+    pendingMipGens.reserve(scene.cpuImages.size());
 
-    auto buildMipPyramidForTexture = [&](size_t texIdx) {
-        const auto& img = scene.cpuImages[texIdx];
-        if (img.isCompressed || img.width == 0 || img.height == 0 || img.rgba.empty())
-            return;
-        if (texIdx >= scene.gpuTextures.size() || scene.gpuTextures[texIdx].view != nullptr)
-            return;
-
-        const uint32_t mipLevels{CalculateMipLevels(img.width, img.height)};
-        if (mipLevels <= 1)
-            return;
-
-        auto& chain = precomputedMips[texIdx];
-        chain.resize(mipLevels - 1);
-
-        std::span<const uint8_t> prevSpan{img.rgba};
-        uint32_t prevW{img.width};
-        uint32_t prevH{img.height};
-
-        for (uint32_t level{1}; level < mipLevels; ++level) {
-            const uint32_t curW{std::max(1u, prevW / 2)};
-            const uint32_t curH{std::max(1u, prevH / 2)};
-
-            chain[level - 1].width = curW;
-            chain[level - 1].height = curH;
-            chain[level - 1].pixels = GenerateNextMipLevel(prevSpan, prevW, prevH, curW, curH, isNormalTexture[texIdx]);
-
-            prevSpan = std::span<const uint8_t>{chain[level - 1].pixels};
-            prevW = curW;
-            prevH = curH;
-        }
-    };
-
-#if !defined(__EMSCRIPTEN__)
-    if (scene.cpuImages.size() > 1) {
-        core::ThreadPool::Instance().ParallelFor(0, scene.cpuImages.size(),
-                                                 [&](size_t idx) { buildMipPyramidForTexture(idx); });
-    } else if (scene.cpuImages.size() == 1) {
-        buildMipPyramidForTexture(0);
-    }
-#else
-    for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
-        buildMipPyramidForTexture(i);
-    }
-#endif
-
-    // 1. Upload CPU decoded images (either native block-compressed BC7/ASTC/ETC2 or RGBA8) to WebGPU Textures
+    // 1. Upload CPU decoded images (either native block-compressed BC7/ASTC/ETC2 or RGBA8 mip0) to WebGPU Textures
     for (size_t i{0}; i < scene.cpuImages.size(); ++i) {
         const auto& img = scene.cpuImages[i];
-        if (img.width == 0 || img.height == 0 || img.rgba.empty())
+        if (img.width == 0 || img.height == 0 || img.rgba.empty()) {
             continue;
-        if (i >= scene.gpuTextures.size() || scene.gpuTextures[i].view != nullptr)
+        }
+        if (i >= scene.gpuTextures.size() || scene.gpuTextures[i].view != nullptr) {
             continue;
+        }
 
         if (img.isCompressed && img.compressionFormat != scene::KtxTranscodeTarget::Rgba32) {
             WGPUTextureFormat wgpuFmt{WGPUTextureFormat_BC7RGBAUnorm};
@@ -1624,7 +1931,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         const uint32_t mipLevels{CalculateMipLevels(img.width, img.height)};
 
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-        texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst | WGPUTextureUsage_RenderAttachment;
         texDesc.dimension = WGPUTextureDimension_2D;
         texDesc.size = WGPUExtent3D{img.width, img.height, 1};
         texDesc.format = isSrgbTexture[i] ? WGPUTextureFormat_RGBA8UnormSrgb : WGPUTextureFormat_RGBA8Unorm;
@@ -1648,32 +1955,26 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         std::span<const uint8_t> mip0Span{img.rgba};
         wgpuQueueWriteTexture(queue_, &copyDst, mip0Span.data(), mip0Span.size(), &dataLayout, &writeSize);
 
-        std::span<const MipLevelBuffer> mipChain{precomputedMips[i]};
-        for (size_t mIdx{0}; mIdx < mipChain.size(); ++mIdx) {
-            const auto& mipBuf = mipChain[mIdx];
-            const uint32_t level{static_cast<uint32_t>(mIdx + 1)};
-
-            WGPUTexelCopyTextureInfo mipCopyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-            mipCopyDst.texture = tex;
-            mipCopyDst.mipLevel = level;
-            mipCopyDst.origin = WGPUOrigin3D{0, 0, 0};
-            mipCopyDst.aspect = WGPUTextureAspect_All;
-
-            WGPUTexelCopyBufferLayout mipDataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
-            mipDataLayout.offset = 0;
-            mipDataLayout.bytesPerRow = mipBuf.width * 4;
-            mipDataLayout.rowsPerImage = mipBuf.height;
-
-            WGPUExtent3D mipWriteSize{mipBuf.width, mipBuf.height, 1};
-            wgpuQueueWriteTexture(queue_, &mipCopyDst, mipBuf.pixels.data(), mipBuf.pixels.size(), &mipDataLayout,
-                                  &mipWriteSize);
+        if (mipLevels > 1) {
+            pendingMipGens.push_back(PendingGpuMipGen{
+                .texture = tex,
+                .width = img.width,
+                .height = img.height,
+                .mipLevels = mipLevels,
+                .isSrgb = isSrgbTexture[i],
+                .isNormal = isNormalTexture[i],
+            });
         }
 
         WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
 
-        size_t rgbaVramBytes{static_cast<size_t>(img.width) * img.height * 4u};
-        for (const auto& mipBuf : mipChain) {
-            rgbaVramBytes += static_cast<size_t>(mipBuf.width) * mipBuf.height * 4u;
+        size_t rgbaVramBytes{0};
+        uint32_t mw{img.width};
+        uint32_t mh{img.height};
+        for (uint32_t m{0}; m < mipLevels; ++m) {
+            rgbaVramBytes += static_cast<size_t>(mw) * mh * 4u;
+            mw = std::max(1u, mw / 2u);
+            mh = std::max(1u, mh / 2u);
         }
 
         scene.gpuTextures[i].texture = tex;
@@ -1684,25 +1985,43 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
         scene.gpuTextures[i].vramBytes = rgbaVramBytes;
         scene.gpuTextures[i].format = scene::KtxTranscodeTarget::Rgba32;
         BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote "
-                      "{} bytes to GPU ({:.2f} KB VRAM)",
+                      "{} bytes mip0 ({:.2f} KB VRAM)",
                       i, img.width, img.height, isSrgbTexture[i] ? "RGBA8UnormSrgb" : "RGBA8Unorm", mipLevels,
                       isNormalTexture[i] ? "Yes" : "No", img.rgba.size(), static_cast<double>(rgbaVramBytes) / 1024.0);
     }
 
-    // 2. Prepare vertex buffers, index buffers, uniform buffers, and shadow/main bind groups for each primitive
-    auto preparePrimitive = [&](scene::MeshPrimitive& prim) -> void {
-        if (prim.vertices.empty())
+    if (!pendingMipGens.empty()) {
+        if (CommandEncoderHandle mipEnc{wgpuDeviceCreateCommandEncoder(device_, nullptr)}) {
+            for (const auto& job : pendingMipGens) {
+                GenerateTextureMipsGpu(mipEnc.Get(), job.texture, job.width, job.height, job.mipLevels, job.isSrgb,
+                                       job.isNormal);
+            }
+            if (CommandBufferHandle mipCmd{wgpuCommandEncoderFinish(mipEnc.Get(), nullptr)}) {
+                WGPUCommandBuffer rawCmd{mipCmd.Get()};
+                wgpuQueueSubmit(queue_, 1, &rawCmd);
+            }
+        }
+    }
+
+    // 2. Collect unique primitives and build multi-LOD, wireframe, and morph-delta staging buffers in parallel
+    std::vector<scene::MeshPrimitive*> uniquePrims;
+    CollectUniquePrimitives(scene, uniquePrims);
+
+    struct PrimStaging {
+        std::vector<uint8_t> indexBytes{};
+        bool useUint16{false};
+        std::vector<uint32_t> wfIndices{};
+        std::vector<glm::vec4> morphDeltas{};
+        uint32_t morphTargetCount{0};
+        uint32_t morphVertexCount{0};
+    };
+    std::vector<PrimStaging> stagings(uniquePrims.size());
+
+    auto stagePrimitive = [&](size_t idx) {
+        scene::MeshPrimitive& prim = *uniquePrims[idx];
+        auto& st = stagings[idx];
+        if (prim.vertices.empty()) {
             return;
-
-        const size_t vbSize{prim.vertices.size() * sizeof(core::Vertex)};
-
-        if (!prim.gpuVertexBuffer) {
-            WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-            vbDesc.size = (vbSize + 3) & ~3;
-            vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-            vbDesc.label = ToWgpuStringView("VertexBuffer");
-            prim.gpuVertexBuffer = wgpuDeviceCreateBuffer(device_, &vbDesc);
-            wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(), vbSize);
         }
 
         if (!prim.gpuIndexBuffer && !prim.indices.empty()) {
@@ -1725,116 +2044,205 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
                 combinedIndices.insert(combinedIndices.end(), slice.begin(), slice.end());
             }
 
-            const bool useUint16 = (prim.vertices.size() < 65536);
-            prim.indexFormat = useUint16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
-            if (useUint16) {
+            st.useUint16 = (prim.vertices.size() < 65536);
+            prim.indexFormat = st.useUint16 ? WGPUIndexFormat_Uint16 : WGPUIndexFormat_Uint32;
+            if (st.useUint16) {
                 std::vector<uint16_t> indices16;
                 indices16.reserve(combinedIndices.size() + 1);
-                for (uint32_t idx : combinedIndices) {
-                    indices16.push_back(static_cast<uint16_t>(idx));
+                for (uint32_t vIdx : combinedIndices) {
+                    indices16.push_back(static_cast<uint16_t>(vIdx));
                 }
                 if (indices16.size() % 2 != 0) {
-                    indices16.push_back(0); // Pad to ensure multiple of 4 bytes for wgpuQueueWriteBuffer
+                    indices16.push_back(0);
                 }
-                const size_t ib16Size{indices16.size() * sizeof(uint16_t)};
-                WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ibDesc.size = ib16Size;
-                ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = ToWgpuStringView("IndexBuffer_U16_MultiLOD");
-                prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
-                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, indices16.data(), ib16Size);
+                st.indexBytes.resize(indices16.size() * sizeof(uint16_t));
+                std::memcpy(st.indexBytes.data(), indices16.data(), st.indexBytes.size());
             } else {
                 const size_t combinedBytes{combinedIndices.size() * sizeof(uint32_t)};
-                WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ibDesc.size = (combinedBytes + 3) & ~3;
-                ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                ibDesc.label = ToWgpuStringView("IndexBuffer_U32_MultiLOD");
-                prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
-                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, combinedIndices.data(), combinedBytes);
+                st.indexBytes.resize((combinedBytes + 3u) & ~size_t{3});
+                std::memcpy(st.indexBytes.data(), combinedIndices.data(), combinedBytes);
             }
         }
 
         if (!prim.gpuWireframeIndexBuffer) {
-            std::vector<uint32_t> lineIndices;
             if (!prim.indices.empty()) {
-                lineIndices.reserve(prim.indices.size() * 2);
-                for (size_t i{0}; i + 2 < prim.indices.size(); i += 3) {
-                    const uint32_t a{prim.indices[i]};
-                    const uint32_t b{prim.indices[i + 1]};
-                    const uint32_t c{prim.indices[i + 2]};
-                    lineIndices.push_back(a);
-                    lineIndices.push_back(b);
-                    lineIndices.push_back(b);
-                    lineIndices.push_back(c);
-                    lineIndices.push_back(c);
-                    lineIndices.push_back(a);
+                st.wfIndices.reserve(prim.indices.size() * 2);
+                for (size_t k{0}; k + 2 < prim.indices.size(); k += 3) {
+                    const uint32_t a{prim.indices[k]};
+                    const uint32_t b{prim.indices[k + 1]};
+                    const uint32_t c{prim.indices[k + 2]};
+                    st.wfIndices.push_back(a);
+                    st.wfIndices.push_back(b);
+                    st.wfIndices.push_back(b);
+                    st.wfIndices.push_back(c);
+                    st.wfIndices.push_back(c);
+                    st.wfIndices.push_back(a);
                 }
             } else {
-                lineIndices.reserve(prim.vertices.size() * 2);
-                for (size_t i{0}; i + 2 < prim.vertices.size(); i += 3) {
-                    const uint32_t a{static_cast<uint32_t>(i)};
-                    const uint32_t b{static_cast<uint32_t>(i + 1)};
-                    const uint32_t c{static_cast<uint32_t>(i + 2)};
-                    lineIndices.push_back(a);
-                    lineIndices.push_back(b);
-                    lineIndices.push_back(b);
-                    lineIndices.push_back(c);
-                    lineIndices.push_back(c);
-                    lineIndices.push_back(a);
+                st.wfIndices.reserve(prim.vertices.size() * 2);
+                for (size_t k{0}; k + 2 < prim.vertices.size(); k += 3) {
+                    const uint32_t a{static_cast<uint32_t>(k)};
+                    const uint32_t b{static_cast<uint32_t>(k + 1)};
+                    const uint32_t c{static_cast<uint32_t>(k + 2)};
+                    st.wfIndices.push_back(a);
+                    st.wfIndices.push_back(b);
+                    st.wfIndices.push_back(b);
+                    st.wfIndices.push_back(c);
+                    st.wfIndices.push_back(c);
+                    st.wfIndices.push_back(a);
                 }
             }
-            if (!lineIndices.empty()) {
-                prim.wireframeIndexCount = static_cast<uint32_t>(lineIndices.size());
-                const size_t wfIbSize{lineIndices.size() * sizeof(uint32_t)};
-                WGPUBufferDescriptor wfIbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                wfIbDesc.size = (wfIbSize + 3) & ~3;
-                wfIbDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
-                wfIbDesc.label = ToWgpuStringView("WireframeIndexBuffer");
-                prim.gpuWireframeIndexBuffer = wgpuDeviceCreateBuffer(device_, &wfIbDesc);
-                wgpuQueueWriteBuffer(queue_, prim.gpuWireframeIndexBuffer, 0, lineIndices.data(), wfIbSize);
+        }
+
+        if (!prim.gpuMorphDeltaBuffer && !prim.morphTargets.empty()) {
+            const uint32_t tCount{static_cast<uint32_t>(prim.morphTargets.size())};
+            const uint32_t vCount{static_cast<uint32_t>(prim.vertices.size())};
+            st.morphDeltas.resize(static_cast<size_t>(tCount) * vCount * 3u, glm::vec4{0.0f});
+            for (uint32_t t{0}; t < tCount; ++t) {
+                const auto& mt = prim.morphTargets[t];
+                for (uint32_t v{0}; v < vCount; ++v) {
+                    const size_t base{(static_cast<size_t>(t) * vCount + v) * 3u};
+                    if (v < mt.positionDeltas.size()) {
+                        st.morphDeltas[base + 0u] = glm::vec4{mt.positionDeltas[v], 0.0f};
+                    }
+                    if (v < mt.normalDeltas.size()) {
+                        st.morphDeltas[base + 1u] = glm::vec4{mt.normalDeltas[v], 0.0f};
+                    }
+                    if (v < mt.tangentDeltas.size()) {
+                        st.morphDeltas[base + 2u] = glm::vec4{mt.tangentDeltas[v], 0.0f};
+                    }
+                }
+            }
+            st.morphTargetCount = tCount;
+            st.morphVertexCount = vCount;
+        }
+    };
+
+#if !defined(__EMSCRIPTEN__)
+    if (uniquePrims.size() > 1) {
+        core::ThreadPool::Instance().ParallelFor(0, uniquePrims.size(), stagePrimitive);
+    } else if (uniquePrims.size() == 1) {
+        stagePrimitive(0);
+    }
+#else
+    for (size_t idx{0}; idx < uniquePrims.size(); ++idx) {
+        stagePrimitive(idx);
+    }
+#endif
+
+    // 3. Create & upload WebGPU geometry buffers, morph SSBOs, and static MaterialUniforms buffers
+    for (size_t idx{0}; idx < uniquePrims.size(); ++idx) {
+        scene::MeshPrimitive& prim = *uniquePrims[idx];
+        const auto& st = stagings[idx];
+        if (prim.vertices.empty()) {
+            continue;
+        }
+
+        if (!prim.gpuVertexBuffer) {
+            const auto& srcVerts = (!prim.morphTargets.empty() && prim.baseVertices.size() == prim.vertices.size())
+                                       ? prim.baseVertices
+                                       : prim.vertices;
+            const size_t vbSize{srcVerts.size() * sizeof(core::Vertex)};
+            WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            vbDesc.size = (vbSize + 3u) & ~size_t{3};
+            vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            vbDesc.label = ToWgpuStringView("VertexBuffer");
+            prim.gpuVertexBuffer = wgpuDeviceCreateBuffer(device_, &vbDesc);
+            if (prim.gpuVertexBuffer) {
+                prim.gpuVertexBufferSize = vbDesc.size;
+                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, srcVerts.data(), vbSize);
+                prim.morphDirty = false;
+            }
+        }
+
+        if (!prim.gpuIndexBuffer && !st.indexBytes.empty()) {
+            WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            ibDesc.size = st.indexBytes.size();
+            ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+            ibDesc.label = ToWgpuStringView(st.useUint16 ? "IndexBuffer_U16_MultiLOD" : "IndexBuffer_U32_MultiLOD");
+            prim.gpuIndexBuffer = wgpuDeviceCreateBuffer(device_, &ibDesc);
+            if (prim.gpuIndexBuffer) {
+                prim.gpuIndexBufferSize = ibDesc.size;
+                wgpuQueueWriteBuffer(queue_, prim.gpuIndexBuffer, 0, st.indexBytes.data(), st.indexBytes.size());
+            }
+        }
+
+        if (!prim.gpuWireframeIndexBuffer && !st.wfIndices.empty()) {
+            prim.wireframeIndexCount = static_cast<uint32_t>(st.wfIndices.size());
+            const size_t wfIbSize{st.wfIndices.size() * sizeof(uint32_t)};
+            WGPUBufferDescriptor wfIbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            wfIbDesc.size = (wfIbSize + 3u) & ~size_t{3};
+            wfIbDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+            wfIbDesc.label = ToWgpuStringView("WireframeIndexBuffer");
+            prim.gpuWireframeIndexBuffer = wgpuDeviceCreateBuffer(device_, &wfIbDesc);
+            if (prim.gpuWireframeIndexBuffer) {
+                wgpuQueueWriteBuffer(queue_, prim.gpuWireframeIndexBuffer, 0, st.wfIndices.data(), wfIbSize);
+            }
+        }
+
+        if (!prim.gpuMorphDeltaBuffer && !st.morphDeltas.empty()) {
+            const uint64_t morphBytes{st.morphDeltas.size() * sizeof(glm::vec4)};
+            WGPUBufferDescriptor mbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            mbDesc.size = morphBytes;
+            mbDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+            mbDesc.label = ToWgpuStringView("MorphDeltas_SSBO");
+            prim.gpuMorphDeltaBuffer = wgpuDeviceCreateBuffer(device_, &mbDesc);
+            if (prim.gpuMorphDeltaBuffer) {
+                prim.gpuMorphTargetCount = st.morphTargetCount;
+                prim.gpuMorphVertexCount = st.morphVertexCount;
+                wgpuQueueWriteBuffer(queue_, prim.gpuMorphDeltaBuffer, 0, st.morphDeltas.data(), morphBytes);
             }
         }
 
         if (!prim.gpuUniformBuffer) {
             WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-            ubDesc.size = sizeof(PrimitiveUniforms);
+            ubDesc.size = sizeof(MaterialUniforms);
             ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-            ubDesc.label = ToWgpuStringView("PrimitiveUniforms");
+            ubDesc.label = ToWgpuStringView("MaterialUniforms");
             prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
         }
-
-        if (!prim.gpuShadowUniformBuffer) {
-            WGPUBufferDescriptor shadowUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-            shadowUbDesc.size = sizeof(ShadowUniforms);
-            shadowUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-            shadowUbDesc.label = ToWgpuStringView("ShadowUniforms");
-            prim.gpuShadowUniformBuffer = wgpuDeviceCreateBuffer(device_, &shadowUbDesc);
-        }
-    };
-
-    // Prepare all shared meshes once
-    for (auto& mesh : scene.meshes) {
-        if (mesh) {
-            for (auto& prim : mesh->primitives) {
-                preparePrimitive(prim);
-            }
+        if (prim.gpuUniformBuffer) {
+            const scene::Material* matPtr =
+                (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size()))
+                    ? &scene.materials[prim.materialIndex]
+                    : nullptr;
+            MaterialUniforms matUbo{};
+            FillMaterialUniforms(matPtr, matUbo);
+            wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &matUbo, sizeof(matUbo));
         }
     }
 
-    auto prepareNode = [&](auto& self, scene::SceneNode& node) -> void {
-        for (auto& prim : node.GetPrimitives()) {
-            preparePrimitive(prim);
+    // 4. Create persistent Skinning Storage Buffers & BindGroups once per Skin
+    for (auto& skin : scene.skins) {
+        skin.cachedFrameId = 0;
+        skin.cachedUploadedFrameId = 0;
+        skin.cachedMeshNode = nullptr;
+        if (skin.joints.empty() || skin.gpuJointBuffer) {
+            continue;
         }
-        for (auto& child : node.children) {
-            if (child) {
-                self(self, *child);
-            }
-        }
-    };
+        const size_t jointCount{std::max<size_t>(1, skin.joints.size())};
+        const uint64_t bufSize{jointCount * sizeof(glm::mat4)};
+        WGPUBufferDescriptor sbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+        sbDesc.size = bufSize;
+        sbDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        sbDesc.label = ToWgpuStringView("SkinJointMatrices_SSBO");
+        skin.gpuJointBuffer = wgpuDeviceCreateBuffer(device_, &sbDesc);
+        if (skin.gpuJointBuffer) {
+            const std::vector<glm::mat4> identityJoints(jointCount, glm::mat4{1.0f});
+            wgpuQueueWriteBuffer(queue_, skin.gpuJointBuffer, 0, identityJoints.data(), bufSize);
 
-    for (auto& rootNode : scene.rootNodes) {
-        if (rootNode) {
-            prepareNode(prepareNode, *rootNode);
+            WGPUBindGroupEntry bgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntry.binding = 0;
+            bgEntry.buffer = skin.gpuJointBuffer;
+            bgEntry.offset = 0;
+            bgEntry.size = bufSize;
+
+            WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+            bgDesc.layout = skinBgl_.Get();
+            bgDesc.entryCount = 1;
+            bgDesc.entries = &bgEntry;
+            bgDesc.label = ToWgpuStringView("SkinStorage_BindGroup");
+            skin.gpuBindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
         }
     }
 
@@ -1893,8 +2301,8 @@ void PipelineManager::RetranscodeKtxTextures(scene::Scene& scene, scene::KtxTran
 }
 
 void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix,
-                                                  const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH,
-                                                  float zNear, float zFar) {
+                                                  const glm::mat4& projMatrix, const glm::vec3& cameraPos,
+                                                  uint32_t viewportW, uint32_t viewportH, float zNear, float zFar) {
     if (!sceneLightingBuffer_)
         return;
 
@@ -1903,6 +2311,9 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
     sl.viewMatrix = viewMatrix;
     sl.gridParams = glm::vec4{static_cast<float>(std::max(1u, viewportW)), static_cast<float>(std::max(1u, viewportH)),
                               zNear, zFar};
+    sl.cameraPos = glm::vec4{cameraPos, 1.0f};
+    sl.lightDir = glm::vec4{currentLightDir_, solarElevation_};
+    sl.renderParams = glm::vec4{static_cast<float>(envMipLevels_), 0.0015f, aoIntensity_, 0.0f};
 
     uint32_t lightCount{0};
     bool hasExplicitDirectional{false};
@@ -1989,6 +2400,9 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
 
 void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                                        const scene::Quadtree* spatialIndex) {
+    ++skinFrameId_;
+    skinFrameAdvanced_ = true;
+
     const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
                                                           : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
     // Rotate primary sun direction by -envRotation_ so shadows match rotated HDR environment
@@ -2007,7 +2421,7 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
         }
         return;
     }
-    shadowPass_.Render(encoder, scene, currentLightDir_, spatialIndex);
+    shadowPass_.Render(encoder, scene, currentLightDir_, spatialIndex, skinFrameId_);
     currentLightViewProj_ = shadowPass_.GetLightViewProjMatrix();
 }
 
@@ -2015,16 +2429,16 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                                   const glm::vec3& cameraPos, bool wireframe, const scene::Quadtree* spatialIndex,
                                   const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW,
                                   uint32_t viewportH, float zNear, float zFar) {
-    if (!pass || !initialized_)
+    if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
         return;
+    }
+    if (!skinFrameAdvanced_) {
+        ++skinFrameId_;
+    }
+    skinFrameAdvanced_ = false;
+
     aabbRenderer_.ResetFrameOffset();
-
-    UpdateSceneLightingUniforms(scene, viewMatrix, projMatrix, viewportW, viewportH, zNear, zFar);
-
-    WGPURenderPipeline currentBoundPipeline{
-        wireframe && wireframePipeline_ ? wireframePipeline_
-                                        : (opaqueBackCulledPipeline_ ? opaqueBackCulledPipeline_ : opaquePipeline_)};
-    wgpuRenderPassEncoderSetPipeline(pass, currentBoundPipeline);
+    UpdateSceneLightingUniforms(scene, viewMatrix, projMatrix, cameraPos, viewportW, viewportH, zNear, zFar);
 
     const core::Frustum frustum{core::Frustum::FromViewProjection(viewProj)};
     lastVisiblePrimitiveCount_ = 0;
@@ -2033,51 +2447,48 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     lastTotalVisibleTriangleCount_ = 0;
     lastLodCounts_ = {0, 0, 0, 0};
 
-    struct RenderItem {
-        std::shared_ptr<scene::SceneNode> node;
-        size_t primitiveIndex;
-        glm::mat4 worldTransform;
-        float distance;
-        int materialIndex;
-        bool isTransparent;
-        uint32_t lodLevel;
-        float lodTransition;
-    };
-
-    std::vector<RenderItem> items;
+    renderItemsScratch_.clear();
 
     if (spatialIndex) {
-        auto visibleItems =
-            spatialIndex->QueryVisible(frustum, cameraPos, viewProj, occlusionCullingEnabled_, lodBias_);
-        lastVisiblePrimitiveCount_ = visibleItems.size();
+        spatialIndex->QueryVisible(frustum, cameraPos, viewProj, visibleItemsScratch_, occlusionCullingEnabled_,
+                                   lodBias_);
+        lastVisiblePrimitiveCount_ = visibleItemsScratch_.size();
         lastOccludedPrimitiveCount_ = spatialIndex->GetLastOccludedCount();
 
-        items.reserve(visibleItems.size());
-        for (const auto& vis : visibleItems) {
-            if (!vis.node)
+        renderItemsScratch_.reserve(visibleItemsScratch_.size());
+        for (const auto& vis : visibleItemsScratch_) {
+            if (!vis.node) {
                 continue;
+            }
             auto prims = vis.node->GetPrimitives();
-            if (vis.primitiveIndex >= prims.size())
+            if (vis.primitiveIndex >= prims.size()) {
                 continue;
+            }
             const auto& prim = prims[vis.primitiveIndex];
+            const bool hasMat =
+                (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size()));
             const bool isTransparent =
-                (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
-                (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+                hasMat && (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+            const bool isDoubleSided = hasMat && scene.materials[prim.materialIndex].doubleSided;
             const uint32_t activeLod = lodEnabled_ ? static_cast<uint32_t>(vis.currentLOD) : 0u;
-            items.push_back(RenderItem{.node = vis.node,
-                                       .primitiveIndex = vis.primitiveIndex,
-                                       .worldTransform = vis.node->worldTransform,
-                                       .distance = vis.distanceToCamera,
-                                       .materialIndex = prim.materialIndex,
-                                       .isTransparent = isTransparent,
-                                       .lodLevel = std::min(activeLod, 3u),
-                                       .lodTransition = lodEnabled_ ? vis.lodTransition : 0.0f});
+            renderItemsScratch_.push_back(RenderItem{
+                .node = vis.node.get(),
+                .primitiveIndex = vis.primitiveIndex,
+                .worldTransform = vis.node->worldTransform,
+                .distance = vis.distanceToCamera,
+                .materialIndex = prim.materialIndex,
+                .isTransparent = isTransparent,
+                .isDoubleSided = isDoubleSided,
+                .lodLevel = std::min(activeLod, 3u),
+                .lodTransition = lodEnabled_ ? vis.lodTransition : 0.0f,
+            });
         }
     } else {
         auto collectNode = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
                                const glm::mat4& parentMat) -> void {
-            if (!node)
+            if (!node) {
                 return;
+            }
             const glm::mat4 worldMat{parentMat * node->localTransform};
             if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !frustum.IntersectsAABB(node->worldAABB)) {
                 return;
@@ -2096,17 +2507,22 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                     lodLvl = std::min(static_cast<uint32_t>(eval.level), 3u);
                     lodTrans = eval.transition;
                 }
+                const bool hasMat =
+                    (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size()));
                 const bool isTransparent =
-                    (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
-                    (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
-                items.push_back(RenderItem{.node = node,
-                                           .primitiveIndex = pIdx,
-                                           .worldTransform = worldMat,
-                                           .distance = dist,
-                                           .materialIndex = prim.materialIndex,
-                                           .isTransparent = isTransparent,
-                                           .lodLevel = lodLvl,
-                                           .lodTransition = lodTrans});
+                    hasMat && (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+                const bool isDoubleSided = hasMat && scene.materials[prim.materialIndex].doubleSided;
+                renderItemsScratch_.push_back(RenderItem{
+                    .node = node.get(),
+                    .primitiveIndex = pIdx,
+                    .worldTransform = worldMat,
+                    .distance = dist,
+                    .materialIndex = prim.materialIndex,
+                    .isTransparent = isTransparent,
+                    .isDoubleSided = isDoubleSided,
+                    .lodLevel = lodLvl,
+                    .lodTransition = lodTrans,
+                });
             }
             for (const auto& child : node->children) {
                 self(self, child, worldMat);
@@ -2115,12 +2531,12 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         for (const auto& root : scene.rootNodes) {
             collectNode(collectNode, root, glm::mat4{1.0f});
         }
-        lastVisiblePrimitiveCount_ = items.size();
+        lastVisiblePrimitiveCount_ = renderItemsScratch_.size();
     }
 
     // Sort draw calls: Opaques front-to-back (minimizing overdraw and grouping by material),
     // Transparents back-to-front (for correct alpha blending)
-    std::sort(items.begin(), items.end(), [](const RenderItem& a, const RenderItem& b) {
+    std::sort(renderItemsScratch_.begin(), renderItemsScratch_.end(), [](const RenderItem& a, const RenderItem& b) {
         if (a.isTransparent != b.isTransparent) {
             return !a.isTransparent; // opaques first
         }
@@ -2133,157 +2549,140 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         return a.distance > b.distance; // farthest first
     });
 
-    for (const auto& item : items) {
-        auto prims = item.node->GetPrimitives();
-        auto& prim = prims[item.primitiveIndex];
-        RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline,
-                        item.node.get(), item.lodLevel, item.lodTransition);
-    }
-}
-
-void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim,
-                                      const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos,
-                                      bool wireframe, WGPURenderPipeline& currentBoundPipeline,
-                                      const scene::SceneNode* node, uint32_t lodLevel, float lodTransition) {
-    if (!prim.gpuVertexBuffer || !prim.gpuBindGroup || !prim.gpuUniformBuffer)
-        return;
-
-    if (prim.morphDirty) {
-        wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(),
-                             prim.vertices.size() * sizeof(core::Vertex));
-        prim.morphDirty = false;
-    }
-
-    PrimitiveUniforms uniforms{};
-    uniforms.viewProj = viewProj;
-    uniforms.model = worldMat;
-    uniforms.lightViewProj = currentLightViewProj_;
-    uniforms.cameraPos = glm::vec4{cameraPos, 1.0f};
-    uniforms.lightDir = glm::vec4{currentLightDir_, solarElevation_};
-    uniforms.envMipCount = static_cast<float>(envMipLevels_);
-
-    uint32_t flags{0};
+    uint32_t baseGlobalFlags{0};
     if (bumpMappingEnabled_)
-        flags |= MaterialFlags::EnableBumpMapping;
+        baseGlobalFlags |= MaterialFlags::EnableBumpMapping;
     if (mipmappingEnabled_)
-        flags |= MaterialFlags::EnableMipmapping;
+        baseGlobalFlags |= MaterialFlags::EnableMipmapping;
     if (shadowsEnabled_)
-        flags |= MaterialFlags::EnableShadows;
+        baseGlobalFlags |= MaterialFlags::EnableShadows;
     if (reflectionsEnabled_)
-        flags |= MaterialFlags::EnableReflections;
+        baseGlobalFlags |= MaterialFlags::EnableReflections;
     if (ambientOcclusionEnabled_)
-        flags |= MaterialFlags::EnableAmbientOcclusion;
+        baseGlobalFlags |= MaterialFlags::EnableAmbientOcclusion;
     if (parallaxEnabled_)
-        flags |= MaterialFlags::EnableParallaxOcclusion;
+        baseGlobalFlags |= MaterialFlags::EnableParallaxOcclusion;
+    baseGlobalFlags |= ((static_cast<uint32_t>(debugViewMode_) & 7u) << MaterialFlags::DebugViewShift);
 
-    if (node && node->skinIndex >= 0 && static_cast<size_t>(node->skinIndex) < scene.skins.size()) {
-        const auto& skin = scene.skins[static_cast<size_t>(node->skinIndex)];
-        uniforms.jointCount = skin.ComputeJointMatrices(worldMat, scene.allNodes, uniforms.jointMatrices);
-        flags |= MaterialFlags::HasSkinning;
-    }
+    drawCallsScratch_.clear();
+    mainPerDrawScratch_.clear();
+    drawCallsScratch_.reserve(renderItemsScratch_.size());
+    mainPerDrawScratch_.reserve(renderItemsScratch_.size());
 
-    if (node && !node->morphWeights.empty()) {
-        const uint32_t count = std::min(static_cast<uint32_t>(node->morphWeights.size()), 4u);
-        uniforms.morphTargetCount = count;
-        for (uint32_t m = 0; m < count; ++m) {
-            uniforms.morphWeights[m] = node->morphWeights[m];
+    WGPURenderPipeline fallbackMainPipe =
+        opaqueBackCulledPipeline_ ? opaqueBackCulledPipeline_.Get() : opaquePipeline_.Get();
+
+    for (const auto& item : renderItemsScratch_) {
+        if (!item.node) {
+            continue;
         }
-        flags |= MaterialFlags::HasMorphTargets;
-    }
-
-    bool isDoubleSided{false};
-    if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-        const auto& mat = scene.materials[prim.materialIndex];
-        uniforms.baseColorFactor = mat.baseColorFactor;
-        uniforms.metallicFactor = mat.metallicFactor;
-        uniforms.roughnessFactor = mat.roughnessFactor;
-        uniforms.normalScale = mat.normalScale;
-        uniforms.bumpScale = mat.bumpScale;
-        uniforms.uvScale = mat.uvScale;
-        uniforms.uvOffset = mat.uvOffset;
-        uniforms.occlusionStrength = mat.occlusionStrength * aoIntensity_;
-        uniforms.emissiveFactor = glm::vec4{mat.emissiveFactor, mat.emissiveStrength};
-        uniforms.alphaCutoff = mat.alphaCutoff;
-        uniforms.alphaMode = std::to_underlying(mat.alphaMode);
-        uniforms.ior = mat.ior;
-        uniforms.clearcoatFactor = mat.clearcoatFactor;
-        uniforms.clearcoatRoughness = mat.clearcoatRoughnessFactor;
-        uniforms.transmissionFactor = mat.transmissionFactor;
-        uniforms.specularFactor = mat.specularFactor;
-        uniforms.sheenColorFactor = glm::vec4{mat.sheenColorFactor, mat.sheenRoughnessFactor};
-        uniforms.specularColorFactor = glm::vec4{mat.specularColorFactor, 0.0f};
-        uniforms.thicknessFactor = mat.thicknessFactor;
-        uniforms.attenuationDistance = mat.attenuationDistance;
-        uniforms.attenuationColor = glm::vec4{mat.attenuationColor, 1.0f};
-
-        if (mat.baseColorTextureIndex >= 0)
-            flags |= MaterialFlags::HasBaseColorTex;
-        if (mat.metallicRoughnessTextureIndex >= 0)
-            flags |= MaterialFlags::HasMetallicRoughnessTex;
-        if (mat.normalTextureIndex >= 0)
-            flags |= MaterialFlags::HasNormalTex;
-        if (mat.emissiveTextureIndex >= 0)
-            flags |= MaterialFlags::HasEmissiveTex;
-        if (mat.occlusionTextureIndex >= 0)
-            flags |= MaterialFlags::HasOcclusionTex;
-        if (mat.clearcoatTextureIndex >= 0)
-            flags |= MaterialFlags::HasClearcoatTex;
-        if (mat.transmissionTextureIndex >= 0)
-            flags |= MaterialFlags::HasTransmissionTex;
-        if (mat.thicknessTextureIndex >= 0)
-            flags |= MaterialFlags::HasThicknessTex;
-        if (mat.sheenColorTextureIndex >= 0)
-            flags |= MaterialFlags::HasSheenTex;
-        if (mat.unlit)
-            flags |= MaterialFlags::Unlit;
-        if (mat.doubleSided) {
-            flags |= MaterialFlags::DoubleSided;
-            isDoubleSided = true;
+        auto prims = item.node->GetPrimitives();
+        if (item.primitiveIndex >= prims.size()) {
+            continue;
         }
-    }
-
-    const uint32_t clampedLod = lodEnabled_ ? std::min(lodLevel, 3u) : 0u;
-    flags |= ((clampedLod & 3u) << MaterialFlags::LodLevelShift);
-    flags |= ((static_cast<uint32_t>(debugViewMode_) & 7u) << MaterialFlags::DebugViewShift);
-    uniforms.flags = flags;
-    uniforms.specularColorFactor.w = lodEnabled_ ? std::clamp(lodTransition, 0.0f, 1.0f) : 0.0f;
-
-    if (!wireframe && opaqueBackCulledPipeline_ && opaquePipeline_) {
-        WGPURenderPipeline desiredPipeline{isDoubleSided ? opaquePipeline_ : opaqueBackCulledPipeline_};
-        if (desiredPipeline != currentBoundPipeline) {
-            wgpuRenderPassEncoderSetPipeline(pass, desiredPipeline);
-            currentBoundPipeline = desiredPipeline;
+        scene::MeshPrimitive& prim = prims[item.primitiveIndex];
+        if (!prim.gpuVertexBuffer || !prim.gpuBindGroup) {
+            continue;
         }
+
+        const uint32_t clampedLod = lodEnabled_ ? std::min(item.lodLevel, 3u) : 0u;
+        const float clampedTrans = lodEnabled_ ? std::clamp(item.lodTransition, 0.0f, 1.0f) : 0.0f;
+        const uint32_t drawFlags = baseGlobalFlags | ((clampedLod & 3u) << MaterialFlags::LodLevelShift);
+
+        PreparedDrawBindings prepared{};
+        PopulatePerDrawMorphAndSkin(queue_, prim, item.node, item.worldTransform, viewProj, currentLightViewProj_,
+                                    drawFlags, clampedTrans, scene.skins, scene.allNodes, skinFrameId_,
+                                    dummySkinBindGroup_.Get(), prepared);
+
+        WGPURenderPipeline desiredPipeline{fallbackMainPipe};
+        if (wireframe && wireframePipeline_) {
+            desiredPipeline = wireframePipeline_.Get();
+        } else if (opaquePipeline_ && item.isDoubleSided) {
+            desiredPipeline = opaquePipeline_.Get();
+        }
+
+        const uint32_t dynOffset = static_cast<uint32_t>(mainPerDrawScratch_.size() * sizeof(PerDrawUniforms));
+        mainPerDrawScratch_.push_back(prepared.uniforms);
+        drawCallsScratch_.push_back(DrawDispatchItem{
+            .prim = &prim,
+            .skinBindGroup = prepared.skinBindGroup,
+            .pipeline = desiredPipeline,
+            .dynamicOffset = dynOffset,
+            .clampedLod = clampedLod,
+        });
     }
 
-    wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
+    if (drawCallsScratch_.empty()) {
+        return;
+    }
 
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
+    WGPUBindGroup perDrawBg = perDrawRing_.Upload(mainPerDrawScratch_);
+    if (!perDrawBg) {
+        return;
+    }
 
-    const uint32_t fullTriCount = !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
-                                                        : static_cast<uint32_t>(prim.vertices.size() / 3);
-    lastTotalVisibleTriangleCount_ += fullTriCount;
-    ++lastLodCounts_[clampedLod];
+    WGPURenderPipeline currentBoundPipeline{drawCallsScratch_[0].pipeline};
+    if (currentBoundPipeline) {
+        wgpuRenderPassEncoderSetPipeline(pass, currentBoundPipeline);
+    }
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, sceneGlobalsBindGroup_.Get(), 0, nullptr);
 
-    if (wireframe && prim.gpuWireframeIndexBuffer && prim.wireframeIndexCount > 0) {
-        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuWireframeIndexBuffer, WGPUIndexFormat_Uint32, 0,
-                                            prim.wireframeIndexCount * sizeof(uint32_t));
-        wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
-        lastRenderedTriangleCount_ += fullTriCount;
-    } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-        const auto& slice =
-            (prim.lodLevels[clampedLod].indexCount > 0) ? prim.lodLevels[clampedLod] : prim.lodLevels[0];
-        const uint32_t firstIdx = (slice.indexCount > 0) ? slice.firstIndex : 0u;
-        const uint32_t idxCount =
-            (slice.indexCount > 0) ? slice.indexCount : static_cast<uint32_t>(prim.indices.size());
-        wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
-                                            wgpuBufferGetSize(prim.gpuIndexBuffer));
-        wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
-        lastRenderedTriangleCount_ += (idxCount / 3);
-    } else {
-        wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
-        lastRenderedTriangleCount_ += fullTriCount;
+    WGPUBindGroup boundMatBg{nullptr};
+    WGPUBindGroup boundSkinBg{nullptr};
+    WGPUBuffer boundVb{nullptr};
+    WGPUBuffer boundIb{nullptr};
+
+    for (const auto& dc : drawCallsScratch_) {
+        scene::MeshPrimitive& prim = *dc.prim;
+        if (dc.pipeline && dc.pipeline != currentBoundPipeline) {
+            wgpuRenderPassEncoderSetPipeline(pass, dc.pipeline);
+            currentBoundPipeline = dc.pipeline;
+        }
+
+        wgpuRenderPassEncoderSetBindGroup(pass, 1, perDrawBg, 1, &dc.dynamicOffset);
+        if (prim.gpuBindGroup != boundMatBg) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 2, prim.gpuBindGroup, 0, nullptr);
+            boundMatBg = prim.gpuBindGroup;
+        }
+        if (dc.skinBindGroup != boundSkinBg) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 3, dc.skinBindGroup, 0, nullptr);
+            boundSkinBg = dc.skinBindGroup;
+        }
+        if (prim.gpuVertexBuffer != boundVb) {
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.gpuVertexBufferSize);
+            boundVb = prim.gpuVertexBuffer;
+        }
+
+        const uint32_t fullTriCount = !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
+                                                            : static_cast<uint32_t>(prim.vertices.size() / 3);
+        lastTotalVisibleTriangleCount_ += fullTriCount;
+        ++lastLodCounts_[dc.clampedLod];
+
+        if (wireframe && prim.gpuWireframeIndexBuffer && prim.wireframeIndexCount > 0) {
+            if (prim.gpuWireframeIndexBuffer != boundIb) {
+                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuWireframeIndexBuffer, WGPUIndexFormat_Uint32, 0,
+                                                    prim.wireframeIndexCount * sizeof(uint32_t));
+                boundIb = prim.gpuWireframeIndexBuffer;
+            }
+            wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
+            lastRenderedTriangleCount_ += fullTriCount;
+        } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
+            const auto& slice =
+                (prim.lodLevels[dc.clampedLod].indexCount > 0) ? prim.lodLevels[dc.clampedLod] : prim.lodLevels[0];
+            const uint32_t firstIdx = (slice.indexCount > 0) ? slice.firstIndex : 0u;
+            const uint32_t idxCount =
+                (slice.indexCount > 0) ? slice.indexCount : static_cast<uint32_t>(prim.indices.size());
+            if (prim.gpuIndexBuffer != boundIb) {
+                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
+                                                    prim.gpuIndexBufferSize);
+                boundIb = prim.gpuIndexBuffer;
+            }
+            wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
+            lastRenderedTriangleCount_ += (idxCount / 3);
+        } else {
+            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
+            lastRenderedTriangleCount_ += fullTriCount;
+        }
     }
 }
 
@@ -2321,11 +2720,15 @@ void PipelineManager::RenderQuadtreeBounds(WGPURenderPassEncoder pass, const sce
 }
 
 void PipelineManager::EnsureOpaqueCopyTexture(uint32_t width, uint32_t height) {
+    width = std::max(1u, width);
+    height = std::max(1u, height);
     if (opaqueColorCopyTexture_ && opaqueCopyWidth_ == width && opaqueCopyHeight_ == height) {
         return;
     }
-    opaqueCopyWidth_ = std::max(1u, width);
-    opaqueCopyHeight_ = std::max(1u, height);
+    opaqueCopyWidth_ = width;
+    opaqueCopyHeight_ = height;
+    opaqueColorCopyView_.Reset();
+    opaqueColorCopyTexture_.Reset();
 
     WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -2339,6 +2742,7 @@ void PipelineManager::EnsureOpaqueCopyTexture(uint32_t width, uint32_t height) {
     if (opaqueColorCopyTexture_) {
         opaqueColorCopyView_ = wgpuTextureCreateView(opaqueColorCopyTexture_, nullptr);
     }
+    RebuildSceneGlobalsBindGroup();
 }
 
 glm::vec3 PipelineManager::EvaluateBeerLambertVolumeAttenuation(const glm::vec3& attenuationColor,

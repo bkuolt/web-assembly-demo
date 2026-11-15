@@ -36,6 +36,11 @@ public:
     static MemoryTracker& Instance() noexcept;
 
     /**
+     * @brief Queries both resident RAM and virtual memory allocation in a single OS read.
+     */
+    void QueryProcessMemory(size_t& residentBytesOut, size_t& virtualBytesOut) const noexcept;
+
+    /**
      * @brief Queries current process resident RAM consumption via OS kernel APIs.
      */
     [[nodiscard]] size_t GetResidentRamBytes() const noexcept;
@@ -58,8 +63,11 @@ public:
     }
 
     [[nodiscard]] MemoryTelemetry Query() const noexcept {
-        return MemoryTelemetry{.residentRamBytes = GetResidentRamBytes(),
-                               .virtualRamBytes = GetVirtualRamBytes(),
+        size_t resBytes{0};
+        size_t virtBytes{0};
+        QueryProcessMemory(resBytes, virtBytes);
+        return MemoryTelemetry{.residentRamBytes = resBytes,
+                               .virtualRamBytes = virtBytes,
                                .gpuBufferBytes = GetGpuBufferBytes(),
                                .gpuTextureBytes = GetGpuTextureBytes()};
     }

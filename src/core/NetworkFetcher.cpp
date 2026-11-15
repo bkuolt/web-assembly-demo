@@ -463,7 +463,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         }
 
         BGL_LOG_INFO("[NetworkFetcher] Downloaded {} bytes ({:.2f} MB) from '{}' (HTTP {})", responseBuffer.size(),
-                     responseBuffer.size() / (1024.0 * 1024.0), cleanedUri, httpCode);
+                     static_cast<double>(responseBuffer.size()) / (1024.0 * 1024.0), cleanedUri, httpCode);
         return responseBuffer;
 #else
         return std::unexpected("HTTP/HTTPS URL fetching is not enabled in this build: " + cleanedUri);

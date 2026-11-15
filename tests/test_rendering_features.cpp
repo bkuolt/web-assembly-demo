@@ -21,6 +21,7 @@
 #include "core/NetworkFetcher.hpp"
 #include "core/Types.hpp"
 #include "gpu/AabbRenderer.hpp"
+#include "gpu/DrawHelpers.hpp"
 #include "gpu/GpuCuller.hpp"
 #include "gpu/GpuRayPicker.hpp"
 #include "gpu/Handle.hpp"
@@ -28,6 +29,9 @@
 #include "gpu/PostProcessPass.hpp"
 #include "gpu/Shaders.hpp"
 #include "gpu/ShadowPass.hpp"
+#include "gpu/Uniforms.hpp"
+#include "scene/AssetManager.hpp"
+#include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
@@ -337,9 +341,11 @@ TEST(RenderingFeaturesTest, EnvCubemapSkyVsGroundAndRoughnessFiltering) {
 }
 
 TEST(RenderingFeaturesTest, PipelineManagerFeatureTogglesAndUniformLayout) {
-    // Verify 8608-byte UBO alignment and distinct feature bitflags
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 8608u);
-    EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
+    // Verify 256-byte dynamic UBO stride and distinct feature bitflags
+    EXPECT_EQ(sizeof(gpu::PerDrawUniforms), 256u);
+    EXPECT_EQ(alignof(gpu::PerDrawUniforms), 16u);
+    EXPECT_EQ(sizeof(gpu::MaterialUniforms), 256u);
+    EXPECT_EQ(alignof(gpu::MaterialUniforms), 16u);
     EXPECT_NE(gpu::MaterialFlags::EnableBumpMapping & gpu::MaterialFlags::EnableShadows,
               gpu::MaterialFlags::EnableBumpMapping);
     EXPECT_NE(gpu::MaterialFlags::EnableShadows & gpu::MaterialFlags::EnableReflections,
@@ -771,15 +777,18 @@ TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {
 
 TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     // 1. Struct sizes must strictly match WebGPU WGSL std140 / uniform layout contracts
-    EXPECT_EQ(sizeof(gpu::PrimitiveUniforms), 8608u);
-    EXPECT_EQ(alignof(gpu::PrimitiveUniforms), 16u);
+    EXPECT_EQ(sizeof(gpu::PerDrawUniforms), 256u);
+    EXPECT_EQ(alignof(gpu::PerDrawUniforms), 16u);
 
-    EXPECT_EQ(sizeof(gpu::ShadowUniforms), 8608u);
-    EXPECT_EQ(alignof(gpu::ShadowUniforms), 16u);
+    EXPECT_EQ(sizeof(gpu::MaterialUniforms), 256u);
+    EXPECT_EQ(alignof(gpu::MaterialUniforms), 16u);
 
-    EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5376u);
+    EXPECT_EQ(sizeof(gpu::SceneLightingUniforms), 5424u);
     EXPECT_EQ(alignof(gpu::SceneLightingUniforms), 16u);
     EXPECT_EQ(offsetof(gpu::SceneLightingUniforms, weatherParams), 5360u);
+    EXPECT_EQ(offsetof(gpu::SceneLightingUniforms, cameraPos), 5376u);
+    EXPECT_EQ(offsetof(gpu::SceneLightingUniforms, lightDir), 5392u);
+    EXPECT_EQ(offsetof(gpu::SceneLightingUniforms, renderParams), 5408u);
 
     EXPECT_EQ(sizeof(gpu::TonemapUniforms), 80u);
     EXPECT_EQ(alignof(gpu::TonemapUniforms), 16u);
@@ -797,22 +806,32 @@ TEST(RenderingFeaturesTest, UniformBufferAlignmentAndStd140Rules) {
     EXPECT_EQ(sizeof(gpu::AabbVertex), 32u);
     EXPECT_EQ(alignof(gpu::AabbVertex), 16u);
 
-    // 2. Exact byte offsets for PrimitiveUniforms matching shader bindings
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, viewProj), 0u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, model), 64u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, lightViewProj), 128u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, cameraPos), 192u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, lightDir), 208u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, baseColorFactor), 224u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, metallicFactor), 240u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, roughnessFactor), 244u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, normalScale), 248u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, occlusionStrength), 252u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, emissiveFactor), 256u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, bumpScale), 336u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, reflectionIntensity), 340u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, shadowBias), 344u);
-    EXPECT_EQ(offsetof(gpu::PrimitiveUniforms, envMipCount), 348u);
+    // 2. Exact byte offsets for PerDrawUniforms & MaterialUniforms matching WGSL bindings
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, viewProj), 0u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, model), 64u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, lightViewProj), 128u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, morphWeights0), 192u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, morphWeights1), 208u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, jointCount), 224u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, morphTargetCount), 228u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, vertexCount), 232u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, drawFlags), 236u);
+    EXPECT_EQ(offsetof(gpu::PerDrawUniforms, drawParams), 240u);
+
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, baseColorFactor), 0u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, emissiveFactor), 16u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, metallicFactor), 80u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, roughnessFactor), 84u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, normalScale), 88u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, occlusionStrength), 92u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, bumpScale), 96u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, baseColorUvTransform), 144u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, metallicRoughnessUvTransform), 160u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, normalUvTransform), 176u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, occlusionUvTransform), 192u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, emissiveUvTransform), 208u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, uvRotations0), 224u);
+    EXPECT_EQ(offsetof(gpu::MaterialUniforms, uvRotations1), 240u);
 }
 
 TEST(RenderingFeaturesTest, ClusteredForwardZSliceLogarithmicDistribution) {
@@ -1988,4 +2007,143 @@ TEST(TextureDecoderHdrTest, SupportsPlusXMinusYAxisOrdering) {
     EXPECT_GT(res->rgbaFloat[0], res->rgbaFloat[1]);
     EXPECT_GT(res->rgbaFloat[1], res->rgbaFloat[2]);
     EXPECT_FLOAT_EQ(res->rgbaFloat[3], 1.0f);
+}
+
+TEST(RenderingFeaturesTest, MultiInstancePerDrawRingStrideAndDistinctTransforms) {
+    auto sharedMesh = std::make_shared<scene::Mesh>();
+    auto& prim = sharedMesh->primitives.emplace_back();
+    prim.vertices.resize(3);
+    prim.gpuMorphTargetCount = 6;
+    prim.gpuMorphVertexCount = 3;
+    // Simulate allocated GPU handle sentinel (non-null pointer identity for branch testing without real device)
+    prim.gpuMorphDeltaBuffer = reinterpret_cast<WGPUBuffer>(static_cast<uintptr_t>(0x1));
+    struct SentinelReset {
+        scene::MeshPrimitive& target;
+        ~SentinelReset() { target.gpuMorphDeltaBuffer = nullptr; }
+    } sentinelGuard{prim};
+
+    scene::SceneNode instA;
+    instA.mesh = sharedMesh;
+    instA.morphWeights = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f};
+    const glm::mat4 modelA = glm::translate(glm::mat4{1.0f}, glm::vec3{-5.0f, 0.0f, 0.0f});
+
+    scene::SceneNode instB;
+    instB.mesh = sharedMesh;
+    instB.morphWeights = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9f};
+    const glm::mat4 modelB = glm::translate(glm::mat4{1.0f}, glm::vec3{7.0f, 2.0f, -3.0f});
+
+    std::vector<gpu::PerDrawUniforms> ringStaging(2);
+    gpu::PreparedDrawBindings prepA{};
+    gpu::PopulatePerDrawMorphAndSkin(nullptr, prim, &instA, modelA, glm::mat4{1.0f}, glm::mat4{1.0f},
+                                     gpu::MaterialFlags::EnableShadows, 0.25f, {}, {}, 1u, nullptr, prepA);
+    ringStaging[0] = prepA.uniforms;
+
+    gpu::PreparedDrawBindings prepB{};
+    gpu::PopulatePerDrawMorphAndSkin(nullptr, prim, &instB, modelB, glm::mat4{1.0f}, glm::mat4{1.0f},
+                                     gpu::MaterialFlags::EnableShadows, 0.75f, {}, {}, 1u, nullptr, prepB);
+    ringStaging[1] = prepB.uniforms;
+
+    // 256-byte dynamic alignment stride between instances & independent model/morph states
+    const auto* baseByte = reinterpret_cast<const std::byte*>(ringStaging.data());
+    const auto* secondByte = reinterpret_cast<const std::byte*>(&ringStaging[1]);
+    EXPECT_EQ(secondByte - baseByte, 256);
+    EXPECT_FLOAT_EQ(ringStaging[0].model[3][0], -5.0f);
+    EXPECT_FLOAT_EQ(ringStaging[1].model[3][0], 7.0f);
+    EXPECT_FLOAT_EQ(ringStaging[0].morphWeights1.y, 0.6f);
+    EXPECT_FLOAT_EQ(ringStaging[1].morphWeights1.y, 0.9f);
+    EXPECT_EQ(ringStaging[0].morphTargetCount, 6u);
+    EXPECT_NE(ringStaging[0].drawFlags & gpu::MaterialFlags::HasMorphTargets, 0u);
+    EXPECT_FLOAT_EQ(ringStaging[0].drawParams.x, 0.25f);
+    EXPECT_FLOAT_EQ(ringStaging[1].drawParams.x, 0.75f);
+}
+
+TEST(RenderingFeaturesTest, PerChannelKhrTextureTransformParsing) {
+    // Minimal valid glTF 2.0 JSON with 1x1 PNG buffer and distinct KHR_texture_transform per channel
+    static constexpr std::string_view kGltfJson = R"({
+        "asset": { "version": "2.0" },
+        "extensionsUsed": ["KHR_texture_transform"],
+        "buffers": [{
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "byteLength": 36
+        }],
+        "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 36 }],
+        "accessors": [{
+            "bufferView": 0,
+            "componentType": 5126,
+            "count": 3,
+            "type": "VEC3"
+        }],
+        "images": [{
+            "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        }],
+        "textures": [{ "source": 0 }],
+        "materials": [{
+            "name": "MultiUvMat",
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {
+                    "index": 0,
+                    "extensions": {
+                        "KHR_texture_transform": { "offset": [0.1, 0.2], "scale": [2.0, 3.0], "rotation": 0.5 }
+                    }
+                },
+                "metallicRoughnessTexture": {
+                    "index": 0,
+                    "extensions": {
+                        "KHR_texture_transform": { "offset": [0.25, 0.5], "scale": [4.0, 5.0], "rotation": 1.0 }
+                    }
+                }
+            },
+            "normalTexture": {
+                "index": 0,
+                "extensions": {
+                    "KHR_texture_transform": { "offset": [0.3, 0.4], "scale": [6.0, 7.0], "rotation": 1.5 }
+                }
+            },
+            "occlusionTexture": {
+                "index": 0,
+                "extensions": {
+                    "KHR_texture_transform": { "offset": [0.4, 0.6], "scale": [8.0, 9.0], "rotation": 0.25 }
+                }
+            },
+            "emissiveTexture": {
+                "index": 0,
+                "extensions": {
+                    "KHR_texture_transform": { "offset": [0.7, 0.8], "scale": [10.0, 11.0], "rotation": 2.0 }
+                }
+            }
+        }],
+        "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "material": 0 }] }],
+        "nodes": [{ "mesh": 0 }],
+        "scenes": [{ "nodes": [0] }],
+        "scene": 0
+    })";
+
+    scene::AssetManager assetMgr;
+    scene::FastGltfLoader loader(assetMgr);
+    std::vector<uint8_t> bytes(kGltfJson.begin(), kGltfJson.end());
+    auto loaded = loader.LoadFromMemory(bytes, ".");
+    ASSERT_TRUE(loaded.has_value()) << loaded.error();
+    ASSERT_NE(*loaded, nullptr);
+    ASSERT_EQ((*loaded)->materials.size(), 1u);
+
+    const auto& mat = (*loaded)->materials[0];
+    EXPECT_NEAR(mat.baseColorUvTransform.offset.x, 0.1f, 1e-5f);
+    EXPECT_NEAR(mat.baseColorUvTransform.scale.y, 3.0f, 1e-5f);
+    EXPECT_NEAR(mat.baseColorUvTransform.rotation, 0.5f, 1e-5f);
+
+    EXPECT_NEAR(mat.metallicRoughnessUvTransform.offset.x, 0.25f, 1e-5f);
+    EXPECT_NEAR(mat.metallicRoughnessUvTransform.scale.x, 4.0f, 1e-5f);
+    EXPECT_NEAR(mat.metallicRoughnessUvTransform.rotation, 1.0f, 1e-5f);
+
+    EXPECT_NEAR(mat.normalUvTransform.offset.y, 0.4f, 1e-5f);
+    EXPECT_NEAR(mat.normalUvTransform.scale.x, 6.0f, 1e-5f);
+    EXPECT_NEAR(mat.normalUvTransform.rotation, 1.5f, 1e-5f);
+
+    EXPECT_NEAR(mat.occlusionUvTransform.offset.x, 0.4f, 1e-5f);
+    EXPECT_NEAR(mat.occlusionUvTransform.scale.y, 9.0f, 1e-5f);
+    EXPECT_NEAR(mat.occlusionUvTransform.rotation, 0.25f, 1e-5f);
+
+    EXPECT_NEAR(mat.emissiveUvTransform.offset.x, 0.7f, 1e-5f);
+    EXPECT_NEAR(mat.emissiveUvTransform.scale.y, 11.0f, 1e-5f);
+    EXPECT_NEAR(mat.emissiveUvTransform.rotation, 2.0f, 1e-5f);
 }

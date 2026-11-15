@@ -19,12 +19,21 @@ namespace {
 
 #if defined(__has_embed)
 #if __has_embed("shaders/ui.wgsl")
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc23-extensions"
+#elif defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wc++26-extensions"
+#endif
 static constexpr char kEmbeddedUiWgslBytes[] = {
 #embed "shaders/ui.wgsl"
 };
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
 static constexpr std::string_view kUiShaderWGSL{kEmbeddedUiWgslBytes, sizeof(kEmbeddedUiWgslBytes)};
 #define BGL_UI_SHADER_EMBEDDED 1
 #endif

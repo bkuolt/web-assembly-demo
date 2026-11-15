@@ -58,6 +58,20 @@
                 "CMAKE_CXX_FLAGS": "-fsanitize=thread -g",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
+        },
+        {
+            "name": "clang",
+            "displayName": "Clang Release (Tight Warnings)",
+            "description": "Build with Clang++ and strict warning flags",
+            "binaryDir": "${sourceDir}/build/review-clang",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
+            }
         }
     ],
     "buildPresets": [
@@ -76,6 +90,10 @@
         {
             "name": "tsan",
             "configurePreset": "tsan"
+        },
+        {
+            "name": "clang",
+            "configurePreset": "clang"
         }
     ],
     "testPresets": [
@@ -89,6 +107,13 @@
         {
             "name": "asan",
             "configurePreset": "asan",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "clang",
+            "configurePreset": "clang",
             "output": {
                 "outputOnFailure": true
             }

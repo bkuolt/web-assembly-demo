@@ -270,10 +270,27 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     BGL_LOG_INFO("Configured KTX2 transcoding target to native GPU block format: {}",
                  scene::TextureDecoder::GetKtxTargetName(scene::TextureDecoder::GetDefaultKtxTarget()));
 
+    WGPULimits supportedLimits = WGPU_LIMITS_INIT;
+    WGPULimits requiredLimits = WGPU_LIMITS_INIT;
     WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
     devDesc.label = ToWgpuStringView("BglDevice");
     devDesc.requiredFeatureCount = requestedFeatures.size();
     devDesc.requiredFeatures = requestedFeatures.empty() ? nullptr : requestedFeatures.data();
+    if (wgpuAdapterGetLimits(adapter_, &supportedLimits) == WGPUStatus_Success) {
+        if (supportedLimits.maxBindGroups >= 4u) {
+            requiredLimits.maxBindGroups = 4u;
+        }
+        if (supportedLimits.maxDynamicUniformBuffersPerPipelineLayout >= 2u) {
+            requiredLimits.maxDynamicUniformBuffersPerPipelineLayout = 2u;
+        }
+        if (supportedLimits.maxStorageBuffersPerShaderStage >= 4u) {
+            requiredLimits.maxStorageBuffersPerShaderStage = 4u;
+        }
+        if (supportedLimits.minUniformBufferOffsetAlignment <= 256u) {
+            requiredLimits.minUniformBufferOffsetAlignment = 256u;
+        }
+        devDesc.requiredLimits = &requiredLimits;
+    }
 
     struct DeviceData {
         WGPUDevice device = nullptr;

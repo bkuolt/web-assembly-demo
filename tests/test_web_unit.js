@@ -1388,6 +1388,27 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
     window.setDebugView(0);
     assert.strictEqual(BglState.debugViewMode, 0);
   });
+
+  test('Camera frustum plane extraction culls behind-camera spheres and keeps front spheres', () => {
+    const proj = mat4.perspective(mat4.create(), Math.PI / 3, 16 / 9, 0.1, 100.0);
+    const view = mat4.lookAt(mat4.create(), [0, 0, 5], [0, 0, 0], [0, 1, 0]);
+    const vp = mat4.multiply(mat4.create(), proj, view);
+    const planes = mat4.extractFrustumPlanes(new Float32Array(24), vp);
+
+    assert.strictEqual(mat4.isSphereInFrustum(planes, 0, 0, 0, 0.5), true, 'Origin sphere in front of camera must be visible');
+    assert.strictEqual(mat4.isSphereInFrustum(planes, 0, 0, 20, 0.5), false, 'Sphere behind camera must be culled');
+    assert.strictEqual(mat4.isSphereInFrustum(planes, 500, 0, 0, 1.0), false, 'Sphere far outside right frustum plane must be culled');
+  });
+
+  test('WGSL shader exposes per-channel KHR_texture_transform fields within 512-byte Uniforms', () => {
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    assert(wgsl.includes('mrUvTransform : vec4<f32>'), 'WGSL Uniforms must declare mrUvTransform');
+    assert(wgsl.includes('normalUvTransform : vec4<f32>'), 'WGSL Uniforms must declare normalUvTransform');
+    assert(wgsl.includes('occlusionUvTransform : vec4<f32>'), 'WGSL Uniforms must declare occlusionUvTransform');
+    assert(wgsl.includes('emissiveUvTransform : vec4<f32>'), 'WGSL Uniforms must declare emissiveUvTransform');
+    assert(wgsl.includes('uvRotations0 : vec4<f32>'), 'WGSL Uniforms must declare uvRotations0');
+    assert(wgsl.includes('fn transformUv('), 'WGSL must define transformUv helper');
+  });
 });
 
 // ============================================================================

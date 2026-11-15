@@ -25,7 +25,7 @@ public:
     ~ScopedTimer() {
         auto end = std::chrono::high_resolution_clock::now();
         auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end - start_).count();
-        double durationMs = durationUs / 1000.0;
+        double durationMs = static_cast<double>(durationUs) / 1000.0;
         spdlog::info("[TIMER] {} took {} us ({:.3f} ms)", name_, durationUs, durationMs);
     }
 

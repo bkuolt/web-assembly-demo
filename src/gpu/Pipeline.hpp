@@ -14,6 +14,7 @@
 #include "gpu/Handle.hpp"
 #include "gpu/PostProcessPass.hpp"
 #include "gpu/ShadowPass.hpp"
+#include "gpu/Uniforms.hpp"
 #include <array>
 #include <glm/glm.hpp>
 #include <span>
@@ -42,121 +43,6 @@ enum class EnvironmentPreset : uint32_t {
 enum class WeatherMode : uint32_t { None = 0, Rain = 1, Snow = 2, Fog = 3, Smoke = 4 };
 
 enum class DebugViewMode : uint32_t { LitPbr = 0, LodHeatmap = 1, Normals = 2, MetallicRoughnessAo = 3, UvChecker = 4 };
-
-namespace MaterialFlags {
-constexpr uint32_t HasBaseColorTex = 1u << 0;
-constexpr uint32_t HasMetallicRoughnessTex = 1u << 1;
-constexpr uint32_t HasNormalTex = 1u << 2;
-constexpr uint32_t HasEmissiveTex = 1u << 3;
-constexpr uint32_t HasOcclusionTex = 1u << 4;
-constexpr uint32_t HasClearcoatTex = 1u << 5;
-constexpr uint32_t HasTransmissionTex = 1u << 6;
-constexpr uint32_t HasSheenTex = 1u << 7;
-constexpr uint32_t Unlit = 1u << 8;
-constexpr uint32_t DoubleSided = 1u << 9;
-constexpr uint32_t EnableBumpMapping = 1u << 10;
-constexpr uint32_t EnableMipmapping = 1u << 11;
-constexpr uint32_t EnableShadows = 1u << 12;
-constexpr uint32_t EnableReflections = 1u << 13;
-constexpr uint32_t EnableAmbientOcclusion = 1u << 14;
-constexpr uint32_t EnableParallaxOcclusion = 1u << 15;
-constexpr uint32_t HasThicknessTex = 1u << 16;
-constexpr uint32_t HasSkinning = 1u << 17;
-constexpr uint32_t HasMorphTargets = 1u << 18;
-constexpr uint32_t LodLevelShift = 19u;
-constexpr uint32_t LodLevelMask = 3u << 19;
-constexpr uint32_t DebugViewShift = 21u;
-constexpr uint32_t DebugViewMask = 7u << 21;
-} // namespace MaterialFlags
-
-struct alignas(16) PrimitiveUniforms {
-    // 0..191: Matrices (ViewProj, Model, LightViewProj)
-    glm::mat4 viewProj{1.0f};
-    glm::mat4 model{1.0f};
-    glm::mat4 lightViewProj{1.0f};
-
-    // 192..223: Camera & Light
-    glm::vec4 cameraPos{0.0f};
-    glm::vec4 lightDir{0.577f, 0.577f, 0.577f, 0.0f};
-
-    // 224..255: Base Color & PBR Core
-    glm::vec4 baseColorFactor{1.0f};
-    float metallicFactor{1.0f};
-    float roughnessFactor{1.0f};
-    float normalScale{1.0f};
-    float occlusionStrength{1.0f};
-
-    // 256..287: Emissive & Alpha & Flags
-    glm::vec4 emissiveFactor{0.0f, 0.0f, 0.0f, 1.0f}; // xyz = rgb, w = strength
-    float alphaCutoff{0.5f};
-    uint32_t alphaMode{0}; // 0=Opaque, 1=Mask, 2=Blend
-    uint32_t flags{0};
-    float ior{1.5f};
-
-    // 288..319: Clearcoat, Transmission, Sheen
-    float clearcoatFactor{0.0f};
-    float clearcoatRoughness{0.0f};
-    float transmissionFactor{0.0f};
-    float specularFactor{1.0f};
-    glm::vec4 sheenColorFactor{0.0f, 0.0f, 0.0f, 0.0f}; // xyz = color, w = roughness
-
-    // 320..335: Specular Color
-    glm::vec4 specularColorFactor{1.0f, 1.0f, 1.0f, 0.0f};
-
-    // 336..351: Bump, Reflection, Shadow & Environment Mip Parameters
-    float bumpScale{1.0f};
-    float reflectionIntensity{1.0f};
-    float shadowBias{0.0015f};
-    float envMipCount{7.0f};
-
-    // 352..383: Volume & Attenuation (KHR_materials_volume) & UV Scale
-    float thicknessFactor{0.0f};
-    float attenuationDistance{1e9f};
-    glm::vec2 uvScale{1.0f, 1.0f};
-    glm::vec4 attenuationColor{1.0f, 1.0f, 1.0f, 1.0f};
-
-    // 384..399: Animation & Skinning counts & UV Offset
-    uint32_t jointCount{0};
-    uint32_t morphTargetCount{0};
-    glm::vec2 uvOffset{0.0f, 0.0f};
-
-    // 400..415: Morph Weights (first 4 channels)
-    glm::vec4 morphWeights{0.0f};
-
-    // 416..8607: Joint Matrices for Skeletal Animation (up to 128 joints)
-    glm::mat4 jointMatrices[128]{};
-};
-static_assert(sizeof(PrimitiveUniforms) == 8608, "PrimitiveUniforms must be exactly 8608 bytes (16-byte aligned)");
-
-struct alignas(16) GpuPunctualLight {
-    glm::vec4 posOrDir{
-        0.0f}; // xyz = position (Point/Spot) or directionToLight (Directional), w = type (0=Dir, 1=Point, 2=Spot)
-    glm::vec4 colorInt{0.0f};                      // xyz = color * intensity, w = range (0 = infinite)
-    glm::vec4 spotParams{0.0f, -1.0f, 0.0f, 0.0f}; // xyz = spotDirection (light-to-target), w = reserved
-};
-static_assert(sizeof(GpuPunctualLight) == 48, "GpuPunctualLight must be 48 bytes");
-
-struct alignas(16) SceneLightingUniforms {
-    std::array<glm::vec4, 9> shIrradiance{};
-    std::array<GpuPunctualLight, 16> lights{};
-    std::array<glm::vec4, 16> spotAngles{};     // x = lightAngleScale, y = lightAngleOffset, z = castsShadow, w = pad
-    std::array<glm::uvec4, 256> clusterMasks{}; // 1024 uint32_t bitmasks for 16 x 8 x 8 Forward+ frustum clusters
-    glm::vec4 gridParams{1280.0f, 720.0f, 0.1f, 500.0f}; // x = viewportW, y = viewportH, z = zNear, w = zFar
-    glm::vec4 envParams{0.0f, 0.0f, 1.0f,
-                        1.0f}; // x = envRotation, y = punctualLightCount, z = useClusteredCulling, w = hasPrimarySun
-    glm::mat4 viewMatrix{1.0f};
-    glm::vec4 weatherParams{0.0f, 1.0f, 0.3f,
-                            0.0f}; // x = weatherMode (0=None, 1=Rain, 2=Snow), y = intensity, z = wind, w = timeSec
-};
-static_assert(sizeof(SceneLightingUniforms) == 5376, "SceneLightingUniforms must be 5376 bytes");
-
-struct alignas(16) PrefilterComputeParams {
-    float roughness{0.0f};
-    uint32_t faceSize{64};
-    float sourceSize{64.0f};
-    uint32_t sampleCount{64};
-};
-static_assert(sizeof(PrefilterComputeParams) == 16, "PrefilterComputeParams must be 16 bytes");
 
 /**
  * @class PipelineManager
@@ -543,9 +429,9 @@ public:
     [[nodiscard]] const ShadowPass& GetShadowPass() const noexcept { return shadowPass_; }
     [[nodiscard]] PostProcessPass& GetPostProcessPass() noexcept { return postProcessPass_; }
     [[nodiscard]] const PostProcessPass& GetPostProcessPass() const noexcept { return postProcessPass_; }
-    [[nodiscard]] GpuCuller& GetGpuCuller() noexcept { return gpuCuller_; }
+    [[nodiscard]] GpuCuller& GetGpuCuller() noexcept;
     [[nodiscard]] const GpuCuller& GetGpuCuller() const noexcept { return gpuCuller_; }
-    [[nodiscard]] GpuRayPicker& GetGpuRayPicker() noexcept { return gpuRayPicker_; }
+    [[nodiscard]] GpuRayPicker& GetGpuRayPicker() noexcept;
     [[nodiscard]] const GpuRayPicker& GetGpuRayPicker() const noexcept { return gpuRayPicker_; }
 
     // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also
@@ -594,16 +480,36 @@ public:
                                         float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept;
 
 private:
+    struct RenderItem {
+        scene::SceneNode* node{nullptr};
+        size_t primitiveIndex{0};
+        glm::mat4 worldTransform{1.0f};
+        float distance{0.0f};
+        int materialIndex{-1};
+        bool isTransparent{false};
+        bool isDoubleSided{false};
+        uint32_t lodLevel{0};
+        float lodTransition{0.0f};
+    };
+
+    struct DrawDispatchItem {
+        scene::MeshPrimitive* prim{nullptr};
+        WGPUBindGroup skinBindGroup{nullptr};
+        WGPURenderPipeline pipeline{nullptr};
+        uint32_t dynamicOffset{0};
+        uint32_t clampedLod{0};
+    };
+
     void InitializeComputeIBLPipelines();
+    void InitMipGenPipelines();
+    void GenerateTextureMipsGpu(WGPUCommandEncoder encoder, WGPUTexture texture, uint32_t width, uint32_t height,
+                                uint32_t mipLevels, bool isSrgb, bool isNormalMap);
     void DispatchBrdfLutCompute();
     void BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces, uint32_t faceSize);
+    void RebuildSceneGlobalsBindGroup();
     void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix,
-                                     uint32_t viewportW, uint32_t viewportH, float zNear, float zFar);
-
-    void RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& scene, scene::MeshPrimitive& prim,
-                         const glm::mat4& worldMat, const glm::mat4& viewProj, const glm::vec3& cameraPos,
-                         bool wireframe, WGPURenderPipeline& currentBoundPipeline,
-                         const scene::SceneNode* node = nullptr, uint32_t lodLevel = 0, float lodTransition = 0.0f);
+                                     const glm::vec3& cameraPos, uint32_t viewportW, uint32_t viewportH, float zNear,
+                                     float zFar);
 
     bool initialized_{false};
     bool bumpMappingEnabled_{true};
@@ -654,7 +560,28 @@ private:
     RenderPipelineHandle opaquePipeline_{};
     RenderPipelineHandle opaqueBackCulledPipeline_{};
     RenderPipelineHandle wireframePipeline_{};
-    BindGroupLayoutHandle bindGroupLayout_{};
+    BindGroupLayoutHandle sceneGlobalsBgl_{};
+    BindGroupLayoutHandle perDrawBgl_{};
+    BindGroupLayoutHandle materialBgl_{};
+    BindGroupLayoutHandle skinBgl_{};
+    BindGroupHandle sceneGlobalsBindGroup_{};
+    DynamicUniformRing<PerDrawUniforms> perDrawRing_{};
+    BufferHandle dummyMorphDeltaBuffer_{};
+    BufferHandle dummySkinBuffer_{};
+    BindGroupHandle dummySkinBindGroup_{};
+
+    ShaderModuleHandle mipGenShaderModule_{};
+    BindGroupLayoutHandle mipGenBgl_{};
+    RenderPipelineHandle mipGenUnormPipeline_{};
+    RenderPipelineHandle mipGenSrgbPipeline_{};
+    RenderPipelineHandle mipGenNormalPipeline_{};
+
+    uint64_t skinFrameId_{1};
+    bool skinFrameAdvanced_{false};
+    std::vector<scene::QuadtreeItem> visibleItemsScratch_{};
+    std::vector<RenderItem> renderItemsScratch_{};
+    std::vector<DrawDispatchItem> drawCallsScratch_{};
+    std::vector<PerDrawUniforms> mainPerDrawScratch_{};
 
     // True HDR IBL Resources (RGBA16Float Cubemap + Compute GGX Prefilter + Compute BRDF LUT + SceneLightingUniforms)
     TextureHandle envCubemapTexture_{};

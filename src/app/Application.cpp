@@ -459,7 +459,7 @@ void Application::Update(float deltaTime) {
     soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
 
     // Collect telemetry stats for the in-engine debug HUD overlay
-    ui::OverlayStats stats;
+    ui::OverlayStats& stats{cachedOverlayStats_};
     stats.deltaTime = deltaTime;
     stats.cameraPos = camera_.GetPosition();
     stats.cameraTarget = camera_.GetTarget();
@@ -482,20 +482,27 @@ void Application::Update(float deltaTime) {
     stats.lodBias = pipelineManager_.GetLodBias();
     stats.renderedTriangles = pipelineManager_.GetRenderedTriangleCount();
     stats.totalVisibleTriangles = pipelineManager_.GetTotalVisibleTriangleCount();
-    stats.debugViewName = std::string{pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode())};
-    stats.weatherModeName = std::string{pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode())};
+    stats.debugViewName.assign(pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode()));
+    stats.weatherModeName.assign(pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
     stats.timeOfDay = timeOfDay_;
     stats.dayNightCycleEnabled = dayNightCycleActive_;
 
     // Memory and Gamepad telemetry
-    auto memTelemetry = core::MemoryTracker::Instance().Query();
+    memTelemetryTimer_ += deltaTime;
+    if (memTelemetryTimer_ >= 0.25f) {
+        memTelemetryTimer_ = 0.0f;
+        cachedMemTelemetry_ = core::MemoryTracker::Instance().Query();
+    }
+    const auto& memTelemetry = cachedMemTelemetry_;
     stats.residentRamBytes = memTelemetry.residentRamBytes;
     size_t vramBytes = memTelemetry.TotalGpuBytes();
     size_t textureVramBytes = 0;
     if (activeScene_) {
         for (const auto& tex : activeScene_->gpuTextures) {
-            const size_t texBytes =
-                (tex.vramBytes > 0) ? tex.vramBytes : static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
+            const size_t texBytes = (tex.vramBytes > 0)
+                                        ? tex.vramBytes
+                                        : static_cast<size_t>(static_cast<double>(tex.width) *
+                                                              static_cast<double>(tex.height) * 4.0 * 1.33);
             textureVramBytes += texBytes;
         }
         vramBytes += textureVramBytes;
@@ -530,7 +537,7 @@ void Application::Update(float deltaTime) {
 
     stats.gamepadConnected = gp.connected;
     stats.isDualSense = gp.isDualSense;
-    stats.gamepadName = gp.deviceName;
+    stats.gamepadName.assign(gp.deviceName);
 
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;

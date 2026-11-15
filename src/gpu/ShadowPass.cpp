@@ -5,11 +5,12 @@
 #include "gpu/ShadowPass.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
+#include "gpu/DrawHelpers.hpp"
 #include "gpu/Handle.hpp"
 #include "gpu/Shaders.hpp"
 #include <algorithm>
 #include <array>
-#include <cstring>
+#include <utility>
 
 namespace bgl::gpu {
 
@@ -33,12 +34,14 @@ void ShadowPass::MoveFrom(ShadowPass& other) noexcept {
     device_ = std::exchange(other.device_, nullptr);
     queue_ = std::exchange(other.queue_, nullptr);
     shadowPipeline_ = std::exchange(other.shadowPipeline_, nullptr);
-    shadowBindGroupLayout_ = std::exchange(other.shadowBindGroupLayout_, nullptr);
     shadowTexture_ = std::exchange(other.shadowTexture_, nullptr);
     shadowTextureView_ = std::exchange(other.shadowTextureView_, nullptr);
     shadowSampler_ = std::exchange(other.shadowSampler_, nullptr);
-    defaultSampler_ = std::exchange(other.defaultSampler_, nullptr);
-    defaultWhiteView_ = std::exchange(other.defaultWhiteView_, nullptr);
+    dummySkinBindGroup_ = std::exchange(other.dummySkinBindGroup_, nullptr);
+    perDrawRing_ = std::move(other.perDrawRing_);
+    visibleItemsScratch_ = std::move(other.visibleItemsScratch_);
+    drawItemsScratch_ = std::move(other.drawItemsScratch_);
+    perDrawScratch_ = std::move(other.perDrawScratch_);
     lightViewProj_ = other.lightViewProj_;
     dirty_ = std::exchange(other.dirty_, true);
     cleared_ = std::exchange(other.cleared_, false);
@@ -47,6 +50,11 @@ void ShadowPass::MoveFrom(ShadowPass& other) noexcept {
 }
 
 void ShadowPass::Shutdown() noexcept {
+    perDrawRing_.Shutdown();
+    drawItemsScratch_.clear();
+    perDrawScratch_.clear();
+    visibleItemsScratch_.clear();
+
     if (shadowSampler_) {
         wgpuSamplerRelease(shadowSampler_);
         shadowSampler_ = nullptr;
@@ -64,12 +72,7 @@ void ShadowPass::Shutdown() noexcept {
         wgpuRenderPipelineRelease(shadowPipeline_);
         shadowPipeline_ = nullptr;
     }
-    if (shadowBindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(shadowBindGroupLayout_);
-        shadowBindGroupLayout_ = nullptr;
-    }
-    defaultSampler_ = nullptr;
-    defaultWhiteView_ = nullptr;
+    dummySkinBindGroup_ = nullptr;
     device_ = nullptr;
     queue_ = nullptr;
     dirty_ = true;
@@ -78,16 +81,17 @@ void ShadowPass::Shutdown() noexcept {
     lastLightDir_ = glm::vec3{0.0f};
 }
 
-core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WGPUSampler defaultSampler,
-                                          WGPUTextureView defaultWhiteView) {
-    if (!device || !queue) {
-        return std::unexpected("Cannot initialize ShadowPass with null WebGPU device or queue");
+core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout perDrawBgl,
+                                          WGPUBindGroupLayout materialBgl, WGPUBindGroupLayout skinBgl,
+                                          WGPUBindGroup dummySkinBindGroup) {
+    if (!device || !queue || !perDrawBgl || !materialBgl || !skinBgl || !dummySkinBindGroup) {
+        return std::unexpected(
+            "Cannot initialize ShadowPass with null WebGPU device, queue, or shared bind group layouts");
     }
     Shutdown();
     device_ = device;
     queue_ = queue;
-    defaultSampler_ = defaultSampler;
-    defaultWhiteView_ = defaultWhiteView;
+    dummySkinBindGroup_ = dummySkinBindGroup;
 
     // 1. Create 2048x2048 Depth32Float Shadow Texture
     WGPUTextureDescriptor shadowTexDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -141,56 +145,26 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
     wgslDesc.chain.next = nullptr;
     wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kShadowShaderWGSL.data());
+    wgslDesc.code = ToWgpuStringView(kShadowShaderWGSL);
 
     WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     shaderDesc.nextInChain = &wgslDesc.chain;
     shaderDesc.label = ToWgpuStringView("Shadow_ShaderModule");
 
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &shaderDesc);
+    ShaderModuleHandle shaderModule{wgpuDeviceCreateShaderModule(device_, &shaderDesc)};
     if (!shaderModule) {
         Shutdown();
         return std::unexpected("Failed to compile shadow WGSL shader module");
     }
 
-    // 4. Bind Group Layout (0: Uniforms, 1: Sampler, 2: Texture for Alpha Discard)
-    std::array<WGPUBindGroupLayoutEntry, 3> entries{};
-    entries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    entries[0].binding = 0;
-    entries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    entries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    entries[0].buffer.minBindingSize = sizeof(ShadowUniforms);
-
-    entries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    entries[1].binding = 1;
-    entries[1].visibility = WGPUShaderStage_Fragment;
-    entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
-
-    entries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    entries[2].binding = 2;
-    entries[2].visibility = WGPUShaderStage_Fragment;
-    entries[2].texture.sampleType = WGPUTextureSampleType_Float;
-    entries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
-
-    WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = entries.size();
-    bglDesc.entries = entries.data();
-    bglDesc.label = ToWgpuStringView("Shadow_BindGroupLayout");
-    shadowBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
-    if (!shadowBindGroupLayout_) {
-        wgpuShaderModuleRelease(shaderModule);
-        Shutdown();
-        return std::unexpected("Failed to create shadow bind group layout");
-    }
-
-    // 5. Pipeline Layout & Render Pipeline
+    // 4. Shared 3-Group Pipeline Layout (0: PerDrawDynamic, 1: MaterialStatic, 2: SkinStorage)
+    const std::array<WGPUBindGroupLayout, 3> layouts{perDrawBgl, materialBgl, skinBgl};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &shadowBindGroupLayout_;
+    plDesc.bindGroupLayoutCount = layouts.size();
+    plDesc.bindGroupLayouts = layouts.data();
     plDesc.label = ToWgpuStringView("Shadow_PipelineLayout");
-    WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    PipelineLayoutHandle pl{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
     if (!pl) {
-        wgpuShaderModuleRelease(shaderModule);
         Shutdown();
         return std::unexpected("Failed to create shadow pipeline layout");
     }
@@ -220,7 +194,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
     shadowAttrs[5].offset = offsetof(core::Vertex, weights);
     shadowAttrs[5].shaderLocation = 5;
 
-    WGPUVertexBufferLayout vbLayout{};
+    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vbLayout.arrayStride = sizeof(core::Vertex);
     vbLayout.stepMode = WGPUVertexStepMode_Vertex;
     vbLayout.attributeCount = shadowAttrs.size();
@@ -235,15 +209,15 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
     depthStencil.depthBiasClamp = 0.0f;
 
     WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
-    fragState.module = shaderModule;
+    fragState.module = shaderModule.Get();
     fragState.entryPoint = ToWgpuStringView("fs_shadow");
     fragState.targetCount = 0;
     fragState.targets = nullptr;
 
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     rpDesc.label = ToWgpuStringView("Shadow_RenderPipeline");
-    rpDesc.layout = pl;
-    rpDesc.vertex.module = shaderModule;
+    rpDesc.layout = pl.Get();
+    rpDesc.vertex.module = shaderModule.Get();
     rpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
     rpDesc.vertex.bufferCount = 1;
     rpDesc.vertex.buffers = &vbLayout;
@@ -255,13 +229,12 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
     rpDesc.multisample.mask = 0xFFFFFFFF;
 
     shadowPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-    wgpuPipelineLayoutRelease(pl);
-    wgpuShaderModuleRelease(shaderModule);
-
     if (!shadowPipeline_) {
         Shutdown();
         return std::unexpected("Failed to create shadow render pipeline");
     }
+
+    perDrawRing_.Initialize(device_, queue_, perDrawBgl, "Shadow_PerDrawRing");
 
     // Initialize depth texture to 1.0 (unshadowed) so sampling is well-defined before first render.
     if (CommandEncoderHandle initEnc{wgpuDeviceCreateCommandEncoder(device_, nullptr)}) {
@@ -272,7 +245,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
         }
     }
 
-    BGL_LOG_INFO("ShadowPass initialized successfully (2048x2048 Depth32F PCF Pre-Pass)");
+    BGL_LOG_INFO("ShadowPass initialized successfully (2048x2048 Depth32F PCF Pre-Pass, Dynamic PerDraw Ring)");
     return {};
 }
 
@@ -327,41 +300,10 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
     return lightProj * lightView;
 }
 
-WGPUBindGroup ShadowPass::CreateShadowBindGroup(WGPUBuffer shadowUniformBuffer,
-                                                WGPUTextureView baseColorView) const noexcept {
-    if (!device_ || !shadowBindGroupLayout_ || !shadowUniformBuffer || !defaultSampler_)
-        return nullptr;
-
-    WGPUTextureView view = baseColorView ? baseColorView : defaultWhiteView_;
-    if (!view)
-        return nullptr;
-
-    std::array<WGPUBindGroupEntry, 3> bgEntries{};
-    bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-    bgEntries[0].binding = 0;
-    bgEntries[0].buffer = shadowUniformBuffer;
-    bgEntries[0].offset = 0;
-    bgEntries[0].size = sizeof(ShadowUniforms);
-
-    bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-    bgEntries[1].binding = 1;
-    bgEntries[1].sampler = defaultSampler_;
-
-    bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-    bgEntries[2].binding = 2;
-    bgEntries[2].textureView = view;
-
-    WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-    bgDesc.layout = shadowBindGroupLayout_;
-    bgDesc.entryCount = bgEntries.size();
-    bgDesc.entries = bgEntries.data();
-    bgDesc.label = ToWgpuStringView("Shadow_BindGroup");
-    return wgpuDeviceCreateBindGroup(device_, &bgDesc);
-}
-
 void ShadowPass::Clear(WGPUCommandEncoder encoder) {
-    if (!encoder || !shadowTextureView_ || cleared_)
+    if (!encoder || !shadowTextureView_ || cleared_) {
         return;
+    }
 
     WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
     depthAttachment.view = shadowTextureView_;
@@ -381,9 +323,10 @@ void ShadowPass::Clear(WGPUCommandEncoder encoder) {
 }
 
 void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
-                        const scene::Quadtree* spatialIndex) {
-    if (!encoder || !shadowPipeline_ || !shadowTextureView_)
+                        const scene::Quadtree* spatialIndex, uint64_t skinFrameId) {
+    if (!encoder || !shadowPipeline_ || !shadowTextureView_) {
         return;
+    }
 
     const float dirLen = glm::length(lightDir);
     const glm::vec3 safeDir = (dirLen > 1e-4f) ? (lightDir / dirLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
@@ -392,6 +335,77 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     if (!dirty_ && (!scene.animationPlaying || scene.activeAnimationIndex < 0) && lastScene_ == &scene &&
         glm::distance(lastLightDir_, safeDir) < 1e-4f) {
         return;
+    }
+
+    drawItemsScratch_.clear();
+    perDrawScratch_.clear();
+
+    const core::Frustum lightFrustum{core::Frustum::FromViewProjection(lightViewProj_)};
+    const bool isAnimating{scene.animationPlaying && scene.activeAnimationIndex >= 0};
+
+    auto pushPrimitiveDraw = [&](scene::SceneNode& node, scene::MeshPrimitive& prim, const glm::mat4& worldMat) {
+        if (!prim.gpuVertexBuffer || !prim.gpuBindGroup) {
+            return;
+        }
+        PreparedDrawBindings prepared{};
+        PopulatePerDrawMorphAndSkin(queue_, prim, &node, worldMat, lightViewProj_, lightViewProj_, 0u, 0.0f,
+                                    scene.skins, scene.allNodes, skinFrameId, dummySkinBindGroup_, prepared);
+        const uint32_t dynOffset{static_cast<uint32_t>(perDrawScratch_.size() * sizeof(PerDrawUniforms))};
+        perDrawScratch_.push_back(prepared.uniforms);
+        drawItemsScratch_.push_back(ShadowDrawItem{
+            .prim = &prim,
+            .skinBindGroup = prepared.skinBindGroup,
+            .dynamicOffset = dynOffset,
+        });
+    };
+
+    if (spatialIndex && spatialIndex->GetNodeCount() > 0 && !isAnimating) {
+        const glm::vec3 lightEye{scene.sceneAABB.Center() +
+                                 safeDir * std::max(glm::length(scene.sceneAABB.Extents()), 5.0f) * 1.5f};
+        spatialIndex->QueryVisible(lightFrustum, lightEye, visibleItemsScratch_, 1.0f);
+        drawItemsScratch_.reserve(visibleItemsScratch_.size());
+        perDrawScratch_.reserve(visibleItemsScratch_.size());
+
+        for (const auto& vis : visibleItemsScratch_) {
+            if (!vis.node) {
+                continue;
+            }
+            auto prims = vis.node->GetPrimitives();
+            if (vis.primitiveIndex >= prims.size()) {
+                continue;
+            }
+            pushPrimitiveDraw(*vis.node, prims[vis.primitiveIndex], vis.node->worldTransform);
+        }
+    } else {
+        auto collectNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
+            const glm::mat4 worldMat{parentMat * node.localTransform};
+            for (auto& prim : node.GetPrimitives()) {
+                const core::AABB worldBox = prim.boundingBox.Transformed(worldMat);
+                if (worldBox.minBound.x <= worldBox.maxBound.x && !lightFrustum.IntersectsAABB(worldBox)) {
+                    continue;
+                }
+                pushPrimitiveDraw(node, prim, worldMat);
+            }
+            for (const auto& child : node.children) {
+                if (child) {
+                    self(self, *child, worldMat);
+                }
+            }
+        };
+
+        for (const auto& root : scene.rootNodes) {
+            if (root) {
+                collectNodeShadow(collectNodeShadow, *root, glm::mat4{1.0f});
+            }
+        }
+    }
+
+    WGPUBindGroup perDrawBg{nullptr};
+    if (!perDrawScratch_.empty()) {
+        perDrawBg = perDrawRing_.Upload(perDrawScratch_);
+        if (!perDrawBg) {
+            drawItemsScratch_.clear();
+        }
     }
 
     WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
@@ -405,106 +419,46 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     passDesc.depthStencilAttachment = &depthAttachment;
 
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-    if (!pass)
+    if (!pass) {
         return;
+    }
 
-    wgpuRenderPassEncoderSetPipeline(pass, shadowPipeline_);
+    if (!drawItemsScratch_.empty() && perDrawBg) {
+        wgpuRenderPassEncoderSetPipeline(pass, shadowPipeline_);
 
-    auto renderNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
-        const glm::mat4 worldMat{parentMat * node.localTransform};
-        for (auto& prim : node.GetPrimitives()) {
-            if (!prim.gpuVertexBuffer)
-                continue;
+        WGPUBindGroup boundMatBg{nullptr};
+        WGPUBindGroup boundSkinBg{nullptr};
+        WGPUBuffer boundVb{nullptr};
+        WGPUBuffer boundIb{nullptr};
 
-            if (!prim.gpuShadowUniformBuffer) {
-                WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-                ubDesc.size = sizeof(ShadowUniforms);
-                ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-                ubDesc.label = ToWgpuStringView("ShadowPrimitiveUniforms");
-                prim.gpuShadowUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
-                if (!prim.gpuShadowUniformBuffer)
-                    continue;
+        for (const auto& draw : drawItemsScratch_) {
+            const scene::MeshPrimitive* prim = draw.prim;
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, perDrawBg, 1, &draw.dynamicOffset);
+            if (prim->gpuBindGroup != boundMatBg) {
+                wgpuRenderPassEncoderSetBindGroup(pass, 1, prim->gpuBindGroup, 0, nullptr);
+                boundMatBg = prim->gpuBindGroup;
+            }
+            if (draw.skinBindGroup != boundSkinBg) {
+                wgpuRenderPassEncoderSetBindGroup(pass, 2, draw.skinBindGroup, 0, nullptr);
+                boundSkinBg = draw.skinBindGroup;
+            }
+            if (prim->gpuVertexBuffer != boundVb) {
+                wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim->gpuVertexBuffer, 0, prim->gpuVertexBufferSize);
+                boundVb = prim->gpuVertexBuffer;
             }
 
-            if (prim.morphDirty) {
-                wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(),
-                                     prim.vertices.size() * sizeof(core::Vertex));
-                prim.morphDirty = false;
-            }
-
-            ShadowUniforms uniforms{};
-            uniforms.model = worldMat;
-            uniforms.lightViewProj = lightViewProj_;
-            if (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex) < scene.materials.size()) {
-                const auto& mat = scene.materials[prim.materialIndex];
-                uniforms.baseColorFactor = mat.baseColorFactor;
-                uniforms.alphaCutoff = mat.alphaCutoff;
-                uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
-                if (mat.baseColorTextureIndex >= 0) {
-                    uniforms.flags |= (1u << 0);
+            if (prim->gpuIndexBuffer && !prim->indices.empty()) {
+                const auto slice = prim->GetLodSlice(1u);
+                if (prim->gpuIndexBuffer != boundIb) {
+                    wgpuRenderPassEncoderSetIndexBuffer(pass, prim->gpuIndexBuffer, prim->indexFormat, 0,
+                                                        prim->gpuIndexBufferSize);
+                    boundIb = prim->gpuIndexBuffer;
                 }
-            }
-
-            if (node.skinIndex >= 0 && static_cast<size_t>(node.skinIndex) < scene.skins.size()) {
-                const auto& skin = scene.skins[static_cast<size_t>(node.skinIndex)];
-                uniforms.jointCount = skin.ComputeJointMatrices(worldMat, scene.allNodes, uniforms.jointMatrices);
-            }
-
-            if (!node.morphWeights.empty()) {
-                const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 4u);
-                uniforms.morphTargetCount = count;
-                for (uint32_t m = 0; m < count; ++m) {
-                    uniforms.morphWeights[m] = node.morphWeights[m];
-                }
-            }
-
-            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                const auto& mat = scene.materials[prim.materialIndex];
-                uniforms.uvScale = mat.uvScale;
-                uniforms.uvOffset = mat.uvOffset;
-            }
-
-            wgpuQueueWriteBuffer(queue_, prim.gpuShadowUniformBuffer, 0, &uniforms, sizeof(uniforms));
-
-            if (!prim.gpuShadowBindGroup) {
-                WGPUTextureView baseView = defaultWhiteView_;
-                if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                    const auto& mat = scene.materials[prim.materialIndex];
-                    if (mat.baseColorTextureIndex >= 0 &&
-                        mat.baseColorTextureIndex < static_cast<int>(scene.gpuTextures.size()) &&
-                        scene.gpuTextures[mat.baseColorTextureIndex].view) {
-                        baseView = scene.gpuTextures[mat.baseColorTextureIndex].view;
-                    }
-                }
-                prim.gpuShadowBindGroup = CreateShadowBindGroup(prim.gpuShadowUniformBuffer, baseView);
-                if (!prim.gpuShadowBindGroup)
-                    continue;
-            }
-
-            wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0,
-                                                 prim.vertices.size() * sizeof(core::Vertex));
-
-            if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-                const auto slice = prim.GetLodSlice(1u);
-                wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
-                                                    wgpuBufferGetSize(prim.gpuIndexBuffer));
                 wgpuRenderPassEncoderDrawIndexed(pass, slice.indexCount, 1, slice.firstIndex, 0, 0);
             } else {
-                wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
+                wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim->vertices.size()), 1, 0, 0);
             }
         }
-
-        for (const auto& child : node.children) {
-            if (child)
-                self(self, *child, worldMat);
-        }
-    };
-
-    (void)spatialIndex;
-    for (const auto& root : scene.rootNodes) {
-        if (root)
-            renderNodeShadow(renderNodeShadow, *root, glm::mat4{1.0f});
     }
 
     wgpuRenderPassEncoderEnd(pass);
