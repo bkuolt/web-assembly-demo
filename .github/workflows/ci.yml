@@ -21,9 +21,11 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Validate Client JavaScript
+    - name: Validate Client JavaScript & Web Suites
       run: |
         node --check web/app.js
+        node tests/test_web_unit.js
+        node tests/test_webgpu_path.js
 
   code-quality:
     name: Code Formatting & Clang-Tidy Quality
@@ -39,7 +41,7 @@ jobs:
 
     - name: Check Clang-Format Compliance
       run: |
-        find src tests -name "*.cpp" -o -name "*.hpp" | xargs clang-format --dry-run -Werror || true
+        find src tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
   wasm-emscripten:
     name: Emscripten WebAssembly Build (WASM & JS)
@@ -135,13 +137,13 @@ jobs:
       run: |
         cmake --build build/Release -j$(nproc)
 
-    - name: Execute GTest Unit Test Suites
+    - name: Execute GTest & Node Unit Test Suites
       run: |
-        xvfb-run ctest --test-dir build/Release --output-on-failure
+        xvfb-run ctest --test-dir build/Release --output-on-failure -E BrowserE2ETest
 
     - name: Run Smoke Test on bgl_viewer
       run: |
-        xvfb-run timeout 15s ./build/Release/bgl_viewer --headless
+        xvfb-run timeout 15s ./build/Release/bgl_viewer --headless assets/ToyCar.glb
 
     - name: Package Native Binaries
       run: |

@@ -81,9 +81,8 @@ ImmediateUI* g_activeUiContext = nullptr;
 } // anonymous namespace
 
 ImmediateUI::ImmediateUI()
-    : arenaBacking_(kArenaBytes), frameArena_(arenaBacking_.data(), arenaBacking_.size()),
-      vertices_(&frameArena_), indices_(&frameArena_), overlayVertices_(&frameArena_),
-      overlayIndices_(&frameArena_), hitRects_(&frameArena_) {}
+    : arenaBacking_(kArenaBytes), frameArena_(arenaBacking_.data(), arenaBacking_.size()), vertices_(&frameArena_),
+      indices_(&frameArena_), overlayVertices_(&frameArena_), overlayIndices_(&frameArena_), hitRects_(&frameArena_) {}
 
 ImmediateUI::~ImmediateUI() {
     if (g_activeUiContext == this) {
@@ -396,11 +395,11 @@ void ImmediateUI::EndWindow() {
         vertices_[vOff + 3].pos = {rx, ry + rh};
     };
 
-    patchRect(windowBgVertexOffset_ + 0, x, y, w, h);             // Fill
-    patchRect(windowBgVertexOffset_ + 4, x, y, w, bw);            // Top border
-    patchRect(windowBgVertexOffset_ + 8, x, y + h - bw, w, bw);   // Bottom border
-    patchRect(windowBgVertexOffset_ + 12, x, y, bw, h);           // Left border
-    patchRect(windowBgVertexOffset_ + 16, x + w - bw, y, bw, h);  // Right border
+    patchRect(windowBgVertexOffset_ + 0, x, y, w, h);            // Fill
+    patchRect(windowBgVertexOffset_ + 4, x, y, w, bw);           // Top border
+    patchRect(windowBgVertexOffset_ + 8, x, y + h - bw, w, bw);  // Bottom border
+    patchRect(windowBgVertexOffset_ + 12, x, y, bw, h);          // Left border
+    patchRect(windowBgVertexOffset_ + 16, x + w - bw, y, bw, h); // Right border
 
     hitRects_.push_back(currentWindowRect_);
     inWindow_ = false;
@@ -455,8 +454,7 @@ bool ImmediateUI::Checkbox(std::string_view label, bool& state) {
     if (state) {
         EmitRect(vertices_, indices_, rect.x + 3.0f, boxY + 3.0f, boxSize - 6.0f, boxSize - 6.0f, style_.textPrimary);
     }
-    EmitText(vertices_, indices_, label, rect.x + boxSize + 8.0f, rect.y + 4.0f, style_.textPrimary,
-             style_.textScale);
+    EmitText(vertices_, indices_, label, rect.x + boxSize + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
 
     hitRects_.push_back(rect);
     cursorY_ += style_.rowHeight + style_.itemSpacing;
@@ -529,8 +527,11 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
         hasPendingOverlay_ = true;
         hasActivePopupRect_ = true;
         activePopupRect_ = popupRect;
-        pendingOverlay_ = PendingDropdownOverlay{
-            .id = id, .anchorRect = anchorRect, .popupRect = popupRect, .options = options, .selectedIndex = selectedIndex};
+        pendingOverlay_ = PendingDropdownOverlay{.id = id,
+                                                 .anchorRect = anchorRect,
+                                                 .popupRect = popupRect,
+                                                 .options = options,
+                                                 .selectedIndex = selectedIndex};
     } else if (isOpen) {
         hasActivePopupRect_ = false;
     }
@@ -601,8 +602,8 @@ void ImmediateUI::Render(WGPURenderPassEncoder pass) {
 
     // Upload uniform projection & SDF parameters
     UiUniformData ubo{};
-    ubo.proj = glm::ortho(0.0f, static_cast<float>(viewportWidth_), static_cast<float>(viewportHeight_), 0.0f, -1.0f,
-                          1.0f);
+    ubo.proj =
+        glm::ortho(0.0f, static_cast<float>(viewportWidth_), static_cast<float>(viewportHeight_), 0.0f, -1.0f, 1.0f);
     ubo.sdfParams = glm::vec4{1.25f, 0.5f, 0.0f, 0.0f};
     wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
 

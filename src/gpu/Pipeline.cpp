@@ -85,10 +85,6 @@ namespace {
     return glm::normalize(dir);
 }
 
-[[nodiscard]] bool IsSrgbSwapchainFormat(WGPUTextureFormat fmt) noexcept {
-    return fmt == WGPUTextureFormat_BGRA8UnormSrgb || fmt == WGPUTextureFormat_RGBA8UnormSrgb;
-}
-
 } // anonymous namespace
 
 PipelineManager::~PipelineManager() {
@@ -102,13 +98,6 @@ void PipelineManager::Shutdown() noexcept {
     gpuCuller_.Shutdown();
     gpuRayPicker_.Shutdown();
 
-    tonemapBindGroup_.Reset();
-    cachedHdrResolveView_ = nullptr;
-    tonemapSampler_.Reset();
-    tonemapUniformBuffer_.Reset();
-    tonemapPipeline_.Reset();
-    tonemapBindGroupLayout_.Reset();
-
     sceneLightingBuffer_.Reset();
     ggxPrefilterUniformBuffer_.Reset();
     ggxPrefilterComputePipeline_.Reset();
@@ -120,11 +109,6 @@ void PipelineManager::Shutdown() noexcept {
 
     noMipSampler_.Reset();
     defaultSampler_.Reset();
-    shadowSampler_.Reset();
-    shadowDepthView_.Reset();
-    shadowDepthTexture_.Reset();
-    shadowPipeline_.Reset();
-    shadowBindGroupLayout_.Reset();
     envCubemapView_.Reset();
     envCubemapTexture_.Reset();
     defaultBlackTextureView_.Reset();
@@ -222,21 +206,7 @@ std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8
 
 glm::mat4 PipelineManager::ComputeDirectionalLightMatrix(const core::AABB& sceneBounds,
                                                          const glm::vec3& lightDir) noexcept {
-    glm::vec3 center{0.0f};
-    float radius{20.0f};
-    if (sceneBounds.minBound.x <= sceneBounds.maxBound.x) {
-        center = sceneBounds.Center();
-        radius = std::max(glm::length(sceneBounds.Extents()), 5.0f);
-    }
-
-    const glm::vec3 dir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                      : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-    const glm::vec3 up{(std::abs(dir.y) < 0.99f) ? glm::vec3{0.0f, 1.0f, 0.0f} : glm::vec3{0.0f, 0.0f, 1.0f}};
-
-    const glm::vec3 lightPos{center + dir * (radius * 1.5f)};
-    const glm::mat4 lightView{glm::lookAtRH(lightPos, center, up)};
-    const glm::mat4 lightProj{glm::orthoRH_ZO(-radius, radius, -radius, radius, 0.1f, radius * 3.5f)};
-    return lightProj * lightView;
+    return ShadowPass::ComputeDirectionalLightMatrix(sceneBounds, lightDir);
 }
 
 std::vector<uint8_t> PipelineManager::GenerateEnvCubemapFaceMip(uint32_t faceIndex, uint32_t faceSize, float roughness,
@@ -568,7 +538,7 @@ void PipelineManager::BuildClusteredLightGrid(std::span<const GpuPunctualLight> 
 
     for (uint32_t li{0}; li < count; ++li) {
         const auto& light = lights[li];
-        const uint32_t lightType{static_cast<uint32_t>(light.posOrDir.w + 0.5f)};
+        const uint32_t lightType{static_cast<uint32_t>(std::lround(light.posOrDir.w))};
         const uint32_t bitMask{1u << li};
 
         if (lightType == 0u) {
@@ -980,164 +950,12 @@ bool PipelineManager::LoadCustomHdrEnvironment(const scene::DecodedHdrImage& hdr
     return true;
 }
 
-void PipelineManager::InitializeTonemapPipeline() {
-    if (!device_)
-        return;
-
-    WGPUShaderSourceWGSL tmWgsl = WGPU_SHADER_SOURCE_WGSL_INIT;
-    tmWgsl.code = ToWgpuStringView(kTonemapShaderWGSL);
-    WGPUShaderModuleDescriptor tmSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    tmSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&tmWgsl);
-    tmSmDesc.label = ToWgpuStringView("Tonemap_WGSL");
-    ShaderModuleHandle tmShader{wgpuDeviceCreateShaderModule(device_, &tmSmDesc)};
-    if (!tmShader)
-        return;
-
-    std::array<WGPUBindGroupLayoutEntry, 3> bglEntries{};
-    bglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[0].binding = 0;
-    bglEntries[0].visibility = WGPUShaderStage_Fragment;
-    bglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    bglEntries[0].buffer.minBindingSize = sizeof(TonemapUniforms);
-
-    bglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[1].binding = 1;
-    bglEntries[1].visibility = WGPUShaderStage_Fragment;
-    bglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
-
-    bglEntries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    bglEntries[2].binding = 2;
-    bglEntries[2].visibility = WGPUShaderStage_Fragment;
-    bglEntries[2].texture.sampleType = WGPUTextureSampleType_Float;
-    bglEntries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
-    bglEntries[2].texture.multisampled = WGPU_FALSE;
-
-    WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    bglDesc.entryCount = bglEntries.size();
-    bglDesc.entries = bglEntries.data();
-    tonemapBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
-
-    WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = tonemapBindGroupLayout_.AddressOf();
-    PipelineLayoutHandle pl{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
-
-    WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
-    colorTarget.format = surfaceFormat_;
-    colorTarget.writeMask = WGPUColorWriteMask_All;
-
-    WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
-    fragState.module = tmShader;
-    fragState.entryPoint = ToWgpuStringView("fs_tonemap");
-    fragState.targetCount = 1;
-    fragState.targets = &colorTarget;
-
-    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    rpDesc.layout = pl;
-    rpDesc.vertex.module = tmShader;
-    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_tonemap");
-    rpDesc.vertex.bufferCount = 0;
-    rpDesc.vertex.buffers = nullptr;
-    rpDesc.fragment = &fragState;
-    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-    rpDesc.primitive.cullMode = WGPUCullMode_None;
-    rpDesc.depthStencil = nullptr;
-    rpDesc.multisample.count = 1;
-    rpDesc.multisample.mask = 0xFFFFFFFF;
-    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
-
-    tonemapPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-
-    WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    ubDesc.size = sizeof(TonemapUniforms);
-    ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    ubDesc.label = ToWgpuStringView("TonemapUniformBuffer");
-    tonemapUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
-
-    WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
-    sampDesc.addressModeU = WGPUAddressMode_ClampToEdge;
-    sampDesc.addressModeV = WGPUAddressMode_ClampToEdge;
-    sampDesc.addressModeW = WGPUAddressMode_ClampToEdge;
-    sampDesc.magFilter = WGPUFilterMode_Linear;
-    sampDesc.minFilter = WGPUFilterMode_Linear;
-    sampDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
-    sampDesc.maxAnisotropy = 1;
-    tonemapSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
-}
-
 void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
                                         const glm::mat4& viewProj, const glm::vec3& cameraPos,
                                         const glm::vec3& lightDir, float envRotation, uint32_t viewportW,
                                         uint32_t viewportH) {
-    if (postProcessPass_.IsInitialized()) {
-        postProcessPass_.Render(swapchainPass, hdrResolveView, viewProj, cameraPos, lightDir, envRotation, viewportW,
-                                viewportH);
-        return;
-    }
-    if (!swapchainPass || !hdrResolveView || !tonemapPipeline_ || !tonemapBindGroupLayout_)
-        return;
-
-    if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
-        cachedHdrResolveView_ = hdrResolveView;
-
-        std::array<WGPUBindGroupEntry, 3> entries{};
-        entries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-        entries[0].binding = 0;
-        entries[0].buffer = tonemapUniformBuffer_;
-        entries[0].offset = 0;
-        entries[0].size = sizeof(TonemapUniforms);
-
-        entries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-        entries[1].binding = 1;
-        entries[1].sampler = tonemapSampler_;
-
-        entries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-        entries[2].binding = 2;
-        entries[2].textureView = hdrResolveView;
-
-        WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        bgDesc.layout = tonemapBindGroupLayout_;
-        bgDesc.entryCount = entries.size();
-        bgDesc.entries = entries.data();
-        tonemapBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
-    }
-
-    // Project sun vector to screen NDC for real-time lens flares
-    const glm::vec3 rotatedSun = glm::rotate(glm::mat4{1.0f}, -envRotation, glm::vec3{0.0f, 1.0f, 0.0f}) *
-                                 glm::vec4{glm::normalize(lightDir), 0.0f};
-    const glm::vec4 sunWorldPos = glm::vec4{cameraPos + rotatedSun * 1000.0f, 1.0f};
-    const glm::vec4 sunClip = viewProj * sunWorldPos;
-
-    float sunVisibility = 0.0f;
-    glm::vec2 sunUV{0.5f, 0.5f};
-    const float aspect =
-        (viewportH > 0) ? (static_cast<float>(viewportW) / static_cast<float>(viewportH)) : (16.0f / 9.0f);
-
-    if (sunClip.w > 0.001f) {
-        const glm::vec3 sunNdc = glm::vec3{sunClip} / sunClip.w;
-        if (sunNdc.z > 0.0f && sunNdc.z < 1.0f) {
-            sunUV = glm::vec2{sunNdc.x * 0.5f + 0.5f, 0.5f - sunNdc.y * 0.5f};
-            if (sunUV.x >= -0.2f && sunUV.x <= 1.2f && sunUV.y >= -0.2f && sunUV.y <= 1.2f) {
-                const float distCenter = glm::length(sunUV - glm::vec2{0.5f});
-                sunVisibility = std::clamp(1.2f - distCenter, 0.0f, 1.0f);
-            }
-        }
-    }
-
-    TonemapUniforms uniforms{.exposure = exposure_,
-                             .operatorId = std::to_underlying(toneMapOperator_),
-                             .isSrgbSurface = IsSrgbSwapchainFormat(surfaceFormat_) ? 1u : 0u,
-                             .lensFlareEnabled = lensFlareEnabled_ ? 1u : 0u,
-                             .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
-                             .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f},
-                             .bloomParams =
-                                 glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, bloomEnabled_ ? 1.0f : 0.0f},
-                             .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, ssaoEnabled_ ? 1.0f : 0.0f}};
-    wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_, 0, &uniforms, sizeof(uniforms));
-
-    wgpuRenderPassEncoderSetPipeline(swapchainPass, tonemapPipeline_);
-    wgpuRenderPassEncoderSetBindGroup(swapchainPass, 0, tonemapBindGroup_, 0, nullptr);
-    wgpuRenderPassEncoderDraw(swapchainPass, 3, 1, 0, 0);
+    postProcessPass_.Render(swapchainPass, hdrResolveView, viewProj, cameraPos, lightDir, envRotation, viewportW,
+                            viewportH);
 }
 
 core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
@@ -1174,17 +992,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
     ShaderModuleHandle wfShaderModule{wgpuDeviceCreateShaderModule(device_, &wfSmDesc)};
 
-    // 3. Compile WGSL Shadow Shader Module
-    WGPUShaderSourceWGSL shadowWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    shadowWgslDesc.code = ToWgpuStringView(kShadowShaderWGSL);
-
-    WGPUShaderModuleDescriptor shadowSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shadowSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&shadowWgslDesc);
-    shadowSmDesc.label = ToWgpuStringView("Shadow_WGSL");
-
-    ShaderModuleHandle shadowShaderModule{wgpuDeviceCreateShaderModule(device_, &shadowSmDesc)};
-
-    // 4. Bind Group Layout (16 entries):
+    // 3. Bind Group Layout (16 entries):
     // 0: PrimitiveUniforms
     // 1: Default Sampler
     // 2..9: 2D Material Textures
@@ -1263,41 +1071,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         return std::unexpected("Failed to create WebGPU BindGroupLayout for PBR material");
     }
 
-    // 4b. Shadow Pass Bind Group Layout (0: Uniforms, 1: Sampler, 2: BaseColor Texture for Alpha Discard)
-    std::array<WGPUBindGroupLayoutEntry, 3> shadowBglEntries{};
-    shadowBglEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    shadowBglEntries[0].binding = 0;
-    shadowBglEntries[0].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    shadowBglEntries[0].buffer.type = WGPUBufferBindingType_Uniform;
-    shadowBglEntries[0].buffer.minBindingSize = sizeof(PrimitiveUniforms);
-
-    shadowBglEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    shadowBglEntries[1].binding = 1;
-    shadowBglEntries[1].visibility = WGPUShaderStage_Fragment;
-    shadowBglEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
-
-    shadowBglEntries[2] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    shadowBglEntries[2].binding = 2;
-    shadowBglEntries[2].visibility = WGPUShaderStage_Fragment;
-    shadowBglEntries[2].texture.sampleType = WGPUTextureSampleType_Float;
-    shadowBglEntries[2].texture.viewDimension = WGPUTextureViewDimension_2D;
-    shadowBglEntries[2].texture.multisampled = WGPU_FALSE;
-
-    WGPUBindGroupLayoutDescriptor shadowBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    shadowBglDesc.entryCount = shadowBglEntries.size();
-    shadowBglDesc.entries = shadowBglEntries.data();
-    shadowBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &shadowBglDesc);
-
-    // 5. Pipeline Layouts
+    // 5. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
     PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
-
-    WGPUPipelineLayoutDescriptor shadowPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    shadowPlDesc.bindGroupLayoutCount = 1;
-    shadowPlDesc.bindGroupLayouts = shadowBindGroupLayout_.AddressOf();
-    PipelineLayoutHandle shadowPipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &shadowPlDesc)};
 
     // 6. Vertex Layout (Position, Normal, Tangent, UV, Joints, Weights)
     std::array<WGPUVertexAttribute, 6> vertAttrs{};
@@ -1368,39 +1146,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     rpDesc.primitive.cullMode = WGPUCullMode_Back;
     opaqueBackCulledPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
 
-    // 8b. Create Shadow Depth Render Pipeline
-    if (shadowShaderModule) {
-        WGPUDepthStencilState shadowDepthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-        shadowDepthStencil.format = WGPUTextureFormat_Depth32Float;
-        shadowDepthStencil.depthWriteEnabled = WGPUOptionalBool_True;
-        shadowDepthStencil.depthCompare = WGPUCompareFunction_LessEqual;
-        shadowDepthStencil.depthBias = 2;
-        shadowDepthStencil.depthBiasSlopeScale = 2.0f;
-        shadowDepthStencil.depthBiasClamp = 0.0f;
-
-        WGPUFragmentState shadowFragState = WGPU_FRAGMENT_STATE_INIT;
-        shadowFragState.module = shadowShaderModule;
-        shadowFragState.entryPoint = ToWgpuStringView("fs_shadow");
-        shadowFragState.targetCount = 0;
-        shadowFragState.targets = nullptr;
-
-        WGPURenderPipelineDescriptor shadowRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-        shadowRpDesc.layout = shadowPipelineLayout;
-        shadowRpDesc.vertex.module = shadowShaderModule;
-        shadowRpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
-        shadowRpDesc.vertex.bufferCount = 1;
-        shadowRpDesc.vertex.buffers = &vbLayout;
-        shadowRpDesc.fragment = &shadowFragState;
-        shadowRpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-        shadowRpDesc.primitive.cullMode = WGPUCullMode_None;
-        shadowRpDesc.depthStencil = &shadowDepthStencil;
-        shadowRpDesc.multisample.count = 1;
-        shadowRpDesc.multisample.mask = 0xFFFFFFFF;
-        shadowRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
-
-        shadowPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &shadowRpDesc);
-    }
-
     // 8c. Create Wireframe Render Pipeline
     if (wfShaderModule) {
         WGPUFragmentState wfFragState = WGPU_FRAGMENT_STATE_INIT;
@@ -1429,50 +1174,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         wireframePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
     }
 
-    // 9. Create Shadow Map 2048x2048 Depth32Float Texture & Comparison Sampler
-    WGPUTextureDescriptor shadowTexDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    shadowTexDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
-    shadowTexDesc.dimension = WGPUTextureDimension_2D;
-    shadowTexDesc.size = WGPUExtent3D{kShadowMapSize, kShadowMapSize, 1};
-    shadowTexDesc.format = WGPUTextureFormat_Depth32Float;
-    shadowTexDesc.mipLevelCount = 1;
-    shadowTexDesc.sampleCount = 1;
-    shadowTexDesc.label = ToWgpuStringView("DirectionalShadowMap");
-    shadowDepthTexture_ = wgpuDeviceCreateTexture(device_, &shadowTexDesc);
-    if (shadowDepthTexture_) {
-        shadowDepthView_ = wgpuTextureCreateView(shadowDepthTexture_, nullptr);
-    }
-
-    WGPUSamplerDescriptor shadowSampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
-    shadowSampDesc.addressModeU = WGPUAddressMode_ClampToEdge;
-    shadowSampDesc.addressModeV = WGPUAddressMode_ClampToEdge;
-    shadowSampDesc.addressModeW = WGPUAddressMode_ClampToEdge;
-    shadowSampDesc.magFilter = WGPUFilterMode_Linear;
-    shadowSampDesc.minFilter = WGPUFilterMode_Linear;
-    shadowSampDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
-    shadowSampDesc.compare = WGPUCompareFunction_LessEqual;
-    shadowSampDesc.maxAnisotropy = 1;
-    shadowSampler_ = wgpuDeviceCreateSampler(device_, &shadowSampDesc);
-
-    if (shadowDepthView_) {
-        CommandEncoderHandle initEnc{wgpuDeviceCreateCommandEncoder(device_, nullptr)};
-        WGPURenderPassDepthStencilAttachment clearDepth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-        clearDepth.view = shadowDepthView_;
-        clearDepth.depthLoadOp = WGPULoadOp_Clear;
-        clearDepth.depthStoreOp = WGPUStoreOp_Store;
-        clearDepth.depthClearValue = 1.0f;
-
-        WGPURenderPassDescriptor clearPassDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-        clearPassDesc.colorAttachmentCount = 0;
-        clearPassDesc.depthStencilAttachment = &clearDepth;
-        RenderPassEncoderHandle clearPass{wgpuCommandEncoderBeginRenderPass(initEnc, &clearPassDesc)};
-        wgpuRenderPassEncoderEnd(clearPass);
-        CommandBufferHandle initCmd{wgpuCommandEncoderFinish(initEnc, nullptr)};
-        WGPUCommandBuffer rawCmd{initCmd.Get()};
-        wgpuQueueSubmit(queue_, 1, &rawCmd);
-    }
-
-    // 10. Create Samplers: Trilinear 16x Anisotropic + Base-Mip-Only Sampler
+    // 9. Create Samplers: Trilinear 16x Anisotropic + Base-Mip-Only Sampler
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     sampDesc.addressModeU = WGPUAddressMode_Repeat;
     sampDesc.addressModeV = WGPUAddressMode_Repeat;
@@ -1508,10 +1210,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     InitializeComputeIBLPipelines();
     SetEnvironmentPreset(EnvironmentPreset::MediterraneanCourtyard, nullptr);
 
-    // 13. Initialize Fullscreen HDR Tonemapping Pipeline
-    InitializeTonemapPipeline();
-
-    // 14. Helper to create 1x1 fallback textures
+    // 13. Helper to create 1x1 fallback textures
     auto create1x1Texture = [&](std::span<const uint8_t, 4> rgba,
                                 std::string_view label) -> std::pair<WGPUTexture, WGPUTextureView> {
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -1557,19 +1256,21 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     defaultBlackTexture_ = blackTex;
     defaultBlackTextureView_ = blackView;
 
-    initialized_ = (opaquePipeline_ != nullptr && tonemapPipeline_ != nullptr);
-
-    // Initialize modular passes and compute engines
-    if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
-        !res) {
-        BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());
-    }
+    // Initialize required modular passes before marking PipelineManager ready
     if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
-        BGL_LOG_WARN("Failed to initialize PostProcessPass: {}", res.error());
+        return std::unexpected("Failed to initialize PostProcessPass: " + res.error());
     }
     if (auto res = shadowPass_.Initialize(device_, queue_, defaultSampler_.Get(), defaultWhiteTextureView_.Get());
         !res) {
-        BGL_LOG_WARN("Failed to initialize ShadowPass: {}", res.error());
+        return std::unexpected("Failed to initialize ShadowPass: " + res.error());
+    }
+
+    initialized_ = (opaquePipeline_ != nullptr && postProcessPass_.IsInitialized() && shadowPass_.IsInitialized());
+
+    // Initialize auxiliary passes and compute engines
+    if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
+        !res) {
+        BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());
     }
     if (auto res = gpuCuller_.Initialize(device_, queue_); !res) {
         BGL_LOG_WARN("Failed to initialize GpuCuller: {}", res.error());
@@ -1685,12 +1386,11 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
 
         bgEntries[11] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[11].binding = 11;
-        bgEntries[11].textureView =
-            shadowPass_.IsInitialized() ? shadowPass_.GetShadowMapView() : shadowDepthView_.Get();
+        bgEntries[11].textureView = shadowPass_.GetShadowMapView();
 
         bgEntries[12] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[12].binding = 12;
-        bgEntries[12].sampler = shadowPass_.IsInitialized() ? shadowPass_.GetShadowSampler() : shadowSampler_.Get();
+        bgEntries[12].sampler = shadowPass_.GetShadowSampler();
 
         bgEntries[13] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[13].binding = 13;
@@ -1716,32 +1416,9 @@ void PipelineManager::RebuildMaterialBindGroups(scene::Scene& scene) {
             wgpuBindGroupRelease(prim.gpuShadowBindGroup);
             prim.gpuShadowBindGroup = nullptr;
         }
-        if (shadowBindGroupLayout_) {
-            WGPUTextureView baseView = defaultWhiteTextureView_.Get();
-            if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() &&
-                scene.gpuTextures[baseColorTexIdx].view) {
-                baseView = scene.gpuTextures[baseColorTexIdx].view;
-            }
-            std::array<WGPUBindGroupEntry, 3> shadowEntries{};
-            shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[0].binding = 0;
-            shadowEntries[0].buffer = prim.gpuUniformBuffer;
-            shadowEntries[0].offset = 0;
-            shadowEntries[0].size = sizeof(PrimitiveUniforms);
-
-            shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[1].binding = 1;
-            shadowEntries[1].sampler = defaultSampler_.Get();
-
-            shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[2].binding = 2;
-            shadowEntries[2].textureView = baseView;
-
-            WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-            shadowBgDesc.layout = shadowBindGroupLayout_;
-            shadowBgDesc.entryCount = shadowEntries.size();
-            shadowBgDesc.entries = shadowEntries.data();
-            prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+        if (shadowPass_.IsInitialized() && prim.gpuShadowUniformBuffer) {
+            WGPUTextureView baseView = getTexView(baseColorTexIdx, defaultWhiteTextureView_);
+            prim.gpuShadowBindGroup = shadowPass_.CreateShadowBindGroup(prim.gpuShadowUniformBuffer, baseView);
         }
     };
 
@@ -1937,9 +1614,10 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             scene.gpuTextures[i].height = img.height;
             scene.gpuTextures[i].vramBytes = compressedVramBytes;
             scene.gpuTextures[i].format = img.compressionFormat;
-            BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels, {:.2f} KB VRAM)",
-                          i, img.width, img.height, fmtName, validCompressedMips,
-                          static_cast<double>(compressedVramBytes) / 1024.0);
+            BGL_LOG_DEBUG(
+                "[WebGPU Upload] Texture #{}: Native Compressed 2D Texture ({}x{}, {}, {} Mip Levels, {:.2f} KB VRAM)",
+                i, img.width, img.height, fmtName, validCompressedMips,
+                static_cast<double>(compressedVramBytes) / 1024.0);
             continue;
         }
 
@@ -2125,36 +1803,12 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
             prim.gpuUniformBuffer = wgpuDeviceCreateBuffer(device_, &ubDesc);
         }
 
-        if (!prim.gpuShadowBindGroup && shadowBindGroupLayout_) {
-            int baseColorTexIdx{-1};
-            if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-                baseColorTexIdx = scene.materials[prim.materialIndex].baseColorTextureIndex;
-            }
-            WGPUTextureView baseView = defaultWhiteTextureView_.Get();
-            if (baseColorTexIdx >= 0 && static_cast<size_t>(baseColorTexIdx) < scene.gpuTextures.size() &&
-                scene.gpuTextures[baseColorTexIdx].view) {
-                baseView = scene.gpuTextures[baseColorTexIdx].view;
-            }
-            std::array<WGPUBindGroupEntry, 3> shadowEntries{};
-            shadowEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[0].binding = 0;
-            shadowEntries[0].buffer = prim.gpuUniformBuffer;
-            shadowEntries[0].offset = 0;
-            shadowEntries[0].size = sizeof(PrimitiveUniforms);
-
-            shadowEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[1].binding = 1;
-            shadowEntries[1].sampler = defaultSampler_.Get();
-
-            shadowEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
-            shadowEntries[2].binding = 2;
-            shadowEntries[2].textureView = baseView;
-
-            WGPUBindGroupDescriptor shadowBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-            shadowBgDesc.layout = shadowBindGroupLayout_;
-            shadowBgDesc.entryCount = shadowEntries.size();
-            shadowBgDesc.entries = shadowEntries.data();
-            prim.gpuShadowBindGroup = wgpuDeviceCreateBindGroup(device_, &shadowBgDesc);
+        if (!prim.gpuShadowUniformBuffer) {
+            WGPUBufferDescriptor shadowUbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+            shadowUbDesc.size = sizeof(ShadowUniforms);
+            shadowUbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+            shadowUbDesc.label = ToWgpuStringView("ShadowUniforms");
+            prim.gpuShadowUniformBuffer = wgpuDeviceCreateBuffer(device_, &shadowUbDesc);
         }
     };
 
@@ -2185,7 +1839,7 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
     }
 
     RebuildMaterialBindGroups(scene);
-    shadowMapDirty_ = true;
+    shadowPass_.MarkDirty();
 }
 
 void PipelineManager::RetranscodeKtxTextures(scene::Scene& scene, scene::KtxTranscodeTarget target) {
@@ -2335,20 +1989,6 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
 
 void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                                        const scene::Quadtree* spatialIndex) {
-    if (!shadowsEnabled_)
-        return;
-    if (shadowPass_.IsInitialized()) {
-        const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                              : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-        const float c{std::cos(-envRotation_)};
-        const float s{std::sin(-envRotation_)};
-        currentLightDir_ =
-            glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
-        shadowPass_.Render(encoder, scene, currentLightDir_, spatialIndex);
-        currentLightViewProj_ = shadowPass_.GetLightViewProjMatrix();
-        return;
-    }
-    (void)spatialIndex;
     const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
                                                           : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
     // Rotate primary sun direction by -envRotation_ so shadows match rotated HDR environment
@@ -2356,125 +1996,19 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
     const float s{std::sin(-envRotation_)};
     currentLightDir_ =
         glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
-    currentLightViewProj_ = ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
+    currentLightViewProj_ = ShadowPass::ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
 
-    if (!shadowsEnabled_ || !encoder || !shadowPipeline_ || !shadowDepthView_) {
+    if (!shadowPass_.IsInitialized()) {
         return;
     }
-
-    if (!shadowMapDirty_ && (!scene.animationPlaying || scene.activeAnimationIndex < 0) && lastShadowScene_ == &scene &&
-        glm::distance(lastShadowLightDir_, currentLightDir_) < 1e-4f) {
+    if (!shadowsEnabled_) {
+        if (encoder) {
+            shadowPass_.Clear(encoder);
+        }
         return;
     }
-
-    WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-    depthAttachment.view = shadowDepthView_;
-    depthAttachment.depthLoadOp = WGPULoadOp_Clear;
-    depthAttachment.depthStoreOp = WGPUStoreOp_Store;
-    depthAttachment.depthClearValue = 1.0f;
-    depthAttachment.depthReadOnly = WGPU_FALSE;
-
-    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-    passDesc.colorAttachmentCount = 0;
-    passDesc.colorAttachments = nullptr;
-    passDesc.depthStencilAttachment = &depthAttachment;
-    passDesc.label = ToWgpuStringView("DirectionalShadowPass");
-
-    RenderPassEncoderHandle shadowPass{wgpuCommandEncoderBeginRenderPass(encoder, &passDesc)};
-    if (!shadowPass)
-        return;
-
-    wgpuRenderPassEncoderSetPipeline(shadowPass, shadowPipeline_);
-
-    for (const auto& rootNode : scene.rootNodes) {
-        if (rootNode) {
-            RenderShadowNode(shadowPass, scene, *rootNode, glm::mat4{1.0f});
-        }
-    }
-
-    wgpuRenderPassEncoderEnd(shadowPass);
-
-    shadowMapDirty_ = false;
-    lastShadowScene_ = &scene;
-    lastShadowLightDir_ = currentLightDir_;
-}
-
-void PipelineManager::RenderShadowNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node,
-                                       const glm::mat4& parentTransform) {
-    const glm::mat4 worldMat{parentTransform * node.localTransform};
-
-    for (auto& prim : node.GetPrimitives()) {
-        if (!prim.gpuVertexBuffer || !prim.gpuShadowBindGroup || !prim.gpuUniformBuffer)
-            continue;
-
-        if (prim.morphDirty) {
-            wgpuQueueWriteBuffer(queue_, prim.gpuVertexBuffer, 0, prim.vertices.data(),
-                                 prim.vertices.size() * sizeof(core::Vertex));
-            prim.morphDirty = false;
-        }
-
-        PrimitiveUniforms uniforms{};
-        uniforms.model = worldMat;
-        uniforms.lightViewProj = currentLightViewProj_;
-        if (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex) < scene.materials.size()) {
-            const auto& mat = scene.materials[prim.materialIndex];
-            uniforms.baseColorFactor = mat.baseColorFactor;
-            uniforms.alphaCutoff = mat.alphaCutoff;
-            uniforms.alphaMode = static_cast<uint32_t>(mat.alphaMode);
-            if (mat.baseColorTextureIndex >= 0) {
-                uniforms.flags |= MaterialFlags::HasBaseColorTex;
-            }
-        }
-
-        if (node.skinIndex >= 0 && static_cast<size_t>(node.skinIndex) < scene.skins.size()) {
-            const auto& skin = scene.skins[static_cast<size_t>(node.skinIndex)];
-            uniforms.jointCount = skin.ComputeJointMatrices(worldMat, scene.allNodes, uniforms.jointMatrices);
-            uniforms.flags |= MaterialFlags::HasSkinning;
-        }
-
-        if (!node.morphWeights.empty()) {
-            const uint32_t count = std::min(static_cast<uint32_t>(node.morphWeights.size()), 4u);
-            uniforms.morphTargetCount = count;
-            for (uint32_t m = 0; m < count; ++m) {
-                uniforms.morphWeights[m] = node.morphWeights[m];
-            }
-            uniforms.flags |= MaterialFlags::HasMorphTargets;
-        }
-
-        if (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) {
-            const auto& mat = scene.materials[prim.materialIndex];
-            uniforms.uvScale = mat.uvScale;
-            uniforms.uvOffset = mat.uvOffset;
-        }
-
-        wgpuQueueWriteBuffer(queue_, prim.gpuUniformBuffer, 0, &uniforms, sizeof(uniforms));
-
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuShadowBindGroup, 0, nullptr);
-        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0,
-                                             prim.vertices.size() * sizeof(core::Vertex));
-
-        if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-            const uint32_t firstIdx = (lodEnabled_ && prim.lodLevels[1].indexCount > 0)
-                                          ? prim.lodLevels[1].firstIndex
-                                          : prim.lodLevels[0].firstIndex;
-            const uint32_t idxCount =
-                (lodEnabled_ && prim.lodLevels[1].indexCount > 0)
-                    ? prim.lodLevels[1].indexCount
-                    : ((prim.lodLevels[0].indexCount > 0) ? prim.lodLevels[0].indexCount
-                                                          : static_cast<uint32_t>(prim.indices.size()));
-            wgpuRenderPassEncoderSetIndexBuffer(pass, prim.gpuIndexBuffer, prim.indexFormat, 0,
-                                                wgpuBufferGetSize(prim.gpuIndexBuffer));
-            wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
-        } else {
-            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
-        }
-    }
-
-    for (const auto& child : node.children) {
-        if (child) {
-            RenderShadowNode(pass, scene, *child, worldMat);
-        }
-    }
+    shadowPass_.Render(encoder, scene, currentLightDir_, spatialIndex);
+    currentLightViewProj_ = shadowPass_.GetLightViewProjMatrix();
 }
 
 void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
@@ -2553,23 +2087,14 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                 const auto& prim = prims[pIdx];
                 const core::AABB worldBox = prim.boundingBox.Transformed(worldMat);
                 const float dist = glm::length(worldBox.Center() - cameraPos);
-                const float radius = std::max(0.001f, glm::length(worldBox.Extents()) * 0.5f);
+                const float radius = std::max(0.001f, glm::length(worldBox.Extents()));
                 const float metric = (dist / radius) * lodBias_;
                 uint32_t lodLvl = 0u;
                 float lodTrans = 0.0f;
                 if (lodEnabled_) {
-                    if (metric < 8.0f) {
-                        lodLvl = 0u;
-                        lodTrans = std::clamp((metric - 6.4f) / 1.6f, 0.0f, 1.0f);
-                    } else if (metric < 25.0f) {
-                        lodLvl = 1u;
-                        lodTrans = std::clamp((metric - 20.0f) / 5.0f, 0.0f, 1.0f);
-                    } else if (metric < 85.0f) {
-                        lodLvl = 2u;
-                        lodTrans = std::clamp((metric - 68.0f) / 17.0f, 0.0f, 1.0f);
-                    } else {
-                        lodLvl = 3u;
-                    }
+                    const auto eval = scene::Quadtree::EvaluateLodForMetric(metric);
+                    lodLvl = std::min(static_cast<uint32_t>(eval.level), 3u);
+                    lodTrans = eval.transition;
                 }
                 const bool isTransparent =
                     (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size())) &&
@@ -2613,30 +2138,6 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         auto& prim = prims[item.primitiveIndex];
         RenderPrimitive(pass, scene, prim, item.worldTransform, viewProj, cameraPos, wireframe, currentBoundPipeline,
                         item.node.get(), item.lodLevel, item.lodTransition);
-    }
-}
-
-void PipelineManager::RenderNode(WGPURenderPassEncoder pass, scene::Scene& scene, scene::SceneNode& node,
-                                 const glm::mat4& viewProj, const glm::mat4& parentTransform,
-                                 const glm::vec3& cameraPos, bool wireframe, const core::Frustum& frustum,
-                                 WGPURenderPipeline& currentBoundPipeline) {
-    const glm::mat4 worldMat{parentTransform * node.localTransform};
-
-    if (node.worldAABB.minBound.x <= node.worldAABB.maxBound.x && !frustum.IntersectsAABB(node.worldAABB)) {
-        return;
-    }
-
-    const auto prims = node.GetPrimitives();
-    lastVisiblePrimitiveCount_ += prims.size();
-    for (auto& prim : prims) {
-        RenderPrimitive(pass, scene, prim, worldMat, viewProj, cameraPos, wireframe, currentBoundPipeline, &node, 0,
-                        0.0f);
-    }
-
-    for (const auto& child : node.children) {
-        if (child) {
-            RenderNode(pass, scene, *child, viewProj, worldMat, cameraPos, wireframe, frustum, currentBoundPipeline);
-        }
     }
 }
 
@@ -2760,9 +2261,8 @@ void PipelineManager::RenderPrimitive(WGPURenderPassEncoder pass, scene::Scene& 
     wgpuRenderPassEncoderSetBindGroup(pass, 0, prim.gpuBindGroup, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.vertices.size() * sizeof(core::Vertex));
 
-    const uint32_t fullTriCount =
-        !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
-                              : static_cast<uint32_t>(prim.vertices.size() / 3);
+    const uint32_t fullTriCount = !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
+                                                        : static_cast<uint32_t>(prim.vertices.size() / 3);
     lastTotalVisibleTriangleCount_ += fullTriCount;
     ++lastLodCounts_[clampedLod];
 
@@ -2996,12 +2496,10 @@ glm::vec3 PipelineManager::EvaluateLodHeatmapColor(uint32_t lodLevel, float tran
 }
 
 float PipelineManager::EvaluateBayerDither4x4(uint32_t x, uint32_t y) noexcept {
-    constexpr std::array<float, 16> kBayer{{
-        0.0f / 16.0f,  8.0f / 16.0f,  2.0f / 16.0f,  10.0f / 16.0f,
-        12.0f / 16.0f, 4.0f / 16.0f,  14.0f / 16.0f, 6.0f / 16.0f,
-        3.0f / 16.0f,  11.0f / 16.0f, 1.0f / 16.0f,  9.0f / 16.0f,
-        15.0f / 16.0f, 7.0f / 16.0f,  13.0f / 16.0f, 5.0f / 16.0f
-    }};
+    constexpr std::array<float, 16> kBayer{{0.0f / 16.0f, 8.0f / 16.0f, 2.0f / 16.0f, 10.0f / 16.0f, 12.0f / 16.0f,
+                                            4.0f / 16.0f, 14.0f / 16.0f, 6.0f / 16.0f, 3.0f / 16.0f, 11.0f / 16.0f,
+                                            1.0f / 16.0f, 9.0f / 16.0f, 15.0f / 16.0f, 7.0f / 16.0f, 13.0f / 16.0f,
+                                            5.0f / 16.0f}};
     const uint32_t idx = ((y & 3u) * 4u) + (x & 3u);
     return kBayer[idx];
 }

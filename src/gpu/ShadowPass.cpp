@@ -56,7 +56,7 @@ void ShadowPass::Shutdown() noexcept {
         shadowTextureView_ = nullptr;
     }
     if (shadowTexture_) {
-        core::MemoryTracker::Instance().TrackTextureFree(kShadowMapSize * kShadowMapSize * 4);
+        core::MemoryTracker::Instance().TrackTextureFree(static_cast<size_t>(kShadowMapSize) * kShadowMapSize * 4);
         wgpuTextureRelease(shadowTexture_);
         shadowTexture_ = nullptr;
     }
@@ -104,7 +104,7 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
         Shutdown();
         return std::unexpected("Failed to allocate 2048x2048 Depth32Float shadow map texture");
     }
-    core::MemoryTracker::Instance().TrackTextureAlloc(kShadowMapSize * kShadowMapSize * 4);
+    core::MemoryTracker::Instance().TrackTextureAlloc(static_cast<size_t>(kShadowMapSize) * kShadowMapSize * 4);
 
     WGPUTextureViewDescriptor shadowViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
     shadowViewDesc.format = WGPUTextureFormat_Depth32Float;
@@ -292,8 +292,8 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
         constexpr float kDefaultRadius{20.0f};
         const glm::vec3 eye{center + d * (kDefaultRadius * 1.5f)};
         const glm::mat4 lightView{glm::lookAtRH(eye, center, up)};
-        const glm::mat4 lightProj{
-            glm::orthoRH_ZO(-kDefaultRadius, kDefaultRadius, -kDefaultRadius, kDefaultRadius, 0.1f, kDefaultRadius * 3.5f)};
+        const glm::mat4 lightProj{glm::orthoRH_ZO(-kDefaultRadius, kDefaultRadius, -kDefaultRadius, kDefaultRadius,
+                                                  0.1f, kDefaultRadius * 3.5f)};
         return lightProj * lightView;
     }
 
@@ -328,7 +328,7 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
 }
 
 WGPUBindGroup ShadowPass::CreateShadowBindGroup(WGPUBuffer shadowUniformBuffer,
-                                                 WGPUTextureView baseColorView) const noexcept {
+                                                WGPUTextureView baseColorView) const noexcept {
     if (!device_ || !shadowBindGroupLayout_ || !shadowUniformBuffer || !defaultSampler_)
         return nullptr;
 
@@ -386,8 +386,7 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
         return;
 
     const float dirLen = glm::length(lightDir);
-    const glm::vec3 safeDir =
-        (dirLen > 1e-4f) ? (lightDir / dirLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
+    const glm::vec3 safeDir = (dirLen > 1e-4f) ? (lightDir / dirLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
     lightViewProj_ = ComputeDirectionalLightMatrix(scene.sceneAABB, safeDir);
 
     if (!dirty_ && (!scene.animationPlaying || scene.activeAnimationIndex < 0) && lastScene_ == &scene &&

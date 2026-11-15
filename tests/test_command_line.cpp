@@ -316,7 +316,8 @@ TEST(CommandLineTest, LodAndDebugViewCommandLineFlags) {
     EXPECT_EQ(optDef.debugViewMode, 0u);
 
     // 2. Custom LOD flags & heatmap
-    const std::array<const char*, 6> lodArgs{"bgl_viewer", "--no-lod", "--auto-lod", "--lod-bias", "2.25", "--lod-heatmap"};
+    const std::array<const char*, 6> lodArgs{"bgl_viewer", "--no-lod", "--auto-lod",
+                                             "--lod-bias", "2.25",     "--lod-heatmap"};
     const auto optLod = CliOptions::Parse(std::span<const char* const>{lodArgs});
     EXPECT_FALSE(optLod.enableLod);
     EXPECT_TRUE(optLod.enableAutoLod);

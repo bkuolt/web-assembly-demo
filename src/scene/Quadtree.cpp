@@ -398,13 +398,21 @@ std::vector<QuadtreeItem> Quadtree::QueryVisible(const glm::vec3& cameraPos, flo
 }
 
 Quadtree::LodEvaluation Quadtree::EvaluateLodForMetric(float effectiveMetric) noexcept {
-    constexpr std::array<float, 3> kThresholds{{8.0f, 25.0f, 85.0f}};
-    for (size_t lvl{0}; lvl < kThresholds.size(); ++lvl) {
-        const float th{kThresholds[lvl]};
-        if (effectiveMetric < th) {
-            return {static_cast<LODLevel>(lvl),
-                    std::clamp((effectiveMetric - th * 0.80f) / (th * 0.20f), 0.0f, 1.0f)};
-        }
+    constexpr float kLod0Threshold{8.0f};
+    constexpr float kLod1Threshold{25.0f};
+    constexpr float kLod2Threshold{85.0f};
+
+    if (effectiveMetric < kLod0Threshold) {
+        return {LODLevel::LOD0,
+                std::clamp((effectiveMetric - kLod0Threshold * 0.80f) / (kLod0Threshold * 0.20f), 0.0f, 1.0f)};
+    }
+    if (effectiveMetric < kLod1Threshold) {
+        return {LODLevel::LOD1,
+                std::clamp((effectiveMetric - kLod1Threshold * 0.80f) / (kLod1Threshold * 0.20f), 0.0f, 1.0f)};
+    }
+    if (effectiveMetric < kLod2Threshold) {
+        return {LODLevel::LOD2,
+                std::clamp((effectiveMetric - kLod2Threshold * 0.80f) / (kLod2Threshold * 0.20f), 0.0f, 1.0f)};
     }
     return {LODLevel::LOD3, 0.0f};
 }

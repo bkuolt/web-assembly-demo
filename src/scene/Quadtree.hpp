@@ -151,8 +151,7 @@ public:
      * @return Vector of visible QuadtreeItems sorted front-to-back.
      */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
-                                                         const glm::mat4& viewProj,
-                                                         bool enableOcclusionCulling = true,
+                                                         const glm::mat4& viewProj, bool enableOcclusionCulling = true,
                                                          float lodBias = 1.0f) const;
 
     /**
@@ -162,8 +161,7 @@ public:
      * @param lodBias Multiplier for LOD distance thresholds (default 1.0).
      * @return Vector of visible QuadtreeItems.
      */
-    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum,
-                                                         const glm::vec3& cameraPos,
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                                                          float lodBias = 1.0f) const;
 
     /**
@@ -172,8 +170,7 @@ public:
      * @param lodBias Multiplier for LOD distance thresholds (default 1.0).
      * @return Vector of all QuadtreeItems.
      */
-    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos,
-                                                         float lodBias = 1.0f) const;
+    [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const glm::vec3& cameraPos, float lodBias = 1.0f) const;
 
     /**
      * @brief Collects all spatial cell bounding boxes for 3D debug wireframe visualization.

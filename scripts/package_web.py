@@ -41,10 +41,11 @@ def package_web_app(output_zip: Path, include_sponza: bool = False):
     if wasm_file.exists():
         files_to_pack.append((wasm_file, "dist/bgl_engine.wasm"))
 
-    # Lightweight glTF demo model (ToyCar.glb ~5.1 MB)
-    toycar_file = web_dir / "assets" / "ToyCar.glb"
-    if toycar_file.exists():
-        files_to_pack.append((toycar_file, "assets/ToyCar.glb"))
+    # Lightweight glTF demo models referenced by web/index.html selector
+    for asset_name in ("ToyCar.glb", "RobotExpressive.glb", "Soldier.glb"):
+        asset_file = web_dir / "assets" / asset_name
+        if asset_file.exists():
+            files_to_pack.append((asset_file, f"assets/{asset_name}"))
 
     if include_sponza:
         sponza_file = web_dir / "assets" / "Sponza.glb"

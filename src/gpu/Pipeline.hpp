@@ -41,13 +41,7 @@ enum class EnvironmentPreset : uint32_t {
 
 enum class WeatherMode : uint32_t { None = 0, Rain = 1, Snow = 2, Fog = 3, Smoke = 4 };
 
-enum class DebugViewMode : uint32_t {
-    LitPbr = 0,
-    LodHeatmap = 1,
-    Normals = 2,
-    MetallicRoughnessAo = 3,
-    UvChecker = 4
-};
+enum class DebugViewMode : uint32_t { LitPbr = 0, LodHeatmap = 1, Normals = 2, MetallicRoughnessAo = 3, UvChecker = 4 };
 
 namespace MaterialFlags {
 constexpr uint32_t HasBaseColorTex = 1u << 0;

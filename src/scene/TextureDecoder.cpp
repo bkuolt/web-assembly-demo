@@ -369,9 +369,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     pmrStaging.assign(data.begin(), data.end());
 
     ktxTexture* rawKtx{nullptr};
-    KTX_error_code result{
-        ktxTexture_CreateFromMemory(pmrStaging.data(), pmrStaging.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-                                    &rawKtx)};
+    KTX_error_code result{ktxTexture_CreateFromMemory(pmrStaging.data(), pmrStaging.size(),
+                                                      KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &rawKtx)};
 
     if (result != KTX_SUCCESS || !rawKtx) {
         return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));
@@ -654,8 +653,8 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
 
         float* dstRow{&hdr.rgbaFloat[static_cast<size_t>(y) * width * 4u]};
         for (uint32_t x{0}; x < width; ++x) {
-            rgbeToFloat(scanline[x * 4u + 0], scanline[x * 4u + 1], scanline[x * 4u + 2], scanline[x * 4u + 3],
-                        &dstRow[x * 4u]);
+            const size_t xOff{static_cast<size_t>(x) * 4u};
+            rgbeToFloat(scanline[xOff + 0], scanline[xOff + 1], scanline[xOff + 2], scanline[xOff + 3], &dstRow[xOff]);
         }
     }
 
@@ -810,12 +809,12 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
                     float val{0.0f};
                     if (ch.pixelType == 1) {
                         uint16_t h{0};
-                        std::memcpy(&h, data.data() + cPtr + x * 2u, sizeof(uint16_t));
+                        std::memcpy(&h, data.data() + cPtr + static_cast<size_t>(x) * 2u, sizeof(uint16_t));
                         val = HalfToFloat(h);
                     } else if (ch.pixelType == 2) {
-                        std::memcpy(&val, data.data() + cPtr + x * 4u, sizeof(float));
+                        std::memcpy(&val, data.data() + cPtr + static_cast<size_t>(x) * 4u, sizeof(float));
                     }
-                    dstRow[x * 4u + static_cast<uint32_t>(ch.rgbaComp)] = val;
+                    dstRow[static_cast<size_t>(x) * 4u + static_cast<size_t>(ch.rgbaComp)] = val;
                 }
             }
             cPtr += chRowBytes;

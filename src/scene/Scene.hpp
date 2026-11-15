@@ -200,8 +200,7 @@ struct MeshPrimitive {
         if (lodLevels[0].indexCount > 0) {
             return lodLevels[0];
         }
-        return LodSubMesh{
-            .firstIndex = 0, .indexCount = static_cast<uint32_t>(indices.size()), .errorMetric = 0.0f};
+        return LodSubMesh{.firstIndex = 0, .indexCount = static_cast<uint32_t>(indices.size()), .errorMetric = 0.0f};
     }
 
     /**

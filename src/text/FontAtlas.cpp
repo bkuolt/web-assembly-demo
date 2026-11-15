@@ -173,7 +173,8 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     if (!ftFace_)
         return;
 
-    FT_Error err = FT_Load_Glyph(ftFace_, glyphIndex, useSdf_ ? FT_LOAD_DEFAULT : (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL));
+    FT_Error err =
+        FT_Load_Glyph(ftFace_, glyphIndex, useSdf_ ? FT_LOAD_DEFAULT : (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL));
     if (!err && useSdf_) {
         err = FT_Render_Glyph(ftFace_->glyph, FT_RENDER_MODE_SDF);
         if (err) {

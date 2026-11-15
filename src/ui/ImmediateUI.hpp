@@ -178,8 +178,7 @@ private:
     };
 
     void EmitQuad(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, float x, float y, float w,
-                  float h, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& color,
-                  float isSdf) const;
+                  float h, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& color, float isSdf) const;
     void EmitRect(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, float x, float y, float w,
                   float h, const glm::vec4& color) const;
     void EmitRectWithBorder(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, float x, float y,

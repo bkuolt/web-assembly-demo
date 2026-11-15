@@ -340,8 +340,7 @@ void Skybox::Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const
     SkyboxUniforms uniforms{};
     uniforms.invViewProj = glm::inverse(viewProj);
     const float sunLen = glm::length(sunDir);
-    const glm::vec3 safeSun =
-        (sunLen > 1e-4f) ? (sunDir / sunLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
+    const glm::vec3 safeSun = (sunLen > 1e-4f) ? (sunDir / sunLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
     uniforms.sunDir = glm::vec4{safeSun, solarElevation};
     uniforms.cameraPos = glm::vec4{cameraPos, static_cast<float>(weatherMode)};
     const float blurLod{(mode_ == SkyboxMode::Blurred) ? (blurRoughness_ * 5.0f) : 0.0f};

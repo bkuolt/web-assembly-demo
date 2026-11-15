@@ -199,14 +199,13 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     const float triSavedPct =
         (currentStats_.totalVisibleTriangles > 0 &&
          currentStats_.renderedTriangles <= currentStats_.totalVisibleTriangles)
-            ? (100.0f *
-               static_cast<float>(currentStats_.totalVisibleTriangles - currentStats_.renderedTriangles) /
+            ? (100.0f * static_cast<float>(currentStats_.totalVisibleTriangles - currentStats_.renderedTriangles) /
                static_cast<float>(currentStats_.totalVisibleTriangles))
             : 0.0f;
     std::string camDetailText =
-        std::format("LOD: {}{} ({:.2f}x, -{:.0f}% tris) | View: {} | Quad: {}",
-                    currentStats_.lodEnabled ? "ON" : "OFF", currentStats_.autoLodEnabled ? "[Auto]" : "",
-                    currentStats_.lodBias, triSavedPct, currentStats_.debugViewName, currentStats_.quadtreeNodes);
+        std::format("LOD: {}{} ({:.2f}x, -{:.0f}% tris) | View: {} | Quad: {}", currentStats_.lodEnabled ? "ON" : "OFF",
+                    currentStats_.autoLodEnabled ? "[Auto]" : "", currentStats_.lodBias, triSavedPct,
+                    currentStats_.debugViewName, currentStats_.quadtreeNodes);
     textRenderer_.DrawText(camDetailText, textX, panelY + 158.0f, glm::vec4(0.75f, 0.82f, 0.90f, 1.0f));
 
     // Separator line 3

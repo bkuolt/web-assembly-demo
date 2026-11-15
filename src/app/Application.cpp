@@ -123,7 +123,9 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         break;
     }
 
-    soundEngine_.Initialize();
+    if (auto audioRes = soundEngine_.Initialize(); !audioRes) {
+        BGL_LOG_WARN("3D audio engine disabled: {}", audioRes.error());
+    }
     gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
 
     // Resolve model asset path from config or auto-detect Sponza.glb (primary) / ToyCar.glb (fallback)
@@ -424,12 +426,17 @@ void Application::Update(float deltaTime) {
         // PS5 smooth exponential response curve and stabilized pitch
         camera_.Orbit(gp.smoothedLook.x * deltaTime * 2.8f, gp.smoothedLook.y * deltaTime * 2.8f);
         camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance() * 1.5f);
-        if (gp.buttonY) {
+        if (gp.buttonY && !prevGamepadY_) {
             ToggleBoundingBoxes();
         }
-        if (gp.buttonX) {
+        if (gp.buttonX && !prevGamepadX_) {
             FocusSelection();
         }
+        prevGamepadY_ = gp.buttonY;
+        prevGamepadX_ = gp.buttonX;
+    } else {
+        prevGamepadY_ = false;
+        prevGamepadX_ = false;
     }
 
     if (turntableActive_) {
@@ -487,16 +494,16 @@ void Application::Update(float deltaTime) {
     size_t textureVramBytes = 0;
     if (activeScene_) {
         for (const auto& tex : activeScene_->gpuTextures) {
-            const size_t texBytes = (tex.vramBytes > 0)
-                                        ? tex.vramBytes
-                                        : static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
+            const size_t texBytes =
+                (tex.vramBytes > 0) ? tex.vramBytes : static_cast<size_t>(tex.width * tex.height * 4 * 1.33f);
             textureVramBytes += texBytes;
         }
         vramBytes += textureVramBytes;
         vramBytes += totalVertices_ * sizeof(core::Vertex);
         vramBytes += totalIndices_ * sizeof(uint32_t);
     }
-    // RGBA16F and Depth24 MSAA targets are not tracked in MemoryTracker; ShadowPass depth is already included via TotalGpuBytes().
+    // RGBA16F and Depth24 MSAA targets are not tracked in MemoryTracker; ShadowPass depth is already included via
+    // TotalGpuBytes().
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 8 * 4); // RGBA16F 4x MSAA
     vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 4 * 4); // Depth24 4x MSAA
     stats.vramBytes = vramBytes;
@@ -767,7 +774,7 @@ void Application::SelectNodeByIndex(int index) noexcept {
 }
 
 void Application::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) noexcept {
-    selectedNode_ = node;
+    selectedNode_ = std::move(node);
     selectedNodeIndex_ = index;
     if (index < 0 && node && activeScene_) {
         for (size_t i = 0; i < activeScene_->allNodes.size(); ++i) {
@@ -794,7 +801,12 @@ int Application::PickNodeAt(float screenX, float screenY, float screenWidth, flo
     if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
         if (hit->hitNode) {
             SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
-            soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
+            if (std::filesystem::exists("assets/audio/click.wav")) {
+                if (auto audioRes = soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
+                    !audioRes) {
+                    BGL_LOG_DEBUG("Audio pick cue skipped: {}", audioRes.error());
+                }
+            }
             BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)", hit->hitNode->name,
                          hit->hitNode->nodeIndex, hit->distance);
             return hit->hitNode->nodeIndex;
@@ -871,11 +883,10 @@ void Application::SetKtxCompressionTarget(scene::KtxTranscodeTarget target) {
         return;
     }
     scene::KtxTranscodeTarget resolved = target;
-    if (resolved == scene::KtxTranscodeTarget::Bc7 && !gpuContext_.SupportsBC()) {
-        resolved = scene::KtxTranscodeTarget::Rgba32;
-    } else if (resolved == scene::KtxTranscodeTarget::Astc4x4 && !gpuContext_.SupportsASTC()) {
-        resolved = scene::KtxTranscodeTarget::Rgba32;
-    } else if (resolved == scene::KtxTranscodeTarget::Etc2Rgba && !gpuContext_.SupportsETC2()) {
+    const bool unsupported = (resolved == scene::KtxTranscodeTarget::Bc7 && !gpuContext_.SupportsBC()) ||
+                             (resolved == scene::KtxTranscodeTarget::Astc4x4 && !gpuContext_.SupportsASTC()) ||
+                             (resolved == scene::KtxTranscodeTarget::Etc2Rgba && !gpuContext_.SupportsETC2());
+    if (unsupported) {
         resolved = scene::KtxTranscodeTarget::Rgba32;
     }
     pipelineManager_.RetranscodeKtxTextures(*activeScene_, resolved);
@@ -907,48 +918,39 @@ void Application::UpdateSettingsUI() {
     std::snprintf(vramBuf, sizeof(vramBuf), "Textures VRAM: %.2f MB", texMb);
     bgl::ui::UI::Label(vramBuf, glm::vec4{0.72f, 0.86f, 0.98f, 1.0f});
 
-    std::snprintf(
-        vramBuf,
-        sizeof(vramBuf),
-        "GPU Caps: BC7=%s ASTC=%s ETC2=%s",
-        gpuContext_.SupportsBC() ? "yes" : "no",
-        gpuContext_.SupportsASTC() ? "yes" : "no",
-        gpuContext_.SupportsETC2() ? "yes" : "no");
+    std::snprintf(vramBuf, sizeof(vramBuf), "GPU Caps: BC7=%s ASTC=%s ETC2=%s", gpuContext_.SupportsBC() ? "yes" : "no",
+                  gpuContext_.SupportsASTC() ? "yes" : "no", gpuContext_.SupportsETC2() ? "yes" : "no");
     bgl::ui::UI::Label(vramBuf, glm::vec4{0.68f, 0.72f, 0.78f, 1.0f});
 
     static constexpr const char* kKtxOptions[] = {
-        "Auto (Hardware)",
-        "BC7 (Desktop)",
-        "ASTC 4x4 (Mobile)",
-        "ETC2 RGBA",
-        "RGBA32 (Uncompressed)",
+        "Auto (Hardware)", "BC7 (Desktop)", "ASTC 4x4 (Mobile)", "ETC2 RGBA", "RGBA32 (Uncompressed)",
     };
 
     if (bgl::ui::UI::Dropdown("KTX2 Compression", kKtxOptions, selectedKtxOption_)) {
         scene::KtxTranscodeTarget target = scene::KtxTranscodeTarget::Rgba32;
         switch (selectedKtxOption_) {
-            case 0:
-                if (gpuContext_.SupportsBC()) {
-                    target = scene::KtxTranscodeTarget::Bc7;
-                } else if (gpuContext_.SupportsASTC()) {
-                    target = scene::KtxTranscodeTarget::Astc4x4;
-                } else if (gpuContext_.SupportsETC2()) {
-                    target = scene::KtxTranscodeTarget::Etc2Rgba;
-                }
-                break;
-            case 1:
+        case 0:
+            if (gpuContext_.SupportsBC()) {
                 target = scene::KtxTranscodeTarget::Bc7;
-                break;
-            case 2:
+            } else if (gpuContext_.SupportsASTC()) {
                 target = scene::KtxTranscodeTarget::Astc4x4;
-                break;
-            case 3:
+            } else if (gpuContext_.SupportsETC2()) {
                 target = scene::KtxTranscodeTarget::Etc2Rgba;
-                break;
-            case 4:
-            default:
-                target = scene::KtxTranscodeTarget::Rgba32;
-                break;
+            }
+            break;
+        case 1:
+            target = scene::KtxTranscodeTarget::Bc7;
+            break;
+        case 2:
+            target = scene::KtxTranscodeTarget::Astc4x4;
+            break;
+        case 3:
+            target = scene::KtxTranscodeTarget::Etc2Rgba;
+            break;
+        case 4:
+        default:
+            target = scene::KtxTranscodeTarget::Rgba32;
+            break;
         }
         SetKtxCompressionTarget(target);
     }

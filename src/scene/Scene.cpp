@@ -17,12 +17,11 @@ namespace bgl::scene {
 MeshPrimitive::MeshPrimitive(std::pmr::memory_resource* mr) : vertices{mr}, baseVertices{mr}, indices{mr} {}
 
 MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
-    : vertices{other.vertices}, baseVertices{other.baseVertices}, indices{other.indices},
-      lodIndices{other.lodIndices}, lodLevels{other.lodLevels},
-      morphTargets{other.morphTargets}, morphDirty{other.morphDirty}, boundingBox{other.boundingBox},
-      materialIndex{other.materialIndex}, indexFormat{other.indexFormat}, gpuVertexBuffer{nullptr},
-      gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, wireframeIndexCount{0}, gpuUniformBuffer{nullptr},
-      gpuShadowUniformBuffer{nullptr}, gpuBindGroup{nullptr}, gpuShadowBindGroup{nullptr} {}
+    : vertices{other.vertices}, baseVertices{other.baseVertices}, indices{other.indices}, lodIndices{other.lodIndices},
+      lodLevels{other.lodLevels}, morphTargets{other.morphTargets}, morphDirty{other.morphDirty},
+      boundingBox{other.boundingBox}, materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
+      gpuVertexBuffer{nullptr}, gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, wireframeIndexCount{0},
+      gpuUniformBuffer{nullptr}, gpuShadowUniformBuffer{nullptr}, gpuBindGroup{nullptr}, gpuShadowBindGroup{nullptr} {}
 
 MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
     if (this != &other) {
@@ -52,9 +51,8 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
 MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
     : vertices{std::move(other.vertices)}, baseVertices{std::move(other.baseVertices)},
       indices{std::move(other.indices)}, lodIndices{std::move(other.lodIndices)}, lodLevels{other.lodLevels},
-      morphTargets{std::move(other.morphTargets)},
-      morphDirty{std::exchange(other.morphDirty, false)}, boundingBox{other.boundingBox},
-      materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
+      morphTargets{std::move(other.morphTargets)}, morphDirty{std::exchange(other.morphDirty, false)},
+      boundingBox{other.boundingBox}, materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
       gpuVertexBuffer{std::exchange(other.gpuVertexBuffer, nullptr)},
       gpuIndexBuffer{std::exchange(other.gpuIndexBuffer, nullptr)},
       gpuWireframeIndexBuffer{std::exchange(other.gpuWireframeIndexBuffer, nullptr)},
@@ -174,9 +172,8 @@ void MeshPrimitive::ComputeTangents() {
             const glm::vec3 up{(std::abs(n.y) < 0.999f) ? glm::vec3{0.0f, 1.0f, 0.0f} : glm::vec3{1.0f, 0.0f, 0.0f}};
             const glm::vec3 fallback{glm::cross(up, n)};
             const float fbLenSq{glm::dot(fallback, fallback)};
-            vertSpan[i].tangent =
-                glm::vec4{(fbLenSq > 1e-10f) ? (fallback * (1.0f / std::sqrt(fbLenSq))) : glm::vec3{1.0f, 0.0f, 0.0f},
-                          1.0f};
+            vertSpan[i].tangent = glm::vec4{
+                (fbLenSq > 1e-10f) ? (fallback * (1.0f / std::sqrt(fbLenSq))) : glm::vec3{1.0f, 0.0f, 0.0f}, 1.0f};
         }
     };
 
@@ -198,9 +195,8 @@ void MeshPrimitive::ComputeTangents() {
 void MeshPrimitive::GenerateLODs() {
     // LOD0 always contains 100% of original indices
     lodIndices[0].assign(indices.begin(), indices.end());
-    lodLevels[0] = LodSubMesh{.firstIndex = 0,
-                              .indexCount = static_cast<uint32_t>(lodIndices[0].size()),
-                              .errorMetric = 0.0f};
+    lodLevels[0] =
+        LodSubMesh{.firstIndex = 0, .indexCount = static_cast<uint32_t>(lodIndices[0].size()), .errorMetric = 0.0f};
 
     // Small meshes (< 12 triangles) or unindexed primitives retain full geometry at all LOD tiers
     if (vertices.empty() || indices.size() < 36) {
@@ -310,9 +306,11 @@ void MeshPrimitive::GenerateLODs() {
     for (size_t tier{0}; tier < 3; ++tier) {
         const size_t lvl{tier + 1};
         const size_t prevIndexCount{lodIndices[lvl - 1].size()};
-        const size_t targetIndices{std::max<size_t>(12, static_cast<size_t>(indices.size() * kTargetRatios[tier]) / 3 * 3)};
+        const size_t targetIndices{
+            std::max<size_t>(12, static_cast<size_t>(indices.size() * kTargetRatios[tier]) / 3 * 3)};
 
-        uint32_t gridRes{std::max(2u, static_cast<uint32_t>( std::round(baseDim * std::sqrt(kTargetRatios[tier]) * 1.35f) ))};
+        uint32_t gridRes{
+            std::max(2u, static_cast<uint32_t>(std::round(baseDim * std::sqrt(kTargetRatios[tier]) * 1.35f)))};
         std::vector<uint32_t> bestCandidate{};
 
         // Search a few grid resolutions to hit target triangle reduction cleanly
@@ -334,9 +332,10 @@ void MeshPrimitive::GenerateLODs() {
         if (bestCandidate.size() < 12 || bestCandidate.size() >= prevIndexCount) {
             const auto& src = (bestCandidate.size() >= 12) ? bestCandidate : lodIndices[lvl - 1];
             const size_t srcTris{src.size() / 3};
+            const size_t maxKeepTris{(srcTris > 4) ? (srcTris - 1) : 4};
             const size_t keepTris{std::clamp<size_t>(
-                static_cast<size_t>(std::round(static_cast<double>(baseTriCount) * kTargetRatios[tier])),
-                4, std::max<size_t>(4, srcTris - 1))};
+                static_cast<size_t>(std::round(static_cast<double>(baseTriCount) * kTargetRatios[tier])), 4,
+                maxKeepTris)};
 
             if (keepTris < srcTris) {
                 struct TriArea {
@@ -362,13 +361,15 @@ void MeshPrimitive::GenerateLODs() {
                 std::sort(areas.begin(), areas.end(),
                           [](const TriArea& x, const TriArea& y) { return x.triIdx < y.triIdx; });
 
-                bestCandidate.clear();
-                bestCandidate.reserve(keepTris * 3);
+                // Write into a separate vector because src may alias bestCandidate
+                std::vector<uint32_t> reduced;
+                reduced.reserve(keepTris * 3);
                 for (const auto& entry : areas) {
-                    bestCandidate.push_back(src[entry.triIdx * 3]);
-                    bestCandidate.push_back(src[entry.triIdx * 3 + 1]);
-                    bestCandidate.push_back(src[entry.triIdx * 3 + 2]);
+                    reduced.push_back(src[entry.triIdx * 3]);
+                    reduced.push_back(src[entry.triIdx * 3 + 1]);
+                    reduced.push_back(src[entry.triIdx * 3 + 2]);
                 }
+                bestCandidate = std::move(reduced);
             } else {
                 bestCandidate = lodIndices[lvl - 1];
             }

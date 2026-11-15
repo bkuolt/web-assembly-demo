@@ -5,6 +5,9 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio/SoundEngine.hpp"
 #include "core/Log.hpp"
+#include <cmath>
+#include <filesystem>
+#include <system_error>
 
 namespace bgl::audio {
 
@@ -43,8 +46,15 @@ void SoundEngine::Shutdown() {
 void SoundEngine::UpdateListener(const glm::vec3& position, const glm::vec3& forward) {
     if (!initialized_)
         return;
-    ma_engine_listener_set_position(&engine_, 0, position.x, position.y, position.z);
-    ma_engine_listener_set_direction(&engine_, 0, forward.x, forward.y, forward.z);
+    auto isFiniteVec = [](const glm::vec3& v) noexcept {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    };
+    const glm::vec3 safePos = isFiniteVec(position) ? position : glm::vec3{0.0f};
+    const float fwdLenSq = glm::dot(forward, forward);
+    const glm::vec3 safeFwd =
+        (isFiniteVec(forward) && fwdLenSq > 1e-10f) ? (forward / std::sqrt(fwdLenSq)) : glm::vec3{0.0f, 0.0f, -1.0f};
+    ma_engine_listener_set_position(&engine_, 0, safePos.x, safePos.y, safePos.z);
+    ma_engine_listener_set_direction(&engine_, 0, safeFwd.x, safeFwd.y, safeFwd.z);
 }
 
 core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::string_view filePath,
@@ -54,6 +64,13 @@ core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::strin
 
     const std::string id{soundId};
     const std::string path{filePath};
+
+    // Guard missing/non-regular paths before miniaudio 0.11.21 calls ma_resource_manager_data_buffer_node_acquire
+    // (which has an upstream UAF reading pDataBufferNode->isDataOwnedByResourceManager after ma_free on open error).
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::is_regular_file(path, ec) || ec) {
+        return std::unexpected("Failed to load sound file: " + path);
+    }
 
     if (auto existingIt = activeSounds_.find(id); existingIt != activeSounds_.end()) {
         if (existingIt->second) {

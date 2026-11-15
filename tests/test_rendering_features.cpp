@@ -28,6 +28,7 @@
 #include "gpu/PostProcessPass.hpp"
 #include "gpu/Shaders.hpp"
 #include "gpu/ShadowPass.hpp"
+#include "scene/Quadtree.hpp"
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
@@ -1795,4 +1796,196 @@ TEST(RenderingFeaturesTest, PipelineManagerLodDebugViewsAndBayerDithering) {
     const glm::vec3 c3 = gpu::PipelineManager::EvaluateLodHeatmapColor(3);
     EXPECT_GT(c0.g, c0.r); // LOD0 is emerald green
     EXPECT_GT(c3.r, c3.g); // LOD3 is rose red
+
+    // 6. Auto-LOD relaxation when frames are fast (< 13.8 ms) and disabling Auto-LOD freezes bias
+    const float highBias = pm.GetLodBias();
+    for (int i = 0; i < 20; ++i) {
+        pm.UpdateAutoLod(0.008f); // 125 FPS fast frame -> relaxes lodBias back toward 1.0f
+    }
+    EXPECT_LT(pm.GetLodBias(), highBias);
+    EXPECT_GE(pm.GetLodBias(), 1.0f);
+
+    pm.SetAutoLodEnabled(false);
+    const float frozenBias = pm.GetLodBias();
+    pm.UpdateAutoLod(0.050f);
+    EXPECT_FLOAT_EQ(pm.GetLodBias(), frozenBias);
+}
+
+TEST(RenderingFeaturesTest, MeshPrimitiveGetLodSliceAndCopyMoveSemantics) {
+    scene::MeshPrimitive prim{};
+    prim.vertices.resize(8);
+    prim.indices = {0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6};
+
+    // Before GenerateLODs(), GetLodSlice() safely falls back to full indices
+    const auto fallbackSlice = prim.GetLodSlice(2u);
+    EXPECT_EQ(fallbackSlice.firstIndex, 0u);
+    EXPECT_EQ(fallbackSlice.indexCount, 12u);
+
+    // Populate custom LOD slices and test clamping / fallback
+    prim.lodLevels[0] = scene::LodSubMesh{.firstIndex = 0, .indexCount = 120, .errorMetric = 0.0f};
+    prim.lodLevels[1] = scene::LodSubMesh{.firstIndex = 120, .indexCount = 66, .errorMetric = 0.015f};
+    prim.lodLevels[2] = scene::LodSubMesh{.firstIndex = 186, .indexCount = 36, .errorMetric = 0.045f};
+    prim.lodLevels[3] = scene::LodSubMesh{.firstIndex = 222, .indexCount = 18, .errorMetric = 0.120f};
+
+    EXPECT_EQ(prim.GetLodSlice(0u).indexCount, 120u);
+    EXPECT_EQ(prim.GetLodSlice(1u).firstIndex, 120u);
+    EXPECT_EQ(prim.GetLodSlice(2u).indexCount, 36u);
+    EXPECT_EQ(prim.GetLodSlice(3u).firstIndex, 222u);
+    // Out-of-bounds level (> 3) clamps to LOD3
+    EXPECT_EQ(prim.GetLodSlice(99u).indexCount, 18u);
+
+    // Copy and move constructors preserve lodLevels and lodIndices
+    prim.lodIndices[1] = {0, 1, 2, 1, 3, 2};
+    scene::MeshPrimitive copied{prim};
+    EXPECT_EQ(copied.GetLodSlice(1u).indexCount, 66u);
+    EXPECT_EQ(copied.lodIndices[1].size(), 6u);
+
+    scene::MeshPrimitive moved{std::move(copied)};
+    EXPECT_EQ(moved.GetLodSlice(2u).firstIndex, 186u);
+    EXPECT_EQ(moved.lodIndices[1].size(), 6u);
+}
+
+// ============================================================================
+// 8. Regression Tests for PostProcess Delegation, Gamepad Smoothing, LOD & HDR
+// ============================================================================
+
+TEST(PostProcessPassTest, MovePreservesAllParametersAndToggles) {
+    gpu::PostProcessPass src;
+    src.SetExposure(2.75f);
+    src.SetToneMapOperator(gpu::ToneMapOperator::AgX);
+    src.SetBloomEnabled(true);
+    src.SetBloomIntensity(1.4f);
+    src.SetBloomThreshold(0.85f);
+    src.SetSsaoEnabled(true);
+    src.SetSsaoIntensity(1.6f);
+    src.SetSsaoRadius(0.042f);
+    src.SetLensFlareEnabled(true);
+    src.SetLensFlareIntensity(2.2f);
+
+    gpu::PostProcessPass movedCtor{std::move(src)};
+    EXPECT_FLOAT_EQ(movedCtor.GetExposure(), 2.75f);
+    EXPECT_EQ(movedCtor.GetToneMapOperator(), gpu::ToneMapOperator::AgX);
+    EXPECT_TRUE(movedCtor.IsBloomEnabled());
+    EXPECT_FLOAT_EQ(movedCtor.GetBloomIntensity(), 1.4f);
+    EXPECT_FLOAT_EQ(movedCtor.GetBloomThreshold(), 0.85f);
+    EXPECT_TRUE(movedCtor.IsSsaoEnabled());
+    EXPECT_FLOAT_EQ(movedCtor.GetSsaoIntensity(), 1.6f);
+    EXPECT_FLOAT_EQ(movedCtor.GetSsaoRadius(), 0.042f);
+    EXPECT_TRUE(movedCtor.IsLensFlareEnabled());
+    EXPECT_FLOAT_EQ(movedCtor.GetLensFlareIntensity(), 2.2f);
+
+    gpu::PostProcessPass movedAssign;
+    movedAssign = std::move(movedCtor);
+    EXPECT_FLOAT_EQ(movedAssign.GetExposure(), 2.75f);
+    EXPECT_EQ(movedAssign.GetToneMapOperator(), gpu::ToneMapOperator::AgX);
+    EXPECT_FLOAT_EQ(movedAssign.GetBloomThreshold(), 0.85f);
+    EXPECT_FLOAT_EQ(movedAssign.GetSsaoRadius(), 0.042f);
+}
+
+TEST(PipelineDelegationTest, PostProcessGettersAndSettersSyncWithPass) {
+    gpu::PipelineManager pm;
+    pm.SetExposure(3.5f);
+    pm.SetToneMapOperator(gpu::ToneMapOperator::ACES);
+    pm.SetBloomEnabled(true);
+    pm.SetBloomIntensity(2.1f);
+    pm.SetBloomThreshold(1.3f);
+    pm.SetSsaoEnabled(true);
+    pm.SetSsaoIntensity(1.25f);
+    pm.SetSsaoRadius(0.035f);
+    pm.SetLensFlareEnabled(true);
+    pm.SetLensFlareIntensity(0.95f);
+
+    const gpu::PostProcessPass& pass = pm.GetPostProcessPass();
+    EXPECT_FLOAT_EQ(pm.GetExposure(), 3.5f);
+    EXPECT_FLOAT_EQ(pass.GetExposure(), 3.5f);
+    EXPECT_EQ(pm.GetToneMapOperator(), gpu::ToneMapOperator::ACES);
+    EXPECT_EQ(pass.GetToneMapOperator(), gpu::ToneMapOperator::ACES);
+    EXPECT_TRUE(pm.IsBloomEnabled());
+    EXPECT_TRUE(pass.IsBloomEnabled());
+    EXPECT_FLOAT_EQ(pm.GetBloomIntensity(), 2.1f);
+    EXPECT_FLOAT_EQ(pass.GetBloomIntensity(), 2.1f);
+    EXPECT_FLOAT_EQ(pm.GetBloomThreshold(), 1.3f);
+    EXPECT_FLOAT_EQ(pass.GetBloomThreshold(), 1.3f);
+    EXPECT_TRUE(pm.IsSsaoEnabled());
+    EXPECT_TRUE(pass.IsSsaoEnabled());
+    EXPECT_FLOAT_EQ(pm.GetSsaoIntensity(), 1.25f);
+    EXPECT_FLOAT_EQ(pass.GetSsaoIntensity(), 1.25f);
+    EXPECT_FLOAT_EQ(pm.GetSsaoRadius(), 0.035f);
+    EXPECT_FLOAT_EQ(pass.GetSsaoRadius(), 0.035f);
+    EXPECT_TRUE(pm.IsLensFlareEnabled());
+    EXPECT_TRUE(pass.IsLensFlareEnabled());
+    EXPECT_FLOAT_EQ(pm.GetLensFlareIntensity(), 0.95f);
+    EXPECT_FLOAT_EQ(pass.GetLensFlareIntensity(), 0.95f);
+}
+
+TEST(QuadtreeLodTest, EvaluateLodForMetricHandlesThresholdsAndTransitions) {
+    const auto lod0 = scene::Quadtree::EvaluateLodForMetric(2.0f);
+    EXPECT_EQ(lod0.level, scene::LODLevel::LOD0);
+    EXPECT_FLOAT_EQ(lod0.transition, 0.0f);
+
+    // Near upper boundary of LOD0 (0.80 * 8.0 = 6.4 .. 8.0)
+    const auto lod0Transition = scene::Quadtree::EvaluateLodForMetric(7.2f);
+    EXPECT_EQ(lod0Transition.level, scene::LODLevel::LOD0);
+    EXPECT_NEAR(lod0Transition.transition, 0.5f, 1e-4f);
+
+    const auto lod1 = scene::Quadtree::EvaluateLodForMetric(15.0f);
+    EXPECT_EQ(lod1.level, scene::LODLevel::LOD1);
+    EXPECT_FLOAT_EQ(lod1.transition, 0.0f);
+
+    const auto lod2 = scene::Quadtree::EvaluateLodForMetric(50.0f);
+    EXPECT_EQ(lod2.level, scene::LODLevel::LOD2);
+    EXPECT_FLOAT_EQ(lod2.transition, 0.0f);
+
+    const auto lod3 = scene::Quadtree::EvaluateLodForMetric(120.0f);
+    EXPECT_EQ(lod3.level, scene::LODLevel::LOD3);
+    EXPECT_FLOAT_EQ(lod3.transition, 0.0f);
+}
+
+TEST(GamepadTest, ExponentialSmoothingAccumulatesAcrossFrames) {
+    core::Gamepad pad;
+    core::GamepadState input;
+    input.connected = true;
+    input.leftStick = glm::vec2(0.0f);
+    input.rightStick = glm::vec2(0.0f);
+    pad.SetRawState(input, 0.016f);
+
+    input.leftStick = glm::vec2(1.0f, 0.0f);
+    input.rightStick = glm::vec2(0.0f, 1.0f);
+
+    pad.SetRawState(input, 0.016f);
+    const float firstMoveX = pad.GetState().smoothedMove.x;
+    const float firstLookY = pad.GetState().smoothedLook.y;
+    EXPECT_GT(firstMoveX, 0.0f);
+    EXPECT_LT(firstMoveX, 1.0f);
+    EXPECT_GT(firstLookY, 0.0f);
+
+    pad.SetRawState(input, 0.016f);
+    const float secondMoveX = pad.GetState().smoothedMove.x;
+    const float secondLookY = pad.GetState().smoothedLook.y;
+    EXPECT_GT(secondMoveX, firstMoveX);
+    EXPECT_LT(secondMoveX, 1.0f);
+    EXPECT_GT(secondLookY, firstLookY);
+}
+
+TEST(TextureDecoderHdrTest, SupportsPlusXMinusYAxisOrdering) {
+    const std::string header = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n+X 2 -Y 2\n";
+    std::vector<uint8_t> bytes(header.begin(), header.end());
+    // Uncompressed 2x2 RGBE scanlines (width < 8): pixels with E=129 (scale=2^1)
+    const std::array<uint8_t, 16> pixels{
+        128, 64,  0,   129, // (0, 0)
+        64,  128, 32,  129, // (1, 0)
+        32,  64,  128, 129, // (0, 1)
+        255, 255, 255, 128  // (1, 1)
+    };
+    bytes.insert(bytes.end(), pixels.begin(), pixels.end());
+
+    auto res = scene::TextureDecoder::DecodeHDR(bytes);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    EXPECT_EQ(res->width, 2u);
+    EXPECT_EQ(res->height, 2u);
+    EXPECT_EQ(res->rgbaFloat.size(), 16u);
+    // First pixel must have R > G > B and finite alpha = 1.0
+    EXPECT_GT(res->rgbaFloat[0], res->rgbaFloat[1]);
+    EXPECT_GT(res->rgbaFloat[1], res->rgbaFloat[2]);
+    EXPECT_FLOAT_EQ(res->rgbaFloat[3], 1.0f);
 }
