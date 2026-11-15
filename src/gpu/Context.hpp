@@ -55,6 +55,7 @@ public:
     [[nodiscard]] WGPUTextureFormat GetPreferredFormat() const noexcept { return format_; }
     [[nodiscard]] static constexpr WGPUTextureFormat GetHdrFormat() noexcept { return WGPUTextureFormat_RGBA16Float; }
     [[nodiscard]] WGPUTextureView GetHdrResolveView() const noexcept { return hdrResolveView_.Get(); }
+    [[nodiscard]] WGPUTexture GetHdrResolveTexture() const noexcept { return hdrResolveTexture_.Get(); }
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
     [[nodiscard]] bool SupportsBC() const noexcept { return supportsBC_; }
@@ -81,6 +82,17 @@ public:
      * @return Active render pass encoder targeting the HDR color and depth attachments.
      */
     WGPURenderPassEncoder BeginFrame();
+
+    /**
+     * @brief Resolves and snapshots the opaque+skybox HDR buffer, then opens the transparent/transmissive pass.
+     * @param opaquePass Active opaque HDR pass encoder that will be ended.
+     * @param opaqueCopyDst Destination single-sampled RGBA16Float texture sampled during refraction.
+     * @param copyW Destination texture width in pixels.
+     * @param copyH Destination texture height in pixels.
+     * @return New render pass encoder loading preserved MSAA color & depth for transparent/transmissive draws.
+     */
+    WGPURenderPassEncoder BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
+                                               uint32_t copyW, uint32_t copyH);
 
     /**
      * @brief Transitions from the HDR pass to the single-sampled swapchain post-processing pass.

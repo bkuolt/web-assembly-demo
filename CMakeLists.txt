@@ -230,6 +230,7 @@ endif()
 # ==============================================================================
 add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/Context.cpp
+    src/gpu/ShaderManager.cpp
     src/gpu/Skybox.cpp
     src/gpu/AabbRenderer.cpp
     src/gpu/ShadowPass.cpp

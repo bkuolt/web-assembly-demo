@@ -8,7 +8,7 @@
 #include "core/Log.hpp"
 #include "core/ThreadPool.hpp"
 #include "gpu/DrawHelpers.hpp"
-#include "gpu/Shaders.hpp"
+#include "gpu/ShaderManager.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
@@ -18,6 +18,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <memory_resource>
 #include <span>
 #include <utility>
@@ -188,12 +189,13 @@ void PipelineManager::Shutdown() noexcept {
     gpuCuller_.Shutdown();
     gpuRayPicker_.Shutdown();
     perDrawRing_.Shutdown();
+    transparentPerDrawRing_.Shutdown();
 
     mipGenNormalPipeline_.Reset();
     mipGenSrgbPipeline_.Reset();
     mipGenUnormPipeline_.Reset();
+    mipGenPipelineLayout_.Reset();
     mipGenBgl_.Reset();
-    mipGenShaderModule_.Reset();
 
     dummySkinBindGroup_.Reset();
     dummySkinBuffer_.Reset();
@@ -220,8 +222,11 @@ void PipelineManager::Shutdown() noexcept {
     defaultWhiteTextureView_.Reset();
     defaultWhiteTexture_.Reset();
     wireframePipeline_.Reset();
+    blendBackCulledPipeline_.Reset();
+    blendPipeline_.Reset();
     opaqueBackCulledPipeline_.Reset();
     opaquePipeline_.Reset();
+    mainPipelineLayout_.Reset();
     skinBgl_.Reset();
     materialBgl_.Reset();
     perDrawBgl_.Reset();
@@ -236,6 +241,7 @@ void PipelineManager::Shutdown() noexcept {
     renderItemsScratch_.clear();
     drawCallsScratch_.clear();
     mainPerDrawScratch_.clear();
+    transparentStartIndex_ = 0;
     skinFrameId_ = 1;
     skinFrameAdvanced_ = false;
 
@@ -760,12 +766,10 @@ void PipelineManager::InitializeComputeIBLPipelines() {
     }
 
     // 2. BRDF LUT Compute Pipeline
-    WGPUShaderSourceWGSL lutWgsl = WGPU_SHADER_SOURCE_WGSL_INIT;
-    lutWgsl.code = ToWgpuStringView(kBrdfLutComputeWGSL);
-    WGPUShaderModuleDescriptor lutSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    lutSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&lutWgsl);
-    lutSmDesc.label = ToWgpuStringView("BRDF_LUT_Compute_WGSL");
-    ShaderModuleHandle lutModule{wgpuDeviceCreateShaderModule(device_, &lutSmDesc)};
+    auto lutModuleRes = ShaderManager::Instance().LoadAndCompile(device_, "brdf_lut.wgsl", "BRDF_LUT_Compute_WGSL");
+    if (!lutModuleRes) {
+        BGL_LOG_WARN("BRDF LUT shader compilation failed: {}", lutModuleRes.error());
+    }
 
     WGPUBindGroupLayoutEntry lutBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     lutBglEntry.binding = 0;
@@ -784,10 +788,10 @@ void PipelineManager::InitializeComputeIBLPipelines() {
     lutPlDesc.bindGroupLayouts = brdfLutComputeBgl_.AddressOf();
     PipelineLayoutHandle lutPl{wgpuDeviceCreatePipelineLayout(device_, &lutPlDesc)};
 
-    if (lutModule && lutPl) {
+    if (lutModuleRes && *lutModuleRes && lutPl) {
         WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
         cpDesc.layout = lutPl;
-        cpDesc.compute.module = lutModule;
+        cpDesc.compute.module = *lutModuleRes;
         cpDesc.compute.entryPoint = ToWgpuStringView("cs_brdf_lut");
         cpDesc.label = ToWgpuStringView("BRDF_LUT_ComputePipeline");
         brdfLutComputePipeline_ = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
@@ -796,12 +800,11 @@ void PipelineManager::InitializeComputeIBLPipelines() {
     DispatchBrdfLutCompute();
 
     // 3. GGX Specular Cubemap Prefilter Compute Pipeline
-    WGPUShaderSourceWGSL ggxWgsl = WGPU_SHADER_SOURCE_WGSL_INIT;
-    ggxWgsl.code = ToWgpuStringView(kGgxPrefilterComputeWGSL);
-    WGPUShaderModuleDescriptor ggxSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    ggxSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&ggxWgsl);
-    ggxSmDesc.label = ToWgpuStringView("GGX_Prefilter_Compute_WGSL");
-    ShaderModuleHandle ggxModule{wgpuDeviceCreateShaderModule(device_, &ggxSmDesc)};
+    auto ggxModuleRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "ggx_prefilter.wgsl", "GGX_Prefilter_Compute_WGSL");
+    if (!ggxModuleRes) {
+        BGL_LOG_WARN("GGX Prefilter shader compilation failed: {}", ggxModuleRes.error());
+    }
 
     std::array<WGPUBindGroupLayoutEntry, 4> ggxEntries{};
     ggxEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -839,10 +842,10 @@ void PipelineManager::InitializeComputeIBLPipelines() {
     ggxPlDesc.bindGroupLayouts = ggxPrefilterComputeBgl_.AddressOf();
     PipelineLayoutHandle ggxPl{wgpuDeviceCreatePipelineLayout(device_, &ggxPlDesc)};
 
-    if (ggxModule && ggxPl) {
+    if (ggxModuleRes && *ggxModuleRes && ggxPl) {
         WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
         cpDesc.layout = ggxPl;
-        cpDesc.compute.module = ggxModule;
+        cpDesc.compute.module = *ggxModuleRes;
         cpDesc.compute.entryPoint = ToWgpuStringView("cs_ggx_prefilter");
         cpDesc.label = ToWgpuStringView("GGX_Prefilter_ComputePipeline");
         ggxPrefilterComputePipeline_ = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
@@ -1096,30 +1099,7 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         return std::unexpected("Cannot initialize PipelineManager without valid WGPUDevice and WGPUQueue");
     }
 
-    // 1. Compile WGSL PBR Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.code = ToWgpuStringView(kPbrShaderWGSL);
-
-    WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
-    smDesc.label = ToWgpuStringView("PBR_WGSL");
-
-    ShaderModuleHandle pbrShaderModule{wgpuDeviceCreateShaderModule(device_, &smDesc)};
-    if (!pbrShaderModule) {
-        return std::unexpected("Failed to compile embedded WGSL PBR shader module");
-    }
-
-    // 2. Compile WGSL Wireframe Shader Module
-    WGPUShaderSourceWGSL wfWgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wfWgslDesc.code = ToWgpuStringView(kWireframeShaderWGSL);
-
-    WGPUShaderModuleDescriptor wfSmDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    wfSmDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wfWgslDesc);
-    wfSmDesc.label = ToWgpuStringView("Wireframe_WGSL");
-
-    ShaderModuleHandle wfShaderModule{wgpuDeviceCreateShaderModule(device_, &wfSmDesc)};
-
-    // 3. Shared 4-BindGroup Architecture:
+    // 1. Shared 4-BindGroup Architecture:
     // @group(0) SceneGlobals: Lighting + IBL + ShadowMap + BRDF LUT + Opaque Copy
     // @group(1) PerDrawDynamic: 256-byte dynamic-offset PerDrawUniforms ring
     // @group(2) MaterialStatic: 256-byte MaterialUniforms + Sampler + 8 Textures + MorphDeltas SSBO
@@ -1274,103 +1254,15 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = plLayouts.size();
     plDesc.bindGroupLayouts = plLayouts.data();
-    PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
+    mainPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!mainPipelineLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create main PBR pipeline layout");
+    }
 
-    // 6. Vertex Layout (Position, Normal, Tangent, UV, Joints, Weights)
-    std::array<WGPUVertexAttribute, 6> vertAttrs{};
-    vertAttrs[0].format = WGPUVertexFormat_Float32x3;
-    vertAttrs[0].offset = offsetof(core::Vertex, position);
-    vertAttrs[0].shaderLocation = 0;
-
-    vertAttrs[1].format = WGPUVertexFormat_Float32x3;
-    vertAttrs[1].offset = offsetof(core::Vertex, normal);
-    vertAttrs[1].shaderLocation = 1;
-
-    vertAttrs[2].format = WGPUVertexFormat_Float32x4;
-    vertAttrs[2].offset = offsetof(core::Vertex, tangent);
-    vertAttrs[2].shaderLocation = 2;
-
-    vertAttrs[3].format = WGPUVertexFormat_Float32x2;
-    vertAttrs[3].offset = offsetof(core::Vertex, uv);
-    vertAttrs[3].shaderLocation = 3;
-
-    vertAttrs[4].format = WGPUVertexFormat_Uint32x4;
-    vertAttrs[4].offset = offsetof(core::Vertex, joints);
-    vertAttrs[4].shaderLocation = 4;
-
-    vertAttrs[5].format = WGPUVertexFormat_Float32x4;
-    vertAttrs[5].offset = offsetof(core::Vertex, weights);
-    vertAttrs[5].shaderLocation = 5;
-
-    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vbLayout.arrayStride = sizeof(core::Vertex);
-    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = vertAttrs.size();
-    vbLayout.attributes = vertAttrs.data();
-
-    // 7. Color Target (RGBA16Float HDR 4x MSAA) & Depth State
-    WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
-    colorTarget.format = hdrFormat_;
-    colorTarget.writeMask = WGPUColorWriteMask_All;
-
-    WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
-    fragmentState.module = pbrShaderModule;
-    fragmentState.entryPoint = ToWgpuStringView("fs_main");
-    fragmentState.targetCount = 1;
-    fragmentState.targets = &colorTarget;
-
-    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-    depthStencil.format = WGPUTextureFormat_Depth24Plus;
-    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
-    depthStencil.depthCompare = WGPUCompareFunction_LessEqual;
-
-    // 8. Create Opaque Render Pipelines (DoubleSided=CullNone and SingleSided=CullBack)
-    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    rpDesc.layout = pipelineLayout;
-    rpDesc.vertex.module = pbrShaderModule;
-    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
-    rpDesc.vertex.bufferCount = 1;
-    rpDesc.vertex.buffers = &vbLayout;
-    rpDesc.fragment = &fragmentState;
-    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-    rpDesc.primitive.frontFace = WGPUFrontFace_CCW;
-    rpDesc.primitive.cullMode = WGPUCullMode_None;
-    rpDesc.depthStencil = &depthStencil;
-    rpDesc.multisample.count = sampleCount_;
-    rpDesc.multisample.mask = 0xFFFFFFFF;
-    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
-
-    opaquePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-
-    rpDesc.primitive.cullMode = WGPUCullMode_Back;
-    opaqueBackCulledPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-
-    // 8c. Create Wireframe Render Pipeline
-    if (wfShaderModule) {
-        WGPUFragmentState wfFragState = WGPU_FRAGMENT_STATE_INIT;
-        wfFragState.module = wfShaderModule;
-        wfFragState.entryPoint = ToWgpuStringView("fs_main");
-        wfFragState.targetCount = 1;
-        wfFragState.targets = &colorTarget;
-
-        WGPUDepthStencilState wfDepthStencil = depthStencil;
-        wfDepthStencil.depthWriteEnabled = WGPUOptionalBool_False;
-
-        WGPURenderPipelineDescriptor wfRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-        wfRpDesc.layout = pipelineLayout;
-        wfRpDesc.vertex.module = wfShaderModule;
-        wfRpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
-        wfRpDesc.vertex.bufferCount = 1;
-        wfRpDesc.vertex.buffers = &vbLayout;
-        wfRpDesc.fragment = &wfFragState;
-        wfRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
-        wfRpDesc.primitive.cullMode = WGPUCullMode_None;
-        wfRpDesc.depthStencil = &wfDepthStencil;
-        wfRpDesc.multisample.count = sampleCount_;
-        wfRpDesc.multisample.mask = 0xFFFFFFFF;
-        wfRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
-
-        wireframePipeline_ = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
+    if (auto res = CreateMainRenderPipelines(false); !res) {
+        Shutdown();
+        return res;
     }
 
     // 9. Create Samplers: Trilinear 16x Anisotropic + Base-Mip-Only Sampler
@@ -1466,11 +1358,12 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     }
 
     perDrawRing_.Initialize(device_, queue_, perDrawBgl_.Get(), "Main_PerDrawRing");
+    transparentPerDrawRing_.Initialize(device_, queue_, perDrawBgl_.Get(), "Transparent_PerDrawRing");
     InitMipGenPipelines();
     RebuildSceneGlobalsBindGroup();
 
-    initialized_ = (opaquePipeline_ != nullptr && postProcessPass_.IsInitialized() && shadowPass_.IsInitialized() &&
-                    sceneGlobalsBindGroup_ != nullptr);
+    initialized_ = (opaquePipeline_ != nullptr && blendPipeline_ != nullptr && postProcessPass_.IsInitialized() &&
+                    shadowPass_.IsInitialized() && sceneGlobalsBindGroup_ != nullptr);
 
     // Initialize auxiliary AABB debug pass; compute engines initialize lazily on first use.
     if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
@@ -1485,18 +1378,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
 
 void PipelineManager::InitMipGenPipelines() {
     if (!device_) {
-        return;
-    }
-
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.code = ToWgpuStringView(kMipGenShaderWGSL);
-
-    WGPUShaderModuleDescriptor smDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
-    smDesc.label = ToWgpuStringView("MipGen_WGSL");
-    mipGenShaderModule_ = wgpuDeviceCreateShaderModule(device_, &smDesc);
-    if (!mipGenShaderModule_) {
-        BGL_LOG_WARN("Failed to compile MipGen WGSL module; uncompressed textures will skip GPU mips");
         return;
     }
 
@@ -1520,42 +1401,15 @@ void PipelineManager::InitMipGenPipelines() {
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = mipGenBgl_.AddressOf();
     plDesc.label = ToWgpuStringView("MipGen_PL");
-    PipelineLayoutHandle pl{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
-    if (!pl) {
+    mipGenPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!mipGenPipelineLayout_) {
         return;
     }
 
-    auto createMipPipeline = [&](WGPUTextureFormat fmt, std::string_view fsEntry,
-                                 std::string_view label) -> RenderPipelineHandle {
-        WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
-        colorTarget.format = fmt;
-        colorTarget.writeMask = WGPUColorWriteMask_All;
-
-        WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
-        fragState.module = mipGenShaderModule_.Get();
-        fragState.entryPoint = ToWgpuStringView(fsEntry);
-        fragState.targetCount = 1;
-        fragState.targets = &colorTarget;
-
-        WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-        rpDesc.layout = pl.Get();
-        rpDesc.vertex.module = mipGenShaderModule_.Get();
-        rpDesc.vertex.entryPoint = ToWgpuStringView("vs_mip");
-        rpDesc.vertex.bufferCount = 0;
-        rpDesc.vertex.buffers = nullptr;
-        rpDesc.fragment = &fragState;
-        rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-        rpDesc.primitive.cullMode = WGPUCullMode_None;
-        rpDesc.depthStencil = nullptr;
-        rpDesc.multisample.count = 1;
-        rpDesc.multisample.mask = 0xFFFFFFFF;
-        rpDesc.label = ToWgpuStringView(label);
-        return RenderPipelineHandle{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
-    };
-
-    mipGenUnormPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip", "MipGen_RGBA8Unorm");
-    mipGenSrgbPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8UnormSrgb, "fs_mip", "MipGen_RGBA8UnormSrgb");
-    mipGenNormalPipeline_ = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip_normal", "MipGen_Normal");
+    if (auto res = CreateMipGenPipelines(false); !res) {
+        BGL_LOG_WARN("Failed to compile MipGen WGSL module ({}); uncompressed textures will skip GPU mips",
+                     res.error());
+    }
 }
 
 void PipelineManager::GenerateTextureMipsGpu(WGPUCommandEncoder encoder, WGPUTexture texture, uint32_t width,
@@ -2432,6 +2286,38 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
         return;
     }
+    PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
+                      zFar);
+    EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
+    EncodeDrawRange(pass, scene, viewProj, wireframe, true, transparentStartIndex_, renderItemsScratch_.size(),
+                    transparentPerDrawRing_);
+}
+
+void PipelineManager::RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                                        const glm::vec3& cameraPos, bool wireframe, const scene::Quadtree* spatialIndex,
+                                        const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW,
+                                        uint32_t viewportH, float zNear, float zFar) {
+    if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
+        return;
+    }
+    PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
+                      zFar);
+    EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
+}
+
+void PipelineManager::RenderTransparentScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                                             bool wireframe) {
+    if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
+        return;
+    }
+    EncodeDrawRange(pass, scene, viewProj, wireframe, true, transparentStartIndex_, renderItemsScratch_.size(),
+                    transparentPerDrawRing_);
+}
+
+void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                                        const scene::Quadtree* spatialIndex, const glm::mat4& viewMatrix,
+                                        const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH,
+                                        float zNear, float zFar) {
     if (!skinFrameAdvanced_) {
         ++skinFrameId_;
     }
@@ -2468,7 +2354,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
             const bool hasMat =
                 (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size()));
             const bool isTransparent =
-                hasMat && (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+                hasMat && IsMaterialTransparentOrTransmissive(scene.materials[prim.materialIndex]);
             const bool isDoubleSided = hasMat && scene.materials[prim.materialIndex].doubleSided;
             const uint32_t activeLod = lodEnabled_ ? static_cast<uint32_t>(vis.currentLOD) : 0u;
             renderItemsScratch_.push_back(RenderItem{
@@ -2510,7 +2396,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                 const bool hasMat =
                     (prim.materialIndex >= 0 && prim.materialIndex < static_cast<int>(scene.materials.size()));
                 const bool isTransparent =
-                    hasMat && (scene.materials[prim.materialIndex].alphaMode == scene::AlphaMode::Blend);
+                    hasMat && IsMaterialTransparentOrTransmissive(scene.materials[prim.materialIndex]);
                 const bool isDoubleSided = hasMat && scene.materials[prim.materialIndex].doubleSided;
                 renderItemsScratch_.push_back(RenderItem{
                     .node = node.get(),
@@ -2535,7 +2421,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     }
 
     // Sort draw calls: Opaques front-to-back (minimizing overdraw and grouping by material),
-    // Transparents back-to-front (for correct alpha blending)
+    // Transparents/Transmissives back-to-front (for correct alpha blending)
     std::sort(renderItemsScratch_.begin(), renderItemsScratch_.end(), [](const RenderItem& a, const RenderItem& b) {
         if (a.isTransparent != b.isTransparent) {
             return !a.isTransparent; // opaques first
@@ -2548,6 +2434,17 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         }
         return a.distance > b.distance; // farthest first
     });
+
+    auto firstTransIt = std::ranges::find_if(renderItemsScratch_, [](const RenderItem& it) { return it.isTransparent; });
+    transparentStartIndex_ = static_cast<size_t>(std::distance(renderItemsScratch_.begin(), firstTransIt));
+}
+
+void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                                      bool wireframe, bool transparentPass, size_t startIdx, size_t endIdx,
+                                      DynamicUniformRing<PerDrawUniforms>& ring) {
+    if (!pass || startIdx >= endIdx || endIdx > renderItemsScratch_.size()) {
+        return;
+    }
 
     uint32_t baseGlobalFlags{0};
     if (bumpMappingEnabled_)
@@ -2566,13 +2463,16 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
 
     drawCallsScratch_.clear();
     mainPerDrawScratch_.clear();
-    drawCallsScratch_.reserve(renderItemsScratch_.size());
-    mainPerDrawScratch_.reserve(renderItemsScratch_.size());
+    drawCallsScratch_.reserve(endIdx - startIdx);
+    mainPerDrawScratch_.reserve(endIdx - startIdx);
 
-    WGPURenderPipeline fallbackMainPipe =
-        opaqueBackCulledPipeline_ ? opaqueBackCulledPipeline_.Get() : opaquePipeline_.Get();
+    WGPURenderPipeline singleSidedPipe =
+        transparentPass ? (blendBackCulledPipeline_ ? blendBackCulledPipeline_.Get() : blendPipeline_.Get())
+                        : (opaqueBackCulledPipeline_ ? opaqueBackCulledPipeline_.Get() : opaquePipeline_.Get());
+    WGPURenderPipeline doubleSidedPipe = transparentPass ? blendPipeline_.Get() : opaquePipeline_.Get();
 
-    for (const auto& item : renderItemsScratch_) {
+    for (size_t idx = startIdx; idx < endIdx; ++idx) {
+        const auto& item = renderItemsScratch_[idx];
         if (!item.node) {
             continue;
         }
@@ -2594,11 +2494,11 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
                                     drawFlags, clampedTrans, scene.skins, scene.allNodes, skinFrameId_,
                                     dummySkinBindGroup_.Get(), prepared);
 
-        WGPURenderPipeline desiredPipeline{fallbackMainPipe};
+        WGPURenderPipeline desiredPipeline{singleSidedPipe};
         if (wireframe && wireframePipeline_) {
             desiredPipeline = wireframePipeline_.Get();
-        } else if (opaquePipeline_ && item.isDoubleSided) {
-            desiredPipeline = opaquePipeline_.Get();
+        } else if (doubleSidedPipe && item.isDoubleSided) {
+            desiredPipeline = doubleSidedPipe;
         }
 
         const uint32_t dynOffset = static_cast<uint32_t>(mainPerDrawScratch_.size() * sizeof(PerDrawUniforms));
@@ -2616,7 +2516,7 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
         return;
     }
 
-    WGPUBindGroup perDrawBg = perDrawRing_.Upload(mainPerDrawScratch_);
+    WGPUBindGroup perDrawBg = ring.Upload(mainPerDrawScratch_);
     if (!perDrawBg) {
         return;
     }
@@ -2906,6 +2806,293 @@ float PipelineManager::EvaluateBayerDither4x4(uint32_t x, uint32_t y) noexcept {
                                             5.0f / 16.0f}};
     const uint32_t idx = ((y & 3u) * 4u) + (x & 3u);
     return kBayer[idx];
+}
+
+bool PipelineManager::IsMaterialTransparentOrTransmissive(const scene::Material& mat) noexcept {
+    return mat.alphaMode == scene::AlphaMode::Blend || mat.transmissionFactor > 0.001f;
+}
+
+WGPUBlendState PipelineManager::GetTransparentBlendState() noexcept {
+    WGPUBlendState blend = WGPU_BLEND_STATE_INIT;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    return blend;
+}
+
+core::Result<void> PipelineManager::CreateMainRenderPipelines(bool validateScope) {
+    if (!device_ || !mainPipelineLayout_) {
+        return std::unexpected("Cannot create main PBR render pipelines without device or pipeline layout");
+    }
+
+    auto pbrModuleRes = ShaderManager::Instance().LoadAndCompile(device_, "pbr.wgsl", "PBR_WGSL", validateScope);
+    if (!pbrModuleRes) {
+        return std::unexpected(pbrModuleRes.error());
+    }
+
+    auto wfModuleRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "wireframe.wgsl", "Wireframe_WGSL", validateScope);
+    if (!wfModuleRes) {
+        if (validateScope) {
+            return std::unexpected(wfModuleRes.error());
+        }
+        BGL_LOG_WARN("Wireframe shader compilation failed: {}", wfModuleRes.error());
+    }
+
+    std::array<WGPUVertexAttribute, 6> vertAttrs{};
+    vertAttrs[0].format = WGPUVertexFormat_Float32x3;
+    vertAttrs[0].offset = offsetof(core::Vertex, position);
+    vertAttrs[0].shaderLocation = 0;
+
+    vertAttrs[1].format = WGPUVertexFormat_Float32x3;
+    vertAttrs[1].offset = offsetof(core::Vertex, normal);
+    vertAttrs[1].shaderLocation = 1;
+
+    vertAttrs[2].format = WGPUVertexFormat_Float32x4;
+    vertAttrs[2].offset = offsetof(core::Vertex, tangent);
+    vertAttrs[2].shaderLocation = 2;
+
+    vertAttrs[3].format = WGPUVertexFormat_Float32x2;
+    vertAttrs[3].offset = offsetof(core::Vertex, uv);
+    vertAttrs[3].shaderLocation = 3;
+
+    vertAttrs[4].format = WGPUVertexFormat_Uint32x4;
+    vertAttrs[4].offset = offsetof(core::Vertex, joints);
+    vertAttrs[4].shaderLocation = 4;
+
+    vertAttrs[5].format = WGPUVertexFormat_Float32x4;
+    vertAttrs[5].offset = offsetof(core::Vertex, weights);
+    vertAttrs[5].shaderLocation = 5;
+
+    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vbLayout.arrayStride = sizeof(core::Vertex);
+    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
+    vbLayout.attributeCount = vertAttrs.size();
+    vbLayout.attributes = vertAttrs.data();
+
+    WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
+    colorTarget.format = hdrFormat_;
+    colorTarget.writeMask = WGPUColorWriteMask_All;
+
+    WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
+    fragmentState.module = pbrModuleRes->Get();
+    fragmentState.entryPoint = ToWgpuStringView("fs_main");
+    fragmentState.targetCount = 1;
+    fragmentState.targets = &colorTarget;
+
+    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
+    depthStencil.format = WGPUTextureFormat_Depth24Plus;
+    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
+    depthStencil.depthCompare = WGPUCompareFunction_LessEqual;
+
+    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    rpDesc.layout = mainPipelineLayout_.Get();
+    rpDesc.vertex.module = pbrModuleRes->Get();
+    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
+    rpDesc.vertex.bufferCount = 1;
+    rpDesc.vertex.buffers = &vbLayout;
+    rpDesc.fragment = &fragmentState;
+    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    rpDesc.primitive.frontFace = WGPUFrontFace_CCW;
+    rpDesc.primitive.cullMode = WGPUCullMode_None;
+    rpDesc.depthStencil = &depthStencil;
+    rpDesc.multisample.count = sampleCount_;
+    rpDesc.multisample.mask = 0xFFFFFFFF;
+    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
+
+    RenderPipelineHandle nextOpaque{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
+    rpDesc.primitive.cullMode = WGPUCullMode_Back;
+    RenderPipelineHandle nextOpaqueBackCulled{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
+
+    const WGPUBlendState blendState = GetTransparentBlendState();
+    WGPUColorTargetState blendColorTarget = colorTarget;
+    blendColorTarget.blend = &blendState;
+
+    WGPUFragmentState blendFragState = fragmentState;
+    blendFragState.targets = &blendColorTarget;
+
+    WGPUDepthStencilState blendDepthStencil = depthStencil;
+    blendDepthStencil.depthWriteEnabled = WGPUOptionalBool_False;
+
+    WGPURenderPipelineDescriptor blendRpDesc = rpDesc;
+    blendRpDesc.fragment = &blendFragState;
+    blendRpDesc.depthStencil = &blendDepthStencil;
+    blendRpDesc.primitive.cullMode = WGPUCullMode_None;
+    RenderPipelineHandle nextBlend{wgpuDeviceCreateRenderPipeline(device_, &blendRpDesc)};
+    blendRpDesc.primitive.cullMode = WGPUCullMode_Back;
+    RenderPipelineHandle nextBlendBackCulled{wgpuDeviceCreateRenderPipeline(device_, &blendRpDesc)};
+
+    if (!nextOpaque || !nextOpaqueBackCulled || !nextBlend || !nextBlendBackCulled) {
+        return std::unexpected("Failed to create PBR opaque/blend render pipelines");
+    }
+
+    RenderPipelineHandle nextWireframe{};
+    if (wfModuleRes) {
+        WGPUFragmentState wfFragState = WGPU_FRAGMENT_STATE_INIT;
+        wfFragState.module = wfModuleRes->Get();
+        wfFragState.entryPoint = ToWgpuStringView("fs_main");
+        wfFragState.targetCount = 1;
+        wfFragState.targets = &colorTarget;
+
+        WGPUDepthStencilState wfDepthStencil = depthStencil;
+        wfDepthStencil.depthWriteEnabled = WGPUOptionalBool_False;
+
+        WGPURenderPipelineDescriptor wfRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+        wfRpDesc.layout = mainPipelineLayout_.Get();
+        wfRpDesc.vertex.module = wfModuleRes->Get();
+        wfRpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
+        wfRpDesc.vertex.bufferCount = 1;
+        wfRpDesc.vertex.buffers = &vbLayout;
+        wfRpDesc.fragment = &wfFragState;
+        wfRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
+        wfRpDesc.primitive.cullMode = WGPUCullMode_None;
+        wfRpDesc.depthStencil = &wfDepthStencil;
+        wfRpDesc.multisample.count = sampleCount_;
+        wfRpDesc.multisample.mask = 0xFFFFFFFF;
+        wfRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
+
+        nextWireframe = wgpuDeviceCreateRenderPipeline(device_, &wfRpDesc);
+        if (!nextWireframe && validateScope) {
+            return std::unexpected("Failed to create wireframe render pipeline");
+        }
+    }
+
+    opaquePipeline_ = std::move(nextOpaque);
+    opaqueBackCulledPipeline_ = std::move(nextOpaqueBackCulled);
+    blendPipeline_ = std::move(nextBlend);
+    blendBackCulledPipeline_ = std::move(nextBlendBackCulled);
+    if (nextWireframe) {
+        wireframePipeline_ = std::move(nextWireframe);
+    }
+    return {};
+}
+
+core::Result<void> PipelineManager::CreateMipGenPipelines(bool validateScope) {
+    if (!device_ || !mipGenPipelineLayout_) {
+        return std::unexpected("Cannot create MipGen pipelines without device or pipeline layout");
+    }
+
+    auto shaderModuleRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "mipgen.wgsl", "MipGen_WGSL", validateScope);
+    if (!shaderModuleRes) {
+        return std::unexpected(shaderModuleRes.error());
+    }
+
+    auto createMipPipeline = [&](WGPUTextureFormat fmt, std::string_view fsEntry,
+                                 std::string_view label) -> RenderPipelineHandle {
+        WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
+        colorTarget.format = fmt;
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
+        fragState.module = shaderModuleRes->Get();
+        fragState.entryPoint = ToWgpuStringView(fsEntry);
+        fragState.targetCount = 1;
+        fragState.targets = &colorTarget;
+
+        WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+        rpDesc.layout = mipGenPipelineLayout_.Get();
+        rpDesc.vertex.module = shaderModuleRes->Get();
+        rpDesc.vertex.entryPoint = ToWgpuStringView("vs_mip");
+        rpDesc.vertex.bufferCount = 0;
+        rpDesc.vertex.buffers = nullptr;
+        rpDesc.fragment = &fragState;
+        rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        rpDesc.primitive.cullMode = WGPUCullMode_None;
+        rpDesc.depthStencil = nullptr;
+        rpDesc.multisample.count = 1;
+        rpDesc.multisample.mask = 0xFFFFFFFF;
+        rpDesc.label = ToWgpuStringView(label);
+        return RenderPipelineHandle{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
+    };
+
+    RenderPipelineHandle nextUnorm = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip", "MipGen_RGBA8Unorm");
+    RenderPipelineHandle nextSrgb =
+        createMipPipeline(WGPUTextureFormat_RGBA8UnormSrgb, "fs_mip", "MipGen_RGBA8UnormSrgb");
+    RenderPipelineHandle nextNormal = createMipPipeline(WGPUTextureFormat_RGBA8Unorm, "fs_mip_normal", "MipGen_Normal");
+
+    if (!nextUnorm || !nextSrgb || !nextNormal) {
+        return std::unexpected("Failed to create MipGen render pipelines");
+    }
+
+    mipGenUnormPipeline_ = std::move(nextUnorm);
+    mipGenSrgbPipeline_ = std::move(nextSrgb);
+    mipGenNormalPipeline_ = std::move(nextNormal);
+    return {};
+}
+
+core::Result<void> PipelineManager::ReloadShaders(std::span<const std::string> modifiedVirtualPaths) {
+    if (!initialized_ || !device_) {
+        return std::unexpected("Cannot reload shaders before PipelineManager initialization");
+    }
+
+    bool needMain{false};
+    bool needMipGen{false};
+    bool needShadow{false};
+    bool needTonemap{false};
+    bool needAabb{false};
+    bool needGpuCull{false};
+    bool needGpuRayPick{false};
+
+    for (const auto& path : modifiedVirtualPaths) {
+        if (path == "pbr.wgsl" || path == "wireframe.wgsl") {
+            needMain = true;
+        } else if (path == "mipgen.wgsl") {
+            needMipGen = true;
+        } else if (path == "shadow.wgsl") {
+            needShadow = true;
+        } else if (path == "tonemap.wgsl") {
+            needTonemap = true;
+        } else if (path == "aabb.wgsl") {
+            needAabb = true;
+        } else if (path == "gpu_cull.wgsl") {
+            needGpuCull = true;
+        } else if (path == "gpu_ray_pick.wgsl") {
+            needGpuRayPick = true;
+        }
+    }
+
+    std::string firstError{};
+    auto checkRes = [&](const core::Result<void>& res, std::string_view tag) {
+        if (!res) {
+            BGL_LOG_ERROR("WGSL hot-reload failed for {}: {}", tag, res.error());
+            if (firstError.empty()) {
+                firstError = res.error();
+            }
+        } else {
+            BGL_LOG_INFO("WGSL hot-reloaded: {}", tag);
+        }
+    };
+
+    if (needMain) {
+        checkRes(CreateMainRenderPipelines(true), "pbr/wireframe");
+    }
+    if (needMipGen) {
+        checkRes(CreateMipGenPipelines(true), "mipgen.wgsl");
+    }
+    if (needShadow) {
+        checkRes(shadowPass_.ReloadShader(), "shadow.wgsl");
+    }
+    if (needTonemap) {
+        checkRes(postProcessPass_.ReloadShader(), "tonemap.wgsl");
+    }
+    if (needAabb) {
+        checkRes(aabbRenderer_.ReloadShader(), "aabb.wgsl");
+    }
+    if (needGpuCull) {
+        checkRes(gpuCuller_.ReloadShader(), "gpu_cull.wgsl");
+    }
+    if (needGpuRayPick) {
+        checkRes(gpuRayPicker_.ReloadShader(), "gpu_ray_pick.wgsl");
+    }
+
+    if (!firstError.empty()) {
+        return std::unexpected(std::move(firstError));
+    }
+    return {};
 }
 
 } // namespace bgl::gpu

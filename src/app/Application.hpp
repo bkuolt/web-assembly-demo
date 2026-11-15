@@ -355,6 +355,7 @@ private:
     void ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri);
     void CacheSceneMetrics();
     void UpdateSettingsUI();
+    void PollShaderHotReload(float deltaTime);
 
     bool running_{false};
     bool showBoundingBoxes_{true};
@@ -403,9 +404,11 @@ private:
     size_t totalVertices_{0};
     size_t totalIndices_{0};
     size_t cachedQuadtreeNodeCount_{0};
+    uint64_t lastQuadtreeTransformVersion_{0};
     ui::OverlayStats cachedOverlayStats_{};
     core::MemoryTelemetry cachedMemTelemetry_{};
     float memTelemetryTimer_{0.25f};
+    float hotReloadPollTimer_{0.0f};
 };
 
 } // namespace bgl::app

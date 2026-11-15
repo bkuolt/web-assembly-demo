@@ -18,6 +18,7 @@
 #include <array>
 #include <glm/glm.hpp>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 #include <webgpu/webgpu.h>
@@ -74,6 +75,11 @@ public:
                                   uint32_t sampleCount = 4);
 
     /**
+     * @brief Recompiles and hot-swaps GPU pipelines affected by the given modified entry WGSL virtual paths.
+     */
+    core::Result<void> ReloadShaders(std::span<const std::string> modifiedVirtualPaths);
+
+    /**
      * @brief Releases all GPU pipeline layouts, pipelines, uniform buffers, and textures.
      */
     void Shutdown() noexcept;
@@ -118,6 +124,21 @@ public:
                      const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr,
                      const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f},
                      uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+
+    /**
+     * @brief Prepares frame visibility/lighting/sorting and renders only opaque/alpha-masked primitives.
+     */
+    void RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                           const glm::vec3& cameraPos, bool wireframe = false,
+                           const scene::Quadtree* spatialIndex = nullptr,
+                           const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f},
+                           uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+
+    /**
+     * @brief Renders back-to-front alpha-blended and transmissive primitives prepared by RenderOpaqueScene.
+     */
+    void RenderTransparentScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
+                                bool wireframe = false);
 
     /**
      * @brief Executes the fullscreen tonemapping and color space conversion pass onto the swapchain.
@@ -416,6 +437,12 @@ public:
     [[nodiscard]] float GetSolarElevationFactor() const noexcept { return solarElevation_; }
 
     void EnsureOpaqueCopyTexture(uint32_t width, uint32_t height);
+    [[nodiscard]] WGPUTexture GetOpaqueColorCopyTexture() const noexcept { return opaqueColorCopyTexture_.Get(); }
+    [[nodiscard]] uint32_t GetOpaqueCopyWidth() const noexcept { return opaqueCopyWidth_; }
+    [[nodiscard]] uint32_t GetOpaqueCopyHeight() const noexcept { return opaqueCopyHeight_; }
+
+    [[nodiscard]] static bool IsMaterialTransparentOrTransmissive(const scene::Material& mat) noexcept;
+    [[nodiscard]] static WGPUBlendState GetTransparentBlendState() noexcept;
 
     [[nodiscard]] size_t GetVisiblePrimitiveCount() const noexcept { return lastVisiblePrimitiveCount_; }
     [[nodiscard]] size_t GetOccludedPrimitiveCount() const noexcept { return lastOccludedPrimitiveCount_; }
@@ -502,6 +529,8 @@ private:
 
     void InitializeComputeIBLPipelines();
     void InitMipGenPipelines();
+    core::Result<void> CreateMainRenderPipelines(bool validateScope);
+    core::Result<void> CreateMipGenPipelines(bool validateScope);
     void GenerateTextureMipsGpu(WGPUCommandEncoder encoder, WGPUTexture texture, uint32_t width, uint32_t height,
                                 uint32_t mipLevels, bool isSrgb, bool isNormalMap);
     void DispatchBrdfLutCompute();
@@ -510,6 +539,13 @@ private:
     void UpdateSceneLightingUniforms(scene::Scene& scene, const glm::mat4& viewMatrix, const glm::mat4& projMatrix,
                                      const glm::vec3& cameraPos, uint32_t viewportW, uint32_t viewportH, float zNear,
                                      float zFar);
+    void PrepareFrameScene(scene::Scene& scene, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                           const scene::Quadtree* spatialIndex, const glm::mat4& viewMatrix,
+                           const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH, float zNear,
+                           float zFar);
+    void EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, bool wireframe,
+                         bool transparentPass, size_t startIdx, size_t endIdx,
+                         DynamicUniformRing<PerDrawUniforms>& ring);
 
     bool initialized_{false};
     bool bumpMappingEnabled_{true};
@@ -557,8 +593,11 @@ private:
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
     WGPUTextureFormat hdrFormat_{WGPUTextureFormat_RGBA16Float};
 
+    PipelineLayoutHandle mainPipelineLayout_{};
     RenderPipelineHandle opaquePipeline_{};
     RenderPipelineHandle opaqueBackCulledPipeline_{};
+    RenderPipelineHandle blendPipeline_{};
+    RenderPipelineHandle blendBackCulledPipeline_{};
     RenderPipelineHandle wireframePipeline_{};
     BindGroupLayoutHandle sceneGlobalsBgl_{};
     BindGroupLayoutHandle perDrawBgl_{};
@@ -566,12 +605,14 @@ private:
     BindGroupLayoutHandle skinBgl_{};
     BindGroupHandle sceneGlobalsBindGroup_{};
     DynamicUniformRing<PerDrawUniforms> perDrawRing_{};
+    DynamicUniformRing<PerDrawUniforms> transparentPerDrawRing_{};
+    size_t transparentStartIndex_{0};
     BufferHandle dummyMorphDeltaBuffer_{};
     BufferHandle dummySkinBuffer_{};
     BindGroupHandle dummySkinBindGroup_{};
 
-    ShaderModuleHandle mipGenShaderModule_{};
     BindGroupLayoutHandle mipGenBgl_{};
+    PipelineLayoutHandle mipGenPipelineLayout_{};
     RenderPipelineHandle mipGenUnormPipeline_{};
     RenderPipelineHandle mipGenSrgbPipeline_{};
     RenderPipelineHandle mipGenNormalPipeline_{};

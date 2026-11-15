@@ -43,6 +43,7 @@ public:
     GpuRayPicker& operator=(GpuRayPicker&& other) noexcept;
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue);
+    core::Result<void> ReloadShader();
     void Shutdown() noexcept;
 
     /**
@@ -56,12 +57,14 @@ public:
 
 private:
     void MoveFrom(GpuRayPicker& other) noexcept;
+    core::Result<void> CreateComputePipelines(WGPUShaderModule shaderModule);
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
     WGPUComputePipeline computePipeline_{nullptr};
     WGPUComputePipeline resolvePipeline_{nullptr};
+    WGPUPipelineLayout pipelineLayout_{nullptr};
     WGPUBindGroupLayout bindGroupLayout_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
 

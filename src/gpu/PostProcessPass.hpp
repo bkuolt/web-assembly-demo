@@ -37,6 +37,7 @@ public:
     PostProcessPass& operator=(PostProcessPass&& other) noexcept;
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat);
+    core::Result<void> ReloadShader();
     void Shutdown() noexcept;
 
     /**
@@ -84,6 +85,7 @@ public:
     void InvalidateBindGroup() noexcept;
 
 private:
+    core::Result<void> CreatePipeline(bool validateScope);
     void MoveFrom(PostProcessPass& other) noexcept;
 
     WGPUDevice device_{nullptr};
@@ -91,6 +93,7 @@ private:
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
 
     WGPURenderPipeline tonemapPipeline_{nullptr};
+    WGPUPipelineLayout tonemapPipelineLayout_{nullptr};
     WGPUBindGroupLayout tonemapBindGroupLayout_{nullptr};
     WGPUBuffer tonemapUniformBuffer_{nullptr};
     WGPUBuffer tonemapVertexBuffer_{nullptr};

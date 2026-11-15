@@ -32,6 +32,7 @@ public:
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout perDrawBgl,
                                   WGPUBindGroupLayout materialBgl, WGPUBindGroupLayout skinBgl,
                                   WGPUBindGroup dummySkinBindGroup);
+    core::Result<void> ReloadShader();
     void Shutdown() noexcept;
 
     /**
@@ -68,12 +69,14 @@ private:
         uint32_t dynamicOffset{0};
     };
 
+    core::Result<void> CreatePipeline(bool validateScope);
     void MoveFrom(ShadowPass& other) noexcept;
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
     WGPURenderPipeline shadowPipeline_{nullptr};
+    WGPUPipelineLayout pipelineLayout_{nullptr};
     WGPUTexture shadowTexture_{nullptr};
     WGPUTextureView shadowTextureView_{nullptr};
     WGPUSampler shadowSampler_{nullptr};

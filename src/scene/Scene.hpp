@@ -255,6 +255,9 @@ public:
     glm::mat4 worldTransform{1.0f};
     core::AABB worldAABB{};
 
+    /// Optional per-instance local transforms parsed from EXT_mesh_gpu_instancing.
+    std::vector<glm::mat4> instanceTransforms{};
+
     /// Shared mesh resource if instantiated from glTF meshes
     std::shared_ptr<Mesh> mesh{nullptr};
 
@@ -298,6 +301,7 @@ struct Scene {
     int activeAnimationIndex{-1};
     float animationTime{0.0f};
     bool animationPlaying{true};
+    uint64_t transformVersion_{0};
     core::AABB sceneAABB{};
 
     ~Scene();

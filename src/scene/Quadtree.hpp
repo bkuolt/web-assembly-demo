@@ -85,7 +85,12 @@ public:
     QuadtreeNode(const core::AABB& bounds, size_t depth = 0);
 
     bool Insert(const QuadtreeItem& item);
-    void ForceInsert(const QuadtreeItem& item) { items_.push_back(item); }
+    void ForceInsert(const QuadtreeItem& item) {
+        looseBounds_.Expand(item.aabb);
+        items_.push_back(item);
+    }
+    void ExtractRelocatedItems(std::vector<QuadtreeItem>& relocatedOut);
+    bool RecomputeLooseBounds() noexcept;
     void QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos, std::vector<QuadtreeItem>& visibleItemsOut,
                       const glm::mat4* viewProj = nullptr, OcclusionBuffer* occlusionBuf = nullptr,
                       size_t* occludedCountOut = nullptr, float lodBias = 1.0f) const;
@@ -141,6 +146,12 @@ public:
      * @param worldBounds New enclosing world-space bounding box.
      */
     void Reset(const core::AABB& worldBounds);
+
+    /**
+     * @brief Updates item AABBs from live SceneNode transforms, refits loose bounds, and relocates moved items.
+     * @return Number of items relocated across spatial quadrants.
+     */
+    size_t Refit();
 
     /**
      * @brief Traverses the spatial tree, performing frustum culling and front-to-back Hi-Z occlusion culling.

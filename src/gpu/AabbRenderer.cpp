@@ -6,7 +6,7 @@
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/Handle.hpp"
-#include "gpu/Shaders.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <cstring>
 
@@ -18,7 +18,9 @@ AabbRenderer::~AabbRenderer() {
 
 AabbRenderer::AabbRenderer(AabbRenderer&& other) noexcept
     : device_{std::exchange(other.device_, nullptr)}, queue_{std::exchange(other.queue_, nullptr)},
-      aabbPipeline_{std::move(other.aabbPipeline_)}, aabbBindGroupLayout_{std::move(other.aabbBindGroupLayout_)},
+      colorFormat_{other.colorFormat_}, sampleCount_{other.sampleCount_}, depthFormat_{other.depthFormat_},
+      aabbPipelineLayout_{std::move(other.aabbPipelineLayout_)}, aabbPipeline_{std::move(other.aabbPipeline_)},
+      aabbBindGroupLayout_{std::move(other.aabbBindGroupLayout_)},
       aabbVertexBuffer_{std::move(other.aabbVertexBuffer_)}, aabbUniformBuffer_{std::move(other.aabbUniformBuffer_)},
       aabbBindGroup_{std::move(other.aabbBindGroup_)},
       aabbVertexBufferSize_{std::exchange(other.aabbVertexBufferSize_, 0)},
@@ -31,6 +33,10 @@ AabbRenderer& AabbRenderer::operator=(AabbRenderer&& other) noexcept {
         Shutdown();
         device_ = std::exchange(other.device_, nullptr);
         queue_ = std::exchange(other.queue_, nullptr);
+        colorFormat_ = other.colorFormat_;
+        sampleCount_ = other.sampleCount_;
+        depthFormat_ = other.depthFormat_;
+        aabbPipelineLayout_ = std::move(other.aabbPipelineLayout_);
         aabbPipeline_ = std::move(other.aabbPipeline_);
         aabbBindGroupLayout_ = std::move(other.aabbBindGroupLayout_);
         aabbVertexBuffer_ = std::move(other.aabbVertexBuffer_);
@@ -55,6 +61,7 @@ void AabbRenderer::Shutdown() noexcept {
     aabbUniformBuffer_.Reset();
     aabbVertexBuffer_.Reset();
     aabbPipeline_.Reset();
+    aabbPipelineLayout_.Reset();
     aabbBindGroupLayout_.Reset();
     batchedAabbVertices_.clear();
     cachedSceneAabbVertices_.clear();
@@ -64,62 +71,12 @@ void AabbRenderer::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
-core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
-                                            uint32_t sampleCount, WGPUTextureFormat depthFormat) {
-    if (!device || !queue) {
-        return std::unexpected("Cannot initialize AabbRenderer with null WebGPU device or queue");
-    }
-    Shutdown();
-    device_ = device;
-    queue_ = queue;
-
-    // 1. Compile WGSL Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.chain.next = nullptr;
-    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kAabbShaderWGSL.data());
-
-    WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shaderDesc.nextInChain = &wgslDesc.chain;
-    shaderDesc.label = ToWgpuStringView("AABB_WireframeShader");
-
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &shaderDesc);
-    if (!shaderModule) {
-        return std::unexpected("Failed to compile AABB wireframe WGSL shader module");
+core::Result<void> AabbRenderer::CreateRenderPipeline(WGPUShaderModule shaderModule) {
+    if (!device_ || !shaderModule || !aabbPipelineLayout_) {
+        return std::unexpected("Cannot create AABB wireframe render pipeline with invalid state");
     }
 
-    // 2. Create Bind Group Layout
-    WGPUBindGroupLayoutEntry aabbBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    aabbBglEntry.binding = 0;
-    aabbBglEntry.visibility = WGPUShaderStage_Vertex;
-    aabbBglEntry.buffer.type = WGPUBufferBindingType_Uniform;
-    aabbBglEntry.buffer.hasDynamicOffset = WGPU_FALSE;
-    aabbBglEntry.buffer.minBindingSize = sizeof(AabbUniforms);
-
-    WGPUBindGroupLayoutDescriptor aabbBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    aabbBglDesc.entryCount = 1;
-    aabbBglDesc.entries = &aabbBglEntry;
-    aabbBglDesc.label = ToWgpuStringView("AABB_BindGroupLayout");
-    aabbBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &aabbBglDesc);
-    if (!aabbBindGroupLayout_) {
-        wgpuShaderModuleRelease(shaderModule);
-        Shutdown();
-        return std::unexpected("Failed to create AABB bind group layout");
-    }
-
-    // 3. Create Pipeline Layout
-    WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    aabbPlDesc.bindGroupLayoutCount = 1;
-    aabbPlDesc.bindGroupLayouts = aabbBindGroupLayout_.AddressOf();
-    aabbPlDesc.label = ToWgpuStringView("AABB_PipelineLayout");
-    WGPUPipelineLayout aabbPl = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
-    if (!aabbPl) {
-        wgpuShaderModuleRelease(shaderModule);
-        Shutdown();
-        return std::unexpected("Failed to create AABB pipeline layout");
-    }
-
-    // 4. Vertex Layout (Position 3x Float32 + Color 4x Float32)
+    // Vertex Layout (Position 3x Float32 + Color 4x Float32)
     std::array<WGPUVertexAttribute, 2> aabbAttrs{};
     aabbAttrs[0].format = WGPUVertexFormat_Float32x3;
     aabbAttrs[0].offset = offsetof(AabbVertex, pos);
@@ -135,7 +92,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbVbLayout.attributeCount = aabbAttrs.size();
     aabbVbLayout.attributes = aabbAttrs.data();
 
-    // 5. Color Target & Blending
+    // Color Target & Blending
     WGPUBlendState aabbBlend = WGPU_BLEND_STATE_INIT;
     aabbBlend.color.operation = WGPUBlendOperation_Add;
     aabbBlend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
@@ -145,7 +102,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbBlend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
 
     WGPUColorTargetState aabbColorTarget = WGPU_COLOR_TARGET_STATE_INIT;
-    aabbColorTarget.format = colorFormat;
+    aabbColorTarget.format = colorFormat_;
     aabbColorTarget.blend = &aabbBlend;
     aabbColorTarget.writeMask = WGPUColorWriteMask_All;
 
@@ -156,14 +113,13 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbFragState.targets = &aabbColorTarget;
 
     WGPUDepthStencilState aabbDepthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-    aabbDepthStencil.format = depthFormat;
+    aabbDepthStencil.format = depthFormat_;
     aabbDepthStencil.depthWriteEnabled = WGPUOptionalBool_False; // Wireframes don't overwrite depth
     aabbDepthStencil.depthCompare = WGPUCompareFunction_LessEqual;
 
-    // 6. Assemble Render Pipeline
     WGPURenderPipelineDescriptor aabbRpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     aabbRpDesc.label = ToWgpuStringView("AABB_WireframeRenderPipeline");
-    aabbRpDesc.layout = aabbPl;
+    aabbRpDesc.layout = aabbPipelineLayout_.Get();
     aabbRpDesc.vertex.module = shaderModule;
     aabbRpDesc.vertex.entryPoint = ToWgpuStringView("vs_aabb");
     aabbRpDesc.vertex.bufferCount = 1;
@@ -172,17 +128,82 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     aabbRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
     aabbRpDesc.primitive.cullMode = WGPUCullMode_None;
     aabbRpDesc.depthStencil = &aabbDepthStencil;
-    aabbRpDesc.multisample.count = sampleCount;
+    aabbRpDesc.multisample.count = sampleCount_;
     aabbRpDesc.multisample.mask = 0xFFFFFFFF;
     aabbRpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
-    aabbPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &aabbRpDesc);
-    wgpuPipelineLayoutRelease(aabbPl);
-    wgpuShaderModuleRelease(shaderModule);
-
-    if (!aabbPipeline_) {
-        Shutdown();
+    RenderPipelineHandle nextPipe{wgpuDeviceCreateRenderPipeline(device_, &aabbRpDesc)};
+    if (!nextPipe) {
         return std::unexpected("Failed to create AABB wireframe render pipeline");
+    }
+    aabbPipeline_ = std::move(nextPipe);
+    return {};
+}
+
+core::Result<void> AabbRenderer::ReloadShader() {
+    if (!device_ || !aabbPipelineLayout_) {
+        return std::unexpected("AabbRenderer not initialized");
+    }
+    auto modRes = ShaderManager::Instance().LoadAndCompile(device_, "aabb.wgsl", "AABB_WireframeShader", true);
+    if (!modRes) {
+        return std::unexpected(modRes.error());
+    }
+    return CreateRenderPipeline(modRes->Get());
+}
+
+core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
+                                            uint32_t sampleCount, WGPUTextureFormat depthFormat) {
+    if (!device || !queue) {
+        return std::unexpected("Cannot initialize AabbRenderer with null WebGPU device or queue");
+    }
+    Shutdown();
+    device_ = device;
+    queue_ = queue;
+    colorFormat_ = colorFormat;
+    sampleCount_ = sampleCount;
+    depthFormat_ = depthFormat;
+
+    // 1. Load & Compile WGSL Shader Module
+    auto modRes = ShaderManager::Instance().LoadAndCompile(device_, "aabb.wgsl", "AABB_WireframeShader");
+    if (!modRes) {
+        Shutdown();
+        return std::unexpected(modRes.error());
+    }
+    ShaderModuleHandle shaderModule{std::move(*modRes)};
+
+    // 2. Create Bind Group Layout
+    WGPUBindGroupLayoutEntry aabbBglEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    aabbBglEntry.binding = 0;
+    aabbBglEntry.visibility = WGPUShaderStage_Vertex;
+    aabbBglEntry.buffer.type = WGPUBufferBindingType_Uniform;
+    aabbBglEntry.buffer.hasDynamicOffset = WGPU_FALSE;
+    aabbBglEntry.buffer.minBindingSize = sizeof(AabbUniforms);
+
+    WGPUBindGroupLayoutDescriptor aabbBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    aabbBglDesc.entryCount = 1;
+    aabbBglDesc.entries = &aabbBglEntry;
+    aabbBglDesc.label = ToWgpuStringView("AABB_BindGroupLayout");
+    aabbBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &aabbBglDesc);
+    if (!aabbBindGroupLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create AABB bind group layout");
+    }
+
+    // 3. Create Pipeline Layout
+    WGPUPipelineLayoutDescriptor aabbPlDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    aabbPlDesc.bindGroupLayoutCount = 1;
+    aabbPlDesc.bindGroupLayouts = aabbBindGroupLayout_.AddressOf();
+    aabbPlDesc.label = ToWgpuStringView("AABB_PipelineLayout");
+    aabbPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &aabbPlDesc);
+    if (!aabbPipelineLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create AABB pipeline layout");
+    }
+
+    // 4. Assemble Render Pipeline
+    if (auto pipeRes = CreateRenderPipeline(shaderModule.Get()); !pipeRes) {
+        Shutdown();
+        return std::unexpected(pipeRes.error());
     }
 
     // 7. Allocate Dynamic Vertex Buffer and Uniform Buffer

@@ -9,6 +9,8 @@
 #include "core/ThreadPool.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <atomic>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iomanip>
 #include <sstream>
@@ -68,7 +70,7 @@ FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
               fastgltf::Extensions::KHR_materials_sheen | fastgltf::Extensions::KHR_materials_specular |
               fastgltf::Extensions::KHR_materials_ior | fastgltf::Extensions::KHR_materials_iridescence |
               fastgltf::Extensions::KHR_materials_volume | fastgltf::Extensions::KHR_materials_emissive_strength |
-              fastgltf::Extensions::KHR_materials_unlit) {}
+              fastgltf::Extensions::KHR_materials_unlit | fastgltf::Extensions::EXT_mesh_gpu_instancing) {}
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<const uint8_t> data,
                                                                     std::string_view baseUri) {
@@ -825,6 +827,58 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
 
         if (gltfNode.meshIndex.has_value() && *gltfNode.meshIndex < parsedMeshes.size()) {
             node->mesh = parsedMeshes[*gltfNode.meshIndex];
+        }
+
+        if (!gltfNode.instancingAttributes.empty()) {
+            size_t instCount{0};
+            auto transIt = gltfNode.findInstancingAttribute("TRANSLATION");
+            auto rotIt = gltfNode.findInstancingAttribute("ROTATION");
+            auto scaleIt = gltfNode.findInstancingAttribute("SCALE");
+
+            for (const auto& it : {transIt, rotIt, scaleIt}) {
+                if (it != gltfNode.instancingAttributes.cend() && it->second < asset.accessors.size()) {
+                    instCount = std::max(instCount, asset.accessors[it->second].count);
+                }
+            }
+
+            if (instCount > 0) {
+                std::vector<glm::vec3> instT(instCount, glm::vec3{0.0f});
+                std::vector<glm::quat> instR(instCount, glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
+                std::vector<glm::vec3> instS(instCount, glm::vec3{1.0f});
+
+                if (transIt != gltfNode.instancingAttributes.cend() && transIt->second < asset.accessors.size()) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(
+                        asset, asset.accessors[transIt->second], [&](glm::vec3 t, size_t idx) {
+                            if (idx < instT.size()) {
+                                instT[idx] = t;
+                            }
+                        });
+                }
+                if (rotIt != gltfNode.instancingAttributes.cend() && rotIt->second < asset.accessors.size()) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(
+                        asset, asset.accessors[rotIt->second], [&](glm::vec4 q, size_t idx) {
+                            if (idx < instR.size()) {
+                                instR[idx] = glm::quat{q.w, q.x, q.y, q.z};
+                            }
+                        });
+                }
+                if (scaleIt != gltfNode.instancingAttributes.cend() && scaleIt->second < asset.accessors.size()) {
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(
+                        asset, asset.accessors[scaleIt->second], [&](glm::vec3 s, size_t idx) {
+                            if (idx < instS.size()) {
+                                instS[idx] = s;
+                            }
+                        });
+                }
+
+                node->instanceTransforms.resize(instCount);
+                for (size_t i = 0; i < instCount; ++i) {
+                    const glm::mat4 tMat = glm::translate(glm::mat4{1.0f}, instT[i]);
+                    const glm::mat4 rMat = glm::mat4_cast(glm::normalize(instR[i]));
+                    const glm::mat4 sMat = glm::scale(glm::mat4{1.0f}, instS[i]);
+                    node->instanceTransforms[i] = tMat * rMat * sMat;
+                }
+            }
         }
 
         loadedNodes[nodeIdx] = std::move(node);

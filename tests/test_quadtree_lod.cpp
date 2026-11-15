@@ -5,6 +5,7 @@
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
 TEST(QuadtreeTest, InsertionAndLODQuery) {
@@ -423,4 +424,137 @@ TEST(QuadtreeTest, MultiLevelLod0ToLod3AndBiasScaling) {
             EXPECT_EQ(item.currentLOD, bgl::scene::LODLevel::LOD3);
         }
     }
+}
+
+TEST(QuadtreeTest, RefitRelocatesTranslatedNodeAcrossQuadrantsAndOutsideWorldBounds) {
+    bgl::core::AABB worldBounds{{-100.0f, -50.0f, -100.0f}, {100.0f, 50.0f, 100.0f}};
+    bgl::scene::Scene scene{};
+
+    // Populate distributed static anchor nodes so the quadtree subdivides past kMaxItems.
+    for (int i = 0; i < 12; ++i) {
+        auto anchor = std::make_shared<bgl::scene::SceneNode>();
+        const float angle = static_cast<float>(i) * 0.52f;
+        anchor->translation = glm::vec3{std::cos(angle) * 20.0f, 0.0f, std::sin(angle) * 20.0f};
+        anchor->UpdateLocalTransform();
+        bgl::scene::MeshPrimitive p{};
+        p.boundingBox = bgl::core::AABB{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
+        anchor->primitives.push_back(std::move(p));
+        scene.rootNodes.push_back(anchor);
+    }
+
+    auto movingNode = std::make_shared<bgl::scene::SceneNode>();
+    movingNode->name = "MovingTarget";
+    movingNode->translation = glm::vec3{-60.0f, 0.0f, -60.0f};
+    movingNode->UpdateLocalTransform();
+    {
+        bgl::scene::MeshPrimitive p{};
+        p.boundingBox = bgl::core::AABB{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
+        movingNode->primitives.push_back(std::move(p));
+    }
+    scene.rootNodes.push_back(movingNode);
+
+    const uint64_t initialVer = scene.transformVersion_;
+    scene.Update();
+    EXPECT_GT(scene.transformVersion_, initialVer);
+
+    bgl::scene::Quadtree quadtree{worldBounds};
+    quadtree.InsertNodes(scene.rootNodes);
+    EXPECT_GT(quadtree.GetNodeCount(), 1u);
+
+    auto makeFrustumAt = [](const glm::vec3& eye, const glm::vec3& target) {
+        const glm::mat4 view = glm::lookAt(eye, target, glm::vec3{0.0f, 1.0f, 0.0f});
+        const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 1.0f, 0.5f, 100.0f);
+        return std::pair{bgl::core::Frustum::FromViewProjection(proj * view), proj * view};
+    };
+
+    const auto [neFrustum, neVp] = makeFrustumAt({55.0f, 0.0f, 75.0f}, {55.0f, 0.0f, 55.0f});
+    const auto [swFrustum, swVp] = makeFrustumAt({-60.0f, 0.0f, -40.0f}, {-60.0f, 0.0f, -60.0f});
+    std::vector<bgl::scene::QuadtreeItem> visible{};
+
+    auto containsMovingNode = [&](const std::vector<bgl::scene::QuadtreeItem>& list) {
+        return std::ranges::any_of(list, [&](const auto& it) { return it.node == movingNode; });
+    };
+
+    quadtree.QueryVisible(neFrustum, {55.0f, 0.0f, 75.0f}, neVp, visible, false);
+    EXPECT_FALSE(containsMovingNode(visible));
+    quadtree.QueryVisible(swFrustum, {-60.0f, 0.0f, -40.0f}, swVp, visible, false);
+    EXPECT_TRUE(containsMovingNode(visible));
+
+    // Move across diagonal quadrant into NE
+    movingNode->translation = glm::vec3{55.0f, 0.0f, 55.0f};
+    movingNode->UpdateLocalTransform();
+    scene.Update();
+    EXPECT_GT(quadtree.Refit(), 0u);
+    EXPECT_EQ(quadtree.Refit(), 0u);
+
+    quadtree.QueryVisible(neFrustum, {55.0f, 0.0f, 75.0f}, neVp, visible, false);
+    EXPECT_TRUE(containsMovingNode(visible));
+    quadtree.QueryVisible(swFrustum, {-60.0f, 0.0f, -40.0f}, swVp, visible, false);
+    EXPECT_FALSE(containsMovingNode(visible));
+
+    // Move way outside initial worldBounds (+450, 0, +450)
+    movingNode->translation = glm::vec3{450.0f, 0.0f, 450.0f};
+    movingNode->UpdateLocalTransform();
+    scene.Update();
+    (void)quadtree.Refit();
+
+    const auto [farFrustum, farVp] = makeFrustumAt({450.0f, 0.0f, 470.0f}, {450.0f, 0.0f, 450.0f});
+    quadtree.QueryVisible(farFrustum, {450.0f, 0.0f, 470.0f}, farVp, visible, false);
+    EXPECT_TRUE(containsMovingNode(visible));
+
+    // Return back inside SW quadrant
+    movingNode->translation = glm::vec3{-60.0f, 0.0f, -60.0f};
+    movingNode->UpdateLocalTransform();
+    scene.Update();
+    EXPECT_GT(quadtree.Refit(), 0u);
+    quadtree.QueryVisible(swFrustum, {-60.0f, 0.0f, -40.0f}, swVp, visible, false);
+    EXPECT_TRUE(containsMovingNode(visible));
+}
+
+TEST(QuadtreeTest, AnimationPlaybackTriggersTransformVersionAndQuadtreeRefit) {
+    bgl::scene::Scene scene{};
+    auto node = std::make_shared<bgl::scene::SceneNode>();
+    node->translation = glm::vec3{-40.0f, 0.0f, -40.0f};
+    node->UpdateLocalTransform();
+    bgl::scene::MeshPrimitive p{};
+    p.boundingBox = bgl::core::AABB{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
+    node->primitives.push_back(std::move(p));
+    scene.rootNodes.push_back(node);
+    scene.allNodes.push_back(node);
+
+    bgl::scene::Animation anim{};
+    anim.name = "SlideDiagonal";
+    anim.duration = 1.0f;
+    bgl::scene::AnimationSampler sampler{};
+    sampler.interpolation = bgl::scene::AnimationInterpolation::Linear;
+    sampler.timestamps = {0.0f, 1.0f};
+    sampler.keyframeValues = {-40.0f, 0.0f, -40.0f, 40.0f, 0.0f, 40.0f};
+    anim.samplers.push_back(std::move(sampler));
+    anim.channels.push_back(bgl::scene::AnimationChannel{
+        .samplerIndex = 0,
+        .targetNodeIndex = 0,
+        .path = bgl::scene::AnimationPath::Translation,
+    });
+    scene.animations.push_back(std::move(anim));
+    scene.Update();
+
+    bgl::scene::Quadtree quadtree{bgl::core::AABB{{-100.0f, -20.0f, -100.0f}, {100.0f, 20.0f, 100.0f}}};
+    quadtree.InsertNodes(scene.rootNodes);
+
+    const uint64_t verBefore = scene.transformVersion_;
+    scene.SetAnimation(0);
+    scene.animationPlaying = true;
+    scene.UpdateAnimation(0.99f);
+    EXPECT_GT(scene.transformVersion_, verBefore);
+    (void)quadtree.Refit();
+
+    const glm::mat4 view =
+        glm::lookAt(glm::vec3{40.0f, 0.0f, 55.0f}, glm::vec3{40.0f, 0.0f, 40.0f}, {0.0f, 1.0f, 0.0f});
+    const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 1.0f, 0.5f, 100.0f);
+    const bgl::core::Frustum frustum = bgl::core::Frustum::FromViewProjection(proj * view);
+    std::vector<bgl::scene::QuadtreeItem> visible{};
+    quadtree.QueryVisible(frustum, {40.0f, 0.0f, 55.0f}, proj * view, visible, false);
+    ASSERT_EQ(visible.size(), 1u);
+    EXPECT_EQ(visible[0].node, node);
+    EXPECT_GT(visible[0].aabb.Center().x, 30.0f);
 }

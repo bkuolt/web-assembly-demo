@@ -21,6 +21,27 @@ namespace {
            (a.minBound.z <= b.maxBound.z && a.maxBound.z >= b.minBound.z);
 }
 
+[[nodiscard]] core::AABB ComputeItemWorldAABB(const QuadtreeItem& item) {
+    if (!item.node) {
+        return core::AABB{};
+    }
+    const auto prims = item.node->GetPrimitives();
+    if (item.primitiveIndex < prims.size()) {
+        const auto& primBox = prims[item.primitiveIndex].boundingBox;
+        if (primBox.minBound.x <= primBox.maxBound.x) {
+            if (item.node->instanceTransforms.empty()) {
+                return primBox.Transformed(item.node->worldTransform);
+            }
+            core::AABB combined{};
+            for (const glm::mat4& instMat : item.node->instanceTransforms) {
+                combined.Expand(primBox.Transformed(item.node->worldTransform * instMat));
+            }
+            return combined;
+        }
+    }
+    return item.node->worldAABB;
+}
+
 } // namespace
 
 QuadtreeNode::QuadtreeNode(const core::AABB& bounds, size_t depth) : bounds_(bounds), depth_(depth) {}
@@ -84,6 +105,60 @@ bool QuadtreeNode::Insert(const QuadtreeItem& item) {
 
     items_.push_back(item);
     return true;
+}
+
+void QuadtreeNode::ExtractRelocatedItems(std::vector<QuadtreeItem>& relocatedOut) {
+    for (size_t i = 0; i < items_.size();) {
+        auto& item = items_[i];
+        if (!item.node) {
+            items_[i] = std::move(items_.back());
+            items_.pop_back();
+            continue;
+        }
+        item.aabb = ComputeItemWorldAABB(item);
+
+        bool mustRelocate = (depth_ > 0 && !ContainsXZ(bounds_, item.aabb));
+        if (!mustRelocate && !isLeaf_) {
+            for (const auto& child : children_) {
+                if (child && ContainsXZ(child->bounds_, item.aabb)) {
+                    mustRelocate = true;
+                    break;
+                }
+            }
+        }
+
+        if (mustRelocate) {
+            relocatedOut.push_back(std::move(item));
+            items_[i] = std::move(items_.back());
+            items_.pop_back();
+        } else {
+            ++i;
+        }
+    }
+
+    for (auto& child : children_) {
+        if (child) {
+            child->ExtractRelocatedItems(relocatedOut);
+        }
+    }
+}
+
+bool QuadtreeNode::RecomputeLooseBounds() noexcept {
+    looseBounds_ = core::AABB{};
+    bool hasAny{false};
+    for (const auto& item : items_) {
+        if (item.aabb.minBound.x <= item.aabb.maxBound.x) {
+            looseBounds_.Expand(item.aabb);
+            hasAny = true;
+        }
+    }
+    for (auto& child : children_) {
+        if (child && child->RecomputeLooseBounds()) {
+            looseBounds_.Expand(child->looseBounds_);
+            hasAny = true;
+        }
+    }
+    return hasAny;
 }
 
 bool OcclusionBuffer::ProjectAABB(const core::AABB& box, const glm::mat4& viewProj, glm::vec2& ndcMinOut,
@@ -338,7 +413,7 @@ void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
                     QuadtreeItem item;
                     item.node = n;
                     item.primitiveIndex = pIdx;
-                    item.aabb = prim.boundingBox.Transformed(n->worldTransform);
+                    item.aabb = ComputeItemWorldAABB(item);
                     if (!root_->Insert(item)) {
                         root_->ForceInsert(item);
                     }
@@ -360,6 +435,21 @@ void Quadtree::Clear() {
 void Quadtree::Reset(const core::AABB& worldBounds) {
     worldBounds_ = worldBounds;
     root_ = std::make_unique<QuadtreeNode>(worldBounds_);
+}
+
+size_t Quadtree::Refit() {
+    if (!root_) {
+        return 0;
+    }
+    std::vector<QuadtreeItem> relocated{};
+    root_->ExtractRelocatedItems(relocated);
+    root_->RecomputeLooseBounds();
+    for (const auto& item : relocated) {
+        if (!root_->Insert(item)) {
+            root_->ForceInsert(item);
+        }
+    }
+    return relocated.size();
 }
 
 void Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos, const glm::mat4& viewProj,

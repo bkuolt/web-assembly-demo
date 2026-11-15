@@ -6,107 +6,11 @@
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/Handle.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <cstring>
 
 namespace bgl::gpu {
-
-namespace {
-
-constexpr std::string_view kGpuRayPickComputeWGSL = R"(
-struct GpuBoundingBox {
-    minBound: vec4<f32>,
-    maxBound: vec4<f32>,
-    nodeIndex: u32,
-    primitiveIndex: u32,
-    pad0: u32,
-    pad1: u32,
-};
-
-struct GpuRayPickUniforms {
-    rayOrigin: vec4<f32>,
-    rayDirection: vec4<f32>,
-};
-
-struct GpuRayPickResult {
-    hitNodeIndex: atomic<u32>,
-    hitPrimitiveIndex: atomic<u32>,
-    hitDistanceBits: atomic<u32>,
-    hitFound: atomic<u32>,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: GpuRayPickUniforms;
-@group(0) @binding(1) var<storage, read> bounds: array<GpuBoundingBox>;
-@group(0) @binding(2) var<storage, read_write> result: GpuRayPickResult;
-
-fn intersectRayAabb(ro: vec3<f32>, rd: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>, maxT: f32) -> f32 {
-    var tmin : f32 = -1e30;
-    var tmax : f32 = maxT;
-
-    for (var axis : u32 = 0u; axis < 3u; axis = axis + 1u) {
-        let d = rd[axis];
-        if (abs(d) < 1e-8) {
-            if (ro[axis] < bmin[axis] || ro[axis] > bmax[axis]) {
-                return -1.0;
-            }
-        } else {
-            let invD = 1.0 / d;
-            let t0 = (bmin[axis] - ro[axis]) * invD;
-            let t1 = (bmax[axis] - ro[axis]) * invD;
-            tmin = max(tmin, min(t0, t1));
-            tmax = min(tmax, max(t0, t1));
-        }
-    }
-
-    if (tmax < max(tmin, 0.0)) {
-        return -1.0;
-    }
-    let hitDist = select(tmin, tmax, tmin < 0.0);
-    return select(-1.0, hitDist, hitDist > 0.0 && hitDist < maxT);
-}
-
-@compute @workgroup_size(64)
-fn cs_pick(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let index = global_id.x;
-    let count = u32(uniforms.rayDirection.w);
-    if (index >= count) {
-        return;
-    }
-
-    let b = bounds[index];
-    let hitDist = intersectRayAabb(uniforms.rayOrigin.xyz, uniforms.rayDirection.xyz, b.minBound.xyz, b.maxBound.xyz,
-                                   uniforms.rayOrigin.w);
-    if (hitDist > 0.0) {
-        atomicMin(&result.hitDistanceBits, bitcast<u32>(hitDist));
-    }
-}
-
-@compute @workgroup_size(64)
-fn cs_resolve(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let index = global_id.x;
-    let count = u32(uniforms.rayDirection.w);
-    if (index >= count) {
-        return;
-    }
-
-    let minDistBits = atomicLoad(&result.hitDistanceBits);
-    if (minDistBits == 0x7F7FFFFFu) {
-        return;
-    }
-
-    let b = bounds[index];
-    let hitDist = intersectRayAabb(uniforms.rayOrigin.xyz, uniforms.rayDirection.xyz, b.minBound.xyz, b.maxBound.xyz,
-                                   uniforms.rayOrigin.w);
-    if (hitDist > 0.0 && bitcast<u32>(hitDist) == minDistBits) {
-        if (atomicExchange(&result.hitFound, 1u) == 0u) {
-            atomicStore(&result.hitNodeIndex, b.nodeIndex);
-            atomicStore(&result.hitPrimitiveIndex, b.primitiveIndex);
-        }
-    }
-}
-)";
-
-} // namespace
 
 GpuRayPicker::~GpuRayPicker() {
     Shutdown();
@@ -129,6 +33,7 @@ void GpuRayPicker::MoveFrom(GpuRayPicker& other) noexcept {
     queue_ = std::exchange(other.queue_, nullptr);
     computePipeline_ = std::exchange(other.computePipeline_, nullptr);
     resolvePipeline_ = std::exchange(other.resolvePipeline_, nullptr);
+    pipelineLayout_ = std::exchange(other.pipelineLayout_, nullptr);
     bindGroupLayout_ = std::exchange(other.bindGroupLayout_, nullptr);
     bindGroup_ = std::exchange(other.bindGroup_, nullptr);
     uniformBuffer_ = std::exchange(other.uniformBuffer_, nullptr);
@@ -160,6 +65,10 @@ void GpuRayPicker::Shutdown() noexcept {
         wgpuComputePipelineRelease(computePipeline_);
         computePipeline_ = nullptr;
     }
+    if (pipelineLayout_) {
+        wgpuPipelineLayoutRelease(pipelineLayout_);
+        pipelineLayout_ = nullptr;
+    }
     if (bindGroupLayout_) {
         wgpuBindGroupLayoutRelease(bindGroupLayout_);
         bindGroupLayout_ = nullptr;
@@ -170,6 +79,59 @@ void GpuRayPicker::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
+core::Result<void> GpuRayPicker::CreateComputePipelines(WGPUShaderModule shaderModule) {
+    if (!device_ || !shaderModule || !pipelineLayout_) {
+        return std::unexpected("Cannot create GPU RayPicker compute pipelines with invalid state");
+    }
+
+    WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    cpDesc.layout = pipelineLayout_;
+    cpDesc.compute.module = shaderModule;
+    cpDesc.compute.entryPoint = ToWgpuStringView("cs_pick");
+    cpDesc.label = ToWgpuStringView("GpuRayPick_ComputePipeline");
+
+    WGPUComputePipeline nextCompute = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
+
+    WGPUComputePipelineDescriptor resolveDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    resolveDesc.layout = pipelineLayout_;
+    resolveDesc.compute.module = shaderModule;
+    resolveDesc.compute.entryPoint = ToWgpuStringView("cs_resolve");
+    resolveDesc.label = ToWgpuStringView("GpuRayPick_ResolvePipeline");
+    WGPUComputePipeline nextResolve = wgpuDeviceCreateComputePipeline(device_, &resolveDesc);
+
+    if (!nextCompute || !nextResolve) {
+        if (nextResolve) {
+            wgpuComputePipelineRelease(nextResolve);
+        }
+        if (nextCompute) {
+            wgpuComputePipelineRelease(nextCompute);
+        }
+        return std::unexpected("Failed to create GPU RayPicker compute pipelines");
+    }
+
+    if (resolvePipeline_) {
+        wgpuComputePipelineRelease(resolvePipeline_);
+    }
+    if (computePipeline_) {
+        wgpuComputePipelineRelease(computePipeline_);
+    }
+    computePipeline_ = nextCompute;
+    resolvePipeline_ = nextResolve;
+    return {};
+}
+
+core::Result<void> GpuRayPicker::ReloadShader() {
+    if (!device_ || !pipelineLayout_) {
+        return std::unexpected("GpuRayPicker not initialized");
+    }
+    auto modRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "gpu_ray_pick.wgsl", "GpuRayPick_ComputeModule", true);
+    if (!modRes) {
+        return std::unexpected(modRes.error());
+    }
+    return CreateComputePipelines(modRes->Get());
+}
+
 core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize GpuRayPicker with null WebGPU device or queue");
@@ -178,20 +140,13 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     device_ = device;
     queue_ = queue;
 
-    // 1. Create WGSL Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.chain.next = nullptr;
-    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kGpuRayPickComputeWGSL.data());
-
-    WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shaderDesc.nextInChain = &wgslDesc.chain;
-    shaderDesc.label = ToWgpuStringView("GpuRayPick_ComputeModule");
-
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &shaderDesc);
-    if (!shaderModule) {
-        return std::unexpected("Failed to compile GPU RayPicker WGSL compute module");
+    // 1. Load & Compile WGSL Shader Module
+    auto modRes = ShaderManager::Instance().LoadAndCompile(device_, "gpu_ray_pick.wgsl", "GpuRayPick_ComputeModule");
+    if (!modRes) {
+        Shutdown();
+        return std::unexpected(modRes.error());
     }
+    ShaderModuleHandle shaderModule{std::move(*modRes)};
 
     // 2. Bind Group Layout
     std::array<WGPUBindGroupLayoutEntry, 3> entries{};
@@ -222,44 +177,24 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
     bglDesc.label = ToWgpuStringView("GpuRayPick_BindGroupLayout");
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
     if (!bindGroupLayout_) {
-        wgpuShaderModuleRelease(shaderModule);
         Shutdown();
         return std::unexpected("Failed to create GPU RayPicker bind group layout");
     }
 
-    // 3. Compute Pipeline Layout
+    // 3. Compute Pipeline Layout & Pipelines
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = &bindGroupLayout_;
     plDesc.label = ToWgpuStringView("GpuRayPick_PipelineLayout");
-    WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
-    if (!pl) {
-        wgpuShaderModuleRelease(shaderModule);
+    pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!pipelineLayout_) {
         Shutdown();
         return std::unexpected("Failed to create GPU RayPicker pipeline layout");
     }
 
-    WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
-    cpDesc.layout = pl;
-    cpDesc.compute.module = shaderModule;
-    cpDesc.compute.entryPoint = ToWgpuStringView("cs_pick");
-    cpDesc.label = ToWgpuStringView("GpuRayPick_ComputePipeline");
-
-    computePipeline_ = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
-
-    WGPUComputePipelineDescriptor resolveDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
-    resolveDesc.layout = pl;
-    resolveDesc.compute.module = shaderModule;
-    resolveDesc.compute.entryPoint = ToWgpuStringView("cs_resolve");
-    resolveDesc.label = ToWgpuStringView("GpuRayPick_ResolvePipeline");
-    resolvePipeline_ = wgpuDeviceCreateComputePipeline(device_, &resolveDesc);
-
-    wgpuPipelineLayoutRelease(pl);
-    wgpuShaderModuleRelease(shaderModule);
-
-    if (!computePipeline_ || !resolvePipeline_) {
+    if (auto pipeRes = CreateComputePipelines(shaderModule.Get()); !pipeRes) {
         Shutdown();
-        return std::unexpected("Failed to create GPU RayPicker compute pipelines");
+        return std::unexpected(pipeRes.error());
     }
 
     // 4. Uniform & Result Buffers

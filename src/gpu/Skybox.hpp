@@ -42,6 +42,7 @@ public:
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue,
                                   WGPUTextureFormat hdrFormat = WGPUTextureFormat_RGBA16Float,
                                   uint32_t sampleCount = 4);
+    core::Result<void> ReloadShader();
 
     /**
      * @brief Releases WebGPU pipelines, bind groups, and fallback cubemap textures.
@@ -119,15 +120,19 @@ public:
 
 private:
     void RebuildBindGroup(WGPUTextureView cubemapView, WGPUSampler sampler);
+    core::Result<void> CreateRenderPipeline(WGPUShaderModule shaderModule);
 
     bool enabled_{true};
     bool initialized_{false};
     SkyboxMode mode_{SkyboxMode::Sharp};
     float rotation_{0.0f};
     float blurRoughness_{0.55f};
+    WGPUTextureFormat hdrFormat_{WGPUTextureFormat_RGBA16Float};
+    uint32_t sampleCount_{4};
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
+    PipelineLayoutHandle pipelineLayout_{};
     RenderPipelineHandle pipeline_{};
     BindGroupLayoutHandle bindGroupLayout_{};
     BindGroupHandle bindGroup_{};

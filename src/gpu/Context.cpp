@@ -433,7 +433,7 @@ WGPURenderPassEncoder Context::BeginFrame() {
     if (sampleCount_ > 1 && msaaColorView_ && hdrResolveView_) {
         colorAttachment.view = msaaColorView_;
         colorAttachment.resolveTarget = hdrResolveView_;
-        colorAttachment.storeOp = WGPUStoreOp_Discard;
+        colorAttachment.storeOp = WGPUStoreOp_Store; // Preserve MSAA color for transparent split-pass
     } else if (hdrResolveView_) {
         colorAttachment.view = hdrResolveView_;
         colorAttachment.resolveTarget = nullptr;
@@ -468,6 +468,83 @@ WGPURenderPassEncoder Context::BeginFrame() {
 
     return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
 #else
+    return nullptr;
+#endif
+}
+
+WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
+                                                    uint32_t copyW, uint32_t copyH) {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (opaquePass) {
+        wgpuRenderPassEncoderEnd(opaquePass);
+        wgpuRenderPassEncoderRelease(opaquePass);
+    }
+    if (!encoder_) {
+        return nullptr;
+    }
+
+    if (hdrResolveTexture_ && opaqueCopyDst && copyW > 0 && copyH > 0) {
+        const uint32_t copyWidth = std::min(width_, copyW);
+        const uint32_t copyHeight = std::min(height_, copyH);
+        if (copyWidth > 0 && copyHeight > 0) {
+            WGPUTexelCopyTextureInfo srcInfo = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+            srcInfo.texture = hdrResolveTexture_.Get();
+            srcInfo.mipLevel = 0;
+            srcInfo.origin = WGPUOrigin3D{0, 0, 0};
+            srcInfo.aspect = WGPUTextureAspect_All;
+
+            WGPUTexelCopyTextureInfo dstInfo = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+            dstInfo.texture = opaqueCopyDst;
+            dstInfo.mipLevel = 0;
+            dstInfo.origin = WGPUOrigin3D{0, 0, 0};
+            dstInfo.aspect = WGPUTextureAspect_All;
+
+            const WGPUExtent3D extent{copyWidth, copyHeight, 1};
+            wgpuCommandEncoderCopyTextureToTexture(encoder_, &srcInfo, &dstInfo, &extent);
+        }
+    }
+
+    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    if (sampleCount_ > 1 && msaaColorView_ && hdrResolveView_) {
+        colorAttachment.view = msaaColorView_;
+        colorAttachment.resolveTarget = hdrResolveView_;
+        colorAttachment.storeOp = WGPUStoreOp_Discard;
+    } else if (hdrResolveView_) {
+        colorAttachment.view = hdrResolveView_;
+        colorAttachment.resolveTarget = nullptr;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+    } else if (sampleCount_ > 1 && msaaColorView_) {
+        colorAttachment.view = msaaColorView_;
+        colorAttachment.resolveTarget = currentView_;
+        colorAttachment.storeOp = WGPUStoreOp_Discard;
+    } else {
+        colorAttachment.view = currentView_;
+        colorAttachment.resolveTarget = nullptr;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+    }
+    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    colorAttachment.loadOp = WGPULoadOp_Load;
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+    passDesc.label = ToWgpuStringView("HDR_TransparentRenderPass");
+
+    WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    if (depthView_) {
+        depthAttachment.view = depthView_;
+        depthAttachment.depthLoadOp = WGPULoadOp_Load;
+        depthAttachment.depthStoreOp = WGPUStoreOp_Store;
+        depthAttachment.depthReadOnly = WGPU_FALSE;
+        passDesc.depthStencilAttachment = &depthAttachment;
+    }
+
+    return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
+#else
+    (void)opaquePass;
+    (void)opaqueCopyDst;
+    (void)copyW;
+    (void)copyH;
     return nullptr;
 #endif
 }

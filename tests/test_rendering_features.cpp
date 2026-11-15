@@ -3,12 +3,14 @@
  * @brief Dedicated unit test suite for Bump/Normal Mapping, Mip-Mapping,
  *        Directional PCF Shadow Mapping, and Cubemap Environment Reflections (IBL).
  */
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <numeric>
 #include <thread>
+#include <unordered_map>
 #if defined(__linux__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -27,6 +29,7 @@
 #include "gpu/Handle.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/PostProcessPass.hpp"
+#include "gpu/ShaderManager.hpp"
 #include "gpu/Shaders.hpp"
 #include "gpu/ShadowPass.hpp"
 #include "gpu/Uniforms.hpp"
@@ -2146,4 +2149,162 @@ TEST(RenderingFeaturesTest, PerChannelKhrTextureTransformParsing) {
     EXPECT_NEAR(mat.emissiveUvTransform.offset.x, 0.7f, 1e-5f);
     EXPECT_NEAR(mat.emissiveUvTransform.scale.y, 11.0f, 1e-5f);
     EXPECT_NEAR(mat.emissiveUvTransform.rotation, 2.0f, 1e-5f);
+}
+
+TEST(ShaderManagerTest, PreprocessorExpandsIncludesAndRespectsPragmaOnce) {
+    const std::unordered_map<std::string, std::string> vfs{
+        {"common/math.wgsl", "#pragma once\nconst PI_VAL: f32 = 3.14159;\n"},
+        {"a.wgsl", "#pragma once\n#include \"common/math.wgsl\"\nfn fnA() -> f32 { return PI_VAL; }\n"},
+        {"b.wgsl", "#pragma once\n#include \"common/math.wgsl\"\nfn fnB() -> f32 { return PI_VAL * 2.0; }\n"},
+        {"entry.wgsl", "#include \"a.wgsl\"\n#include \"b.wgsl\"\nfn mainFn() -> f32 { return fnA() + fnB(); }\n"},
+    };
+    auto lookup = [&](std::string_view p) -> bgl::core::Result<std::string> {
+        if (auto it = vfs.find(std::string{p}); it != vfs.end()) {
+            return it->second;
+        }
+        return std::unexpected("Not found: " + std::string{p});
+    };
+
+    auto res = bgl::gpu::ShaderManager::PreprocessWithLookup("entry.wgsl", lookup);
+    ASSERT_TRUE(res.has_value()) << res.error();
+
+    const size_t firstPi = res->code.find("const PI_VAL");
+    ASSERT_NE(firstPi, std::string::npos);
+    EXPECT_EQ(res->code.find("const PI_VAL", firstPi + 1), std::string::npos)
+        << "#pragma once must prevent duplicate diamond include expansion";
+    EXPECT_EQ(res->code.find("#include"), std::string::npos);
+    EXPECT_EQ(res->code.find("#pragma once"), std::string::npos);
+    EXPECT_NE(res->code.find("fn fnA()"), std::string::npos);
+    EXPECT_NE(res->code.find("fn fnB()"), std::string::npos);
+    EXPECT_NE(res->code.find("fn mainFn()"), std::string::npos);
+    EXPECT_EQ(res->dependencyVirtualPaths.size(), 4u);
+}
+
+TEST(ShaderManagerTest, PreprocessorDetectsCircularAndMissingIncludes) {
+    const std::unordered_map<std::string, std::string> circularVfs{
+        {"a.wgsl", "#include \"b.wgsl\"\n"},
+        {"b.wgsl", "#include \"a.wgsl\"\n"},
+    };
+    auto circularLookup = [&](std::string_view p) -> bgl::core::Result<std::string> {
+        if (auto it = circularVfs.find(std::string{p}); it != circularVfs.end()) {
+            return it->second;
+        }
+        return std::unexpected("Not found");
+    };
+    auto circularRes = bgl::gpu::ShaderManager::PreprocessWithLookup("a.wgsl", circularLookup);
+    ASSERT_FALSE(circularRes.has_value());
+    EXPECT_NE(circularRes.error().find("Circular"), std::string::npos);
+
+    auto missingRes = bgl::gpu::ShaderManager::PreprocessWithLookup("missing.wgsl", circularLookup);
+    EXPECT_FALSE(missingRes.has_value());
+
+    bgl::gpu::ShaderManager mgr;
+    mgr.SetShaderDirectory({});
+    EXPECT_FALSE(mgr.Preprocess("../secret.wgsl").has_value());
+}
+
+TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
+    const std::array<std::pair<std::string_view, std::string_view>, 11> checks{{
+        {bgl::gpu::kBrdfLutComputeWGSL, "fn cs_brdf_lut"},
+        {bgl::gpu::kGgxPrefilterComputeWGSL, "fn cs_ggx_prefilter"},
+        {bgl::gpu::kTonemapShaderWGSL, "fn fs_tonemap"},
+        {bgl::gpu::kShadowShaderWGSL, "struct PerDrawUniforms"},
+        {bgl::gpu::kPbrShaderWGSL, "struct MaterialUniforms"},
+        {bgl::gpu::kAabbShaderWGSL, "fn vs_aabb"},
+        {bgl::gpu::kWireframeShaderWGSL, "struct PerDrawUniforms"},
+        {bgl::gpu::kMipGenShaderWGSL, "fn fs_mip_normal"},
+        {bgl::gpu::kSkyboxShaderWGSL, "fn vs_sky"},
+        {bgl::gpu::kGpuCullComputeWGSL, "struct GpuBoundingBox"},
+        {bgl::gpu::kGpuRayPickComputeWGSL, "fn cs_pick"},
+    }};
+    for (const auto& [code, needle] : checks) {
+        EXPECT_FALSE(code.empty());
+        EXPECT_EQ(code.find("#include"), std::string_view::npos) << "Unexpanded #include in embedded shader";
+        EXPECT_EQ(code.find("#pragma once"), std::string_view::npos) << "Unstripped #pragma once in embedded shader";
+        EXPECT_NE(code.find(needle), std::string_view::npos) << "Missing symbol: " << needle;
+    }
+}
+
+TEST(ShaderManagerTest, HotReloadDetectsIncludeAndEntryModifications) {
+    namespace fs = std::filesystem;
+    const fs::path tmpDir{fs::temp_directory_path() / "bgl_shader_hot_reload_test"};
+    std::error_code ec;
+    fs::remove_all(tmpDir, ec);
+    fs::create_directories(tmpDir / "common", ec);
+    ASSERT_FALSE(ec);
+
+    struct CleanupGuard {
+        fs::path dir;
+        ~CleanupGuard() {
+            std::error_code e;
+            fs::remove_all(dir, e);
+        }
+    } guard{tmpDir};
+
+    const fs::path commonPath{tmpDir / "common" / "shared.wgsl"};
+    const fs::path entryPath{tmpDir / "entry.wgsl"};
+    {
+        std::ofstream ofs{commonPath, std::ios::binary};
+        ofs << "#pragma once\nconst VAL: f32 = 1.0;\n";
+    }
+    {
+        std::ofstream ofs{entryPath, std::ios::binary};
+        ofs << "#include \"common/shared.wgsl\"\nfn testFn() -> f32 { return VAL; }\n";
+    }
+
+    bgl::gpu::ShaderManager mgr;
+    mgr.SetShaderDirectory(tmpDir);
+
+    auto code1 = mgr.LoadShader("entry.wgsl");
+    ASSERT_TRUE(code1.has_value()) << code1.error();
+    EXPECT_NE(code1->find("VAL: f32 = 1.0"), std::string::npos);
+    EXPECT_TRUE(mgr.PollModifiedShaders().empty());
+
+    const auto oldTime = fs::last_write_time(commonPath, ec);
+    ASSERT_FALSE(ec);
+    {
+        std::ofstream ofs{commonPath, std::ios::binary | std::ios::trunc};
+        ofs << "#pragma once\nconst VAL: f32 = 2.0;\n";
+    }
+    fs::last_write_time(commonPath, oldTime + std::chrono::seconds(2), ec);
+    ASSERT_FALSE(ec);
+
+    const auto modified = mgr.PollModifiedShaders();
+    ASSERT_EQ(modified.size(), 1u);
+    EXPECT_EQ(modified[0], "entry.wgsl");
+
+    auto code2 = mgr.LoadShader("entry.wgsl");
+    ASSERT_TRUE(code2.has_value()) << code2.error();
+    EXPECT_NE(code2->find("VAL: f32 = 2.0"), std::string::npos);
+    EXPECT_TRUE(mgr.PollModifiedShaders().empty());
+}
+
+TEST(RenderingFeaturesTest, SplitPassBlendAndTransmissionClassification) {
+    scene::Material opaqueMat{};
+    opaqueMat.alphaMode = scene::AlphaMode::Opaque;
+    opaqueMat.transmissionFactor = 0.0f;
+    EXPECT_FALSE(gpu::PipelineManager::IsMaterialTransparentOrTransmissive(opaqueMat));
+
+    scene::Material maskedMat{};
+    maskedMat.alphaMode = scene::AlphaMode::Mask;
+    maskedMat.transmissionFactor = 0.0f;
+    EXPECT_FALSE(gpu::PipelineManager::IsMaterialTransparentOrTransmissive(maskedMat));
+
+    scene::Material blendedMat{};
+    blendedMat.alphaMode = scene::AlphaMode::Blend;
+    blendedMat.transmissionFactor = 0.0f;
+    EXPECT_TRUE(gpu::PipelineManager::IsMaterialTransparentOrTransmissive(blendedMat));
+
+    scene::Material glassMat{};
+    glassMat.alphaMode = scene::AlphaMode::Opaque;
+    glassMat.transmissionFactor = 0.85f;
+    EXPECT_TRUE(gpu::PipelineManager::IsMaterialTransparentOrTransmissive(glassMat));
+
+    const WGPUBlendState blend = gpu::PipelineManager::GetTransparentBlendState();
+    EXPECT_EQ(blend.color.operation, WGPUBlendOperation_Add);
+    EXPECT_EQ(blend.color.srcFactor, WGPUBlendFactor_SrcAlpha);
+    EXPECT_EQ(blend.color.dstFactor, WGPUBlendFactor_OneMinusSrcAlpha);
+    EXPECT_EQ(blend.alpha.operation, WGPUBlendOperation_Add);
+    EXPECT_EQ(blend.alpha.srcFactor, WGPUBlendFactor_One);
+    EXPECT_EQ(blend.alpha.dstFactor, WGPUBlendFactor_OneMinusSrcAlpha);
 }

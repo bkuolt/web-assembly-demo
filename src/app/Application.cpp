@@ -7,6 +7,7 @@
 #include "core/MemoryTracker.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Version.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -443,8 +444,15 @@ void Application::Update(float deltaTime) {
         camera_.Orbit(turntableSpeed_ * deltaTime, 0.0f);
     }
 
+    PollShaderHotReload(deltaTime);
+
     if (activeScene_) {
         activeScene_->UpdateAnimation(deltaTime);
+        if (quadtree_ && activeScene_->transformVersion_ != lastQuadtreeTransformVersion_) {
+            quadtree_->Refit();
+            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
+            lastQuadtreeTransformVersion_ = activeScene_->transformVersion_;
+        }
     }
 
     pipelineManager_.AdvanceWeatherTime(deltaTime);
@@ -574,10 +582,11 @@ void Application::Render() {
         return;
 
     if (activeScene_) {
-        // 1. Hardware 4x MSAA PBR Scene Rendering (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
-        pipelineManager_.RenderScene(hdrPass, *activeScene_, vp, camPos, false, quadtree_.get(),
-                                     camera_.GetViewMatrix(), camera_.GetProjectionMatrix(), gpuContext_.GetWidth(),
-                                     gpuContext_.GetHeight(), camera_.GetNearPlane(), camera_.GetFarPlane());
+        // 1. Hardware 4x MSAA Opaque/Masked PBR Pass (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
+        pipelineManager_.RenderOpaqueScene(hdrPass, *activeScene_, vp, camPos, false, quadtree_.get(),
+                                           camera_.GetViewMatrix(), camera_.GetProjectionMatrix(),
+                                           gpuContext_.GetWidth(), gpuContext_.GetHeight(), camera_.GetNearPlane(),
+                                           camera_.GetFarPlane());
         static bool loggedFirstFrame = false;
         if (!loggedFirstFrame) {
             loggedFirstFrame = true;
@@ -586,12 +595,21 @@ void Application::Render() {
         }
     }
 
-    // 2. Procedural Atmospheric Skybox (far-plane depth Z=1.0 test against geometry, zero overdraw)
+    // 2. Procedural Atmospheric Skybox (rendered before opaque snapshot so glass refracts the skybox)
     skybox_.Render(hdrPass, vp, camPos, sunDir, pipelineManager_.GetSolarElevationFactor(),
                    static_cast<uint32_t>(pipelineManager_.GetWeatherMode()), pipelineManager_.GetWeatherIntensity());
 
+    // 3. Snapshot Opaque + Skybox HDR Resolve -> OpaqueColorCopyTexture, then render Transparent/Transmissive Pass
+    WGPURenderPassEncoder transparentPass =
+        gpuContext_.BeginTransparentPass(hdrPass, pipelineManager_.GetOpaqueColorCopyTexture(),
+                                         pipelineManager_.GetOpaqueCopyWidth(), pipelineManager_.GetOpaqueCopyHeight());
+    if (!transparentPass)
+        return;
+
     if (activeScene_) {
-        // 3. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
+        pipelineManager_.RenderTransparentScene(transparentPass, *activeScene_, vp, false);
+
+        // 4. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
         if (showBoundingBoxes_) {
             pipelineManager_.BatchSceneAABBs(*activeScene_, true, true);
         }
@@ -603,12 +621,12 @@ void Application::Render() {
             pipelineManager_.AppendAABBLines(selectedNode_->worldAABB, glm::vec4{1.0f, 0.72f, 0.05f, 1.0f});
         }
         if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_) || selectedNode_) {
-            pipelineManager_.FlushAABBLines(hdrPass, vp);
+            pipelineManager_.FlushAABBLines(transparentPass, vp);
         }
     }
 
-    // 4. Resolve HDR RGBA16F (MSAA -> 1x) and begin Swapchain Post-Processing Pass (Surface format)
-    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(hdrPass);
+    // 5. Resolve HDR RGBA16F (MSAA -> 1x) and begin Swapchain Post-Processing Pass (Surface format)
+    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(transparentPass);
     if (!swapchainPass)
         return;
 
@@ -659,6 +677,7 @@ void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string
     quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
     quadtree_->InsertNodes(activeScene_->rootNodes);
     cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
+    lastQuadtreeTransformVersion_ = activeScene_->transformVersion_;
 
     if (!activeScene_->animations.empty()) {
         activeScene_->SetAnimation(0);
@@ -978,6 +997,32 @@ void Application::UpdateSettingsUI() {
 
     settingsUi_.EndWindow();
     settingsUi_.EndFrame();
+}
+
+void Application::PollShaderHotReload(float deltaTime) {
+#if defined(BGL_PLATFORM_NATIVE)
+    hotReloadPollTimer_ += deltaTime;
+    if (hotReloadPollTimer_ < 0.25f) {
+        return;
+    }
+    hotReloadPollTimer_ = 0.0f;
+
+    const auto modified = gpu::ShaderManager::Instance().PollModifiedShaders();
+    if (modified.empty()) {
+        return;
+    }
+
+    if (std::ranges::find(modified, std::string{"skybox.wgsl"}) != modified.end()) {
+        if (auto res = skybox_.ReloadShader(); !res) {
+            BGL_LOG_ERROR("WGSL hot-reload failed for skybox.wgsl: {}", res.error());
+        } else {
+            BGL_LOG_INFO("WGSL hot-reloaded: skybox.wgsl");
+        }
+    }
+    (void)pipelineManager_.ReloadShaders(modified);
+#else
+    (void)deltaTime;
+#endif
 }
 
 } // namespace bgl::app

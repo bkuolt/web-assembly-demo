@@ -6,7 +6,7 @@
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/Handle.hpp"
-#include "gpu/Shaders.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -44,6 +44,7 @@ void PostProcessPass::MoveFrom(PostProcessPass& other) noexcept {
     queue_ = std::exchange(other.queue_, nullptr);
     surfaceFormat_ = other.surfaceFormat_;
     tonemapPipeline_ = std::exchange(other.tonemapPipeline_, nullptr);
+    tonemapPipelineLayout_ = std::exchange(other.tonemapPipelineLayout_, nullptr);
     tonemapBindGroupLayout_ = std::exchange(other.tonemapBindGroupLayout_, nullptr);
     tonemapUniformBuffer_ = std::exchange(other.tonemapUniformBuffer_, nullptr);
     tonemapVertexBuffer_ = std::exchange(other.tonemapVertexBuffer_, nullptr);
@@ -93,6 +94,10 @@ void PostProcessPass::Shutdown() noexcept {
         wgpuRenderPipelineRelease(tonemapPipeline_);
         tonemapPipeline_ = nullptr;
     }
+    if (tonemapPipelineLayout_) {
+        wgpuPipelineLayoutRelease(tonemapPipelineLayout_);
+        tonemapPipelineLayout_ = nullptr;
+    }
     if (tonemapBindGroupLayout_) {
         wgpuBindGroupLayoutRelease(tonemapBindGroupLayout_);
         tonemapBindGroupLayout_ = nullptr;
@@ -111,22 +116,7 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;
 
-    // 1. Compile WGSL Tonemap Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.chain.next = nullptr;
-    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kTonemapShaderWGSL.data());
-
-    WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shaderDesc.nextInChain = &wgslDesc.chain;
-    shaderDesc.label = ToWgpuStringView("Tonemap_ShaderModule");
-
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &shaderDesc);
-    if (!shaderModule) {
-        return std::unexpected("Failed to compile tonemap post-process WGSL shader module");
-    }
-
-    // 2. Bind Group Layout (Uniforms + Sampler + HDR Resolve View)
+    // 1. Bind Group Layout (Uniforms + Sampler + HDR Resolve View)
     std::array<WGPUBindGroupLayoutEntry, 3> entries{};
     entries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     entries[0].binding = 0;
@@ -151,55 +141,25 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     bglDesc.label = ToWgpuStringView("Tonemap_BindGroupLayout");
     tonemapBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
     if (!tonemapBindGroupLayout_) {
-        wgpuShaderModuleRelease(shaderModule);
         Shutdown();
         return std::unexpected("Failed to create tonemap bind group layout");
     }
 
-    // 3. Pipeline Layout
+    // 2. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = &tonemapBindGroupLayout_;
     plDesc.label = ToWgpuStringView("Tonemap_PipelineLayout");
-    WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
-    if (!pl) {
-        wgpuShaderModuleRelease(shaderModule);
+    tonemapPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!tonemapPipelineLayout_) {
         Shutdown();
         return std::unexpected("Failed to create tonemap pipeline layout");
     }
 
-    WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
-    colorTarget.format = surfaceFormat;
-    colorTarget.writeMask = WGPUColorWriteMask_All;
-
-    WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
-    fragState.module = shaderModule;
-    fragState.entryPoint = ToWgpuStringView("fs_tonemap");
-    fragState.targetCount = 1;
-    fragState.targets = &colorTarget;
-
-    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    rpDesc.layout = pl;
-    rpDesc.vertex.module = shaderModule;
-    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_tonemap");
-    rpDesc.vertex.bufferCount = 0;
-    rpDesc.vertex.buffers = nullptr;
-    rpDesc.fragment = &fragState;
-    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-    rpDesc.primitive.cullMode = WGPUCullMode_None;
-    rpDesc.depthStencil = nullptr;
-    rpDesc.multisample.count = 1;
-    rpDesc.multisample.mask = 0xFFFFFFFF;
-    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
-    rpDesc.label = ToWgpuStringView("Tonemap_RenderPipeline");
-
-    tonemapPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-    wgpuPipelineLayoutRelease(pl);
-    wgpuShaderModuleRelease(shaderModule);
-
-    if (!tonemapPipeline_) {
+    // 3. Render Pipeline
+    if (auto res = CreatePipeline(false); !res) {
         Shutdown();
-        return std::unexpected("Failed to create tonemap post-process render pipeline");
+        return res;
     }
 
     // 4. Uniform Buffer
@@ -325,6 +285,57 @@ void PostProcessPass::CycleToneMapOperator() noexcept {
         toneMapOp_ = ToneMapOperator::KhronosPbrNeutral;
         break;
     }
+}
+
+core::Result<void> PostProcessPass::CreatePipeline(bool validateScope) {
+    auto shaderModuleRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "tonemap.wgsl", "Tonemap_ShaderModule", validateScope);
+    if (!shaderModuleRes) {
+        return std::unexpected(shaderModuleRes.error());
+    }
+
+    WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
+    colorTarget.format = surfaceFormat_;
+    colorTarget.writeMask = WGPUColorWriteMask_All;
+
+    WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
+    fragState.module = shaderModuleRes->Get();
+    fragState.entryPoint = ToWgpuStringView("fs_tonemap");
+    fragState.targetCount = 1;
+    fragState.targets = &colorTarget;
+
+    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    rpDesc.layout = tonemapPipelineLayout_;
+    rpDesc.vertex.module = shaderModuleRes->Get();
+    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_tonemap");
+    rpDesc.vertex.bufferCount = 0;
+    rpDesc.vertex.buffers = nullptr;
+    rpDesc.fragment = &fragState;
+    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    rpDesc.primitive.cullMode = WGPUCullMode_None;
+    rpDesc.depthStencil = nullptr;
+    rpDesc.multisample.count = 1;
+    rpDesc.multisample.mask = 0xFFFFFFFF;
+    rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
+    rpDesc.label = ToWgpuStringView("Tonemap_RenderPipeline");
+
+    WGPURenderPipeline nextPipeline = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    if (!nextPipeline) {
+        return std::unexpected("Failed to create tonemap post-process render pipeline");
+    }
+
+    if (tonemapPipeline_) {
+        wgpuRenderPipelineRelease(tonemapPipeline_);
+    }
+    tonemapPipeline_ = nextPipeline;
+    return {};
+}
+
+core::Result<void> PostProcessPass::ReloadShader() {
+    if (!device_ || !tonemapPipelineLayout_) {
+        return std::unexpected("Cannot reload PostProcessPass shader before initialization");
+    }
+    return CreatePipeline(true);
 }
 
 } // namespace bgl::gpu

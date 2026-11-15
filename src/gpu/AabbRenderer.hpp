@@ -45,6 +45,7 @@ public:
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat colorFormat,
                                   uint32_t sampleCount, WGPUTextureFormat depthFormat = WGPUTextureFormat_Depth24Plus);
+    core::Result<void> ReloadShader();
     void Shutdown() noexcept;
 
     void AppendAABBLines(const core::AABB& aabb, const glm::vec4& color);
@@ -58,9 +59,15 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return aabbPipeline_ != nullptr; }
 
 private:
+    core::Result<void> CreateRenderPipeline(WGPUShaderModule shaderModule);
+
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
+    WGPUTextureFormat colorFormat_{WGPUTextureFormat_RGBA16Float};
+    uint32_t sampleCount_{4};
+    WGPUTextureFormat depthFormat_{WGPUTextureFormat_Depth24Plus};
 
+    PipelineLayoutHandle aabbPipelineLayout_{};
     RenderPipelineHandle aabbPipeline_{};
     BindGroupLayoutHandle aabbBindGroupLayout_{};
     BufferHandle aabbVertexBuffer_{};

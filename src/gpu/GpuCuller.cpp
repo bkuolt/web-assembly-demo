@@ -6,73 +6,11 @@
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/Handle.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <cstring>
 
 namespace bgl::gpu {
-
-namespace {
-
-constexpr std::string_view kGpuCullComputeWGSL = R"(
-struct GpuBoundingBox {
-    minBound: vec4<f32>,
-    maxBound: vec4<f32>,
-    nodeIndex: u32,
-    primitiveIndex: u32,
-    pad0: u32,
-    pad1: u32,
-};
-
-struct GpuCullUniforms {
-    frustumPlanes: array<vec4<f32>, 6>,
-    primitiveCount: u32,
-    pad0: u32,
-    pad1: u32,
-    pad2: u32,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: GpuCullUniforms;
-@group(0) @binding(1) var<storage, read> bounds: array<GpuBoundingBox>;
-@group(0) @binding(2) var<storage, read_write> visibility: array<u32>;
-@group(0) @binding(3) var<storage, read_write> visibleCount: atomic<u32>;
-
-@compute @workgroup_size(64)
-fn cs_cull(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let index = global_id.x;
-    if (index >= uniforms.primitiveCount) {
-        return;
-    }
-
-    let b = bounds[index];
-    let minB = b.minBound.xyz;
-    let maxB = b.maxBound.xyz;
-
-    var isVisible: u32 = 1u;
-    for (var p: i32 = 0; p < 6; p++) {
-        let plane = uniforms.frustumPlanes[p];
-        let normal = plane.xyz;
-        let d = plane.w;
-
-        let pVertex = vec3<f32>(
-            select(minB.x, maxB.x, normal.x >= 0.0),
-            select(minB.y, maxB.y, normal.y >= 0.0),
-            select(minB.z, maxB.z, normal.z >= 0.0)
-        );
-
-        if (dot(normal, pVertex) + d < 0.0) {
-            isVisible = 0u;
-            break;
-        }
-    }
-
-    visibility[index] = isVisible;
-    if (isVisible == 1u) {
-        atomicAdd(&visibleCount, 1u);
-    }
-}
-)";
-
-} // namespace
 
 GpuCuller::~GpuCuller() {
     Shutdown();
@@ -80,14 +18,15 @@ GpuCuller::~GpuCuller() {
 
 GpuCuller::GpuCuller(GpuCuller&& other) noexcept
     : device_{other.device_}, queue_{other.queue_}, computePipeline_{other.computePipeline_},
-      bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_}, uniformBuffer_{other.uniformBuffer_},
-      boundsStorageBuffer_{other.boundsStorageBuffer_}, visibilityStorageBuffer_{other.visibilityStorageBuffer_},
-      atomicCounterBuffer_{other.atomicCounterBuffer_}, primitiveCount_{other.primitiveCount_},
-      boundsBufferSize_{other.boundsBufferSize_}, visibilityBufferSize_{other.visibilityBufferSize_},
-      cpuBounds_{std::move(other.cpuBounds_)} {
+      pipelineLayout_{other.pipelineLayout_}, bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_},
+      uniformBuffer_{other.uniformBuffer_}, boundsStorageBuffer_{other.boundsStorageBuffer_},
+      visibilityStorageBuffer_{other.visibilityStorageBuffer_}, atomicCounterBuffer_{other.atomicCounterBuffer_},
+      primitiveCount_{other.primitiveCount_}, boundsBufferSize_{other.boundsBufferSize_},
+      visibilityBufferSize_{other.visibilityBufferSize_}, cpuBounds_{std::move(other.cpuBounds_)} {
     other.device_ = nullptr;
     other.queue_ = nullptr;
     other.computePipeline_ = nullptr;
+    other.pipelineLayout_ = nullptr;
     other.bindGroupLayout_ = nullptr;
     other.bindGroup_ = nullptr;
     other.uniformBuffer_ = nullptr;
@@ -105,6 +44,7 @@ GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
         device_ = other.device_;
         queue_ = other.queue_;
         computePipeline_ = other.computePipeline_;
+        pipelineLayout_ = other.pipelineLayout_;
         bindGroupLayout_ = other.bindGroupLayout_;
         bindGroup_ = other.bindGroup_;
         uniformBuffer_ = other.uniformBuffer_;
@@ -119,6 +59,7 @@ GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
         other.device_ = nullptr;
         other.queue_ = nullptr;
         other.computePipeline_ = nullptr;
+        other.pipelineLayout_ = nullptr;
         other.bindGroupLayout_ = nullptr;
         other.bindGroup_ = nullptr;
         other.uniformBuffer_ = nullptr;
@@ -161,6 +102,10 @@ void GpuCuller::Shutdown() noexcept {
         wgpuComputePipelineRelease(computePipeline_);
         computePipeline_ = nullptr;
     }
+    if (pipelineLayout_) {
+        wgpuPipelineLayoutRelease(pipelineLayout_);
+        pipelineLayout_ = nullptr;
+    }
     if (bindGroupLayout_) {
         wgpuBindGroupLayoutRelease(bindGroupLayout_);
         bindGroupLayout_ = nullptr;
@@ -173,27 +118,54 @@ void GpuCuller::Shutdown() noexcept {
     queue_ = nullptr;
 }
 
+core::Result<void> GpuCuller::CreateComputePipeline(WGPUShaderModule shaderModule) {
+    if (!device_ || !shaderModule || !pipelineLayout_) {
+        return std::unexpected("Cannot create GPU culler compute pipeline with invalid state");
+    }
+
+    WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    cpDesc.layout = pipelineLayout_;
+    cpDesc.compute.module = shaderModule;
+    cpDesc.compute.entryPoint = ToWgpuStringView("cs_cull");
+    cpDesc.label = ToWgpuStringView("GpuCull_ComputePipeline");
+
+    WGPUComputePipeline nextPipe = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
+    if (!nextPipe) {
+        return std::unexpected("Failed to create GPU culler compute pipeline");
+    }
+    if (computePipeline_) {
+        wgpuComputePipelineRelease(computePipeline_);
+    }
+    computePipeline_ = nextPipe;
+    return {};
+}
+
+core::Result<void> GpuCuller::ReloadShader() {
+    if (!device_ || !pipelineLayout_) {
+        return std::unexpected("GpuCuller not initialized");
+    }
+    auto modRes = ShaderManager::Instance().LoadAndCompile(device_, "gpu_cull.wgsl", "GpuCull_ComputeModule", true);
+    if (!modRes) {
+        return std::unexpected(modRes.error());
+    }
+    return CreateComputePipeline(modRes->Get());
+}
+
 core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     if (!device || !queue) {
         return std::unexpected("Cannot initialize GpuCuller with null WebGPU device or queue");
     }
+    Shutdown();
     device_ = device;
     queue_ = queue;
 
-    // 1. Create WGSL Compute Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.chain.next = nullptr;
-    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kGpuCullComputeWGSL.data());
-
-    WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shaderDesc.nextInChain = &wgslDesc.chain;
-    shaderDesc.label = ToWgpuStringView("GpuCull_ComputeModule");
-
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &shaderDesc);
-    if (!shaderModule) {
-        return std::unexpected("Failed to compile GPU culler WGSL compute module");
+    // 1. Load & Compile WGSL Compute Shader Module
+    auto modRes = ShaderManager::Instance().LoadAndCompile(device_, "gpu_cull.wgsl", "GpuCull_ComputeModule");
+    if (!modRes) {
+        Shutdown();
+        return std::unexpected(modRes.error());
     }
+    ShaderModuleHandle shaderModule{std::move(*modRes)};
 
     // 2. Bind Group Layout
     std::array<WGPUBindGroupLayoutEntry, 4> entries{};
@@ -231,25 +203,16 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     bglDesc.label = ToWgpuStringView("GpuCull_BindGroupLayout");
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
 
-    // 3. Compute Pipeline Layout
+    // 3. Compute Pipeline Layout & Pipeline
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = &bindGroupLayout_;
     plDesc.label = ToWgpuStringView("GpuCull_PipelineLayout");
-    WGPUPipelineLayout pl = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
 
-    WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
-    cpDesc.layout = pl;
-    cpDesc.compute.module = shaderModule;
-    cpDesc.compute.entryPoint = ToWgpuStringView("cs_cull");
-    cpDesc.label = ToWgpuStringView("GpuCull_ComputePipeline");
-
-    computePipeline_ = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
-    wgpuPipelineLayoutRelease(pl);
-    wgpuShaderModuleRelease(shaderModule);
-
-    if (!computePipeline_) {
-        return std::unexpected("Failed to create GPU culler compute pipeline");
+    if (auto pipeRes = CreateComputePipeline(shaderModule.Get()); !pipeRes) {
+        Shutdown();
+        return std::unexpected(pipeRes.error());
     }
 
     // 4. Uniform & Counter Buffers

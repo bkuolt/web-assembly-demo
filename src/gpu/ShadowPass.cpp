@@ -7,7 +7,7 @@
 #include "core/MemoryTracker.hpp"
 #include "gpu/DrawHelpers.hpp"
 #include "gpu/Handle.hpp"
-#include "gpu/Shaders.hpp"
+#include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <array>
 #include <utility>
@@ -34,6 +34,7 @@ void ShadowPass::MoveFrom(ShadowPass& other) noexcept {
     device_ = std::exchange(other.device_, nullptr);
     queue_ = std::exchange(other.queue_, nullptr);
     shadowPipeline_ = std::exchange(other.shadowPipeline_, nullptr);
+    pipelineLayout_ = std::exchange(other.pipelineLayout_, nullptr);
     shadowTexture_ = std::exchange(other.shadowTexture_, nullptr);
     shadowTextureView_ = std::exchange(other.shadowTextureView_, nullptr);
     shadowSampler_ = std::exchange(other.shadowSampler_, nullptr);
@@ -71,6 +72,10 @@ void ShadowPass::Shutdown() noexcept {
     if (shadowPipeline_) {
         wgpuRenderPipelineRelease(shadowPipeline_);
         shadowPipeline_ = nullptr;
+    }
+    if (pipelineLayout_) {
+        wgpuPipelineLayoutRelease(pipelineLayout_);
+        pipelineLayout_ = nullptr;
     }
     dummySkinBindGroup_ = nullptr;
     device_ = nullptr;
@@ -141,97 +146,21 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
         return std::unexpected("Failed to create PCF shadow comparison sampler");
     }
 
-    // 3. Shadow WGSL Shader Module
-    WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
-    wgslDesc.chain.next = nullptr;
-    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-    wgslDesc.code = ToWgpuStringView(kShadowShaderWGSL);
-
-    WGPUShaderModuleDescriptor shaderDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
-    shaderDesc.nextInChain = &wgslDesc.chain;
-    shaderDesc.label = ToWgpuStringView("Shadow_ShaderModule");
-
-    ShaderModuleHandle shaderModule{wgpuDeviceCreateShaderModule(device_, &shaderDesc)};
-    if (!shaderModule) {
-        Shutdown();
-        return std::unexpected("Failed to compile shadow WGSL shader module");
-    }
-
-    // 4. Shared 3-Group Pipeline Layout (0: PerDrawDynamic, 1: MaterialStatic, 2: SkinStorage)
+    // 3. Shared 3-Group Pipeline Layout (0: PerDrawDynamic, 1: MaterialStatic, 2: SkinStorage)
     const std::array<WGPUBindGroupLayout, 3> layouts{perDrawBgl, materialBgl, skinBgl};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = layouts.size();
     plDesc.bindGroupLayouts = layouts.data();
     plDesc.label = ToWgpuStringView("Shadow_PipelineLayout");
-    PipelineLayoutHandle pl{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
-    if (!pl) {
+    pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!pipelineLayout_) {
         Shutdown();
         return std::unexpected("Failed to create shadow pipeline layout");
     }
 
-    std::array<WGPUVertexAttribute, 6> shadowAttrs{};
-    shadowAttrs[0].format = WGPUVertexFormat_Float32x3;
-    shadowAttrs[0].offset = offsetof(core::Vertex, position);
-    shadowAttrs[0].shaderLocation = 0;
-
-    shadowAttrs[1].format = WGPUVertexFormat_Float32x3;
-    shadowAttrs[1].offset = offsetof(core::Vertex, normal);
-    shadowAttrs[1].shaderLocation = 1;
-
-    shadowAttrs[2].format = WGPUVertexFormat_Float32x4;
-    shadowAttrs[2].offset = offsetof(core::Vertex, tangent);
-    shadowAttrs[2].shaderLocation = 2;
-
-    shadowAttrs[3].format = WGPUVertexFormat_Float32x2;
-    shadowAttrs[3].offset = offsetof(core::Vertex, uv);
-    shadowAttrs[3].shaderLocation = 3;
-
-    shadowAttrs[4].format = WGPUVertexFormat_Uint32x4;
-    shadowAttrs[4].offset = offsetof(core::Vertex, joints);
-    shadowAttrs[4].shaderLocation = 4;
-
-    shadowAttrs[5].format = WGPUVertexFormat_Float32x4;
-    shadowAttrs[5].offset = offsetof(core::Vertex, weights);
-    shadowAttrs[5].shaderLocation = 5;
-
-    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vbLayout.arrayStride = sizeof(core::Vertex);
-    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = shadowAttrs.size();
-    vbLayout.attributes = shadowAttrs.data();
-
-    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
-    depthStencil.format = WGPUTextureFormat_Depth32Float;
-    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
-    depthStencil.depthCompare = WGPUCompareFunction_LessEqual;
-    depthStencil.depthBias = 2;
-    depthStencil.depthBiasSlopeScale = 2.0f;
-    depthStencil.depthBiasClamp = 0.0f;
-
-    WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
-    fragState.module = shaderModule.Get();
-    fragState.entryPoint = ToWgpuStringView("fs_shadow");
-    fragState.targetCount = 0;
-    fragState.targets = nullptr;
-
-    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    rpDesc.label = ToWgpuStringView("Shadow_RenderPipeline");
-    rpDesc.layout = pl.Get();
-    rpDesc.vertex.module = shaderModule.Get();
-    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
-    rpDesc.vertex.bufferCount = 1;
-    rpDesc.vertex.buffers = &vbLayout;
-    rpDesc.fragment = &fragState;
-    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
-    rpDesc.primitive.cullMode = WGPUCullMode_None;
-    rpDesc.depthStencil = &depthStencil;
-    rpDesc.multisample.count = 1;
-    rpDesc.multisample.mask = 0xFFFFFFFF;
-
-    shadowPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
-    if (!shadowPipeline_) {
+    if (auto res = CreatePipeline(false); !res) {
         Shutdown();
-        return std::unexpected("Failed to create shadow render pipeline");
+        return res;
     }
 
     perDrawRing_.Initialize(device_, queue_, perDrawBgl, "Shadow_PerDrawRing");
@@ -468,6 +397,91 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     cleared_ = false;
     lastScene_ = &scene;
     lastLightDir_ = safeDir;
+}
+
+core::Result<void> ShadowPass::CreatePipeline(bool validateScope) {
+    auto shaderModuleRes =
+        ShaderManager::Instance().LoadAndCompile(device_, "shadow.wgsl", "Shadow_ShaderModule", validateScope);
+    if (!shaderModuleRes) {
+        return std::unexpected(shaderModuleRes.error());
+    }
+
+    std::array<WGPUVertexAttribute, 6> shadowAttrs{};
+    shadowAttrs[0].format = WGPUVertexFormat_Float32x3;
+    shadowAttrs[0].offset = offsetof(core::Vertex, position);
+    shadowAttrs[0].shaderLocation = 0;
+
+    shadowAttrs[1].format = WGPUVertexFormat_Float32x3;
+    shadowAttrs[1].offset = offsetof(core::Vertex, normal);
+    shadowAttrs[1].shaderLocation = 1;
+
+    shadowAttrs[2].format = WGPUVertexFormat_Float32x4;
+    shadowAttrs[2].offset = offsetof(core::Vertex, tangent);
+    shadowAttrs[2].shaderLocation = 2;
+
+    shadowAttrs[3].format = WGPUVertexFormat_Float32x2;
+    shadowAttrs[3].offset = offsetof(core::Vertex, uv);
+    shadowAttrs[3].shaderLocation = 3;
+
+    shadowAttrs[4].format = WGPUVertexFormat_Uint32x4;
+    shadowAttrs[4].offset = offsetof(core::Vertex, joints);
+    shadowAttrs[4].shaderLocation = 4;
+
+    shadowAttrs[5].format = WGPUVertexFormat_Float32x4;
+    shadowAttrs[5].offset = offsetof(core::Vertex, weights);
+    shadowAttrs[5].shaderLocation = 5;
+
+    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vbLayout.arrayStride = sizeof(core::Vertex);
+    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
+    vbLayout.attributeCount = shadowAttrs.size();
+    vbLayout.attributes = shadowAttrs.data();
+
+    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
+    depthStencil.format = WGPUTextureFormat_Depth32Float;
+    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
+    depthStencil.depthCompare = WGPUCompareFunction_LessEqual;
+    depthStencil.depthBias = 2;
+    depthStencil.depthBiasSlopeScale = 2.0f;
+    depthStencil.depthBiasClamp = 0.0f;
+
+    WGPUFragmentState fragState = WGPU_FRAGMENT_STATE_INIT;
+    fragState.module = shaderModuleRes->Get();
+    fragState.entryPoint = ToWgpuStringView("fs_shadow");
+    fragState.targetCount = 0;
+    fragState.targets = nullptr;
+
+    WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    rpDesc.label = ToWgpuStringView("Shadow_RenderPipeline");
+    rpDesc.layout = pipelineLayout_;
+    rpDesc.vertex.module = shaderModuleRes->Get();
+    rpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
+    rpDesc.vertex.bufferCount = 1;
+    rpDesc.vertex.buffers = &vbLayout;
+    rpDesc.fragment = &fragState;
+    rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    rpDesc.primitive.cullMode = WGPUCullMode_None;
+    rpDesc.depthStencil = &depthStencil;
+    rpDesc.multisample.count = 1;
+    rpDesc.multisample.mask = 0xFFFFFFFF;
+
+    WGPURenderPipeline nextPipeline = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    if (!nextPipeline) {
+        return std::unexpected("Failed to create shadow render pipeline");
+    }
+
+    if (shadowPipeline_) {
+        wgpuRenderPipelineRelease(shadowPipeline_);
+    }
+    shadowPipeline_ = nextPipeline;
+    return {};
+}
+
+core::Result<void> ShadowPass::ReloadShader() {
+    if (!device_ || !pipelineLayout_) {
+        return std::unexpected("Cannot reload ShadowPass shader before initialization");
+    }
+    return CreatePipeline(true);
 }
 
 } // namespace bgl::gpu

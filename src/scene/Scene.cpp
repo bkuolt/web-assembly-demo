@@ -516,7 +516,13 @@ void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
     worldAABB = core::AABB{};
     for (const auto& prim : GetPrimitives()) {
         if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
-            worldAABB.Expand(prim.boundingBox.Transformed(worldTransform));
+            if (instanceTransforms.empty()) {
+                worldAABB.Expand(prim.boundingBox.Transformed(worldTransform));
+            } else {
+                for (const glm::mat4& instMat : instanceTransforms) {
+                    worldAABB.Expand(prim.boundingBox.Transformed(worldTransform * instMat));
+                }
+            }
         }
     }
     for (auto& child : children) {
@@ -548,6 +554,7 @@ void Scene::Update() {
             sceneAABB.Expand(node->worldAABB);
         }
     }
+    ++transformVersion_;
 }
 
 void Scene::UpdateAnimation(float deltaTime) {

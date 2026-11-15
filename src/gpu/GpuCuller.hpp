@@ -46,6 +46,7 @@ public:
     GpuCuller& operator=(GpuCuller&& other) noexcept;
 
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue);
+    core::Result<void> ReloadShader();
     void Shutdown() noexcept;
 
     /**
@@ -64,10 +65,13 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
 
 private:
+    core::Result<void> CreateComputePipeline(WGPUShaderModule shaderModule);
+
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
     WGPUComputePipeline computePipeline_{nullptr};
+    WGPUPipelineLayout pipelineLayout_{nullptr};
     WGPUBindGroupLayout bindGroupLayout_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
 
