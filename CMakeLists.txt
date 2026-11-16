@@ -338,6 +338,7 @@ add_library(bgl::ui ALIAS bgl_ui)
 # 6b. libbgl_engine (reusable runtime core)
 # ==============================================================================
 add_library(bgl_engine ${BGL_LIB_TYPE}
+    src/engine/App.cpp
     src/engine/Engine.cpp
     src/engine/EngineCore.cpp
     src/engine/EngineImpl.cpp
