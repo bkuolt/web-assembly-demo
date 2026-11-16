@@ -3,7 +3,8 @@
  * @brief Fullscreen HDR Tonemapping, Depth Linearization, Half-Res GTAO, 5-Mip Bloom, GPU Auto-Exposure,
  *        Bokeh DoF, Screen-Space Reflections, Volumetric God Rays, Color Grading Presets, and FXAA.
  */
-#pragma once
+#ifndef BGL_GPU_POSTPROCESSPASS_HPP
+#define BGL_GPU_POSTPROCESSPASS_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -301,3 +302,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_POSTPROCESSPASS_HPP

@@ -2,7 +2,8 @@
  * @file ThreadPool.hpp
  * @brief High-performance centralized thread pool and parallel-for job scheduler.
  */
-#pragma once
+#ifndef BGL_CORE_THREADPOOL_HPP
+#define BGL_CORE_THREADPOOL_HPP
 
 #include <algorithm>
 #include <atomic>
@@ -226,3 +227,5 @@ private:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_THREADPOOL_HPP

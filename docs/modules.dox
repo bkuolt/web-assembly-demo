@@ -34,8 +34,13 @@
  */
 
 /**
- * @defgroup bgl_app Desktop Application & CLI (`libbgl_app`)
- * @brief SDL2 windowing, asynchronous glTF preset downloader/loader, live shader hot-reload, studio panels, and CLI parser.
+ * @defgroup bgl_engine Public Engine SDK & Runtime (`libbgl_engine`)
+ * @brief Backend-free public engine facade (`include/bgl/`), `EngineCore` runtime, `App` lifecycle, polling `Input`, `RenderSettings`, `bgl::gui`, and `Entity` handles.
+ */
+
+/**
+ * @defgroup bgl_app Desktop Viewer Reference Application (`libbgl_viewer_lib`)
+ * @brief Reference viewer in `apps/viewer/` inheriting from `EngineCore`: SDL2 hotkeys, studio UI panels, debug HUD, async model preset loader, and CLI parser.
  */
 
 /**
@@ -85,7 +90,19 @@
  */
 
 /**
+ * @namespace bgl::engine
+ * @ingroup bgl_engine
+ * @brief Reusable engine runtime (`EngineCore`), input state, entity scene-graph operations, and Pimpl internals.
+ */
+
+/**
+ * @namespace bgl::gui
+ * @ingroup bgl_engine
+ * @brief Immediate-mode debug UI helpers (`Begin`, `End`, `Label`, `Button`, `Checkbox`, `Slider`).
+ */
+
+/**
  * @namespace bgl::app
  * @ingroup bgl_app
- * @brief Native SDL2 viewer application, async background asset loader, UI controller, and CLI parser.
+ * @brief Native SDL2 reference viewer application (`apps/viewer/`), async background asset loader, UI controller, and CLI parser.
  */

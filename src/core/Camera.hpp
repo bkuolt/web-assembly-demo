@@ -2,7 +2,8 @@
  * @file Camera.hpp
  * @brief Orbit, Pan, and Zoom 3D Camera system.
  */
-#pragma once
+#ifndef BGL_CORE_CAMERA_HPP
+#define BGL_CORE_CAMERA_HPP
 
 #include "core/Types.hpp"
 #include <array>
@@ -179,3 +180,5 @@ private:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_CAMERA_HPP

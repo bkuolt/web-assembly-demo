@@ -2,7 +2,8 @@
  * @file FontAtlas.hpp
  * @brief Dynamic GPU Font Atlas powered by FreeType 2 and HarfBuzz text shaping.
  */
-#pragma once
+#ifndef BGL_TEXT_FONTATLAS_HPP
+#define BGL_TEXT_FONTATLAS_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -134,3 +135,5 @@ private:
 };
 
 } // namespace bgl::text
+
+#endif // BGL_TEXT_FONTATLAS_HPP

@@ -2,7 +2,8 @@
  * @file ShadowPass.hpp
  * @brief Directional 2048x2048 PCF shadow map depth pre-pass with alpha testing.
  */
-#pragma once
+#ifndef BGL_GPU_SHADOWPASS_HPP
+#define BGL_GPU_SHADOWPASS_HPP
 
 #include "core/Types.hpp"
 #include "gpu/DrawHelpers.hpp"
@@ -108,3 +109,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_SHADOWPASS_HPP

@@ -2,7 +2,8 @@
  * @file TextShaper.hpp
  * @brief Unicode text shaping via HarfBuzz and FontAtlas glyph mapping.
  */
-#pragma once
+#ifndef BGL_TEXT_TEXTSHAPER_HPP
+#define BGL_TEXT_TEXTSHAPER_HPP
 
 #include "text/FontAtlas.hpp"
 #include <glm/glm.hpp>
@@ -56,3 +57,5 @@ public:
 };
 
 } // namespace bgl::text
+
+#endif // BGL_TEXT_TEXTSHAPER_HPP

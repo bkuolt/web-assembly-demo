@@ -2,7 +2,8 @@
  * @file Handle.hpp
  * @brief Modern C++23 zero-overhead RAII wrapper for WebGPU C API handles.
  */
-#pragma once
+#ifndef BGL_GPU_HANDLE_HPP
+#define BGL_GPU_HANDLE_HPP
 
 #include <concepts>
 #include <string_view>
@@ -102,3 +103,5 @@ using ComputePassEncoderHandle = Handle<WGPUComputePassEncoder, wgpuComputePassE
 using CommandBufferHandle = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_HANDLE_HPP

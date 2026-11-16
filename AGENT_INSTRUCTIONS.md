@@ -16,7 +16,8 @@
      - `bgl::text`: Dynamic RGBA8 alpha & SDF font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
      - `bgl::ui`: Single-batch 2D analytical SDF immediate-mode UI studio (`ImmediateUI` + `ImmediateUIWidgets`) with frosted glassmorphic backdrop blur, scrollable dropdown/progress/loading banner widgets, HSV `ColorEdit3`, plus `DebugOverlay` HUD telemetry.
      - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
-     - `bgl::app`: Multiplatform application lifecycle (`Application`), asynchronous glTF preset downloader/loader & node picking (`ApplicationModelLoader`), per-section SDF UI studio builders (`ApplicationUI`), CLI argument parser (`CommandLine`), and runtime event loop.
+     - `bgl::engine` & `bgl` (`include/bgl/`, `src/engine/`): Backend-free public engine SDK (`Engine`, `App`, `Input`, `RenderSettings`, `bgl::gui`, `Entity`) and reusable `EngineCore` runtime.
+     - `bgl::app` (`apps/viewer/`): Reference viewer application inheriting from `EngineCore`, asynchronous glTF preset downloader/loader & node picking (`ApplicationModelLoader`), per-section SDF UI studio builders (`ApplicationUI`), CLI argument parser (`CommandLine`), and runtime event loop.
 2. **Modern C++23 Standard:**
    - Strict 100% C++23 (`-std=c++23`).
    - No exceptions across module or C-ABI boundaries: use `bgl::core::Result<T>` (`std::expected<T, std::string>`).
@@ -41,7 +42,14 @@
      - `libbgl_text.so`
      - `libbgl_ui.so`
      - `libbgl_audio.so`
-     - `libbgl_app.so`
+     - `libbgl_engine.so`
+     - `libbgl_viewer_lib.so`
+
+7. **Module Layering (`scripts/check_layering.py`):**
+   - `include/bgl` may only include `core/*` and `bgl/*` — **never** WebGPU (`WGPU*`/`webgpu.h`) or `SDL*`.
+   - `samples` may only include `bgl/*`.
+   - `src/engine` must never include `apps/viewer` or reference `Application`.
+   - `src/core` → `{core}`, `src/audio` → `{core, audio}`, `src/scene` → `{core, scene}`, `src/gpu` → `{core, gpu, scene}`, `src/text` → `{core, gpu, text}`, `src/ui` → `{core, gpu, text, ui}`.
 
 ---
 

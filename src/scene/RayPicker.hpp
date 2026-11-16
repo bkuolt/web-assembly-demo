@@ -2,7 +2,8 @@
  * @file RayPicker.hpp
  * @brief Broad-phase AABB test and narrow-phase Möller-Trumbore triangle intersection.
  */
-#pragma once
+#ifndef BGL_SCENE_RAYPICKER_HPP
+#define BGL_SCENE_RAYPICKER_HPP
 
 #include "core/Types.hpp"
 #include "scene/Quadtree.hpp"
@@ -51,3 +52,5 @@ public:
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_RAYPICKER_HPP

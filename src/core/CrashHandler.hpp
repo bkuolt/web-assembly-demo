@@ -2,7 +2,8 @@
  * @file CrashHandler.hpp
  * @brief Crash interception, POSIX signal handling, and stacktrace diagnostics.
  */
-#pragma once
+#ifndef BGL_CORE_CRASHHANDLER_HPP
+#define BGL_CORE_CRASHHANDLER_HPP
 
 #include <string_view>
 
@@ -35,3 +36,5 @@ void PrintStackTrace(std::string_view reason = "") noexcept;
 [[noreturn]] void TriggerTestCrash(int signalType = 0);
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_CRASHHANDLER_HPP

@@ -2,7 +2,8 @@
  * @file Quadtree.hpp
  * @brief Spatial XZ-plane partitioning, view frustum culling, and LOD selection.
  */
-#pragma once
+#ifndef BGL_SCENE_QUADTREE_HPP
+#define BGL_SCENE_QUADTREE_HPP
 
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
@@ -234,3 +235,5 @@ private:
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_QUADTREE_HPP

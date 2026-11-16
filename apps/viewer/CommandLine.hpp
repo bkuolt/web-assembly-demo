@@ -2,7 +2,8 @@
  * @file CommandLine.hpp
  * @brief Command-line argument parsing and configuration for bgl_viewer.
  */
-#pragma once
+#ifndef BGL_VIEWER_COMMANDLINE_HPP
+#define BGL_VIEWER_COMMANDLINE_HPP
 
 #include <cstdint>
 #include <span>
@@ -78,3 +79,5 @@ struct CliOptions {
 };
 
 } // namespace bgl::app
+
+#endif // BGL_VIEWER_COMMANDLINE_HPP

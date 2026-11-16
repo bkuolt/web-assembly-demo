@@ -2,7 +2,8 @@
  * @file DrawHelpers.hpp
  * @brief Shared helpers for populating per-draw uniforms, GPU skinning SSBOs, and morph weights across passes.
  */
-#pragma once
+#ifndef BGL_GPU_DRAWHELPERS_HPP
+#define BGL_GPU_DRAWHELPERS_HPP
 
 #include "core/MemoryTracker.hpp"
 #include "core/Types.hpp"
@@ -290,3 +291,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_DRAWHELPERS_HPP

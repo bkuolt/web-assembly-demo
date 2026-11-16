@@ -2,7 +2,8 @@
  * @file FastGltfInternal.hpp
  * @brief Internal stage declarations and progress reporter shared by FastGltfLoader translation units.
  */
-#pragma once
+#ifndef BGL_SCENE_FASTGLTFINTERNAL_HPP
+#define BGL_SCENE_FASTGLTFINTERNAL_HPP
 
 #include "scene/FastGltfLoader.hpp"
 #include <algorithm>
@@ -48,3 +49,5 @@ void BuildSceneHierarchy(const fastgltf::Asset& asset, Scene& scene);
 void ParseCamerasSkinsAndAnimations(const fastgltf::Asset& asset, Scene& scene);
 
 } // namespace bgl::scene::detail
+
+#endif // BGL_SCENE_FASTGLTFINTERNAL_HPP

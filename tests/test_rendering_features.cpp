@@ -17,7 +17,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
-#include "app/Application.hpp"
 #include "core/Gamepad.hpp"
 #include "core/MemoryTracker.hpp"
 #include "core/NetworkFetcher.hpp"
@@ -40,6 +39,7 @@
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
+#include "viewer/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 

@@ -2,7 +2,8 @@
  * @file SoundEngine.hpp
  * @brief 3D Spatial Audio Engine using miniaudio and glTF KHR_audio integration.
  */
-#pragma once
+#ifndef BGL_AUDIO_SOUNDENGINE_HPP
+#define BGL_AUDIO_SOUNDENGINE_HPP
 
 #include "core/Types.hpp"
 #include <functional>
@@ -85,3 +86,5 @@ private:
 };
 
 } // namespace bgl::audio
+
+#endif // BGL_AUDIO_SOUNDENGINE_HPP

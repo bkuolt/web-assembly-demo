@@ -2,7 +2,8 @@
  * @file Scene.hpp
  * @brief Scene graph node hierarchy, PBR material definitions, and std::pmr vertex storage with WebGPU resources.
  */
-#pragma once
+#ifndef BGL_SCENE_SCENE_HPP
+#define BGL_SCENE_SCENE_HPP
 
 #include "core/Types.hpp"
 #include "scene/Animation.hpp"
@@ -321,3 +322,5 @@ struct Scene {
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_SCENE_HPP

@@ -2,7 +2,8 @@
  * @file AabbRenderer.hpp
  * @brief Batched 3D wireframe bounding box renderer for Scene and Quadtree spatial partitions.
  */
-#pragma once
+#ifndef BGL_GPU_AABBRENDERER_HPP
+#define BGL_GPU_AABBRENDERER_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -81,3 +82,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_AABBRENDERER_HPP

@@ -2,7 +2,8 @@
  * @file TextRenderer.hpp
  * @brief WebGPU 2D Batched Quad and Text Renderer with alpha blending and 4x MSAA support.
  */
-#pragma once
+#ifndef BGL_TEXT_TEXTRENDERER_HPP
+#define BGL_TEXT_TEXTRENDERER_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -124,3 +125,5 @@ private:
 };
 
 } // namespace bgl::text
+
+#endif // BGL_TEXT_TEXTRENDERER_HPP

@@ -20,3 +20,4 @@ assets/stress_test/
 __pycache__/
 *.pyc
 
+.cache/

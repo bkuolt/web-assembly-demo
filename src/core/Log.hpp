@@ -2,7 +2,8 @@
  * @file Log.hpp
  * @brief Structured logging utilities with spdlog and scoped microsecond timers.
  */
-#pragma once
+#ifndef BGL_CORE_LOG_HPP
+#define BGL_CORE_LOG_HPP
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -50,3 +51,5 @@ void InitLogging(std::string_view logLevel = "info");
 #define BGL_CONCAT_INNER(a, b) a##b
 #define BGL_CONCAT(a, b) BGL_CONCAT_INNER(a, b)
 #define BGL_PROFILE_SCOPE(name) ::bgl::core::ScopedTimer BGL_CONCAT(_bgl_timer_, __LINE__)(name)
+
+#endif // BGL_CORE_LOG_HPP

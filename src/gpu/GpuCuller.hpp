@@ -2,7 +2,8 @@
  * @file GpuCuller.hpp
  * @brief WebGPU Compute-shader-driven Frustum & Spatial Bounding Culling.
  */
-#pragma once
+#ifndef BGL_GPU_GPUCULLER_HPP
+#define BGL_GPU_GPUCULLER_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -106,3 +107,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_GPUCULLER_HPP

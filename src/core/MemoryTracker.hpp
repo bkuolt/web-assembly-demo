@@ -2,7 +2,8 @@
  * @file MemoryTracker.hpp
  * @brief System RAM (resident set size) and WebGPU VRAM allocation telemetry tracker.
  */
-#pragma once
+#ifndef BGL_CORE_MEMORYTRACKER_HPP
+#define BGL_CORE_MEMORYTRACKER_HPP
 
 #include <atomic>
 #include <cstddef>
@@ -90,3 +91,5 @@ private:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_MEMORYTRACKER_HPP

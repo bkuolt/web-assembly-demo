@@ -2,7 +2,8 @@
  * @file AssetManager.hpp
  * @brief 64-bit FNV-1a content hashing, asset deduplication, and PMR staging management.
  */
-#pragma once
+#ifndef BGL_SCENE_ASSETMANAGER_HPP
+#define BGL_SCENE_ASSETMANAGER_HPP
 
 #include "core/MemoryPool.hpp"
 #include "core/Types.hpp"
@@ -79,3 +80,5 @@ private:
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_ASSETMANAGER_HPP

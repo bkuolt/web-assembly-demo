@@ -2,7 +2,7 @@
  * @file CommandLine.cpp
  * @brief Implementation of command-line parsing and CLI utilities.
  */
-#include "app/CommandLine.hpp"
+#include "viewer/CommandLine.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
