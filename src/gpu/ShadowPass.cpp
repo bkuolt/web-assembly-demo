@@ -40,21 +40,28 @@ void ShadowPass::MoveFrom(ShadowPass& other) noexcept {
     shadowSampler_ = std::exchange(other.shadowSampler_, nullptr);
     dummySkinBindGroup_ = std::exchange(other.dummySkinBindGroup_, nullptr);
     perDrawRing_ = std::move(other.perDrawRing_);
+    instanceBuffer_ = std::move(other.instanceBuffer_);
     visibleItemsScratch_ = std::move(other.visibleItemsScratch_);
     drawItemsScratch_ = std::move(other.drawItemsScratch_);
     perDrawScratch_ = std::move(other.perDrawScratch_);
+    instanceTransformsScratch_ = std::move(other.instanceTransformsScratch_);
+    nodeInstanceStartScratch_ = std::move(other.nodeInstanceStartScratch_);
     lightViewProj_ = other.lightViewProj_;
     dirty_ = std::exchange(other.dirty_, true);
     cleared_ = std::exchange(other.cleared_, false);
     lastScene_ = std::exchange(other.lastScene_, nullptr);
+    lastTransformVersion_ = std::exchange(other.lastTransformVersion_, std::numeric_limits<uint64_t>::max());
     lastLightDir_ = std::exchange(other.lastLightDir_, glm::vec3{0.0f});
 }
 
 void ShadowPass::Shutdown() noexcept {
     perDrawRing_.Shutdown();
+    instanceBuffer_.Shutdown();
     drawItemsScratch_.clear();
     perDrawScratch_.clear();
     visibleItemsScratch_.clear();
+    instanceTransformsScratch_.clear();
+    nodeInstanceStartScratch_.clear();
 
     if (shadowSampler_) {
         wgpuSamplerRelease(shadowSampler_);
@@ -83,6 +90,7 @@ void ShadowPass::Shutdown() noexcept {
     dirty_ = true;
     cleared_ = false;
     lastScene_ = nullptr;
+    lastTransformVersion_ = std::numeric_limits<uint64_t>::max();
     lastLightDir_ = glm::vec3{0.0f};
 }
 
@@ -156,6 +164,11 @@ core::Result<void> ShadowPass::Initialize(WGPUDevice device, WGPUQueue queue, WG
     if (!pipelineLayout_) {
         Shutdown();
         return std::unexpected("Failed to create shadow pipeline layout");
+    }
+
+    if (auto res = instanceBuffer_.Initialize(device_, 256, "Shadow_InstanceBuffer"); !res) {
+        Shutdown();
+        return res;
     }
 
     if (auto res = CreatePipeline(false); !res) {
@@ -262,12 +275,14 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     lightViewProj_ = ComputeDirectionalLightMatrix(scene.sceneAABB, safeDir);
 
     if (!dirty_ && (!scene.animationPlaying || scene.activeAnimationIndex < 0) && lastScene_ == &scene &&
-        glm::distance(lastLightDir_, safeDir) < 1e-4f) {
+        lastTransformVersion_ == scene.transformVersion_ && glm::distance(lastLightDir_, safeDir) < 1e-4f) {
         return;
     }
 
     drawItemsScratch_.clear();
     perDrawScratch_.clear();
+    instanceTransformsScratch_.clear();
+    bool hasInstanced{false};
 
     const core::Frustum lightFrustum{core::Frustum::FromViewProjection(lightViewProj_)};
     const bool isAnimating{scene.animationPlaying && scene.activeAnimationIndex >= 0};
@@ -276,6 +291,23 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
         if (!prim.gpuVertexBuffer || !prim.gpuBindGroup) {
             return;
         }
+        uint32_t instStart{0};
+        uint32_t instCount{1};
+        if (!node.instanceTransforms.empty()) {
+            if (!hasInstanced) {
+                nodeInstanceStartScratch_.clear();
+                hasInstanced = true;
+            }
+            const auto [it, inserted] = nodeInstanceStartScratch_.try_emplace(
+                &node, static_cast<uint32_t>(1u + instanceTransformsScratch_.size()));
+            if (inserted) {
+                instanceTransformsScratch_.insert(instanceTransformsScratch_.end(), node.instanceTransforms.begin(),
+                                                  node.instanceTransforms.end());
+            }
+            instStart = it->second;
+            instCount = static_cast<uint32_t>(node.instanceTransforms.size());
+        }
+
         PreparedDrawBindings prepared{};
         PopulatePerDrawMorphAndSkin(queue_, prim, &node, worldMat, lightViewProj_, lightViewProj_, 0u, 0.0f,
                                     scene.skins, scene.allNodes, skinFrameId, dummySkinBindGroup_, prepared);
@@ -285,6 +317,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
             .prim = &prim,
             .skinBindGroup = prepared.skinBindGroup,
             .dynamicOffset = dynOffset,
+            .instanceStart = instStart,
+            .instanceCount = instCount,
         });
     };
 
@@ -309,7 +343,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
         auto collectNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
             const glm::mat4 worldMat{parentMat * node.localTransform};
             for (auto& prim : node.GetPrimitives()) {
-                const core::AABB worldBox = prim.boundingBox.Transformed(worldMat);
+                const core::AABB worldBox =
+                    !node.instanceTransforms.empty() ? node.worldAABB : prim.boundingBox.Transformed(worldMat);
                 if (worldBox.minBound.x <= worldBox.maxBound.x && !lightFrustum.IntersectsAABB(worldBox)) {
                     continue;
                 }
@@ -332,7 +367,8 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     WGPUBindGroup perDrawBg{nullptr};
     if (!perDrawScratch_.empty()) {
         perDrawBg = perDrawRing_.Upload(perDrawScratch_);
-        if (!perDrawBg) {
+        instanceBuffer_.Upload(queue_, instanceTransformsScratch_);
+        if (!perDrawBg || !instanceBuffer_.GetBuffer()) {
             drawItemsScratch_.clear();
         }
     }
@@ -352,13 +388,16 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
         return;
     }
 
-    if (!drawItemsScratch_.empty() && perDrawBg) {
+    WGPUBuffer instBuf{instanceBuffer_.GetBuffer()};
+    if (!drawItemsScratch_.empty() && perDrawBg && instBuf) {
         wgpuRenderPassEncoderSetPipeline(pass, shadowPipeline_);
 
         WGPUBindGroup boundMatBg{nullptr};
         WGPUBindGroup boundSkinBg{nullptr};
         WGPUBuffer boundVb{nullptr};
         WGPUBuffer boundIb{nullptr};
+        uint32_t boundInstStart{std::numeric_limits<uint32_t>::max()};
+        uint32_t boundInstCount{0};
 
         for (const auto& draw : drawItemsScratch_) {
             const scene::MeshPrimitive* prim = draw.prim;
@@ -375,6 +414,13 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
                 wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim->gpuVertexBuffer, 0, prim->gpuVertexBufferSize);
                 boundVb = prim->gpuVertexBuffer;
             }
+            if (draw.instanceStart != boundInstStart || draw.instanceCount != boundInstCount) {
+                wgpuRenderPassEncoderSetVertexBuffer(pass, 1, instBuf,
+                                                     DynamicInstanceBuffer::GetByteOffset(draw.instanceStart),
+                                                     DynamicInstanceBuffer::GetSliceSize(draw.instanceCount));
+                boundInstStart = draw.instanceStart;
+                boundInstCount = draw.instanceCount;
+            }
 
             if (prim->gpuIndexBuffer && !prim->indices.empty()) {
                 const auto slice = prim->GetLodSlice(1u);
@@ -383,9 +429,9 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
                                                         prim->gpuIndexBufferSize);
                     boundIb = prim->gpuIndexBuffer;
                 }
-                wgpuRenderPassEncoderDrawIndexed(pass, slice.indexCount, 1, slice.firstIndex, 0, 0);
+                wgpuRenderPassEncoderDrawIndexed(pass, slice.indexCount, draw.instanceCount, slice.firstIndex, 0, 0);
             } else {
-                wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim->vertices.size()), 1, 0, 0);
+                wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim->vertices.size()), draw.instanceCount, 0, 0);
             }
         }
     }
@@ -396,6 +442,7 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     dirty_ = false;
     cleared_ = false;
     lastScene_ = &scene;
+    lastTransformVersion_ = scene.transformVersion_;
     lastLightDir_ = safeDir;
 }
 
@@ -406,36 +453,8 @@ core::Result<void> ShadowPass::CreatePipeline(bool validateScope) {
         return std::unexpected(shaderModuleRes.error());
     }
 
-    std::array<WGPUVertexAttribute, 6> shadowAttrs{};
-    shadowAttrs[0].format = WGPUVertexFormat_Float32x3;
-    shadowAttrs[0].offset = offsetof(core::Vertex, position);
-    shadowAttrs[0].shaderLocation = 0;
-
-    shadowAttrs[1].format = WGPUVertexFormat_Float32x3;
-    shadowAttrs[1].offset = offsetof(core::Vertex, normal);
-    shadowAttrs[1].shaderLocation = 1;
-
-    shadowAttrs[2].format = WGPUVertexFormat_Float32x4;
-    shadowAttrs[2].offset = offsetof(core::Vertex, tangent);
-    shadowAttrs[2].shaderLocation = 2;
-
-    shadowAttrs[3].format = WGPUVertexFormat_Float32x2;
-    shadowAttrs[3].offset = offsetof(core::Vertex, uv);
-    shadowAttrs[3].shaderLocation = 3;
-
-    shadowAttrs[4].format = WGPUVertexFormat_Uint32x4;
-    shadowAttrs[4].offset = offsetof(core::Vertex, joints);
-    shadowAttrs[4].shaderLocation = 4;
-
-    shadowAttrs[5].format = WGPUVertexFormat_Float32x4;
-    shadowAttrs[5].offset = offsetof(core::Vertex, weights);
-    shadowAttrs[5].shaderLocation = 5;
-
-    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vbLayout.arrayStride = sizeof(core::Vertex);
-    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = shadowAttrs.size();
-    vbLayout.attributes = shadowAttrs.data();
+    VertexAndInstanceLayoutStorage layoutStorage;
+    FillVertexAndInstanceLayouts(layoutStorage);
 
     WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
     depthStencil.format = WGPUTextureFormat_Depth32Float;
@@ -456,8 +475,8 @@ core::Result<void> ShadowPass::CreatePipeline(bool validateScope) {
     rpDesc.layout = pipelineLayout_;
     rpDesc.vertex.module = shaderModuleRes->Get();
     rpDesc.vertex.entryPoint = ToWgpuStringView("vs_shadow");
-    rpDesc.vertex.bufferCount = 1;
-    rpDesc.vertex.buffers = &vbLayout;
+    rpDesc.vertex.bufferCount = static_cast<uint32_t>(layoutStorage.layouts.size());
+    rpDesc.vertex.buffers = layoutStorage.layouts.data();
     rpDesc.fragment = &fragState;
     rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     rpDesc.primitive.cullMode = WGPUCullMode_None;

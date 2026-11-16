@@ -895,17 +895,17 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
 std::vector<std::string_view> TextureDecoder::GetSupportedFormats() {
     std::vector<std::string_view> formats;
     if constexpr (IsPngSupported())
-        formats.push_back("PNG");
+        formats.emplace_back("PNG");
     if constexpr (IsJpegSupported())
-        formats.push_back("JPEG");
+        formats.emplace_back("JPEG");
     if constexpr (IsWebpSupported())
-        formats.push_back("WebP");
+        formats.emplace_back("WebP");
     if constexpr (IsKtxSupported())
-        formats.push_back("KTX2 (BasisU -> BC7/ASTC/ETC2/RGBA32)");
+        formats.emplace_back("KTX2 (BasisU -> BC7/ASTC/ETC2/RGBA32)");
     if constexpr (IsHdrSupported())
-        formats.push_back("HDR (Radiance RGBE)");
+        formats.emplace_back("HDR (Radiance RGBE)");
     if constexpr (IsExrSupported())
-        formats.push_back("EXR (OpenEXR FP16/FP32)");
+        formats.emplace_back("EXR (OpenEXR FP16/FP32)");
     return formats;
 }
 

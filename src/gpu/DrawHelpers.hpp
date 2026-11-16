@@ -249,7 +249,8 @@ private:
         identityWritten_ = false;
     }
 
-    [[nodiscard]] core::Result<void> EnsureCapacityBytes(WGPUQueue queue, size_t newCapacityBytes, bool mappedIdentity) {
+    [[nodiscard]] core::Result<void> EnsureCapacityBytes(WGPUQueue queue, size_t newCapacityBytes,
+                                                         bool mappedIdentity) {
         ReleaseBuffer();
         WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
         desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;

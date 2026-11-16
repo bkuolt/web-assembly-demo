@@ -42,7 +42,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
-                "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -g",
+                "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
         },
@@ -107,6 +107,23 @@
         {
             "name": "asan",
             "configurePreset": "asan",
+            "environment": {
+                "LSAN_OPTIONS": "suppressions=${sourceDir}/lsan.supp"
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "ubsan",
+            "configurePreset": "ubsan",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "tsan",
+            "configurePreset": "tsan",
             "output": {
                 "outputOnFailure": true
             }

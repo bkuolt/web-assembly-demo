@@ -9,6 +9,7 @@
 
 #include "core/Types.hpp"
 #include "gpu/AabbRenderer.hpp"
+#include "gpu/DrawHelpers.hpp"
 #include "gpu/GpuCuller.hpp"
 #include "gpu/GpuRayPicker.hpp"
 #include "gpu/Handle.hpp"
@@ -16,10 +17,13 @@
 #include "gpu/ShadowPass.hpp"
 #include "gpu/Uniforms.hpp"
 #include <array>
+#include <cstdint>
 #include <glm/glm.hpp>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <webgpu/webgpu.h>
 
@@ -130,9 +134,9 @@ public:
      */
     void RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
                            const glm::vec3& cameraPos, bool wireframe = false,
-                           const scene::Quadtree* spatialIndex = nullptr,
-                           const glm::mat4& viewMatrix = glm::mat4{1.0f}, const glm::mat4& projMatrix = glm::mat4{1.0f},
-                           uint32_t viewportW = 1280, uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
+                           const scene::Quadtree* spatialIndex = nullptr, const glm::mat4& viewMatrix = glm::mat4{1.0f},
+                           const glm::mat4& projMatrix = glm::mat4{1.0f}, uint32_t viewportW = 1280,
+                           uint32_t viewportH = 720, float zNear = 0.1f, float zFar = 500.0f);
 
     /**
      * @brief Renders back-to-front alpha-blended and transmissive primitives prepared by RenderOpaqueScene.
@@ -517,6 +521,8 @@ private:
         bool isDoubleSided{false};
         uint32_t lodLevel{0};
         float lodTransition{0.0f};
+        uint32_t instanceStart{0};
+        uint32_t instanceCount{1};
     };
 
     struct DrawDispatchItem {
@@ -525,6 +531,8 @@ private:
         WGPURenderPipeline pipeline{nullptr};
         uint32_t dynamicOffset{0};
         uint32_t clampedLod{0};
+        uint32_t instanceStart{0};
+        uint32_t instanceCount{1};
     };
 
     void InitializeComputeIBLPipelines();
@@ -606,6 +614,7 @@ private:
     BindGroupHandle sceneGlobalsBindGroup_{};
     DynamicUniformRing<PerDrawUniforms> perDrawRing_{};
     DynamicUniformRing<PerDrawUniforms> transparentPerDrawRing_{};
+    DynamicInstanceBuffer instanceBuffer_{};
     size_t transparentStartIndex_{0};
     BufferHandle dummyMorphDeltaBuffer_{};
     BufferHandle dummySkinBuffer_{};
@@ -623,6 +632,8 @@ private:
     std::vector<RenderItem> renderItemsScratch_{};
     std::vector<DrawDispatchItem> drawCallsScratch_{};
     std::vector<PerDrawUniforms> mainPerDrawScratch_{};
+    std::vector<glm::mat4> frameInstanceTransformsScratch_{};
+    std::unordered_map<const scene::SceneNode*, uint32_t> nodeInstanceStartScratch_{};
 
     // True HDR IBL Resources (RGBA16Float Cubemap + Compute GGX Prefilter + Compute BRDF LUT + SceneLightingUniforms)
     TextureHandle envCubemapTexture_{};

@@ -18,10 +18,21 @@ struct alignas(16) GpuBoundingBox {
     glm::vec4 maxBound{0.0f};
     uint32_t nodeIndex{0};
     uint32_t primitiveIndex{0};
-    uint32_t _pad[2]{0, 0};
+    uint32_t instanceCount{1};
+    uint32_t _pad{0};
 };
 
 static_assert(sizeof(GpuBoundingBox) == 48, "GpuBoundingBox must be 48 bytes");
+
+struct DrawIndexedIndirectArgs {
+    uint32_t indexCount{0};
+    uint32_t instanceCount{0};
+    uint32_t firstIndex{0};
+    int32_t baseVertex{0};
+    uint32_t firstInstance{0};
+};
+
+static_assert(sizeof(DrawIndexedIndirectArgs) == 20, "DrawIndexedIndirectArgs must be 20 bytes");
 
 struct alignas(16) GpuCullUniforms {
     glm::vec4 frustumPlanes[6]; // 6 analytical plane equations (xyz = normal, w = distance)
@@ -63,9 +74,13 @@ public:
 
     [[nodiscard]] size_t GetPrimitiveCount() const noexcept { return primitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
+    [[nodiscard]] WGPUBuffer GetIndirectArgsBuffer() const noexcept { return indirectArgsBuffer_; }
+    [[nodiscard]] WGPUBuffer GetVisibilityBuffer() const noexcept { return visibilityStorageBuffer_; }
+    [[nodiscard]] WGPUBuffer GetAtomicCounterBuffer() const noexcept { return atomicCounterBuffer_; }
 
 private:
     core::Result<void> CreateComputePipeline(WGPUShaderModule shaderModule);
+    void MoveFrom(GpuCuller& other) noexcept;
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
@@ -79,11 +94,14 @@ private:
     WGPUBuffer boundsStorageBuffer_{nullptr};
     WGPUBuffer visibilityStorageBuffer_{nullptr};
     WGPUBuffer atomicCounterBuffer_{nullptr};
+    WGPUBuffer indirectArgsBuffer_{nullptr};
 
     size_t primitiveCount_{0};
     size_t boundsBufferSize_{0};
     size_t visibilityBufferSize_{0};
+    size_t indirectArgsBufferSize_{0};
     std::vector<GpuBoundingBox> cpuBounds_{};
+    std::vector<DrawIndexedIndirectArgs> cpuIndirectArgs_{};
 };
 
 } // namespace bgl::gpu

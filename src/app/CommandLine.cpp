@@ -7,10 +7,12 @@
 #include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 
 namespace bgl::app {
 
@@ -22,15 +24,31 @@ CliOptions CliOptions::Parse(int argc, char** argv) {
 
 CliOptions CliOptions::Parse(std::span<const char* const> args) {
     CliOptions opt{};
-    const auto parseFiniteFloat = [](const char* raw, float minV, float maxV, float& out) {
+    const auto tryParseFloat = [](const char* raw) -> std::optional<float> {
+        if (!raw)
+            return std::nullopt;
+        const std::string_view sv{raw};
+        float val{0.0f};
+        const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
+        if (ec != std::errc{} || ptr == sv.data() || !std::isfinite(val)) {
+            return std::nullopt;
+        }
+        return val;
+    };
+    const auto parseFiniteFloat = [&](const char* raw, float minV, float maxV, float& out) {
+        if (const auto val = tryParseFloat(raw); val.has_value()) {
+            out = std::clamp(*val, minV, maxV);
+        }
+    };
+    const auto parseDimension = [](const char* raw, uint32_t& out) {
         if (!raw)
             return;
-        try {
-            const float val = std::stof(raw);
-            if (std::isfinite(val)) {
-                out = std::clamp(val, minV, maxV);
-            }
-        } catch (...) {}
+        const std::string_view sv{raw};
+        long val{0};
+        const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
+        if (ec == std::errc{} && ptr != sv.data() && val >= 64 && val <= 16384) {
+            out = static_cast<uint32_t>(val);
+        }
     };
 
     for (size_t i{1}; i < args.size(); ++i) {
@@ -60,19 +78,9 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
         } else if ((arg == "-a" || arg == "--asset") && i + 1 < args.size()) {
             opt.assetPath = args[++i];
         } else if ((arg == "-w" || arg == "--width") && i + 1 < args.size()) {
-            try {
-                const long val = std::stol(args[++i]);
-                if (val >= 64 && val <= 16384) {
-                    opt.width = static_cast<uint32_t>(val);
-                }
-            } catch (...) {}
+            parseDimension(args[++i], opt.width);
         } else if ((arg == "-H" || arg == "--height") && i + 1 < args.size()) {
-            try {
-                const long val = std::stol(args[++i]);
-                if (val >= 64 && val <= 16384) {
-                    opt.height = static_cast<uint32_t>(val);
-                }
-            } catch (...) {}
+            parseDimension(args[++i], opt.height);
         } else if ((arg == "-l" || arg == "--log-level") && i + 1 < args.size()) {
             opt.logLevel = args[++i];
         } else if (arg == "--no-skybox") {
@@ -160,17 +168,12 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
         } else if (arg == "--wind" && i + 1 < args.size()) {
             parseFiniteFloat(args[++i], -1.0f, 1.0f, opt.windStrength);
         } else if (arg == "--time" && i + 1 < args.size()) {
-            if (args[i + 1]) {
-                try {
-                    const float raw = std::stof(args[++i]);
-                    if (std::isfinite(raw)) {
-                        float val = std::fmod(raw, 24.0f);
-                        if (val < 0.0f) {
-                            val += 24.0f;
-                        }
-                        opt.timeOfDay = val;
-                    }
-                } catch (...) {}
+            if (const auto raw = tryParseFloat(args[++i]); raw.has_value()) {
+                float val = std::fmod(*raw, 24.0f);
+                if (val < 0.0f) {
+                    val += 24.0f;
+                }
+                opt.timeOfDay = val;
             }
         } else if (arg == "--day-night-cycle") {
             opt.enableDayNightCycle = true;

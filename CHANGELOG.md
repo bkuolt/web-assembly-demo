@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.18] - 2026-11-16
+
+### Modular WGSL Shader Pipeline, Transparent/Transmission Pass, Hardware GPU Instancing & Quality Hardening
+- **Modular External WGSL Shaders & Live Hot-Reload (`src/gpu/ShaderManager.hpp/.cpp`, `src/gpu/shaders/`):**
+  - Replaced the monolithic 1,880-line inline shader string in `src/gpu/Shaders.hpp` with 15 modular `.wgsl` files (`pbr.wgsl`, `shadow.wgsl`, `tonemap.wgsl`, `skybox.wgsl`, `aabb.wgsl`, `wireframe.wgsl`, `mipgen.wgsl`, `brdf_lut.wgsl`, `ggx_prefilter.wgsl`, `gpu_cull.wgsl`, `gpu_ray_pick.wgsl`, plus `common/` headers).
+  - Added `#include` / `#pragma once` preprocessing, circular-include/traversal guards, C++23 `#embed` bundles, WebGPU validation error scopes, and automatic native filesystem hot-reloading (`Application::PollShaderHotReload()`).
+- **Split Opaque / Skybox / Transparent & Transmission HDR Pass (`src/gpu/Context.cpp`, `src/gpu/Pipeline.cpp`, `src/app/Application.cpp`):**
+  - Split scene rendering into `RenderOpaqueScene()` -> `Skybox::Render()` -> `Context::BeginTransparentPass()` (resolving HDR MSAA + snapshotting `opaqueColorCopyTexture_`) -> `RenderTransparentScene()` with `SrcAlpha` / `OneMinusSrcAlpha` blending and `depthWriteEnabled = false` for accurate `AlphaMode::Blend` and refractive `KHR_materials_transmission` glass.
+- **Hardware `EXT_mesh_gpu_instancing` & Dynamic `Quadtree::Refit()` (`src/scene/FastGltfLoader.cpp`, `src/gpu/DrawHelpers.hpp`, `src/scene/Quadtree.cpp`):**
+  - Parsed glTF `EXT_mesh_gpu_instancing` (`TRANSLATION`, `ROTATION`, `SCALE`) into `SceneNode::instanceTransforms` rendered via 2-slot vertex/instance buffers (`DynamicInstanceBuffer`).
+  - Added `Quadtree::Refit()` keyed on `Scene::transformVersion_` to dynamically recompute loose bounds and relocate animated/translated nodes across spatial quadrants.
+- **Static Analysis, Documentation & Dependency Maintenance (`src/`, `docs/`, `scripts/`, `conanfile.py`, `Taskfile.yml`):**
+  - Resolved all `clang-tidy` findings across all 34 C++23 source units (e.g., checked hot-reload `Result<void>` handling, `std::from_chars` numeric CLI parsing without empty catch blocks, explicit base64 LUT widening casts, `emplace_back`, automatic NRVO/move returns) and enforced `clang-format` compliance across `src/` and `tests/`.
+  - Standardized all documentation in English (including `docs/FEATURE_AND_PHYSICS_REPORT.md`, `README.md`, `AGENT_INSTRUCTIONS.md`) and updated `Taskfile.yml`, `CMakePresets.json`, `scripts/run_ci_locally.sh`, and Conan dependencies (`glm/1.0.3`, `spdlog/1.15.3`, `libpng/1.6.59`, `libjpeg-turbo/3.2.0`, `libwebp/1.6.0`, `ktx/4.4.2`, `harfbuzz/11.4.1`, `gtest/1.17.0`).
+
+---
+
 ## [0.9.17] - 2026-11-15
 
 ### Architecture Hardening, GPU Skinning/Morphs/Mipmaps, Dynamic Per-Draw Ring & Performance Optimizations

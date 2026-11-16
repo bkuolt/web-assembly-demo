@@ -343,13 +343,13 @@ void PrintStackTrace(std::string_view reason) noexcept {
         std::abort();
     } else if (signalType == 2) {
         volatile int zero = 0;
-        volatile int result = 100 / zero;
+        volatile int result = 100 / zero; // NOLINT(clang-analyzer-core.DivideZero)
         (void)result;
         std::abort();
     } else {
         // Default: SIGSEGV (null pointer write)
         volatile int* p = nullptr;
-        *p = 42;
+        *p = 42; // NOLINT(clang-analyzer-core.NullDereference)
         std::abort();
     }
 }

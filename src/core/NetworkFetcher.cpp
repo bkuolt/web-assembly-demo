@@ -52,11 +52,11 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
         std::array<int8_t, 256> tab{};
         tab.fill(-1);
         for (int i{0}; i < 26; ++i) {
-            tab[static_cast<size_t>('A' + i)] = static_cast<int8_t>(i);
-            tab[static_cast<size_t>('a' + i)] = static_cast<int8_t>(i + 26);
+            tab[static_cast<size_t>('A') + static_cast<size_t>(i)] = static_cast<int8_t>(i);
+            tab[static_cast<size_t>('a') + static_cast<size_t>(i)] = static_cast<int8_t>(i + 26);
         }
         for (int i{0}; i < 10; ++i) {
-            tab[static_cast<size_t>('0' + i)] = static_cast<int8_t>(i + 52);
+            tab[static_cast<size_t>('0') + static_cast<size_t>(i)] = static_cast<int8_t>(i + 52);
         }
         tab[static_cast<size_t>('+')] = 62;
         tab[static_cast<size_t>('/')] = 63;
@@ -267,7 +267,7 @@ std::string NetworkFetcher::DecodeUrlPercent(std::string_view input) {
 }
 
 std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::string_view relativeUri) {
-    const std::string cleanRel{SanitizeUri(relativeUri)};
+    std::string cleanRel{SanitizeUri(relativeUri)};
     if (cleanRel.empty())
         return SanitizeUri(baseUri);
 

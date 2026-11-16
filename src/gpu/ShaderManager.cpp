@@ -6,6 +6,7 @@
 #include "core/Log.hpp"
 #include <algorithm>
 #include <array>
+#include <format>
 #include <fstream>
 #include <ranges>
 #include <sstream>
@@ -202,7 +203,7 @@ std::filesystem::path ShaderManager::GetShaderDirectory() const {
 }
 
 std::string ShaderManager::ResolveIncludePath(std::string_view includingVirtualPath, std::string_view includeTarget) {
-    const std::string targetNorm{NormalizeVirtualPath(includeTarget)};
+    std::string targetNorm{NormalizeVirtualPath(includeTarget)};
     // First prefer path relative to the directory of `includingVirtualPath` if target has ".." or "./" or isn't rooted
     const std::filesystem::path baseDir{std::filesystem::path{includingVirtualPath}.parent_path()};
     if (!baseDir.empty() && !targetNorm.starts_with(baseDir.generic_string() + "/")) {
@@ -302,7 +303,8 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
                 const std::string arg{TrimView(rest)};
                 if (arg.size() < 3 || arg.front() != '"' || arg.back() != '"') {
                     activeStack.pop_back();
-                    return std::unexpected("Malformed WGSL #include directive in '" + normPath + "': " + trimmed);
+                    return std::unexpected(
+                        std::format("Malformed WGSL #include directive in '{}': {}", normPath, trimmed));
                 }
                 const std::string target{arg.substr(1, arg.size() - 2)};
                 std::string resolved{ResolveIncludePath(normPath, target)};
@@ -409,7 +411,7 @@ core::Result<ShaderModuleHandle> ShaderManager::CompileWgslModule(WGPUDevice dev
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (validateScope) {
-        WGPUPopErrorScopeCallbackInfo popInfo = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+        WGPUPopErrorScopeCallbackInfo popInfo{};
         popInfo.mode = WGPUCallbackMode_AllowProcessEvents;
         popInfo.userdata1 = &popState;
         popInfo.callback = [](WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView msg, void* userdata1,

@@ -190,6 +190,7 @@ void PipelineManager::Shutdown() noexcept {
     gpuRayPicker_.Shutdown();
     perDrawRing_.Shutdown();
     transparentPerDrawRing_.Shutdown();
+    instanceBuffer_.Shutdown();
 
     mipGenNormalPipeline_.Reset();
     mipGenSrgbPipeline_.Reset();
@@ -241,6 +242,8 @@ void PipelineManager::Shutdown() noexcept {
     renderItemsScratch_.clear();
     drawCallsScratch_.clear();
     mainPerDrawScratch_.clear();
+    frameInstanceTransformsScratch_.clear();
+    nodeInstanceStartScratch_.clear();
     transparentStartIndex_ = 0;
     skinFrameId_ = 1;
     skinFrameAdvanced_ = false;
@@ -1260,6 +1263,11 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         return std::unexpected("Failed to create main PBR pipeline layout");
     }
 
+    if (auto res = instanceBuffer_.Initialize(device_, 256, "Main_InstanceBuffer"); !res) {
+        Shutdown();
+        return res;
+    }
+
     if (auto res = CreateMainRenderPipelines(false); !res) {
         Shutdown();
         return res;
@@ -1362,8 +1370,9 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     InitMipGenPipelines();
     RebuildSceneGlobalsBindGroup();
 
-    initialized_ = (opaquePipeline_ != nullptr && blendPipeline_ != nullptr && postProcessPass_.IsInitialized() &&
-                    shadowPass_.IsInitialized() && sceneGlobalsBindGroup_ != nullptr);
+    initialized_ =
+        (opaquePipeline_ != nullptr && blendPipeline_ != nullptr && postProcessPass_.IsInitialized() &&
+         shadowPass_.IsInitialized() && sceneGlobalsBindGroup_ != nullptr && instanceBuffer_.GetBuffer() != nullptr);
 
     // Initialize auxiliary AABB debug pass; compute engines initialize lazily on first use.
     if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
@@ -2382,7 +2391,8 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
             auto prims = node->GetPrimitives();
             for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
                 const auto& prim = prims[pIdx];
-                const core::AABB worldBox = prim.boundingBox.Transformed(worldMat);
+                const core::AABB worldBox =
+                    !node->instanceTransforms.empty() ? node->worldAABB : prim.boundingBox.Transformed(worldMat);
                 const float dist = glm::length(worldBox.Center() - cameraPos);
                 const float radius = std::max(0.001f, glm::length(worldBox.Extents()));
                 const float metric = (dist / radius) * lodBias_;
@@ -2435,8 +2445,38 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
         return a.distance > b.distance; // farthest first
     });
 
-    auto firstTransIt = std::ranges::find_if(renderItemsScratch_, [](const RenderItem& it) { return it.isTransparent; });
+    auto firstTransIt =
+        std::ranges::find_if(renderItemsScratch_, [](const RenderItem& it) { return it.isTransparent; });
     transparentStartIndex_ = static_cast<size_t>(std::distance(renderItemsScratch_.begin(), firstTransIt));
+
+    frameInstanceTransformsScratch_.clear();
+    bool hasInstanced{false};
+    for (const auto& item : renderItemsScratch_) {
+        if (item.node && !item.node->instanceTransforms.empty()) {
+            hasInstanced = true;
+            break;
+        }
+    }
+    if (hasInstanced) {
+        nodeInstanceStartScratch_.clear();
+        for (auto& item : renderItemsScratch_) {
+            if (!item.node || item.node->instanceTransforms.empty()) {
+                item.instanceStart = 0;
+                item.instanceCount = 1;
+                continue;
+            }
+            const auto [it, inserted] = nodeInstanceStartScratch_.try_emplace(
+                item.node, static_cast<uint32_t>(1u + frameInstanceTransformsScratch_.size()));
+            if (inserted) {
+                frameInstanceTransformsScratch_.insert(frameInstanceTransformsScratch_.end(),
+                                                       item.node->instanceTransforms.begin(),
+                                                       item.node->instanceTransforms.end());
+            }
+            item.instanceStart = it->second;
+            item.instanceCount = static_cast<uint32_t>(item.node->instanceTransforms.size());
+        }
+    }
+    instanceBuffer_.Upload(queue_, frameInstanceTransformsScratch_);
 }
 
 void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
@@ -2509,10 +2549,13 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
             .pipeline = desiredPipeline,
             .dynamicOffset = dynOffset,
             .clampedLod = clampedLod,
+            .instanceStart = item.instanceStart,
+            .instanceCount = item.instanceCount,
         });
     }
 
-    if (drawCallsScratch_.empty()) {
+    WGPUBuffer instBuf{instanceBuffer_.GetBuffer()};
+    if (drawCallsScratch_.empty() || !instBuf) {
         return;
     }
 
@@ -2531,6 +2574,8 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
     WGPUBindGroup boundSkinBg{nullptr};
     WGPUBuffer boundVb{nullptr};
     WGPUBuffer boundIb{nullptr};
+    uint32_t boundInstStart{std::numeric_limits<uint32_t>::max()};
+    uint32_t boundInstCount{0};
 
     for (const auto& dc : drawCallsScratch_) {
         scene::MeshPrimitive& prim = *dc.prim;
@@ -2552,10 +2597,18 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim.gpuVertexBuffer, 0, prim.gpuVertexBufferSize);
             boundVb = prim.gpuVertexBuffer;
         }
+        if (dc.instanceStart != boundInstStart || dc.instanceCount != boundInstCount) {
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 1, instBuf,
+                                                 DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
+                                                 DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
+            boundInstStart = dc.instanceStart;
+            boundInstCount = dc.instanceCount;
+        }
 
+        const uint32_t instCount{std::max(1u, dc.instanceCount)};
         const uint32_t fullTriCount = !prim.indices.empty() ? static_cast<uint32_t>(prim.indices.size() / 3)
                                                             : static_cast<uint32_t>(prim.vertices.size() / 3);
-        lastTotalVisibleTriangleCount_ += fullTriCount;
+        lastTotalVisibleTriangleCount_ += static_cast<size_t>(fullTriCount) * instCount;
         ++lastLodCounts_[dc.clampedLod];
 
         if (wireframe && prim.gpuWireframeIndexBuffer && prim.wireframeIndexCount > 0) {
@@ -2564,8 +2617,8 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
                                                     prim.wireframeIndexCount * sizeof(uint32_t));
                 boundIb = prim.gpuWireframeIndexBuffer;
             }
-            wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, 1, 0, 0, 0);
-            lastRenderedTriangleCount_ += fullTriCount;
+            wgpuRenderPassEncoderDrawIndexed(pass, prim.wireframeIndexCount, instCount, 0, 0, 0);
+            lastRenderedTriangleCount_ += static_cast<size_t>(fullTriCount) * instCount;
         } else if (prim.gpuIndexBuffer && !prim.indices.empty()) {
             const auto& slice =
                 (prim.lodLevels[dc.clampedLod].indexCount > 0) ? prim.lodLevels[dc.clampedLod] : prim.lodLevels[0];
@@ -2577,11 +2630,11 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
                                                     prim.gpuIndexBufferSize);
                 boundIb = prim.gpuIndexBuffer;
             }
-            wgpuRenderPassEncoderDrawIndexed(pass, idxCount, 1, firstIdx, 0, 0);
-            lastRenderedTriangleCount_ += (idxCount / 3);
+            wgpuRenderPassEncoderDrawIndexed(pass, idxCount, instCount, firstIdx, 0, 0);
+            lastRenderedTriangleCount_ += static_cast<size_t>(idxCount / 3) * instCount;
         } else {
-            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), 1, 0, 0);
-            lastRenderedTriangleCount_ += fullTriCount;
+            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim.vertices.size()), instCount, 0, 0);
+            lastRenderedTriangleCount_ += static_cast<size_t>(fullTriCount) * instCount;
         }
     }
 }
@@ -2842,36 +2895,8 @@ core::Result<void> PipelineManager::CreateMainRenderPipelines(bool validateScope
         BGL_LOG_WARN("Wireframe shader compilation failed: {}", wfModuleRes.error());
     }
 
-    std::array<WGPUVertexAttribute, 6> vertAttrs{};
-    vertAttrs[0].format = WGPUVertexFormat_Float32x3;
-    vertAttrs[0].offset = offsetof(core::Vertex, position);
-    vertAttrs[0].shaderLocation = 0;
-
-    vertAttrs[1].format = WGPUVertexFormat_Float32x3;
-    vertAttrs[1].offset = offsetof(core::Vertex, normal);
-    vertAttrs[1].shaderLocation = 1;
-
-    vertAttrs[2].format = WGPUVertexFormat_Float32x4;
-    vertAttrs[2].offset = offsetof(core::Vertex, tangent);
-    vertAttrs[2].shaderLocation = 2;
-
-    vertAttrs[3].format = WGPUVertexFormat_Float32x2;
-    vertAttrs[3].offset = offsetof(core::Vertex, uv);
-    vertAttrs[3].shaderLocation = 3;
-
-    vertAttrs[4].format = WGPUVertexFormat_Uint32x4;
-    vertAttrs[4].offset = offsetof(core::Vertex, joints);
-    vertAttrs[4].shaderLocation = 4;
-
-    vertAttrs[5].format = WGPUVertexFormat_Float32x4;
-    vertAttrs[5].offset = offsetof(core::Vertex, weights);
-    vertAttrs[5].shaderLocation = 5;
-
-    WGPUVertexBufferLayout vbLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vbLayout.arrayStride = sizeof(core::Vertex);
-    vbLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vbLayout.attributeCount = vertAttrs.size();
-    vbLayout.attributes = vertAttrs.data();
+    VertexAndInstanceLayoutStorage layoutStorage;
+    FillVertexAndInstanceLayouts(layoutStorage);
 
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
     colorTarget.format = hdrFormat_;
@@ -2892,8 +2917,8 @@ core::Result<void> PipelineManager::CreateMainRenderPipelines(bool validateScope
     rpDesc.layout = mainPipelineLayout_.Get();
     rpDesc.vertex.module = pbrModuleRes->Get();
     rpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
-    rpDesc.vertex.bufferCount = 1;
-    rpDesc.vertex.buffers = &vbLayout;
+    rpDesc.vertex.bufferCount = static_cast<uint32_t>(layoutStorage.layouts.size());
+    rpDesc.vertex.buffers = layoutStorage.layouts.data();
     rpDesc.fragment = &fragmentState;
     rpDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     rpDesc.primitive.frontFace = WGPUFrontFace_CCW;
@@ -2944,8 +2969,8 @@ core::Result<void> PipelineManager::CreateMainRenderPipelines(bool validateScope
         wfRpDesc.layout = mainPipelineLayout_.Get();
         wfRpDesc.vertex.module = wfModuleRes->Get();
         wfRpDesc.vertex.entryPoint = ToWgpuStringView("vs_main");
-        wfRpDesc.vertex.bufferCount = 1;
-        wfRpDesc.vertex.buffers = &vbLayout;
+        wfRpDesc.vertex.bufferCount = static_cast<uint32_t>(layoutStorage.layouts.size());
+        wfRpDesc.vertex.buffers = layoutStorage.layouts.data();
         wfRpDesc.fragment = &wfFragState;
         wfRpDesc.primitive.topology = WGPUPrimitiveTopology_LineList;
         wfRpDesc.primitive.cullMode = WGPUCullMode_None;

@@ -8,7 +8,9 @@
 #include "gpu/Handle.hpp"
 #include "gpu/ShaderManager.hpp"
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <utility>
 
 namespace bgl::gpu {
 
@@ -16,67 +18,47 @@ GpuCuller::~GpuCuller() {
     Shutdown();
 }
 
-GpuCuller::GpuCuller(GpuCuller&& other) noexcept
-    : device_{other.device_}, queue_{other.queue_}, computePipeline_{other.computePipeline_},
-      pipelineLayout_{other.pipelineLayout_}, bindGroupLayout_{other.bindGroupLayout_}, bindGroup_{other.bindGroup_},
-      uniformBuffer_{other.uniformBuffer_}, boundsStorageBuffer_{other.boundsStorageBuffer_},
-      visibilityStorageBuffer_{other.visibilityStorageBuffer_}, atomicCounterBuffer_{other.atomicCounterBuffer_},
-      primitiveCount_{other.primitiveCount_}, boundsBufferSize_{other.boundsBufferSize_},
-      visibilityBufferSize_{other.visibilityBufferSize_}, cpuBounds_{std::move(other.cpuBounds_)} {
-    other.device_ = nullptr;
-    other.queue_ = nullptr;
-    other.computePipeline_ = nullptr;
-    other.pipelineLayout_ = nullptr;
-    other.bindGroupLayout_ = nullptr;
-    other.bindGroup_ = nullptr;
-    other.uniformBuffer_ = nullptr;
-    other.boundsStorageBuffer_ = nullptr;
-    other.visibilityStorageBuffer_ = nullptr;
-    other.atomicCounterBuffer_ = nullptr;
-    other.primitiveCount_ = 0;
-    other.boundsBufferSize_ = 0;
-    other.visibilityBufferSize_ = 0;
+GpuCuller::GpuCuller(GpuCuller&& other) noexcept {
+    MoveFrom(other);
 }
 
 GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
     if (this != &other) {
         Shutdown();
-        device_ = other.device_;
-        queue_ = other.queue_;
-        computePipeline_ = other.computePipeline_;
-        pipelineLayout_ = other.pipelineLayout_;
-        bindGroupLayout_ = other.bindGroupLayout_;
-        bindGroup_ = other.bindGroup_;
-        uniformBuffer_ = other.uniformBuffer_;
-        boundsStorageBuffer_ = other.boundsStorageBuffer_;
-        visibilityStorageBuffer_ = other.visibilityStorageBuffer_;
-        atomicCounterBuffer_ = other.atomicCounterBuffer_;
-        primitiveCount_ = other.primitiveCount_;
-        boundsBufferSize_ = other.boundsBufferSize_;
-        visibilityBufferSize_ = other.visibilityBufferSize_;
-        cpuBounds_ = std::move(other.cpuBounds_);
-
-        other.device_ = nullptr;
-        other.queue_ = nullptr;
-        other.computePipeline_ = nullptr;
-        other.pipelineLayout_ = nullptr;
-        other.bindGroupLayout_ = nullptr;
-        other.bindGroup_ = nullptr;
-        other.uniformBuffer_ = nullptr;
-        other.boundsStorageBuffer_ = nullptr;
-        other.visibilityStorageBuffer_ = nullptr;
-        other.atomicCounterBuffer_ = nullptr;
-        other.primitiveCount_ = 0;
-        other.boundsBufferSize_ = 0;
-        other.visibilityBufferSize_ = 0;
+        MoveFrom(other);
     }
     return *this;
+}
+
+void GpuCuller::MoveFrom(GpuCuller& other) noexcept {
+    device_ = std::exchange(other.device_, nullptr);
+    queue_ = std::exchange(other.queue_, nullptr);
+    computePipeline_ = std::exchange(other.computePipeline_, nullptr);
+    pipelineLayout_ = std::exchange(other.pipelineLayout_, nullptr);
+    bindGroupLayout_ = std::exchange(other.bindGroupLayout_, nullptr);
+    bindGroup_ = std::exchange(other.bindGroup_, nullptr);
+    uniformBuffer_ = std::exchange(other.uniformBuffer_, nullptr);
+    boundsStorageBuffer_ = std::exchange(other.boundsStorageBuffer_, nullptr);
+    visibilityStorageBuffer_ = std::exchange(other.visibilityStorageBuffer_, nullptr);
+    atomicCounterBuffer_ = std::exchange(other.atomicCounterBuffer_, nullptr);
+    indirectArgsBuffer_ = std::exchange(other.indirectArgsBuffer_, nullptr);
+    primitiveCount_ = std::exchange(other.primitiveCount_, 0);
+    boundsBufferSize_ = std::exchange(other.boundsBufferSize_, 0);
+    visibilityBufferSize_ = std::exchange(other.visibilityBufferSize_, 0);
+    indirectArgsBufferSize_ = std::exchange(other.indirectArgsBufferSize_, 0);
+    cpuBounds_ = std::move(other.cpuBounds_);
+    cpuIndirectArgs_ = std::move(other.cpuIndirectArgs_);
 }
 
 void GpuCuller::Shutdown() noexcept {
     if (bindGroup_) {
         wgpuBindGroupRelease(bindGroup_);
         bindGroup_ = nullptr;
+    }
+    if (indirectArgsBuffer_) {
+        core::MemoryTracker::Instance().TrackBufferFree(indirectArgsBufferSize_);
+        wgpuBufferRelease(indirectArgsBuffer_);
+        indirectArgsBuffer_ = nullptr;
     }
     if (atomicCounterBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(uint32_t));
@@ -111,9 +93,11 @@ void GpuCuller::Shutdown() noexcept {
         bindGroupLayout_ = nullptr;
     }
     cpuBounds_.clear();
+    cpuIndirectArgs_.clear();
     primitiveCount_ = 0;
     boundsBufferSize_ = 0;
     visibilityBufferSize_ = 0;
+    indirectArgsBufferSize_ = 0;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -168,7 +152,7 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     ShaderModuleHandle shaderModule{std::move(*modRes)};
 
     // 2. Bind Group Layout
-    std::array<WGPUBindGroupLayoutEntry, 4> entries{};
+    std::array<WGPUBindGroupLayoutEntry, 5> entries{};
     // Uniforms
     entries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     entries[0].binding = 0;
@@ -197,11 +181,22 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     entries[3].buffer.type = WGPUBufferBindingType_Storage;
     entries[3].buffer.minBindingSize = sizeof(uint32_t);
 
+    // Indirect Draw Args Storage (read_write)
+    entries[4] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    entries[4].binding = 4;
+    entries[4].visibility = WGPUShaderStage_Compute;
+    entries[4].buffer.type = WGPUBufferBindingType_Storage;
+    entries[4].buffer.minBindingSize = sizeof(DrawIndexedIndirectArgs);
+
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     bglDesc.entryCount = entries.size();
     bglDesc.entries = entries.data();
     bglDesc.label = ToWgpuStringView("GpuCull_BindGroupLayout");
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!bindGroupLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU culler bind group layout");
+    }
 
     // 3. Compute Pipeline Layout & Pipeline
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
@@ -209,6 +204,10 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     plDesc.bindGroupLayouts = &bindGroupLayout_;
     plDesc.label = ToWgpuStringView("GpuCull_PipelineLayout");
     pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!pipelineLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU culler pipeline layout");
+    }
 
     if (auto pipeRes = CreateComputePipeline(shaderModule.Get()); !pipeRes) {
         Shutdown();
@@ -221,6 +220,10 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     ubDesc.label = ToWgpuStringView("GpuCull_Uniforms");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+    if (!uniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU culler uniform buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(GpuCullUniforms));
 
     WGPUBufferDescriptor countDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -228,6 +231,10 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     countDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
     countDesc.label = ToWgpuStringView("GpuCull_AtomicCounter");
     atomicCounterBuffer_ = wgpuDeviceCreateBuffer(device_, &countDesc);
+    if (!atomicCounterBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create GPU culler atomic counter buffer");
+    }
     core::MemoryTracker::Instance().TrackBufferAlloc(sizeof(uint32_t));
 
     BGL_LOG_INFO("GpuCuller initialized successfully (WebGPU Compute Shader Frustum Culling)");
@@ -236,19 +243,42 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
 
 void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     cpuBounds_.clear();
+    cpuIndirectArgs_.clear();
     auto collectBounds = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentMat) -> void {
         const glm::mat4 worldMat = parentMat * node.localTransform;
         auto prims = node.GetPrimitives();
         for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
             const auto& prim = prims[pIdx];
             if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
-                const auto worldBox = prim.boundingBox.Transformed(worldMat);
+                core::AABB worldBox{};
+                if (node.instanceTransforms.empty()) {
+                    worldBox = prim.boundingBox.Transformed(worldMat);
+                } else {
+                    for (const glm::mat4& instMat : node.instanceTransforms) {
+                        worldBox.Expand(prim.boundingBox.Transformed(worldMat * instMat));
+                    }
+                }
+                const uint32_t instCount =
+                    node.instanceTransforms.empty() ? 1u : static_cast<uint32_t>(node.instanceTransforms.size());
                 GpuBoundingBox box{};
                 box.minBound = glm::vec4{worldBox.minBound, 1.0f};
                 box.maxBound = glm::vec4{worldBox.maxBound, 1.0f};
                 box.nodeIndex = static_cast<uint32_t>(node.nodeIndex >= 0 ? node.nodeIndex : 0);
                 box.primitiveIndex = static_cast<uint32_t>(pIdx);
+                box.instanceCount = instCount;
                 cpuBounds_.push_back(box);
+
+                DrawIndexedIndirectArgs args{};
+                if (prim.lodLevels[0].indexCount > 0) {
+                    args.indexCount = prim.lodLevels[0].indexCount;
+                    args.firstIndex = prim.lodLevels[0].firstIndex;
+                } else if (!prim.indices.empty()) {
+                    args.indexCount = static_cast<uint32_t>(prim.indices.size());
+                } else {
+                    args.indexCount = static_cast<uint32_t>(prim.vertices.size());
+                }
+                args.instanceCount = instCount;
+                cpuIndirectArgs_.push_back(args);
             }
         }
         for (const auto& child : node.children) {
@@ -263,14 +293,16 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     }
 
     primitiveCount_ = cpuBounds_.size();
-    if (primitiveCount_ == 0)
+    if (primitiveCount_ == 0 || !device_ || !queue_)
         return;
 
     const size_t neededBytes = primitiveCount_ * sizeof(GpuBoundingBox);
     const size_t visNeededBytes = primitiveCount_ * sizeof(uint32_t);
+    const size_t indirectNeededBytes = primitiveCount_ * sizeof(DrawIndexedIndirectArgs);
 
-    if (neededBytes > boundsBufferSize_ || visNeededBytes > visibilityBufferSize_ || !boundsStorageBuffer_ ||
-        !visibilityStorageBuffer_) {
+    if (neededBytes > boundsBufferSize_ || visNeededBytes > visibilityBufferSize_ ||
+        indirectNeededBytes > indirectArgsBufferSize_ || !boundsStorageBuffer_ || !visibilityStorageBuffer_ ||
+        !indirectArgsBuffer_ || !bindGroup_) {
         if (boundsStorageBuffer_) {
             core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
             wgpuBufferRelease(boundsStorageBuffer_);
@@ -282,6 +314,12 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
             wgpuBufferRelease(visibilityStorageBuffer_);
             visibilityStorageBuffer_ = nullptr;
             visibilityBufferSize_ = 0;
+        }
+        if (indirectArgsBuffer_) {
+            core::MemoryTracker::Instance().TrackBufferFree(indirectArgsBufferSize_);
+            wgpuBufferRelease(indirectArgsBuffer_);
+            indirectArgsBuffer_ = nullptr;
+            indirectArgsBufferSize_ = 0;
         }
 
         const size_t newBoundsSize = std::max(neededBytes * 2, size_t{64 * 1024});
@@ -310,10 +348,26 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         visibilityBufferSize_ = newVisSize;
         core::MemoryTracker::Instance().TrackBufferAlloc(visibilityBufferSize_);
 
-        if (bindGroup_)
-            wgpuBindGroupRelease(bindGroup_);
+        const size_t newIndirectSize = std::max(indirectNeededBytes * 2, size_t{32 * 1024});
+        WGPUBufferDescriptor iDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+        iDesc.size = newIndirectSize;
+        iDesc.usage =
+            WGPUBufferUsage_Storage | WGPUBufferUsage_Indirect | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
+        iDesc.label = ToWgpuStringView("GpuCull_IndirectArgs");
+        indirectArgsBuffer_ = wgpuDeviceCreateBuffer(device_, &iDesc);
+        if (!indirectArgsBuffer_) {
+            primitiveCount_ = 0;
+            return;
+        }
+        indirectArgsBufferSize_ = newIndirectSize;
+        core::MemoryTracker::Instance().TrackBufferAlloc(indirectArgsBufferSize_);
 
-        std::array<WGPUBindGroupEntry, 4> bgEntries{};
+        if (bindGroup_) {
+            wgpuBindGroupRelease(bindGroup_);
+            bindGroup_ = nullptr;
+        }
+
+        std::array<WGPUBindGroupEntry, 5> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[0].binding = 0;
         bgEntries[0].buffer = uniformBuffer_;
@@ -330,13 +384,19 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         bgEntries[2].binding = 2;
         bgEntries[2].buffer = visibilityStorageBuffer_;
         bgEntries[2].offset = 0;
-        bgEntries[2].size = vDesc.size;
+        bgEntries[2].size = visibilityBufferSize_;
 
         bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[3].binding = 3;
         bgEntries[3].buffer = atomicCounterBuffer_;
         bgEntries[3].offset = 0;
         bgEntries[3].size = sizeof(uint32_t);
+
+        bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
+        bgEntries[4].binding = 4;
+        bgEntries[4].buffer = indirectArgsBuffer_;
+        bgEntries[4].offset = 0;
+        bgEntries[4].size = indirectArgsBufferSize_;
 
         WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
         bgDesc.layout = bindGroupLayout_;
@@ -347,6 +407,7 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     }
 
     wgpuQueueWriteBuffer(queue_, boundsStorageBuffer_, 0, cpuBounds_.data(), neededBytes);
+    wgpuQueueWriteBuffer(queue_, indirectArgsBuffer_, 0, cpuIndirectArgs_.data(), indirectNeededBytes);
 }
 
 void GpuCuller::Dispatch(WGPUCommandEncoder encoder, const core::Frustum& frustum) {

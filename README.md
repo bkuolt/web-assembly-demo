@@ -1,16 +1,16 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.9.17)
+# WebAssembly and WebGPU Demo (bgl-Engine v0.9.18)
 
 # 🎮 **[👉 RUN LIVE DEMO IN BROWSER (Instant GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-299_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.17-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Unit_Tests-313_Passing-22c55e?style=for-the-badge)](tests/)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.18-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](assets/sponza_screenshot.png)
-*Crytek Sponza Atrium (`assets/Sponza.glb`, 103 primitives, 69 PBR textures, 262,267 triangles) rendered in real time by **bgl-Engine v0.9.17** with Cook-Torrance GGX PBR, 16× Anisotropic Mipmapping, MikkTSpace Normal & Bump Mapping, Parallax Occlusion Mapping (POM), and Multi-Level Mesh & Shader LOD (`LOD0`–`LOD3`).*
+*Crytek Sponza Atrium (`assets/Sponza.glb`, 103 primitives, 69 PBR textures, 262,267 triangles) rendered in real time by **bgl-Engine v0.9.18** with Cook-Torrance GGX PBR, 16× Anisotropic Mipmapping, MikkTSpace Normal & Bump Mapping, Parallax Occlusion Mapping (POM), and Multi-Level Mesh & Shader LOD (`LOD0`–`LOD3`).*
 
 > **🚀 Live Web Application (Run Directly in Browser):**
 > - **Direct Live Preview (GitHack, Instant):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
@@ -89,7 +89,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - `-DBGL_ENABLE_PNG=ON/OFF` (libpng)
   - `-DBGL_ENABLE_JPEG=ON/OFF` (libjpeg-turbo with custom `setjmp` error handling)
   - `-DBGL_ENABLE_WEBP=ON/OFF` (libwebp)
-  - `-DBGL_ENABLE_KTX=ON/OFF` (libktx 4.3.2)
+  - `-DBGL_ENABLE_KTX=ON/OFF` (libktx 4.4.2)
   - Queryable at runtime via `./bgl_viewer --formats` or `TextureDecoder::GetSupportedFormats()`.
 - **Multithreaded glTF Asset Ingestion**:
   - Lock-free parallel texture decoding across hardware worker threads (`std::jthread`, `std::atomic<size_t>` task dispatch).
@@ -127,7 +127,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - **WebAssembly**: Native Emscripten HTML5 WebGPU context (`<emscripten/html5.h>`).
 - **Reproducible Conan 2.x Dependency Management**:
   - All third-party dependencies resolved via Conan 2.x with explicit lockfile pinning (`conan.lock`).
-  - FreeType (`freetype/2.13.2`), HarfBuzz (`harfbuzz/8.3.0`), and KTX (`ktx/4.3.2`).
+  - FreeType (`freetype/2.13.2`), HarfBuzz (`harfbuzz/11.4.1`), KTX (`ktx/4.4.2`), and miniaudio (`miniaudio/0.11.25`).
   - Zero system library divergence across build environments.
 
 ---
@@ -137,9 +137,13 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ```text
 .
 ├── CMakeLists.txt                 # Modern target-based CMake configuration (C++23)
-├── CHANGELOG.md                   # Complete retroactive release history (v0.6.0 -> v0.7.0)
+├── CMakePresets.json              # Release, Clang, ASan, UBSan & TSan build/test presets
+├── CHANGELOG.md                   # Complete release history (v0.6.0 -> v0.9.18)
+├── Taskfile.yml                   # Developer workflow tasks (format, lint, build, test, web)
 ├── conanfile.py                   # Conan 2.x package recipe
 ├── conan.lock                     # Deterministic dependency lockfile
+├── docs/
+│   └── FEATURE_AND_PHYSICS_REPORT.md # Architecture roadmap & Jolt physics integration blueprint
 ├── assets/
 │   ├── Sponza.glb                 # High-detail Sponza architectural benchmark scene
 │   ├── ToyCar.glb                 # Benchmark glTF model (Clearcoat, Sheen, Transmission, AO)
@@ -147,59 +151,81 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │       └── LiberationMono-Regular.ttf # High-legibility monospace font
 ├── src/
 │   ├── core/                      # -> libbgl_core.so
-│   │   ├── Camera.hpp/.cpp        # Orbit, Pan, Zoom camera with WebGPU reverse-Z projection
+│   │   ├── Camera.hpp/.cpp        # Orbit, Pan, Zoom, Fly camera with WebGPU projection
 │   │   ├── CrashHandler.hpp/.cpp  # POSIX crash interception, signal handling & C++23 stacktrace
 │   │   ├── Gamepad.hpp/.cpp       # Controller support with 0.12f deadzone calibration
 │   │   ├── Log.hpp/.cpp           # spdlog integration and RAII ScopedTimer profiling
 │   │   ├── MemoryPool.hpp/.cpp    # Block memory pool & PMR scratch arena
 │   │   ├── NetworkFetcher.hpp/.cpp# Asynchronous network ingestion
-│   │   └── Types.hpp              # AABB, Ray, Frustum, 64-byte Vertex, GlobalUniforms, Result<T>
+│   │   ├── ThreadPool.hpp/.cpp    # Work-stealing centralized thread pool
+│   │   └── Types.hpp              # AABB, Ray, Frustum, 64-byte Vertex, Result<T>
 │   ├── gpu/                       # -> libbgl_gpu.so
-│   │   ├── Context.hpp/.cpp       # Hardware WebGPU device, adapter, surface, depth buffers (4x MSAA)
-│   │   ├── Pipeline.hpp/.cpp      # 10-slot BindGroupLayout, 16x aniso, batched AABB wireframe pipelines
-│   │   ├── Shaders.hpp            # Full glTF 2.0 Cook-Torrance PBR & Wireframe WGSL shaders
-│   │   └── Skybox.hpp/.cpp        # Procedural Atmospheric Skybox with solar corona
+│   │   ├── AabbRenderer.hpp/.cpp  # Batched 3D wireframe bounding box renderer
+│   │   ├── Context.hpp/.cpp       # Hardware WebGPU device, MSAA & Opaque/Transparent/PostProcess passes
+│   │   ├── DrawHelpers.hpp        # Shared per-draw UBO/skin/morph helpers & DynamicInstanceBuffer
+│   │   ├── GpuCuller.hpp/.cpp     # Parallel WebGPU compute frustum culling
+│   │   ├── GpuRayPicker.hpp/.cpp  # Two-pass WebGPU compute ray-AABB picker
+│   │   ├── Pipeline.hpp/.cpp      # 4-group PBR pipelines, IBL, GPU mipmaps, hardware instancing
+│   │   ├── PostProcessPass.hpp/.cpp # HDR tonemapping, bloom, SSAO & sun lens flare
+│   │   ├── ShaderManager.hpp/.cpp # Modular .wgsl loader, #include preprocessor, #embed & hot-reload
+│   │   ├── Shaders.hpp            # ShaderManager-backed WGSL entry-point accessors
+│   │   ├── ShadowPass.hpp/.cpp    # Directional depth pre-pass with Quadtree light-frustum culling
+│   │   ├── Skybox.hpp/.cpp        # Procedural Atmospheric Skybox with solar corona
+│   │   ├── Uniforms.hpp           # PerDrawUniforms DynamicUniformRing, MaterialUniforms, SceneLightingUniforms
+│   │   └── shaders/               # External .wgsl compute, PBR, shadow, skybox & post-process modules
 │   ├── scene/                     # -> libbgl_scene.so
 │   │   ├── AssetManager.hpp/.cpp  # 64-bit FNV-1a caching and PMR geometry allocation
-│   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF/GLB parser with libcurl URI resolution & KHR extensions
-│   │   ├── Quadtree.hpp/.cpp      # 4-way XZ spatial partition, Front-to-Back Hi-Z occlusion culling
+│   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF/GLB parser (KHR extensions, EXT_mesh_gpu_instancing)
+│   │   ├── Quadtree.hpp/.cpp      # 4-way XZ spatial partition, Refit(), Hi-Z occlusion & SSE LOD
 │   │   ├── RayPicker.hpp/.cpp     # Hierarchical Möller-Trumbore ray-triangle intersection
-│   │   ├── Scene.hpp/.cpp         # Hierarchical scene graph, PMR mesh primitives & MikkTSpace tangents
-│   │   └── TextureDecoder.hpp/.cpp# PNG, JPEG, WebP, and KTX2 decoding with CPU mip-chains
+│   │   ├── Scene.hpp/.cpp         # Scene graph, GPU morph/skin helpers, QEM/grid LODs & tangents
+│   │   └── TextureDecoder.hpp/.cpp# PNG, JPEG, WebP, KTX2, HDR & EXR decoding
 │   ├── text/                      # -> libbgl_text.so
 │   │   ├── EmbeddedFont.hpp/.cpp  # Zero-dependency embedded TrueType font data
 │   │   ├── FontAtlas.hpp/.cpp     # FreeType 2 rasterizer & dynamic 1024x1024 RGBA8 GPU texture atlas
 │   │   ├── TextShaper.hpp/.cpp    # HarfBuzz Unicode text shaper & multi-line layout engine
 │   │   └── TextRenderer.hpp/.cpp  # WebGPU 2D batched quad renderer with alpha blending
 │   ├── ui/                        # -> libbgl_ui.so
-│   │   └── DebugOverlay.hpp/.cpp  # In-engine glassmorphism HUD telemetry overlay
+│   │   ├── DebugOverlay.hpp/.cpp  # In-engine glassmorphism HUD telemetry overlay
+│   │   └── ImmediateUI.hpp/.cpp   # Immediate-mode SDF settings UI (#embed ui.wgsl)
 │   ├── audio/                     # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp   # 3D spatial audio listener and sound source management
 │   ├── app/                       # -> libbgl_app.so
-│   │   ├── Application.hpp/.cpp   # Main application lifecycle and runtime loop
+│   │   ├── Application.hpp/.cpp   # Main application lifecycle, hot-reload polling & runtime loop
 │   │   └── CommandLine.hpp/.cpp   # CLI argument parsing, help screen, and format inspection
+│   ├── wasm/
+│   │   └── wasm_bridge.cpp        # Freestanding C++23 Emscripten C-ABI bridge (`bgl_engine.wasm`)
 │   └── main.cpp                   # Native desktop viewer entry point
-├── tests/                         # GTest unit test suite (60 tests across 12 test suites)
+├── tests/                         # C++ GTest (241 tests across 23 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp        # AABB, Ray, Plane, Frustum culling math, Vertex layout
 │   ├── test_camera.cpp            # Orbit, Pan, Zoom, ScreenPointToRay unprojection
 │   ├── test_memory_pool.cpp       # MemoryPool, multi-block chaining, free-list reuse, ScratchArena
 │   ├── test_asset_manager.cpp     # FNV-1a 64-bit hashing, caching, texture deduplication
-│   ├── test_quadtree_lod.cpp      # Quadtree subdivision, loose bounds, containment, culling
+│   ├── test_quadtree_lod.cpp      # Quadtree subdivision, Refit(), loose bounds, SSE LOD, culling
 │   ├── test_ray_picker.cpp        # Möller-Trumbore ray-triangle hit/miss, hierarchical picking
 │   ├── test_gltf_loader.cpp       # ToyCar glTF parsing, KHR materials, transform hierarchy
-│   ├── test_texture_decoders.cpp  # PNG, JPEG, WebP, KTX2, magic-byte sniffing
+│   ├── test_texture_decoders.cpp  # PNG, JPEG, WebP, KTX2, HDR, EXR, magic-byte sniffing
 │   ├── test_text_rendering.cpp    # FreeType rasterization, HarfBuzz shaping, multiline text
 │   ├── test_crash_handler.cpp     # POSIX signal handler installation & stacktrace generation
 │   ├── test_command_line.cpp      # CLI argument parsing and feature toggles
-│   └── test_rendering_features.cpp# Bump mapping, Mipmapping, PCF Shadow Mapping, Cubemap IBL tests
+│   ├── test_rendering_features.cpp# ShaderManager, DynamicUniformRing, Blending, PBR, Shadows, IBL
+│   ├── test_golden_image.cpp      # Deterministic golden checksum & instanced asset checks
+│   ├── test_animation.cpp         # Skeletal skinning, morph targets & TRS keyframe interpolation
+│   ├── test_thread_pool.cpp       # Work-stealing ParallelFor, nested tasks & synchronization
+│   ├── test_audio_engine.cpp      # Spatial 3D audio engine & file safety
+│   ├── test_web_unit.js           # 72 Node.js web math, shader, glTF, frustum & LOD unit tests
+│   ├── test_webgpu_path.js        # 12-step headless WebGPU pipeline + real bgl_engine.wasm verification
+│   └── test_browsers_e2e.py       # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
-│   └── package_web.py             # Minimal web app distribution packager
+│   ├── package_web.py             # Minimal web app distribution packager
+│   └── run_ci_locally.sh          # Local mirror of CI formatting, build, test & smoke stages
 └── web/                           # Web viewer client
     ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
     ├── style.css                  # Modern dark-mode responsive glassmorphism styles
-    ├── app.js                     # Modular application client runtime
-    └── dist/                      # Precompiled WebAssembly artifacts
+    ├── app.js                     # Modular application client runtime (BglWebGpuRenderer)
+    ├── gltf_worker.js             # Dedicated Web Worker for glTF/GLB parsing & base64 decoding
+    └── dist/                      # Precompiled WebAssembly binary (`bgl_engine.wasm`)
 ```
 
 ---
@@ -322,7 +348,7 @@ flowchart TD
 
 ```bash
 # Generate CMake toolchain and dependency files using Conan 2.x lockfile
-conan install . -s build_type=Release --build=missing
+conan install . -s build_type=Release --build=missing --lockfile=conan.lock
 ```
 
 ### 2. Configure and Build
@@ -347,8 +373,8 @@ cmake --build build/Release -j$(nproc)
 ### 3. Run the Comprehensive Unit Test Suite
 
 ```bash
-# Run all 46 unit tests via CTest
-ctest --test-dir build/Release --output-on-failure
+# Run C++ unit tests and WebGPU Node suites via CTest
+ctest --test-dir build/Release --output-on-failure -E BrowserE2ETest
 
 # Or run directly with GoogleTest filtering
 ./build/Release/bgl_unit_tests --gtest_filter=QuadtreeTest*
@@ -384,7 +410,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `0.7.1` |
+| `-v`, `--version` | — | Print engine version string | `0.9.18` |
 | `--formats` | — | Query compiled texture decoders and `libcurl` streaming availability | — |
 | `-a`, `--asset` | `<path\|url>` | Load specified `.glb` or `.gltf` model from local path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
@@ -462,7 +488,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **168 tests across 14 test suites** implemented using GoogleTest (100% passing):
+The engine includes an extensive, production-grade test suite with **241 C++ GTests across 23 test suites** plus **72 Web unit tests** and headless WebGPU/browser E2E suites:
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |

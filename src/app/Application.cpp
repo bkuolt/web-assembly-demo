@@ -1019,7 +1019,11 @@ void Application::PollShaderHotReload(float deltaTime) {
             BGL_LOG_INFO("WGSL hot-reloaded: skybox.wgsl");
         }
     }
-    (void)pipelineManager_.ReloadShaders(modified);
+    if (auto res = pipelineManager_.ReloadShaders(modified); !res) {
+        BGL_LOG_ERROR("WGSL hot-reload failed for pipeline shaders: {}", res.error());
+    } else {
+        BGL_LOG_INFO("WGSL hot-reloaded pipeline shaders cleanly.");
+    }
 #else
     (void)deltaTime;
 #endif

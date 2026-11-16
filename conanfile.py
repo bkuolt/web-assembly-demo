@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "0.9.17"
+    version = "0.9.18"
     package_type = "application"
     required_conan_version = ">=2.28"
     settings = "os", "arch", "compiler", "build_type"
@@ -29,22 +29,22 @@ class BglEngineRecipe(ConanFile):
 
     def requirements(self):
         self.requires("fastgltf/0.7.2")
-        self.requires("glm/1.0.1")
-        self.requires("spdlog/1.14.0")
+        self.requires("glm/1.0.3")
+        self.requires("spdlog/1.15.3")
         if self.options.with_png:
-            self.requires("libpng/1.6.43")
+            self.requires("libpng/1.6.59")
         if self.options.with_jpeg:
-            self.requires("libjpeg-turbo/3.0.2")
+            self.requires("libjpeg-turbo/3.2.0")
         if self.options.with_webp:
-            self.requires("libwebp/1.3.2")
+            self.requires("libwebp/1.6.0")
         if self.options.with_ktx:
-            self.requires("ktx/4.3.2")
+            self.requires("ktx/4.4.2")
         if self.options.with_audio:
             self.requires("miniaudio/0.11.25")
         self.requires("freetype/2.13.2")
-        self.requires("harfbuzz/8.3.0")
+        self.requires("harfbuzz/11.4.1")
         if self.options.with_testing:
-            self.requires("gtest/1.14.0")
+            self.requires("gtest/1.17.0")
 
     def layout(self):
         cmake_layout(self)

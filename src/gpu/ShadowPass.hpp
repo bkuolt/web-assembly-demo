@@ -5,10 +5,14 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include "gpu/DrawHelpers.hpp"
 #include "gpu/Uniforms.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
+#include <cstdint>
 #include <glm/glm.hpp>
+#include <limits>
+#include <unordered_map>
 #include <vector>
 #include <webgpu/webgpu.h>
 
@@ -60,13 +64,17 @@ public:
     [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_; }
     [[nodiscard]] WGPUSampler GetShadowSampler() const noexcept { return shadowSampler_; }
     [[nodiscard]] glm::mat4 GetLightViewProjMatrix() const noexcept { return lightViewProj_; }
-    [[nodiscard]] bool IsInitialized() const noexcept { return shadowPipeline_ != nullptr; }
+    [[nodiscard]] bool IsInitialized() const noexcept {
+        return shadowPipeline_ != nullptr && instanceBuffer_.GetBuffer() != nullptr;
+    }
 
 private:
     struct ShadowDrawItem {
         scene::MeshPrimitive* prim{nullptr};
         WGPUBindGroup skinBindGroup{nullptr};
         uint32_t dynamicOffset{0};
+        uint32_t instanceStart{0};
+        uint32_t instanceCount{1};
     };
 
     core::Result<void> CreatePipeline(bool validateScope);
@@ -83,14 +91,18 @@ private:
     WGPUBindGroup dummySkinBindGroup_{nullptr};
 
     DynamicUniformRing<PerDrawUniforms> perDrawRing_{};
+    DynamicInstanceBuffer instanceBuffer_{};
     std::vector<scene::QuadtreeItem> visibleItemsScratch_{};
     std::vector<ShadowDrawItem> drawItemsScratch_{};
     std::vector<PerDrawUniforms> perDrawScratch_{};
+    std::vector<glm::mat4> instanceTransformsScratch_{};
+    std::unordered_map<const scene::SceneNode*, uint32_t> nodeInstanceStartScratch_{};
 
     glm::mat4 lightViewProj_{1.0f};
     bool dirty_{true};
     bool cleared_{false};
     const scene::Scene* lastScene_{nullptr};
+    uint64_t lastTransformVersion_{std::numeric_limits<uint64_t>::max()};
     glm::vec3 lastLightDir_{0.0f};
 };
 

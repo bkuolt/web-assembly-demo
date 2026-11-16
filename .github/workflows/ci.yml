@@ -199,8 +199,8 @@ jobs:
 
   deploy-pages:
     name: Deploy GitHub Pages Web App
-    needs: [web-validation, native-linux]
-    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [web-validation, wasm-emscripten, native-linux]
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -213,12 +213,21 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
+    - name: Download WASM Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: bgl_web_app-wasm
+        path: _wasm_artifact/
+
     - name: Setup Pages
       uses: actions/configure-pages@v5
 
     - name: Stage GitHub Pages Site
       run: |
         mkdir -p _site/dist _site/assets _site/web/dist _site/web/assets web/dist
+        if [ -d _wasm_artifact/web/dist ] && [ "$(ls -A _wasm_artifact/web/dist 2>/dev/null)" ]; then
+          cp -rf _wasm_artifact/web/dist/* web/dist/
+        fi
         # 1. Root level assets for direct domain access (https://<user>.github.io/<repo>/)
         cp -f web/index.html _site/index.html
         cp -f web/style.css _site/style.css
@@ -280,7 +289,16 @@ jobs:
     - name: Create Release Tarballs
       run: |
         tar -czvf bgl_viewer-linux-amd64.tar.gz -C dist-native .
-        python3 scripts/package_web.py --output dist/bgl_web_app_minimal.zip
+        mkdir -p dist
+        if [ -f dist-wasm/dist/bgl_web_app_minimal.zip ]; then
+          cp -f dist-wasm/dist/bgl_web_app_minimal.zip dist/bgl_web_app_minimal.zip
+        else
+          if [ -d dist-wasm/web/dist ] && [ "$(ls -A dist-wasm/web/dist 2>/dev/null)" ]; then
+            mkdir -p web/dist
+            cp -rf dist-wasm/web/dist/* web/dist/
+          fi
+          python3 scripts/package_web.py --output dist/bgl_web_app_minimal.zip
+        fi
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2

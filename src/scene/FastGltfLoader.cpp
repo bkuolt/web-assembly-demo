@@ -847,28 +847,28 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                 std::vector<glm::vec3> instS(instCount, glm::vec3{1.0f});
 
                 if (transIt != gltfNode.instancingAttributes.cend() && transIt->second < asset.accessors.size()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(
-                        asset, asset.accessors[transIt->second], [&](glm::vec3 t, size_t idx) {
-                            if (idx < instT.size()) {
-                                instT[idx] = t;
-                            }
-                        });
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[transIt->second],
+                                                                  [&](glm::vec3 t, size_t idx) {
+                                                                      if (idx < instT.size()) {
+                                                                          instT[idx] = t;
+                                                                      }
+                                                                  });
                 }
                 if (rotIt != gltfNode.instancingAttributes.cend() && rotIt->second < asset.accessors.size()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec4>(
-                        asset, asset.accessors[rotIt->second], [&](glm::vec4 q, size_t idx) {
-                            if (idx < instR.size()) {
-                                instR[idx] = glm::quat{q.w, q.x, q.y, q.z};
-                            }
-                        });
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, asset.accessors[rotIt->second],
+                                                                  [&](glm::vec4 q, size_t idx) {
+                                                                      if (idx < instR.size()) {
+                                                                          instR[idx] = glm::quat{q.w, q.x, q.y, q.z};
+                                                                      }
+                                                                  });
                 }
                 if (scaleIt != gltfNode.instancingAttributes.cend() && scaleIt->second < asset.accessors.size()) {
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(
-                        asset, asset.accessors[scaleIt->second], [&](glm::vec3 s, size_t idx) {
-                            if (idx < instS.size()) {
-                                instS[idx] = s;
-                            }
-                        });
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[scaleIt->second],
+                                                                  [&](glm::vec3 s, size_t idx) {
+                                                                      if (idx < instS.size()) {
+                                                                          instS[idx] = s;
+                                                                      }
+                                                                  });
                 }
 
                 node->instanceTransforms.resize(instCount);

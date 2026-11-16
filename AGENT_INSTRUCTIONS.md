@@ -1,7 +1,7 @@
 # Master Specification & Architecture Guide (bgl-Engine)
 **Project:** Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance Renderer (`bgl`-Engine)  
 **Target Environments:** Linux (amd64) Desktop (`bgl_viewer`) & WebAssembly (`wasm32-unknown-emscripten`)  
-**Version:** `0.9.17`
+**Version:** `0.9.18`
 
 ---
 
@@ -11,8 +11,8 @@
    - All C++ code must reside within the root namespace `bgl`.
    - Modules are strictly organized as:
      - `bgl::core`: Math, types, AABB (Arvo algorithm), Ray (Möller-Trumbore), Plane, Frustum, Camera, block-based memory pools, PMR staging arenas, POSIX signal handling, C++23 `std::stacktrace` crash diagnosis, NetworkFetcher (HTTP/HTTPS/data/file), logging.
-     - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, WGSL PBR shaders, procedural atmospheric skybox, HDR post-processing tonemapping (Khronos PBR Neutral, AgX, ACES), Directional PCF Shadow Mapping, True HDR IBL (Split-Sum BRDF LUT, GGX prefiltered cubemap, L2 Spherical Harmonics), batched 3D wireframe bounding box pipelines.
-     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), modular texture decoders (PNG, JPEG, WebP, KTX2 Basis Universal, Radiance HDR, OpenEXR), 16x anisotropic filtering, full CPU mip-map generation, spatial Quadtree partitioning with loose bounds, Hi-Z `OcclusionBuffer`, Möller-Trumbore ray picking.
+     - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, split Opaque/Skybox/Transparent+Transmission HDR passes, modular `.wgsl` shader pipeline (`ShaderManager` with `#include`/`#pragma once`, `#embed`, and hot-reload), procedural atmospheric skybox, HDR post-processing tonemapping (`PostProcessPass`: Khronos PBR Neutral, AgX, ACES), Directional PCF Shadow Mapping (`ShadowPass`), True HDR IBL (Split-Sum BRDF LUT, GGX prefiltered cubemap, L2 Spherical Harmonics), `DynamicUniformRing<PerDrawUniforms>`, `DynamicInstanceBuffer` (`EXT_mesh_gpu_instancing`), GPU compute culling (`GpuCuller`) and picking (`GpuRayPicker`), batched 3D wireframe bounding box pipelines (`AabbRenderer`).
+     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), modular texture decoders (PNG, JPEG, WebP, KTX2 Basis Universal, Radiance HDR, OpenEXR), 16x anisotropic filtering, GPU mip-map generation (`mipgen.wgsl`), dynamic spatial Quadtree partitioning (`Quadtree::Refit()`, loose bounds, Hi-Z `OcclusionBuffer`), Möller-Trumbore ray picking.
      - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
      - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD with smoothed FPS, camera metrics, scene info, and spatial telemetry.
      - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
@@ -31,7 +31,7 @@
    - No uncontrolled `new`/`delete`.
    - Utilize block-based `bgl::core::MemoryPool<T>` and `std::pmr` resources (`std::pmr::monotonic_buffer_resource`, `std::pmr::vector`) for geometry staging and glTF ingestion.
    - Cache-line friendly 64-byte aligned vertex structures (`bgl::core::Vertex`).
-   - Std140 16-byte aligned uniform buffers (`PrimitiveUniforms`, `AabbUniforms`, `GlobalUniforms`).
+   - Std140/dynamic 16-byte/256-byte aligned uniform buffers (`PerDrawUniforms`, `MaterialUniforms`, `SceneLightingUniforms`, `AabbUniforms`).
 6. **Modular Shared Libraries (`.so`):**
    - Built with `-fPIC` into distinct dynamic shared libraries:
      - `libbgl_core.so`
@@ -48,30 +48,26 @@
 
 All third-party dependencies are pinned via `conan.lock` and managed deterministically through `conanfile.py`:
 - `fastgltf/0.7.2` (glTF 2.1 SIMD binary and JSON parser)
-- `glm/1.0.1` (Vector and matrix linear algebra)
-- `spdlog/1.14.0` (Fast structured logging and scoped microsecond timers)
-- `libpng/1.6.43` (In-memory PNG decoding)
-- `libjpeg-turbo/3.0.2` (High-speed JPEG decoding)
-- `libwebp/1.3.2` (WebP image decoding)
-- `ktx/4.3.2` (KTX & KTX2 texture decoding, Basis Universal UASTC/ETC1S transcoding)
-- `miniaudio/0.11.21` (3D Spatial Audio and Web Audio backend)
+- `glm/1.0.3` (Vector and matrix linear algebra)
+- `spdlog/1.15.3` (Fast structured logging and scoped microsecond timers)
+- `libpng/1.6.59` (In-memory PNG decoding)
+- `libjpeg-turbo/3.2.0` (High-speed JPEG decoding)
+- `libwebp/1.6.0` (WebP image decoding)
+- `ktx/4.4.2` (KTX & KTX2 texture decoding, Basis Universal UASTC/ETC1S transcoding)
+- `miniaudio/0.11.25` (3D Spatial Audio and Web Audio backend)
 - `freetype/2.13.2` (TrueType font rasterization and glyph metrics)
-- `harfbuzz/8.3.0` (Unicode script and bidirectional text shaping)
-- `gtest/1.14.0` (Unit testing framework)
+- `harfbuzz/11.4.1` (Unicode script and bidirectional text shaping)
+- `gtest/1.17.0` (Unit testing framework)
 
 ---
 
 ## 3. WebGPU Material & Rendering Pipeline
 
-- **Unified Bind Group Layout**:
-  - Binding 0: Uniform buffer `PrimitiveUniforms` (352 bytes, 16-byte aligned).
-  - Binding 1: Sampler `defaultSampler` (16x anisotropic filtering, repeat addressing).
-  - Bindings 2..9: Sampled 2D textures (BaseColor, MetallicRoughness, Normal, Emissive, Occlusion, Clearcoat, Transmission, Sheen).
-  - Binding 10: Environment Cubemap Texture (`texture_cube<f32>`).
-  - Binding 11: Split-Sum BRDF LUT Texture (`texture_2d<f32>`).
-  - Binding 12: Directional Shadow Map Sampler (`sampler_comparison`).
-  - Binding 13: Directional Shadow Map Depth Texture (`texture_depth_2d`).
-  - Binding 14: Scene Lighting Uniform Buffer `SceneLightingUniforms` (L2 Spherical Harmonics, Forward+ clusters).
+- **4-Group Pipeline & Bind Group Layout**:
+  - `@group(0)` (`SceneGlobals`): `SceneLightingUniforms` (L2 Spherical Harmonics, Forward+ clusters), environment cubemap (`texture_cube<f32>`), directional shadow map (`texture_depth_2d`) + comparison sampler, Split-Sum BRDF LUT, and `opaqueColorTexture` for Snell transmission/refraction.
+  - `@group(1)` (`PerDrawDynamic`): 256-byte dynamic-offset `DynamicUniformRing<PerDrawUniforms>` holding per-draw `viewProj`, `model`, `lightViewProj`, `morphWeights0`/`1`, `jointCount`, `morphTargetCount`, `vertexCount`, `drawFlags`, and LOD transition parameters.
+  - `@group(2)` (`MaterialStatic`): 256-byte `MaterialUniforms` (including per-channel `KHR_texture_transform` scale/offset/rotation), 16x anisotropic sampler, 8 material textures (BaseColor, MetallicRoughness, Normal, Emissive, Occlusion, Clearcoat, Transmission, Sheen), and `MorphDeltas_SSBO`.
+  - `@group(3)` (`SkinStorage`): Dynamically sized skeletal `jointMatrices` SSBO (`Skin::gpuJointBuffer`).
 - **Cook-Torrance PBR Model**:
   - GGX normal distribution $D$, Smith-GGX visibility $V$, Schlick Fresnel $F$.
   - Multi-lobe support for car paint lacquer (`Clearcoat`) and fabric microfiber sheen (`Sheen`).
