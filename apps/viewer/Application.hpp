@@ -285,6 +285,7 @@ private:
     void DrawAtmosphereWeatherSection();
     void DrawEngineThemeSection();
     void PollAsyncSceneLoad(float deltaTime);
+    void RetireActiveLoadAsync() noexcept;
     void CancelPendingSceneLoads() noexcept;
     void SyncModelSelectionFromUri(std::string_view sourceUri);
     void SetLoadingSucceededState();

@@ -5,6 +5,7 @@
 #include "bgl/App.hpp"
 #include "core/CrashHandler.hpp"
 #include "core/Log.hpp"
+#include <algorithm>
 #include <chrono>
 
 namespace bgl {
@@ -41,7 +42,8 @@ int RunApp(std::unique_ptr<App> app, int argc, char** argv) {
     auto prevTime = std::chrono::steady_clock::now();
     while (engine.PollEvents()) {
         const auto now = std::chrono::steady_clock::now();
-        const float dt = std::chrono::duration<float>(now - prevTime).count();
+        const float rawDt = std::chrono::duration<float>(now - prevTime).count();
+        const float dt = std::clamp(rawDt, 0.0f, 0.25f);
         prevTime = now;
 
         engine.Update(dt);

@@ -6,6 +6,7 @@
 #include "bgl/Engine.hpp"
 #include "engine/EngineImpl.hpp"
 #include "engine/EntityOps.hpp"
+#include <cmath>
 #include <glm/gtc/quaternion.hpp>
 
 namespace bgl {
@@ -63,7 +64,7 @@ bool Entity::operator==(const Entity& other) const noexcept {
 }
 
 std::string Entity::Name() const {
-    if (impl_) {
+    if (impl_ && !impl_->scene.expired()) {
         if (auto n = impl_->node.lock()) {
             return n->name;
         }
@@ -79,7 +80,7 @@ void Entity::SetPosition(const glm::vec3& position) {
 }
 
 glm::vec3 Entity::Position() const {
-    if (impl_) {
+    if (impl_ && !impl_->scene.expired()) {
         if (auto n = impl_->node.lock()) {
             return n->translation;
         }
@@ -93,13 +94,15 @@ void Entity::SetRotationEuler(const glm::vec3& degrees) {
 
 void Entity::SetRotation(const glm::quat& rotation) {
     WithNodeAndScene(impl_, [&](scene::SceneNode& node, scene::Scene& scene) {
-        node.rotation = glm::normalize(rotation);
+        const float lenSq = glm::dot(rotation, rotation);
+        node.rotation =
+            (std::isfinite(lenSq) && lenSq > 1e-8f) ? glm::normalize(rotation) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
         CommitTransform(node, scene);
     });
 }
 
 glm::quat Entity::Rotation() const {
-    if (impl_) {
+    if (impl_ && !impl_->scene.expired()) {
         if (auto n = impl_->node.lock()) {
             return n->rotation;
         }
@@ -115,7 +118,7 @@ void Entity::SetScale(const glm::vec3& scale) {
 }
 
 glm::vec3 Entity::Scale() const {
-    if (impl_) {
+    if (impl_ && !impl_->scene.expired()) {
         if (auto n = impl_->node.lock()) {
             return n->scale;
         }
@@ -129,9 +132,10 @@ void Entity::SetParent(const Entity& parent) {
         if (parent.impl_) {
             auto parentScene = parent.impl_->scene.lock();
             auto parentNode = parent.impl_->node.lock();
-            if (parentScene && parentScene.get() == &scene && parentNode) {
-                parentPtr = parentNode.get();
+            if (!parentScene || !parentNode || parentScene.get() != &scene) {
+                return;
             }
+            parentPtr = parentNode.get();
         }
         engine::Reparent(scene, child, parentPtr);
     });
@@ -155,9 +159,8 @@ Entity Engine::CreateEntity(std::string_view name) {
     auto scene = impl_->GetScene();
     if (!scene) {
         auto emptyScene = std::make_shared<scene::Scene>();
-        impl_->GetPipeline().PrepareScene(*emptyScene);
-        scene = emptyScene;
-        impl_->activeScene_ = emptyScene;
+        impl_->ActivateScene(emptyScene, "Scene");
+        scene = impl_->GetScene();
     }
     Entity e;
     e.impl_ = MakeEntityImpl(engine::AddNode(*scene, name), scene);

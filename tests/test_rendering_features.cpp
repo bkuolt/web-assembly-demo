@@ -39,6 +39,7 @@
 #include "scene/RayPicker.hpp"
 #include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
+#include "ui/ImmediateUI.hpp"
 #include "viewer/Application.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -2597,3 +2598,19 @@ TEST(RenderingFeaturesTest, OffscreenWebGpuPipelineAndGpuCullerValidation) {
     }
 }
 #endif
+
+TEST(ShaderManagerSecurityTest, RejectsAbsoluteAndParentTraversalPaths) {
+    auto& sm = gpu::ShaderManager::Instance();
+    EXPECT_FALSE(sm.Preprocess("").has_value());
+    EXPECT_FALSE(sm.Preprocess("/etc/passwd").has_value());
+    EXPECT_FALSE(sm.Preprocess("../CMakeLists.txt").has_value());
+    EXPECT_FALSE(sm.Preprocess("common/../../CMakeLists.txt").has_value());
+}
+
+TEST(ImmediateUiSafetyTest, NullDeviceInitializeFailsCleanlyAndLeavesContextClear) {
+    bgl::ui::ImmediateUI ui;
+    auto res = ui.Initialize(nullptr, nullptr, WGPUTextureFormat_BGRA8Unorm, 1);
+    EXPECT_FALSE(res.has_value());
+    EXPECT_FALSE(bgl::ui::ImmediateUI::GetEmbeddedShaderSource().empty());
+    ui.Shutdown();
+}

@@ -10,7 +10,7 @@ namespace bgl::ui {
 
 namespace {
 
-ImmediateUI* g_activeUiContext = nullptr;
+thread_local ImmediateUI* g_activeUiContext = nullptr;
 
 [[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
     return glm::vec4{c.r, c.g, c.b, alpha};

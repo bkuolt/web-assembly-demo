@@ -125,14 +125,31 @@
       },
       lookAt(out, eye, target, up) {
         let z0 = eye[0] - target[0], z1 = eye[1] - target[1], z2 = eye[2] - target[2];
-        let len = 1 / Math.hypot(z0, z1, z2);
-        z0 *= len; z1 *= len; z2 *= len;
+        const zLen = Math.hypot(z0, z1, z2);
+        if (zLen > 1e-6) {
+          const invZ = 1 / zLen;
+          z0 *= invZ; z1 *= invZ; z2 *= invZ;
+        } else {
+          z0 = 0; z1 = 0; z2 = 1;
+        }
 
         let x0 = up[1] * z2 - up[2] * z1, x1 = up[2] * z0 - up[0] * z2, x2 = up[0] * z1 - up[1] * z0;
-        len = Math.hypot(x0, x1, x2);
-        if (len > 0.00001) { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
+        let xLen = Math.hypot(x0, x1, x2);
+        if (xLen <= 1e-5) {
+          const altUp = Math.abs(z1) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+          x0 = altUp[1] * z2 - altUp[2] * z1;
+          x1 = altUp[2] * z0 - altUp[0] * z2;
+          x2 = altUp[0] * z1 - altUp[1] * z0;
+          xLen = Math.hypot(x0, x1, x2);
+        }
+        if (xLen > 1e-6) {
+          const invX = 1 / xLen;
+          x0 *= invX; x1 *= invX; x2 *= invX;
+        } else {
+          x0 = 1; x1 = 0; x2 = 0;
+        }
 
-        let y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
+        const y0 = z1 * x2 - z2 * x1, y1 = z2 * x0 - z0 * x2, y2 = z0 * x1 - z1 * x0;
 
         out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
         out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
@@ -442,12 +459,38 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent 
     return mat3x3<f32>(fallbackT, fallbackB, N);
 }
 
+fn transformUv(uv : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let su = uv * scaleOffset.xy;
+    if (abs(rot) < 1e-6) {
+        return su + scaleOffset.zw;
+    }
+    let s = sin(rot);
+    let c = cos(rot);
+    return vec2<f32>(c * su.x + s * su.y, -s * su.x + c * su.y) + scaleOffset.zw;
+}
+
+fn transformUvDeriv(d : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
+    let sd = d * scaleOffset.xy;
+    if (abs(rot) < 1e-6) {
+        return sd;
+    }
+    let s = sin(rot);
+    let c = cos(rot);
+    return vec2<f32>(c * sd.x + s * sd.y, -s * sd.x + c * sd.y);
+}
+
 fn getSurfaceHeight(uv : vec2<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> f32 {
     var height = 0.5;
     if ((ubo.flags.x & 16u) != 0u) {
-        height = textureSampleGrad(occlusionTexture, defaultSampler, uv, duv1, duv2).r;
+        let occUv = transformUv(uv, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+        let occDuv1 = transformUvDeriv(duv1, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+        let occDuv2 = transformUvDeriv(duv2, ubo.occlusionUvTransform, ubo.uvRotations0.w);
+        height = textureSampleGrad(occlusionTexture, defaultSampler, occUv, occDuv1, occDuv2).r;
     } else if ((ubo.flags.x & 1u) != 0u) {
-        let col = textureSampleGrad(baseColorTexture, defaultSampler, uv, duv1, duv2).rgb;
+        let baseUv = transformUv(uv, ubo.uvTransform, ubo.uvRotations0.x);
+        let baseDuv1 = transformUvDeriv(duv1, ubo.uvTransform, ubo.uvRotations0.x);
+        let baseDuv2 = transformUvDeriv(duv2, ubo.uvTransform, ubo.uvRotations0.x);
+        let col = textureSampleGrad(baseColorTexture, defaultSampler, baseUv, baseDuv1, baseDuv2).rgb;
         height = dot(col, vec3<f32>(0.299, 0.587, 0.114));
     }
     return clamp(height, 0.0, 1.0);
@@ -761,26 +804,6 @@ fn bayerDither4x4(fragCoord : vec2<f32>) -> f32 {
     return bayer[idx];
 }
 
-fn transformUv(uv : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
-    let su = uv * scaleOffset.xy;
-    if (abs(rot) < 1e-6) {
-        return su + scaleOffset.zw;
-    }
-    let s = sin(rot);
-    let c = cos(rot);
-    return vec2<f32>(c * su.x + s * su.y, -s * su.x + c * su.y) + scaleOffset.zw;
-}
-
-fn transformUvDeriv(d : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f32> {
-    let sd = d * scaleOffset.xy;
-    if (abs(rot) < 1e-6) {
-        return sd;
-    }
-    let s = sin(rot);
-    let c = cos(rot);
-    return vec2<f32>(c * sd.x + s * sd.y, -s * sd.x + c * sd.y);
-}
-
 fn getLodHeatmapColor(lod : u32) -> vec3<f32> {
     if (lod == 0u) {
         return vec3<f32>(0.15, 0.90, 0.35);
@@ -949,23 +972,30 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             N = normalize(TBN * tangentNormal);
         } else if ((ubo.flags.x & 1u) != 0u || (ubo.flags.x & 16u) != 0u) {
             // Surface Gradient Bump Mapping from BaseColor Luminance and Occlusion Cavity
-            let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
-            let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
-            let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
+            var dHdU : f32 = 0.0;
+            var dHdV : f32 = 0.0;
 
-            let hR = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv + vec2<f32>(texelStep.x, 0.0), baseDuv1, baseDuv2).rgb, lumaWeights);
-            let hL = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv - vec2<f32>(texelStep.x, 0.0), baseDuv1, baseDuv2).rgb, lumaWeights);
-            let hU = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv + vec2<f32>(0.0, texelStep.y), baseDuv1, baseDuv2).rgb, lumaWeights);
-            let hD = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv - vec2<f32>(0.0, texelStep.y), baseDuv1, baseDuv2).rgb, lumaWeights);
+            if ((ubo.flags.x & 1u) != 0u) {
+                let baseDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
+                let baseStep = 1.0 / clamp(baseDims, vec2<f32>(64.0), vec2<f32>(2048.0));
+                let lumaWeights = vec3<f32>(0.299, 0.587, 0.114);
 
-            var dHdU = (hR - hL);
-            var dHdV = (hU - hD);
+                let hR = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv + vec2<f32>(baseStep.x, 0.0), baseDuv1, baseDuv2).rgb, lumaWeights);
+                let hL = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv - vec2<f32>(baseStep.x, 0.0), baseDuv1, baseDuv2).rgb, lumaWeights);
+                let hU = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv + vec2<f32>(0.0, baseStep.y), baseDuv1, baseDuv2).rgb, lumaWeights);
+                let hD = dot(textureSampleGrad(baseColorTexture, defaultSampler, baseUv - vec2<f32>(0.0, baseStep.y), baseDuv1, baseDuv2).rgb, lumaWeights);
+
+                dHdU = dHdU + (hR - hL);
+                dHdV = dHdV + (hU - hD);
+            }
 
             if ((ubo.flags.x & 16u) != 0u) {
-                let occR = textureSampleGrad(occlusionTexture, defaultSampler, occUv + vec2<f32>(texelStep.x, 0.0), occDuv1, occDuv2).r;
-                let occL = textureSampleGrad(occlusionTexture, defaultSampler, occUv - vec2<f32>(texelStep.x, 0.0), occDuv1, occDuv2).r;
-                let occU = textureSampleGrad(occlusionTexture, defaultSampler, occUv + vec2<f32>(0.0, texelStep.y), occDuv1, occDuv2).r;
-                let occD = textureSampleGrad(occlusionTexture, defaultSampler, occUv - vec2<f32>(0.0, texelStep.y), occDuv1, occDuv2).r;
+                let occDims = vec2<f32>(textureDimensions(occlusionTexture, 0));
+                let occStep = 1.0 / clamp(occDims, vec2<f32>(64.0), vec2<f32>(2048.0));
+                let occR = textureSampleGrad(occlusionTexture, defaultSampler, occUv + vec2<f32>(occStep.x, 0.0), occDuv1, occDuv2).r;
+                let occL = textureSampleGrad(occlusionTexture, defaultSampler, occUv - vec2<f32>(occStep.x, 0.0), occDuv1, occDuv2).r;
+                let occU = textureSampleGrad(occlusionTexture, defaultSampler, occUv + vec2<f32>(0.0, occStep.y), occDuv1, occDuv2).r;
+                let occD = textureSampleGrad(occlusionTexture, defaultSampler, occUv - vec2<f32>(0.0, occStep.y), occDuv1, occDuv2).r;
                 dHdU = dHdU + (occR - occL) * 0.75;
                 dHdV = dHdV + (occU - occD) * 0.75;
             }
@@ -1360,52 +1390,6 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           ]
         };
 
-        this.pipeline = this.device.createRenderPipeline({
-          layout: this.pipelineLayout,
-          vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main',
-            buffers: [vertexBufferLayout]
-          },
-          fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: [{ format: this.format }]
-          },
-          primitive: {
-            topology: 'triangle-list',
-            cullMode: 'back'
-          },
-          depthStencil: {
-            format: 'depth24plus',
-            depthWriteEnabled: true,
-            depthCompare: 'less'
-          }
-        });
-
-        this.pipelineDoubleSided = this.device.createRenderPipeline({
-          layout: this.pipelineLayout,
-          vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main',
-            buffers: [vertexBufferLayout]
-          },
-          fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: [{ format: this.format }]
-          },
-          primitive: {
-            topology: 'triangle-list',
-            cullMode: 'none'
-          },
-          depthStencil: {
-            format: 'depth24plus',
-            depthWriteEnabled: true,
-            depthCompare: 'less'
-          }
-        });
-
         // Skeletal Skinning Bind Group Layout (@group(1)) & Pipelines
         this.skinBindGroupLayout = this.device.createBindGroupLayout({
           entries: [
@@ -1429,51 +1413,44 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           ]
         };
 
-        this.skinnedPipeline = this.device.createRenderPipeline({
-          layout: this.skinnedPipelineLayout,
-          vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main_skinned',
-            buffers: [vertexBufferLayout, skinVertexBufferLayout]
-          },
+        const transparentBlend = {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        };
+        const createScenePipeline = (layout, vertexEntry, buffers, cullMode, isTransparent) => this.device.createRenderPipeline({
+          layout,
+          vertex: { module: shaderModule, entryPoint: vertexEntry, buffers },
           fragment: {
             module: shaderModule,
             entryPoint: 'fs_main',
-            targets: [{ format: this.format }]
+            targets: [isTransparent ? { format: this.format, blend: transparentBlend } : { format: this.format }]
           },
-          primitive: {
-            topology: 'triangle-list',
-            cullMode: 'back'
-          },
+          primitive: { topology: 'triangle-list', cullMode },
           depthStencil: {
             format: 'depth24plus',
-            depthWriteEnabled: true,
+            depthWriteEnabled: !isTransparent,
             depthCompare: 'less'
           }
         });
 
-        this.skinnedPipelineDoubleSided = this.device.createRenderPipeline({
-          layout: this.skinnedPipelineLayout,
-          vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main_skinned',
-            buffers: [vertexBufferLayout, skinVertexBufferLayout]
-          },
-          fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: [{ format: this.format }]
-          },
-          primitive: {
-            topology: 'triangle-list',
-            cullMode: 'none'
-          },
-          depthStencil: {
-            format: 'depth24plus',
-            depthWriteEnabled: true,
-            depthCompare: 'less'
-          }
-        });
+        this.pipeline = createScenePipeline(this.pipelineLayout, 'vs_main', [vertexBufferLayout], 'back', false);
+        this.pipelineDoubleSided = createScenePipeline(this.pipelineLayout, 'vs_main', [vertexBufferLayout], 'none', false);
+        this.skinnedPipeline = createScenePipeline(
+          this.skinnedPipelineLayout, 'vs_main_skinned', [vertexBufferLayout, skinVertexBufferLayout], 'back', false
+        );
+        this.skinnedPipelineDoubleSided = createScenePipeline(
+          this.skinnedPipelineLayout, 'vs_main_skinned', [vertexBufferLayout, skinVertexBufferLayout], 'none', false
+        );
+        this.transparentPipeline = createScenePipeline(this.pipelineLayout, 'vs_main', [vertexBufferLayout], 'back', true);
+        this.transparentPipelineDoubleSided = createScenePipeline(
+          this.pipelineLayout, 'vs_main', [vertexBufferLayout], 'none', true
+        );
+        this.transparentSkinnedPipeline = createScenePipeline(
+          this.skinnedPipelineLayout, 'vs_main_skinned', [vertexBufferLayout, skinVertexBufferLayout], 'back', true
+        );
+        this.transparentSkinnedPipelineDoubleSided = createScenePipeline(
+          this.skinnedPipelineLayout, 'vs_main_skinned', [vertexBufferLayout, skinVertexBufferLayout], 'none', true
+        );
 
         this.mipmapBindGroupLayout = this.device.createBindGroupLayout({
           entries: [
@@ -1523,6 +1500,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     },
 
     initEvents() {
+      if (this._eventsInitialized) return;
+      this._eventsInitialized = true;
       const canvas = this.canvas;
       canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -1777,6 +1756,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     loadModel(gltf, arrayBuffer, modelName) {
       if (!this.isActive || !this.device) return;
+      const loadGen = (this._loadGeneration = (this._loadGeneration || 0) + 1);
 
       // Release previous GPU resources to prevent VRAM memory leak
       for (const prim of this.primitives) {
@@ -1858,7 +1838,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           BglLogger.warn('glTF', `BufferView ${viewIdx} out of bounds: offset ${offset} + length ${length} > ${src ? src.byteLength : 0}`);
           return null;
         }
-        return src.slice(offset, offset + length);
+        return { buffer: src, byteOffset: offset, byteLength: length };
       };
 
       const getAccessorData = (accIdx) => {
@@ -1889,13 +1869,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
           return null;
         }
 
-        if (stride === numComp * elemBytes && (byteOffset % elemBytes === 0)) {
-          return new TypedArray(bvData, byteOffset, acc.count * numComp);
+        const absByteOffset = bvData.byteOffset + byteOffset;
+        if (stride === numComp * elemBytes && (absByteOffset % elemBytes === 0)) {
+          return new TypedArray(bvData.buffer, absByteOffset, acc.count * numComp);
         }
 
         const totalElems = acc.count * numComp;
         const out = new TypedArray(totalElems);
-        const dView = new DataView(bvData);
+        const dView = new DataView(bvData.buffer, bvData.byteOffset, bvData.byteLength);
         for (let i = 0; i < acc.count; ++i) {
           const itemOffset = byteOffset + i * stride;
           for (let c = 0; c < numComp; ++c) {
@@ -2398,7 +2379,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
                 const onImageReady = (bmp) => {
                   try {
-                    if (!this.device) return;
+                    if (!this.device || this._loadGeneration !== loadGen) {
+                      if (typeof bmp.close === 'function') bmp.close();
+                      return;
+                    }
                     const mipLevelCount = Math.max(1, Math.floor(Math.log2(Math.max(bmp.width || 1, bmp.height || 1))) + 1);
                     const gpuTex = this.device.createTexture({
                       size: [bmp.width, bmp.height, 1],
@@ -2430,8 +2414,10 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 };
 
                 const decodeBitmap = (srcObj) => {
+                  if (this._loadGeneration !== loadGen) return;
                   const opts = { colorSpaceConversion: 'none' };
                   createImageBitmap(srcObj, opts).then(onImageReady).catch(() => {
+                    if (this._loadGeneration !== loadGen) return;
                     createImageBitmap(srcObj).then(onImageReady).catch((err) => {
                       BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
                     });
@@ -2439,9 +2425,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                 };
 
                 if (imgObj.bufferView !== undefined) {
-                  const imgBytes = getBufferViewData(imgObj.bufferView);
-                  if (imgBytes) {
-                    const blob = new Blob([imgBytes], { type: imgObj.mimeType || 'image/png' });
+                  const imgView = getBufferViewData(imgObj.bufferView);
+                  if (imgView) {
+                    const blob = new Blob([new Uint8Array(imgView.buffer, imgView.byteOffset, imgView.byteLength)], {
+                      type: imgObj.mimeType || 'image/png'
+                    });
                     decodeBitmap(blob);
                   }
                 } else if (imgObj.uri) {
@@ -2449,6 +2437,9 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
                   img.crossOrigin = 'anonymous';
                   img.onload = () => {
                     decodeBitmap(img);
+                  };
+                  img.onerror = () => {
+                    BglLogger.warn('WebGPU', `Failed to load external texture image #${imgIdx}: ${imgObj.uri}`);
                   };
                   img.src = imgObj.uri;
                 }
@@ -2536,9 +2527,12 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     updateNodeHierarchy() {
       this._hierarchyVersion = (this._hierarchyVersion || 0) + 1;
+      const visiting = new Set();
       const updateNode = (nodeIdx, parentWorld) => {
+        if (visiting.has(nodeIdx)) return;
         const node = this.nodes[nodeIdx];
         if (!node) return;
+        visiting.add(nodeIdx);
         if (node.matrix) {
           node.localMatrix.set(node.matrix);
         } else {
@@ -2552,6 +2546,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         for (let i = 0; i < node.children.length; ++i) {
           updateNode(node.children[i], node.worldMatrix);
         }
+        visiting.delete(nodeIdx);
       };
       for (let i = 0; i < this.rootNodes.length; ++i) {
         updateNode(this.rootNodes[i], null);
@@ -2819,7 +2814,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
 
     stepFrame(time) {
       if (!this.isActive || !this.device || !this.context) return;
-      const dt = (time - this.lastFrameTime) * 0.001;
+      const dt = this.lastFrameTime ? Math.max(0.0, Math.min((time - this.lastFrameTime) * 0.001, 0.1)) : (1.0 / 60.0);
       this.lastFrameTime = time;
       if (this.turntable) {
         this.camera.yaw += this.turntableSpeed * dt;
@@ -3143,9 +3138,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         this.device.queue.writeBuffer(prim.uniformBuffer, 0, uboBuffer);
 
         const isSkinnedDraw = !!(prim.isSkinned && prim.skinIdx >= 0 && this.skins[prim.skinIdx] && this.skinnedPipeline);
+        const isTransparent = prim.alphaMode === 2;
         const pipeline = isSkinnedDraw
-          ? (prim.doubleSided ? this.skinnedPipelineDoubleSided : this.skinnedPipeline)
-          : (prim.doubleSided ? this.pipelineDoubleSided : this.pipeline);
+          ? (isTransparent
+              ? (prim.doubleSided ? this.transparentSkinnedPipelineDoubleSided : this.transparentSkinnedPipeline)
+              : (prim.doubleSided ? this.skinnedPipelineDoubleSided : this.skinnedPipeline))
+          : (isTransparent
+              ? (prim.doubleSided ? this.transparentPipelineDoubleSided : this.transparentPipeline)
+              : (prim.doubleSided ? this.pipelineDoubleSided : this.pipeline));
 
         if (pipeline !== lastPipeline) {
           pass.setPipeline(pipeline);

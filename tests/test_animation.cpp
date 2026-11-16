@@ -396,3 +396,36 @@ TEST(AnimationTest, AnimationCalculateDuration) {
     anim.CalculateDuration();
     EXPECT_FLOAT_EQ(anim.duration, 4.5f);
 }
+
+TEST(AnimationTest, UpdateAnimationClampsNegativeDeltaTimeAndWrapsCleanly) {
+    Scene scene;
+    auto node = std::make_shared<SceneNode>();
+    scene.allNodes.push_back(node);
+    scene.rootNodes.push_back(node);
+
+    Animation anim;
+    anim.name = "LoopClip";
+    anim.duration = 2.0f;
+
+    AnimationChannel ch;
+    ch.samplerIndex = 0;
+    ch.targetNodeIndex = 0;
+    ch.path = AnimationPath::Translation;
+    anim.channels.push_back(ch);
+
+    AnimationSampler sampler;
+    sampler.interpolation = AnimationInterpolation::Linear;
+    sampler.timestamps = {0.0f, 2.0f};
+    sampler.keyframeValues = {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f};
+    anim.samplers.push_back(sampler);
+    scene.animations.push_back(std::move(anim));
+
+    scene.SetAnimation(0);
+    scene.UpdateAnimation(-0.5f);
+    EXPECT_GE(scene.animationTime, 0.0f);
+    EXPECT_FLOAT_EQ(node->translation.x, 0.0f);
+
+    scene.UpdateAnimation(5.0f); // 5.0 mod 2.0 == 1.0 -> midpoint (x = 5.0)
+    EXPECT_NEAR(scene.animationTime, 1.0f, 1e-4f);
+    EXPECT_NEAR(node->translation.x, 5.0f, 1e-4f);
+}

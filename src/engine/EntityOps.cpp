@@ -74,6 +74,10 @@ void Reparent(scene::Scene& scene, scene::SceneNode& child, scene::SceneNode* ne
 }
 
 void AttachLight(scene::Scene& scene, scene::SceneNode& node, const scene::PunctualLight& light) {
+    if (node.lightIndex >= 0 && static_cast<size_t>(node.lightIndex) < scene.lights.size()) {
+        scene.lights[static_cast<size_t>(node.lightIndex)] = light;
+        return;
+    }
     scene.lights.push_back(light);
     node.lightIndex = static_cast<int>(scene.lights.size() - 1);
 }

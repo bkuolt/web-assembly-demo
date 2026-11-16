@@ -582,9 +582,10 @@ void Scene::UpdateAnimation(float deltaTime) {
     }
 
     if (animationPlaying) {
-        animationTime += deltaTime;
-        if (animationTime > anim.duration) {
-            animationTime = std::fmod(animationTime, anim.duration);
+        animationTime += std::max(0.0f, deltaTime);
+        animationTime = std::fmod(animationTime, anim.duration);
+        if (animationTime < 0.0f) {
+            animationTime += anim.duration;
         }
     }
     EvaluateAnimation(static_cast<size_t>(activeAnimationIndex), animationTime);

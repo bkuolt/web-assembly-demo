@@ -145,12 +145,14 @@ bool Engine::Impl::PollEvents() {
                 char* droppedStr{event.drop.file};
                 if (droppedStr) {
                     const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
-                    if (dropCb_) {
-                        dropCb_(sanitized);
-                    }
-                    if (config_.loadDroppedFiles) {
-                        if (auto loadRes = LoadSceneFromUri(sanitized); !loadRes) {
-                            BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", sanitized, loadRes.error());
+                    if (!sanitized.empty()) {
+                        if (dropCb_) {
+                            dropCb_(sanitized);
+                        }
+                        if (config_.loadDroppedFiles) {
+                            if (auto loadRes = LoadSceneFromUri(sanitized); !loadRes) {
+                                BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", sanitized, loadRes.error());
+                            }
                         }
                     }
                     SDL_free(droppedStr);
@@ -172,19 +174,22 @@ void Engine::Impl::Update(float deltaTime) {
 
     ApplySettings();
 
-    if (config_.defaultCameraControls && !guiWantsMouse_) {
+    const float safeDt = std::clamp(deltaTime, 0.0f, 0.25f);
+    if (config_.defaultCameraControls) {
         const float dist = camera_.GetDistance();
-        const glm::vec2 delta = Input::MouseDelta();
-        if (Input::IsMouseDown(MouseButton::Left) && (delta.x != 0.0f || delta.y != 0.0f)) {
-            camera_.Orbit(delta.x * 0.005f, -delta.y * 0.005f);
-        } else if (Input::IsMouseDown(MouseButton::Right) && (delta.x != 0.0f || delta.y != 0.0f)) {
-            camera_.Pan(-delta.x * 0.0005f * dist, delta.y * 0.0005f * dist);
-        }
-        if (const float wheel = Input::MouseWheel(); wheel != 0.0f) {
-            camera_.Zoom(wheel * dist * 0.12f);
+        if (!guiWantsMouse_) {
+            const glm::vec2 delta = Input::MouseDelta();
+            if (Input::IsMouseDown(MouseButton::Left) && (delta.x != 0.0f || delta.y != 0.0f)) {
+                camera_.Orbit(delta.x * 0.005f, -delta.y * 0.005f);
+            } else if (Input::IsMouseDown(MouseButton::Right) && (delta.x != 0.0f || delta.y != 0.0f)) {
+                camera_.Pan(-delta.x * 0.0005f * dist, delta.y * 0.0005f * dist);
+            }
+            if (const float wheel = Input::MouseWheel(); wheel != 0.0f) {
+                camera_.Zoom(wheel * dist * 0.12f);
+            }
         }
 
-        const float moveSpeed = std::max(dist * 1.5f, 1.0f) * deltaTime;
+        const float moveSpeed = std::max(dist * 1.5f, 1.0f) * safeDt;
         if (Input::IsKeyDown(Key::W) || Input::IsKeyDown(Key::Up)) {
             camera_.MoveForward(moveSpeed);
         }
@@ -199,7 +204,7 @@ void Engine::Impl::Update(float deltaTime) {
         }
     }
 
-    UpdateSimulation(deltaTime);
+    UpdateSimulation(safeDt);
 }
 
 void Engine::Impl::BeginGui() {
@@ -235,7 +240,16 @@ void Engine::Impl::OnRenderOverlay(WGPURenderPassEncoder swapchainPass) {
     gui_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
 }
 
+void Engine::Impl::Render() {
+    ApplySettings();
+    EngineCore::Render();
+}
+
 void Engine::Impl::Shutdown() {
+    if (guiFrameOpen_) {
+        engine::g_currentGui = nullptr;
+        guiFrameOpen_ = false;
+    }
     gui_.Shutdown();
     EngineCore::Shutdown();
 }

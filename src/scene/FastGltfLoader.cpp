@@ -15,12 +15,15 @@ namespace {
 
 core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_view baseUri,
                                           std::vector<std::vector<uint8_t>>& externalBufferStorage,
-                                          size_t& outTotalBufferBytes) {
+                                          size_t& outTotalBufferBytes, detail::ProgressReporter* reporter) {
     externalBufferStorage.resize(asset.buffers.size());
     outTotalBufferBytes = 0;
 
     BGL_LOG_INFO("[glTF Loader] --- Buffers ({} total) ---", asset.buffers.size());
     for (size_t bIdx{0}; bIdx < asset.buffers.size(); ++bIdx) {
+        if (reporter && reporter->IsCancelled()) {
+            return std::unexpected("Loading cancelled");
+        }
         auto& buf = asset.buffers[bIdx];
         outTotalBufferBytes += buf.byteLength;
         const char* typeStr{"Unknown"};
@@ -37,7 +40,10 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
             const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
             BGL_LOG_INFO("  * Buffer #{}: Resolving external URI '{}' -> '{}'", bIdx, rawUriStr, resolvedUri);
 
-            auto fetchRes = core::NetworkFetcher::FetchSync(resolvedUri);
+            auto fetchRes =
+                core::NetworkFetcher::FetchSync(resolvedUri, [reporter](const core::FetchProgress&) -> bool {
+                    return !reporter || !reporter->IsCancelled();
+                });
             if (!fetchRes) {
                 return std::unexpected("Failed to fetch external glTF buffer '" + resolvedUri +
                                        "': " + fetchRes.error());
@@ -196,7 +202,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
 
     std::vector<std::vector<uint8_t>> externalBufferStorage{};
     size_t totalBufferBytes{0};
-    if (auto res = ResolveExternalBuffers(asset, baseUri, externalBufferStorage, totalBufferBytes); !res) {
+    if (auto res = ResolveExternalBuffers(asset, baseUri, externalBufferStorage, totalBufferBytes, &reporter); !res) {
         return std::unexpected(res.error());
     }
 

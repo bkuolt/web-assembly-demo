@@ -517,6 +517,35 @@ eval(fs.readFileSync('web/js/renderer.js', 'utf8'));
   exp.free(namePtr);
   exp.free(toyPtr);
 
+  // Security & bounds checks: overflow malloc, double-free, foreign pointer free, corrupt GLB chunkLen
+  assert.strictEqual(exp.malloc(0xFFFFFFFF), 0, 'WASM malloc(0xFFFFFFFF) must fail safely without wraparound');
+  const guardPtr = exp.malloc(64);
+  assert(guardPtr > 0, 'WASM malloc(64) must succeed');
+  exp.free(0);
+  exp.free(0x1234);         // out-of-heap pointer
+  exp.free(guardPtr + 8);   // interior pointer must be ignored
+  exp.free(guardPtr);       // valid free
+  exp.free(guardPtr);       // duplicate free must be ignored safely
+  const afterFreePtr = exp.malloc(64);
+  assert(afterFreePtr > 0, 'WASM heap must remain uncorrupted after invalid/double free');
+  exp.free(afterFreePtr);
+
+  const badGlb = new Uint8Array(24);
+  const badDv = new DataView(badGlb.buffer);
+  badDv.setUint32(0, 0x46546C67, true);
+  badDv.setUint32(4, 2, true);
+  badDv.setUint32(8, 24, true);
+  badDv.setUint32(12, 0xFFFFFFF8, true); // overflowed chunk length
+  badDv.setUint32(16, 0x4E4F534A, true);
+  const badGlbPtr = exp.malloc(badGlb.length);
+  const badName = new TextEncoder().encode('corrupt.glb\0');
+  const badNamePtr = exp.malloc(badName.length);
+  new Uint8Array(wasmMem.buffer).set(badGlb, badGlbPtr);
+  new Uint8Array(wasmMem.buffer).set(badName, badNamePtr);
+  assert.strictEqual(exp.bgl_load_file_buffer(badNamePtr, badGlbPtr, badGlb.length), 0, 'Overflowed GLB chunkLen must be rejected');
+  exp.free(badNamePtr);
+  exp.free(badGlbPtr);
+
   if (fs.existsSync('web/assets/Sponza.glb')) {
     const sponzaRaw = fs.readFileSync('web/assets/Sponza.glb');
     const sponzaPtr = exp.malloc(sponzaRaw.length);
@@ -530,6 +559,69 @@ eval(fs.readFileSync('web/js/renderer.js', 'utf8'));
     exp.free(sponzaPtr);
   }
   console.log(`✓ Real C++23 Emscripten WASM module verified (${Object.keys(exp).length} exports, ${wasmBytes.length} bytes)`);
+
+  console.log('--- Step 13: Verifying Transparent BLEND Pipeline Selection & Node Hierarchy Cycle Guard ---');
+  assert(BglWebGpuRenderer.transparentPipeline && BglWebGpuRenderer.transparentPipeline.desc.fragment.targets[0].blend,
+    'Transparent pipeline must configure alpha blend state');
+  assert.strictEqual(BglWebGpuRenderer.transparentPipeline.desc.depthStencil.depthWriteEnabled, false,
+    'Transparent pipeline must disable depth writes');
+  const cyclicGltf = {
+    asset: { version: '2.0' },
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { children: [1], translation: [0, 0, 0] },
+      { children: [0], translation: [1, 0, 0] }
+    ],
+    meshes: [{ primitives: [] }]
+  };
+  BglWebGpuRenderer.loadModel(cyclicGltf, new ArrayBuffer(0), 'cyclic.gltf');
+  assert.strictEqual(BglWebGpuRenderer.nodes.length, 2, 'Cyclic glTF hierarchy must terminate without infinite recursion');
+
+  // Inject one BLEND primitive and confirm draw() selects transparentPipeline
+  const boundPipelines = [];
+  const origSetPipeline = MockGPURenderPassEncoder.prototype.setPipeline;
+  MockGPURenderPassEncoder.prototype.setPipeline = function(p) {
+    boundPipelines.push(p);
+    return origSetPipeline.call(this, p);
+  };
+  const dummyVb = mockGpuDevice.createBuffer({ size: 144, usage: 0x28 });
+  const dummyUb = mockGpuDevice.createBuffer({ size: 512, usage: 0x48 });
+  const dummyBg = mockGpuDevice.createBindGroup({ layout: BglWebGpuRenderer.bindGroupLayout, entries: [] });
+  BglWebGpuRenderer.primitives = [{
+    vertexBuffer: dummyVb,
+    skinVertexBuffer: null,
+    indexBuffer: null,
+    indexFormat: 'uint16',
+    hasIndices: false,
+    indexCount: 0,
+    vertexCount: 3,
+    uniformBuffer: dummyUb,
+    bindGroup: dummyBg,
+    modelMatrix: BglWebGpuRenderer.mat4.create(),
+    localCenter: [0, 0, 0],
+    localRadius: 1.0,
+    baseColorFactor: [1, 1, 1, 0.5],
+    metallicFactor: 0,
+    roughnessFactor: 0.5,
+    normalScale: 1,
+    occlusionStrength: 1,
+    emissiveFactor: [0, 0, 0],
+    alphaCutoff: 0.5,
+    alphaMode: 2,
+    doubleSided: false,
+    isSkinned: false,
+    skinIdx: -1,
+    flags: 0,
+    materialIdx: 0
+  }];
+  BglWebGpuRenderer.rebuildSortedPrimitives();
+  BglWebGpuRenderer.camera.target = [0, 0, 0];
+  BglWebGpuRenderer.camera.distance = 3.0;
+  BglWebGpuRenderer.draw();
+  MockGPURenderPassEncoder.prototype.setPipeline = origSetPipeline;
+  assert(boundPipelines.includes(BglWebGpuRenderer.transparentPipeline),
+    'alphaMode === 2 primitive must bind transparentPipeline');
+  console.log('✓ Transparent BLEND pipeline binding and cyclic hierarchy guard verified');
 
   console.log('--- ALL WEBGPU PIPELINE TESTS PASSED (100%) ---');
   process.exit(0);

@@ -57,7 +57,7 @@ FontAtlas& FontAtlas::operator=(FontAtlas&& other) noexcept {
     return *this;
 }
 
-void FontAtlas::Cleanup() {
+void FontAtlas::Cleanup() noexcept {
     gpuSampler_.Reset();
     gpuTextureView_.Reset();
     gpuTexture_.Reset();

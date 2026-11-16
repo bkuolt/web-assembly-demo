@@ -274,9 +274,6 @@
     btnWeatherFog: document.getElementById('btn-weather-fog'),
     btnWeatherSmoke: document.getElementById('btn-weather-smoke'),
 
-    btnToyCar: document.getElementById('btn-load-toycar'),
-    btnSponza: document.getElementById('btn-load-sponza'),
-
     elDims: document.getElementById('aabb-dims'),
     elMin: document.getElementById('aabb-min'),
     elMax: document.getElementById('aabb-max'),
@@ -320,12 +317,6 @@
     },
 
     setActiveModelButton(modelName) {
-      if (this.btnToyCar) {
-        this.btnToyCar.classList.toggle('active', modelName.includes('ToyCar'));
-      }
-      if (this.btnSponza) {
-        this.btnSponza.classList.toggle('active', modelName.includes('Sponza'));
-      }
       const select = document.getElementById('model-select');
       if (select) {
         let matched = false;

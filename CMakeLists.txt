@@ -329,6 +329,7 @@ add_library(bgl::text ALIAS bgl_text)
 add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
     src/ui/ImmediateUI.cpp
+    src/ui/ImmediateUIGpu.cpp
     src/ui/ImmediateUIOverlays.cpp
     src/ui/ImmediateUIWidgets.cpp
 )

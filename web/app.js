@@ -1031,8 +1031,20 @@
   window.toggleLodHeatmap = toggleLodHeatmap;
 
   function saveBookmark(slot) {
+    if (BglWebGpuRenderer && BglWebGpuRenderer.isActive && BglWebGpuRenderer.camera) {
+      BglState.cameraBookmarks = BglState.cameraBookmarks || {};
+      const cam = BglWebGpuRenderer.camera;
+      BglState.cameraBookmarks[slot] = {
+        target: cam.target.slice(),
+        distance: cam.distance,
+        yaw: cam.yaw,
+        pitch: cam.pitch
+      };
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_save_bookmark) {
       BglState.wasmExports.bgl_camera_save_bookmark(slot);
+    }
+    if (BglState.cameraBookmarks?.[slot] || BglState.wasmExports?.bgl_camera_save_bookmark) {
       BglNotifier.show({
         type: 'success',
         title: 'Bookmark Saved',
@@ -1043,8 +1055,20 @@
   window.saveBookmark = saveBookmark;
 
   function restoreBookmark(slot) {
+    const saved = BglState.cameraBookmarks?.[slot];
+    if (saved && BglWebGpuRenderer && BglWebGpuRenderer.camera) {
+      const cam = BglWebGpuRenderer.camera;
+      cam.target[0] = saved.target[0];
+      cam.target[1] = saved.target[1];
+      cam.target[2] = saved.target[2];
+      cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, saved.distance));
+      cam.yaw = saved.yaw;
+      cam.pitch = Math.max(-1.45, Math.min(1.45, saved.pitch));
+    }
     if (BglState.wasmExports && BglState.wasmExports.bgl_camera_restore_bookmark) {
       BglState.wasmExports.bgl_camera_restore_bookmark(slot);
+    }
+    if (saved || BglState.wasmExports?.bgl_camera_restore_bookmark) {
       BglLogger.log('Engine', `Restored viewpoint bookmark #${slot + 1}`);
     }
   }
@@ -1243,11 +1267,23 @@
         case '\'': onLodBiasSlider((BglState.lodBias || 1.0) + 0.15); break;
         case '+':
         case '=':
-          if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);
+          if (!e.repeat) {
+            if (BglWebGpuRenderer && BglWebGpuRenderer.isActive && BglWebGpuRenderer.camera) {
+              const cam = BglWebGpuRenderer.camera;
+              cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, cam.distance * 0.9));
+            }
+            if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(0.8);
+          }
           break;
         case '-':
         case '_':
-          if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(-0.8);
+          if (!e.repeat) {
+            if (BglWebGpuRenderer && BglWebGpuRenderer.isActive && BglWebGpuRenderer.camera) {
+              const cam = BglWebGpuRenderer.camera;
+              cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, cam.distance * 1.1));
+            }
+            if (BglState.wasmExports && BglState.wasmExports.bgl_camera_zoom) BglState.wasmExports.bgl_camera_zoom(-0.8);
+          }
           break;
         case 'ESCAPE': dismissCompatWarning(); break;
         default: break;
@@ -1266,8 +1302,11 @@
       const dt = Math.min((now - lastNavTime) / 1000, 0.1);
       lastNavTime = now;
 
-      if (activeNavKeys.size > 0 && BglState.wasmExports) {
-        const moveSpeed = 4.0 * dt;
+      if (activeNavKeys.size > 0) {
+        const baseScale = (BglWebGpuRenderer && BglWebGpuRenderer.camera)
+          ? Math.max(BglWebGpuRenderer.camera.distance * 1.5, 1.0)
+          : 4.0;
+        const moveSpeed = baseScale * dt;
         let fwd = 0;
         let right = 0;
         let zoom = 0;
@@ -1280,11 +1319,26 @@
         if (activeNavKeys.has('Equal') || activeNavKeys.has('NumpadAdd')) zoom += 3.5 * dt;
         if (activeNavKeys.has('Minus') || activeNavKeys.has('NumpadSubtract')) zoom -= 3.5 * dt;
 
-        if ((fwd !== 0 || right !== 0) && BglState.wasmExports.bgl_camera_move) {
-          BglState.wasmExports.bgl_camera_move(fwd, right, 0);
+        if (BglWebGpuRenderer && BglWebGpuRenderer.isActive && BglWebGpuRenderer.camera) {
+          const cam = BglWebGpuRenderer.camera;
+          if (fwd !== 0 || right !== 0) {
+            const cy = Math.cos(cam.yaw);
+            const sy = Math.sin(cam.yaw);
+            cam.target[0] += (-sy * fwd + cy * right);
+            cam.target[2] += (-cy * fwd - sy * right);
+          }
+          if (zoom !== 0) {
+            const scale = Math.max(0.5, 1.0 - zoom * 0.25);
+            cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, cam.distance * scale));
+          }
         }
-        if (zoom !== 0 && BglState.wasmExports.bgl_camera_zoom) {
-          BglState.wasmExports.bgl_camera_zoom(zoom);
+        if (BglState.wasmExports) {
+          if ((fwd !== 0 || right !== 0) && BglState.wasmExports.bgl_camera_move) {
+            BglState.wasmExports.bgl_camera_move(fwd, right, 0);
+          }
+          if (zoom !== 0 && BglState.wasmExports.bgl_camera_zoom) {
+            BglState.wasmExports.bgl_camera_zoom(zoom);
+          }
         }
       }
     }

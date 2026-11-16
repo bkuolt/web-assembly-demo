@@ -93,6 +93,9 @@ public:
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount);
 
+    /** @brief Releases WebGPU text renderer and font atlas resources cleanly prior to device teardown. */
+    void Shutdown() noexcept;
+
     /**
      * @brief Ingests current engine telemetry metrics and updates exponential moving averages for FPS.
      * @param deltaTime Elapsed frame time in seconds.

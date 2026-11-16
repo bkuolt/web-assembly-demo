@@ -52,10 +52,29 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
 TextRenderer::TextRenderer() = default;
 
-TextRenderer::~TextRenderer() = default;
+TextRenderer::~TextRenderer() {
+    Shutdown();
+}
+
+void TextRenderer::Shutdown() noexcept {
+    vertexBatch_.clear();
+    indexBatch_.clear();
+    indexBuffer_.Reset();
+    vertexBuffer_.Reset();
+    vertexBufferCapacity_ = 0;
+    indexBufferCapacity_ = 0;
+    bindGroup_.Reset();
+    uniformBuffer_.Reset();
+    pipeline_.Reset();
+    bindGroupLayout_.Reset();
+    fontAtlas_ = nullptr;
+    device_ = nullptr;
+    queue_ = nullptr;
+}
 
 core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                             uint32_t sampleCount, FontAtlas& fontAtlas) {
+    Shutdown();
     device_ = device;
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;

@@ -49,6 +49,11 @@ core::Result<void> DebugOverlay::Initialize(WGPUDevice device, WGPUQueue queue, 
     return textRenderer_.Initialize(device, queue, surfaceFormat, sampleCount, fontAtlas_);
 }
 
+void DebugOverlay::Shutdown() noexcept {
+    textRenderer_.Shutdown();
+    fontAtlas_.Shutdown();
+}
+
 void DebugOverlay::Toggle() noexcept {
     switch (mode_) {
     case OverlayMode::Full:

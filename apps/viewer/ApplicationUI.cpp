@@ -265,6 +265,8 @@ void Application::DrawAtmosphereWeatherSection() {
         std::min(static_cast<size_t>(std::to_underlying(pipelineManager_.GetEnvironmentPreset())), size_t{3});
     if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNames, envIdx)) {
         pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
+        skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(),
+                                      pipelineManager_.GetDefaultSampler());
     }
 
     float tod = timeOfDay_;

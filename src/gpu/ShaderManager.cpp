@@ -244,7 +244,7 @@ std::string ShaderManager::ResolveIncludePath(std::string_view includingVirtualP
     const std::filesystem::path baseDir{std::filesystem::path{includingVirtualPath}.parent_path()};
     if (!baseDir.empty() && !targetNorm.starts_with(baseDir.generic_string() + "/")) {
         const std::string relCandidate{NormalizeVirtualPath((baseDir / includeTarget).generic_string())};
-        if (!relCandidate.starts_with("..")) {
+        if (!relCandidate.starts_with("..") && !relCandidate.starts_with('/')) {
             if (!GetEmbeddedRaw(relCandidate).empty() || targetNorm.starts_with("..")) {
                 return relCandidate;
             }
@@ -254,8 +254,13 @@ std::string ShaderManager::ResolveIncludePath(std::string_view includingVirtualP
 }
 
 core::Result<std::string> ShaderManager::ReadSourceFile(std::string_view virtualPath) const {
+    if (virtualPath.empty()) {
+        return std::unexpected("Invalid empty WGSL shader path");
+    }
+    const std::filesystem::path rawPath{virtualPath};
     const std::string norm{NormalizeVirtualPath(virtualPath)};
-    if (norm.starts_with("..")) {
+    if (norm.empty() || rawPath.is_absolute() || std::filesystem::path{norm}.is_absolute() || norm.starts_with('/') ||
+        norm.starts_with("..")) {
         return std::unexpected("Invalid WGSL shader path traversal outside shader root: " + norm);
     }
 

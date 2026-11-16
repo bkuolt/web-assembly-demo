@@ -56,6 +56,9 @@ public:
      * camera matrices, audio listener. */
     void UpdateSimulation(float deltaTime);
 
+    /** @brief Synchronizes camera projection matrices and spatial audio listener with the current viewport. */
+    void SyncCameraAndListener() noexcept;
+
     /** @brief Records and submits all rendering passes (shadow map, HDR clustered PBR, post-process, tonemap, overlay
      * hook). */
     void Render();
@@ -197,6 +200,7 @@ protected:
     bool running_{false};
     bool initialized_{false};
     bool sdlInitialized_{false};
+    bool loggedFirstFrame_{false};
     bool showBoundingBoxes_{true};
     bool showQuadtreeBounds_{false};
     bool wireframeMode_{false};

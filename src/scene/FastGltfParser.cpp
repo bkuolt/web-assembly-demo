@@ -274,7 +274,10 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
             }
             const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
             BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, resolvedUri);
-            auto fetchRes = core::NetworkFetcher::FetchSync(resolvedUri);
+            auto fetchRes =
+                core::NetworkFetcher::FetchSync(resolvedUri, [reporter](const core::FetchProgress&) -> bool {
+                    return !reporter || !reporter->IsCancelled();
+                });
             if (fetchRes) {
                 fetchedUriBytes = std::move(*fetchRes);
                 const size_t offset{std::min(uriSource.fileByteOffset, fetchedUriBytes.size())};

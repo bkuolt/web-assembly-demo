@@ -89,10 +89,23 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
         quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
     }
 
+    loggedFirstFrame_ = false;
     initialized_ = true;
     running_ = true;
     BGL_LOG_INFO("bgl Engine initialized successfully.");
     return {};
+}
+
+void EngineCore::SyncCameraAndListener() noexcept {
+    const float aspect =
+        static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
+    camera_.Update(aspect);
+
+    const glm::vec3 forwardDelta{camera_.GetTarget() - camera_.GetPosition()};
+    const float forwardLenSq = glm::dot(forwardDelta, forwardDelta);
+    const glm::vec3 forwardDir =
+        (forwardLenSq > 1e-8f) ? (forwardDelta / std::sqrt(forwardLenSq)) : glm::vec3{0.0f, 0.0f, -1.0f};
+    soundEngine_.UpdateListener(camera_.GetPosition(), forwardDir);
 }
 
 void EngineCore::UpdateSimulation(float deltaTime) {
@@ -116,15 +129,14 @@ void EngineCore::UpdateSimulation(float deltaTime) {
         SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * deltaTime);
     }
 
-    float aspect =
-        static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
-    camera_.Update(aspect);
-    soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
+    SyncCameraAndListener();
 }
 
 void EngineCore::Render() {
     if (!running_)
         return;
+
+    SyncCameraAndListener();
 
     if (!gpuContext_.PrepareFrame())
         return;
@@ -149,9 +161,8 @@ void EngineCore::Render() {
                                            camera_.GetViewMatrix(), camera_.GetProjectionMatrix(),
                                            gpuContext_.GetWidth(), gpuContext_.GetHeight(), camera_.GetNearPlane(),
                                            camera_.GetFarPlane());
-        static bool loggedFirstFrame = false;
-        if (!loggedFirstFrame) {
-            loggedFirstFrame = true;
+        if (!loggedFirstFrame_) {
+            loggedFirstFrame_ = true;
             BGL_LOG_DEBUG("Frame 1 Render Diagnostic: {} visible primitives rendered ({} occluded by Hi-Z)",
                           pipelineManager_.GetVisiblePrimitiveCount(), pipelineManager_.GetOccludedPrimitiveCount());
         }
@@ -245,6 +256,7 @@ void EngineCore::Shutdown() {
 #endif
     initialized_ = false;
     running_ = false;
+    loggedFirstFrame_ = false;
     if (hadActiveState) {
         BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
     }

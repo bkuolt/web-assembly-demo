@@ -51,6 +51,9 @@ public:
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount, FontAtlas& fontAtlas);
 
+    /** @brief Releases WebGPU pipeline, bind group, and geometry buffer resources. */
+    void Shutdown() noexcept;
+
     /**
      * @brief Enqueues a solid or translucent rectangle.
      * @param x Top-left X coordinate in pixels.

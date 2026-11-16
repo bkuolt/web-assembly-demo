@@ -164,7 +164,20 @@ void Application::SetLoadingFailedState(std::string_view titleName, std::string_
     }
 }
 
+void Application::RetireActiveLoadAsync() noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!activeLoad_) {
+        return;
+    }
+    if (activeLoad_->state) {
+        activeLoad_->state->cancelRequested.store(true, std::memory_order_release);
+    }
+    cancellingLoads_.push_back(std::move(activeLoad_));
+#endif
+}
+
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
+    RetireActiveLoadAsync();
     BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
     if (auto res = LoadScene(data, filename); res) {
         BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
@@ -186,12 +199,7 @@ void Application::LoadSceneFromUriAsync(std::string_view uri, std::string_view d
         displayLabel.empty() ? core::NetworkFetcher::ExtractDisplayName(sanitizedUri) : std::string{displayLabel};
 
 #if defined(BGL_PLATFORM_NATIVE)
-    if (activeLoad_) {
-        if (activeLoad_->state) {
-            activeLoad_->state->cancelRequested.store(true, std::memory_order_release);
-        }
-        cancellingLoads_.push_back(std::move(activeLoad_));
-    }
+    RetireActiveLoadAsync();
 
     auto state = std::make_shared<AsyncLoadState>();
     state->sourceUri = sanitizedUri;

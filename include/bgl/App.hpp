@@ -6,6 +6,7 @@
 #define BGL_PUBLIC_APP_HPP
 
 #include "bgl/Engine.hpp"
+#include <cstdint>
 #include <memory>
 #include <string_view>
 

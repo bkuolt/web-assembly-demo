@@ -336,16 +336,10 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         return std::unexpected("Data is not a valid KTX1 or KTX2 texture signature");
     }
 
-    // Use caller's PMR arena or a local stack-backed monotonic buffer resource for staging
-    std::array<std::byte, 4096> localStackBuf{};
-    std::pmr::monotonic_buffer_resource localPmr{localStackBuf.data(), localStackBuf.size()};
-    std::pmr::memory_resource* arena = scratchResource ? scratchResource : &localPmr;
-    std::pmr::vector<uint8_t> pmrStaging{arena};
-    pmrStaging.assign(data.begin(), data.end());
-
+    (void)scratchResource;
     ktxTexture* rawKtx{nullptr};
-    KTX_error_code result{ktxTexture_CreateFromMemory(pmrStaging.data(), pmrStaging.size(),
-                                                      KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &rawKtx)};
+    KTX_error_code result{
+        ktxTexture_CreateFromMemory(data.data(), data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &rawKtx)};
 
     if (result != KTX_SUCCESS || !rawKtx) {
         return std::unexpected(std::string("ktxTexture_CreateFromMemory failed: error ") + std::to_string(result));

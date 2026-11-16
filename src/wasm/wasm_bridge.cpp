@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 extern "C" {
 extern unsigned char __heap_base; // NOLINT(bugprone-reserved-identifier)
@@ -21,13 +22,20 @@ inline float AbsF(float x) noexcept {
 }
 
 inline float FastSin(float x) noexcept {
-    constexpr float kPi = 3.14159265358979323846f;
+    // Reject NaN/Inf in freestanding wasm (zero libm dependency) so range reduction never spins.
+    if (!((x - x) == 0.0f)) {
+        return 0.0f;
+    }
     constexpr float kTwoPi = 6.28318530717958647692f;
-    // Wrap to [-pi, pi]
-    while (x > kPi)
-        x -= kTwoPi;
-    while (x < -kPi)
-        x += kTwoPi;
+    constexpr float kInvTwoPi = 1.0f / kTwoPi;
+    const float turns = x * kInvTwoPi;
+    if (AbsF(turns) < 1e7f) {
+        const float rounded = static_cast<float>(static_cast<int32_t>(turns + (turns >= 0.0f ? 0.5f : -0.5f)));
+        x -= rounded * kTwoPi;
+    } else {
+        // Beyond int32 turn precision sinf at single precision has exhausted mantissa bits; keep bounded.
+        x = 0.0f;
+    }
     const float x2 = x * x;
     return x * (1.0f - x2 * (1.0f / 6.0f - x2 * (1.0f / 120.0f - x2 * (1.0f / 5040.0f))));
 }
@@ -70,12 +78,14 @@ bool EnsureHeapCapacity(uintptr_t requiredEndByte) noexcept {
         return true;
     }
     const size_t delta = requiredEndByte - curEnd;
-    const size_t pagesNeeded = (delta + kPageSizeBytes - 1u) / kPageSizeBytes;
+    const size_t pagesNeeded = (delta / kPageSizeBytes) + ((delta % kPageSizeBytes) != 0u ? 1u : 0u);
+    if (pagesNeeded > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return false;
+    }
 #if defined(__wasm__)
     const int prevPages = __builtin_wasm_memory_grow(0, static_cast<int>(pagesNeeded));
     return prevPages != -1;
 #else
-    (void)pagesNeeded;
     return false;
 #endif
 }
@@ -96,7 +106,13 @@ void* WasmMalloc(size_t requestedBytes) noexcept {
     if (requestedBytes == 0u) {
         requestedBytes = 16u;
     }
+    if (requestedBytes > std::numeric_limits<size_t>::max() - 15u) {
+        return nullptr;
+    }
     const size_t alignedSize = AlignUp(requestedBytes, 16u);
+    if (alignedSize > std::numeric_limits<size_t>::max() - sizeof(BlockHeader)) {
+        return nullptr;
+    }
 
     if (gHeapTop == nullptr) {
         const uintptr_t baseAddr = reinterpret_cast<uintptr_t>(&__heap_base);
@@ -125,7 +141,11 @@ void* WasmMalloc(size_t requestedBytes) noexcept {
 
     unsigned char* const blockBytes = gHeapTop;
     const size_t totalBytes = sizeof(BlockHeader) + alignedSize;
-    if (!EnsureHeapCapacity(reinterpret_cast<uintptr_t>(blockBytes) + totalBytes)) {
+    const uintptr_t blockAddr = reinterpret_cast<uintptr_t>(blockBytes);
+    if (totalBytes > std::numeric_limits<uintptr_t>::max() - blockAddr) {
+        return nullptr;
+    }
+    if (!EnsureHeapCapacity(blockAddr + totalBytes)) {
         return nullptr;
     }
 
@@ -152,9 +172,17 @@ void WasmFree(void* ptr) noexcept {
     if (addr < sizeof(BlockHeader) || addr < reinterpret_cast<uintptr_t>(&__heap_base)) {
         return;
     }
-    auto* block = reinterpret_cast<BlockHeader*>(bytePtr - sizeof(BlockHeader));
-    block->free = true;
-    CoalesceFreeBlocks();
+    auto* const candidate = reinterpret_cast<BlockHeader*>(bytePtr - sizeof(BlockHeader));
+    for (BlockHeader* cur = gHeapHead; cur != nullptr; cur = cur->next) {
+        if (cur == candidate) {
+            if (cur->free) {
+                return; // Ignore double-free safely
+            }
+            cur->free = true;
+            CoalesceFreeBlocks();
+            return;
+        }
+    }
 }
 
 // ============================================================================
@@ -215,11 +243,12 @@ int CountArrayElementsForKey(ByteSpan json, const char* quotedKey, size_t keyLen
                     }
                     if (j < json.len && json.ptr[j] == '[') {
                         int elems = 0;
-                        size_t arrDepth = 0;
+                        size_t arrDepth = 1u;
+                        size_t objDepth = 0u;
                         bool arrStr = false;
                         bool arrEsc = false;
                         bool sawContent = false;
-                        for (size_t k = j; k < json.len; ++k) {
+                        for (size_t k = j + 1u; k < json.len; ++k) {
                             const uint8_t c = json.ptr[k];
                             if (arrStr) {
                                 if (arrEsc) {
@@ -233,23 +262,40 @@ int CountArrayElementsForKey(ByteSpan json, const char* quotedKey, size_t keyLen
                             }
                             if (c == '"') {
                                 arrStr = true;
-                                if (arrDepth == 1u)
+                                if (arrDepth == 1u && objDepth == 0u) {
                                     sawContent = true;
-                            } else if (c == '{' || c == '[') {
-                                if (arrDepth == 1u)
+                                }
+                            } else if (c == '[') {
+                                if (arrDepth == 1u && objDepth == 0u) {
                                     sawContent = true;
+                                }
                                 ++arrDepth;
-                            } else if (c == ']' || c == '}') {
+                            } else if (c == ']') {
                                 --arrDepth;
-                                if (arrDepth == 0u) {
+                                if (arrDepth == 0u && objDepth == 0u) {
                                     return sawContent ? (elems + 1) : 0;
                                 }
-                            } else if (c == ',' && arrDepth == 1u) {
+                                if (arrDepth == 0u) {
+                                    return 0;
+                                }
+                            } else if (c == '{') {
+                                if (arrDepth == 1u && objDepth == 0u) {
+                                    sawContent = true;
+                                }
+                                ++objDepth;
+                            } else if (c == '}') {
+                                if (objDepth == 0u) {
+                                    return 0;
+                                }
+                                --objDepth;
+                            } else if (c == ',' && arrDepth == 1u && objDepth == 0u) {
                                 ++elems;
-                            } else if (arrDepth == 1u && c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                            } else if (arrDepth == 1u && objDepth == 0u && c != ' ' && c != '\t' && c != '\n' &&
+                                       c != '\r') {
                                 sawContent = true;
                             }
                         }
+                        return 0;
                     }
                 }
             }
@@ -270,7 +316,7 @@ ByteSpan ExtractGltfJsonSlice(const uint8_t* data, size_t len) noexcept {
     if (len >= 20u && ReadU32LE(data) == 0x46546C67u) {
         const uint32_t chunkLen = ReadU32LE(data + 12);
         const uint32_t chunkType = ReadU32LE(data + 16);
-        if (chunkType == 0x4E4F534Au && 20u + static_cast<size_t>(chunkLen) <= len) {
+        if (chunkType == 0x4E4F534Au && static_cast<size_t>(chunkLen) <= len - 20u) {
             return {data + 20, static_cast<size_t>(chunkLen)};
         }
         return {};

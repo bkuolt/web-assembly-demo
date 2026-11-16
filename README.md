@@ -91,7 +91,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 ## Overview
 
-**bgl Engine** is a modern, high-performance 3D graphics engine built in strict C++23 with a hardware WebGPU backend (`wgpu-native` on desktop, HTML5 WebGPU in browser). It features complete glTF 2.0 and KHR material model support, HDR rendering (RGBA16Float) with advanced tonemapping, GPU compute culling & ray picking, live RAM & VRAM telemetry, PS5 DualSense console controller feel, Parallax Occlusion Mapping (POM) with self-shadowing, Multi-Bounce Ambient Occlusion, Directional Sun Lens Flares, true Image-Based Lighting (IBL), Forward+ clustered lighting, zero-GLFW architecture, PMR-backed memory management, HarfBuzz & FreeType 2 text shaping, spatial Quadtree partitioning, procedural atmospheric skybox, and dual-target deployment.
+**bgl Engine** is a modern, high-performance 3D graphics engine built in strict C++23 with a hardware WebGPU backend (`wgpu-native` on desktop) paired with a browser viewer powered by a freestanding C++23 Emscripten WebAssembly core (`bgl_engine.wasm`) and a native JS WebGPU WGSL renderer (`BglWebGpuRenderer`). It features complete glTF 2.0 and KHR material model support, HDR rendering (RGBA16Float) with advanced tonemapping, GPU compute culling & ray picking, live RAM & VRAM telemetry, PS5 DualSense console controller feel, Parallax Occlusion Mapping (POM) with self-shadowing, Multi-Bounce Ambient Occlusion, Directional Sun Lens Flares, true Image-Based Lighting (IBL), Forward+ clustered lighting, zero-GLFW architecture, PMR-backed memory management, HarfBuzz & FreeType 2 text shaping, spatial Quadtree partitioning, procedural atmospheric skybox, and dual-target deployment.
 
 ### At a Glance: Feature & Capabilities Matrix
 
@@ -129,7 +129,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | **Clustered Forward+ Lighting** | glTF `KHR_lights_punctual` (Directional, Point, Spot lights) evaluated across a $16\times 8\times 8 = 1024$ 3D frustum cluster grid with per-cluster bitmasks | Automatic / glTF Lights |
 | **Native GPU Compressed Textures** | Hardware BC7, ASTC 4×4, and ETC2 EAC decompression directly via WebGPU features without CPU decompression overhead | Automatic GPU feature detection |
 | **Bump & Normal Mapping** | MikkTSpace/Lengyel tangent generation, scale-invariant `getTBN`, tangent-space normal maps + UV-texel-space central-difference height gradients (`textureSampleGrad`) | `[V]` / `--no-bump` |
-| **Anisotropic Mipmapping** | Full CPU mip pyramid ($1\times 1$), 3D vector renormalization for normal maps, multithreaded `std::jthread` generation, live 16× Aniso vs. Mip-0 switching | `[L]` / `--no-mipmaps` |
+| **Anisotropic Mipmapping** | GPU render-pass mip pyramid ($1\times 1$) with 3D normal-map vector renormalization (`mipgen.wgsl`), CPU mip-level helpers, pre-encoded KTX2 mips, and live 16× Aniso vs. Mip-0 switching | `[L]` / `--no-mipmaps` |
 | **Directional Shadow Mapping** | $2048\times 2048$ `Depth32Float` pre-pass (cached for static scenes), scene-fitted `orthoRH_ZO` light matrix, hardware slope-scale depth bias, 9-tap $3\times 3$ PCF soft shadows | `[M]` / `--no-shadows` |
 | **Spatial Quadtree & Occlusion Culling** | 4-way XZ-plane partitioning, Front-to-Back traversal, $32\times 16$ Hi-Z `OcclusionBuffer` & sub-pixel culling, single-draw batched 3D wireframes | `[H]` / `[Q]` / `--no-occlusion` |
 | **URL & Remote Asset Streaming** | Direct `http://`, `https://`, `file://`, and `data:` model loading via **`libcurl`** (native) and Fetch API (Wasm), URL Drag-and-Drop, and external `.gltf` buffer/texture URI resolution | `--asset <url>` / Drag & Drop |
@@ -181,7 +181,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - Batched 2D WebGPU render pipeline with alpha blending (`SrcAlpha / OneMinusSrcAlpha`), 4x MSAA render-pass compatibility, and orthographic projection.
 - **AAAA Visual Fidelity & Real-Time Rendering Features (Toggleable On/Off)**:
   - **Bump & Normal Mapping (`[V]` / `--no-bump`)**: Lengyel/MikkTSpace-style automatic tangent & bitangent basis generation (`MeshPrimitive::ComputeTangents()`), Gram-Schmidt orthogonalization in WGSL, tangent-space normal mapping, and screen-space derivative height bump perturbation (`dHdX`, `dHdY`).
-  - **Mipmapping Support (`[L]` / `--no-mipmaps`)**: Full CPU mip-chain generation down to $1\times 1$ texels with 3D vector renormalization for normal maps and box-filtering for color maps. Live runtime switching between 16x Anisotropic Trilinear Mipmapping and Base-Mip-0-Only sampling.
+  - **Mipmapping Support (`[L]` / `--no-mipmaps`)**: GPU render-pass mip-chain generation (`mipgen.wgsl`) down to $1\times 1$ texels with 3D vector renormalization for normal maps, CPU mip helpers, and live runtime switching between 16x Anisotropic Trilinear Mipmapping and Base-Mip-0-Only sampling.
   - **Directional Shadow Mapping (`[M]` / `--no-shadows`)**: $2048\times 2048$ `Depth32Float` directional shadow depth pre-pass fitted to the scene AABB (`glm::orthoRH_ZO`), hardware depth bias, and 9-tap $3\times 3$ Percentage-Closer Filtering (PCF) soft shadows via `textureSampleCompareLevel`.
   - **Environment Cubemap Reflections (`[R]` / `--no-reflections`)**: 6-face pre-filtered HDR-style atmospheric environment cubemap ($64\times 64\times 6$ with 7 roughness-convolved mip levels), Karis split-sum analytic `envBRDFApprox`, and clearcoat environment reflections.
   - **Sponza Benchmark Scene**: Loaded by default with human eye-level courtyard camera positioning (`courtyardCenter = (-0.48, 2.0, -0.31)`, `camDistance = 10.0m`).
@@ -199,7 +199,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - Alpha modes: `Opaque`, `Mask` (alpha cutoff discard), and `Blend`.
 - **Zero-GLFW Architecture**:
   - **Linux Desktop**: Native SDL2 windowing and hardware event handling.
-  - **WebAssembly**: Native Emscripten HTML5 WebGPU context (`<emscripten/html5.h>`).
+  - **WebAssembly / Browser**: Freestanding C++23 Emscripten WebAssembly core (`src/wasm/wasm_bridge.cpp`, `web/dist/bgl_engine.wasm`) with zero WASI imports, paired with the native JS WebGPU (`BglWebGpuRenderer`) frontend (with `BGL_PLATFORM_WASM` C++ guards prepared for future direct Emscripten `emdawnwebgpu` binding).
 - **Reproducible Conan 2.x Dependency Management**:
   - All third-party dependencies resolved via Conan 2.x with explicit lockfile pinning (`conan.lock`).
   - FreeType (`freetype/2.13.2`), HarfBuzz (`harfbuzz/11.4.1`), KTX (`ktx/4.4.2`), and miniaudio (`miniaudio/0.11.25`).
@@ -280,7 +280,8 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   └── TextRenderer.hpp/.cpp      # WebGPU 2D batched quad renderer with alpha blending
 │   ├── ui/                            # -> libbgl_ui.so
 │   │   ├── DebugOverlay.hpp/.cpp      # In-engine glassmorphism HUD telemetry overlay
-│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching engine and window layout state
+│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching, PMR arena & window layout state
+│   │   ├── ImmediateUIGpu.cpp         # WebGPU shader/pipeline/buffer management & single-batch submission
 │   │   ├── ImmediateUIOverlays.cpp    # Dropdowns, scroll areas, loading banners, popup overlays & UI facade
 │   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets (Buttons, Sliders, HSV ColorEdit3, Sparklines)
 │   │   └── shaders/ui.wgsl            # Analytical 2D SDF, Gaussian shadow & frosted glass UI shader
@@ -312,7 +313,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   └── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
-├── tests/                             # C++ GTest (272 tests across 30 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (276 tests across 32 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
@@ -650,7 +651,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **272 C++ GTests across 30 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
+The engine includes an extensive, production-grade test suite with **276 C++ GTests across 32 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
@@ -661,7 +662,7 @@ The engine includes an extensive, production-grade test suite with **272 C++ GTe
 | `GltfLoaderTest` | 15 | `ToyCar.glb` parsing, KHR material/iridescence/anisotropy extensions, corrupted GLB rejection, deep hierarchy transforms, monotonic async load progress callbacks & cancellation, builtin 19-model preset resolution, async worker teardown safety, and optional 1 GB stress test. |
 | `MemoryPoolTest` | 15 | Fixed-size block allocation, multi-block chaining, free-list reuse, destructor tracking, move semantics, nullptr/rapid-LIFO safety, 64-byte alignment, and PMR monotonic `ScratchArena` stress tests. |
 | `RayPickerTest` | 14 | Möller-Trumbore ray-triangle direct/edge/vertex hits, backface/negative-distance rejection, hit normal orthogonality, hierarchical child transforms, and empty/multi-root picking. |
-| `AnimationTest` | 13 | Step / Linear / Slerp / CubicSpline samplers, single/zero-duration/empty keyframes, SceneNode TRS decoupling, hierarchical propagation, morph target blending, playback loop wrapping, and skeletal skin joint matrices. |
+| `AnimationTest` | 14 | Step / Linear / Slerp / CubicSpline samplers, single/zero-duration/empty keyframes, SceneNode TRS decoupling, hierarchical propagation, morph target blending, negative delta clamping & loop wrapping, and skeletal skin joint matrices. |
 | `QuadtreeTest` | 13 | 4-way XZ subdivision, loose bounds, `Refit()` node relocation across quadrants, `ContainsXZ`, Sponza courtyard culling ratios, front-to-back Hi-Z occlusion buffer tile tests, and `LOD0`–`LOD3` bias scaling. |
 | `TextRenderingTest` | 11 | Embedded Liberation Mono integrity, FreeType 2 alpha & SDF atlas initialization, glyph rasterization, HarfBuzz shaping, CRLF/empty/whitespace/UTF-8 handling, multi-line layout, and custom tint preservation. |
 | `TextureDecoderTest` | 9 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` signatures, PMR decoding, `KtxTarget` names, and NPOT mip level calculations. |
@@ -672,8 +673,8 @@ The engine includes an extensive, production-grade test suite with **272 C++ GTe
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & glassmorphic shader features, HSV roundtrips, Slider/CollapsingHeader/Sparkline/ScrollArea/Window drag, `ColorEdit3` popup HSV manipulation, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared primitive instancing verification. |
 | `ShaderManagerTest` | 4 | WGSL `#include` expansion & `#pragma once`, circular/missing include error detection, embedded entry-point verification, and hot-reload change detection. |
-| Public SDK & Engine Suites | 16 | `InputState` (7), `EntityOps` (4), `RenderSettings` (2), `EnginePublicApi` (1), `EntityHandle` (1), `GuiPublicApi` (1), plus `ApplicationModelLoader` presets. |
-| Single-Test Targeted Suites | 6 | `GamepadTest` (1), `ImmediateUITest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), and `TextureDecoderHdrTest` (1). |
+| Public SDK & Engine Suites | 17 | `InputState` (7), `EntityOps` (5), `RenderSettings` (2), `EnginePublicApi` (1), `EntityHandle` (1), `GuiPublicApi` (1), plus `ApplicationModelLoader` presets. |
+| Single-Test Targeted Suites | 8 | `GamepadTest` (1), `ImmediateUITest` (1), `ImmediateUiSafetyTest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), `ShaderManagerSecurityTest` (1), and `TextureDecoderHdrTest` (1). |
 
 ---
 

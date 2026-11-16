@@ -101,8 +101,11 @@ public:
     [[nodiscard]] glm::vec2 GetWhitePixelUV() const noexcept { return whitePixelUV_; }
     [[nodiscard]] uint32_t GetAtlasDimension() const noexcept { return atlasDim_; }
 
+    /** @brief Releases GPU texture/sampler resources as well as FreeType and HarfBuzz handles. */
+    void Shutdown() noexcept { Cleanup(); }
+
 private:
-    void Cleanup();
+    void Cleanup() noexcept;
     void RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info);
 
     FT_Library ftLibrary_{nullptr};

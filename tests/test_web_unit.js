@@ -1404,6 +1404,21 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
     assert(wgsl.includes('emissiveUvTransform : vec4<f32>'), 'WGSL Uniforms must declare emissiveUvTransform');
     assert(wgsl.includes('uvRotations0 : vec4<f32>'), 'WGSL Uniforms must declare uvRotations0');
     assert(wgsl.includes('fn transformUv('), 'WGSL must define transformUv helper');
+    assert(wgsl.includes('occDims'), 'WGSL bump gradient must use occlusion texture dimensions separately');
+    const surfStart = wgsl.indexOf('fn getSurfaceHeight(');
+    const surfBody = wgsl.slice(surfStart, wgsl.indexOf('fn parallaxOcclusionMapping('));
+    assert(surfBody.includes('transformUv(uv, ubo.occlusionUvTransform'), 'getSurfaceHeight must apply occlusion UV transform');
+  });
+
+  test('mat4.lookAt stays finite for degenerate eye == target and vertical up-aligned view', () => {
+    const mSame = mat4.lookAt(mat4.create(), [1, 2, 3], [1, 2, 3], [0, 1, 0]);
+    for (let i = 0; i < 16; ++i) {
+      assert(Number.isFinite(mSame[i]), `lookAt element [${i}] must be finite when eye == target`);
+    }
+    const mTopDown = mat4.lookAt(mat4.create(), [0, 10, 0], [0, 0, 0], [0, 1, 0]);
+    for (let i = 0; i < 16; ++i) {
+      assert(Number.isFinite(mTopDown[i]), `lookAt element [${i}] must be finite when viewing straight down`);
+    }
   });
 });
 

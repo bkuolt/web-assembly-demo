@@ -30,6 +30,7 @@ struct Engine::Impl final : engine::EngineCore {
     void Update(float deltaTime);
     void BeginGui();
     void EndGui();
+    void Render();
     void Shutdown();
 
 protected:

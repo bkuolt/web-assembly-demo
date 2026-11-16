@@ -189,9 +189,11 @@ void Application::Update(float deltaTime) {
                 char* droppedStr{event.drop.file};
                 if (droppedStr) {
                     const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
-                    BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
-                                 event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE", sanitized);
-                    LoadSceneFromUriAsync(sanitized);
+                    if (!sanitized.empty()) {
+                        BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
+                                     event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE", sanitized);
+                        LoadSceneFromUriAsync(sanitized);
+                    }
                     SDL_free(droppedStr);
                 }
             }
@@ -368,6 +370,7 @@ void Application::OnRenderOverlay(WGPURenderPassEncoder swapchainPass) {
 void Application::Shutdown() {
     CancelPendingSceneLoads();
     settingsUi_.Shutdown();
+    debugOverlay_.Shutdown();
     EngineCore::Shutdown();
 }
 

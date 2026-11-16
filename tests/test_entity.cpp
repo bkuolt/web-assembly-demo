@@ -71,6 +71,29 @@ TEST(EntityOps, AttachLightSetsValidLightIndex) {
     EXPECT_FLOAT_EQ(scene.lights[0].intensity, 5.0f);
 }
 
+TEST(EntityOps, AttachLightUpdatesExistingLightInPlace) {
+    bgl::scene::Scene scene;
+    auto node = AddNode(scene, "Lamp");
+
+    bgl::scene::PunctualLight first{};
+    first.type = bgl::scene::LightType::Point;
+    first.color = glm::vec3{1.0f, 0.2f, 0.1f};
+    first.intensity = 5.0f;
+    AttachLight(scene, *node, first);
+
+    bgl::scene::PunctualLight updated{};
+    updated.type = bgl::scene::LightType::Spot;
+    updated.color = glm::vec3{0.2f, 0.8f, 1.0f};
+    updated.intensity = 12.0f;
+    AttachLight(scene, *node, updated);
+
+    ASSERT_EQ(scene.lights.size(), 1u);
+    EXPECT_EQ(node->lightIndex, 0);
+    EXPECT_EQ(scene.lights[0].type, bgl::scene::LightType::Spot);
+    EXPECT_FLOAT_EQ(scene.lights[0].intensity, 12.0f);
+    EXPECT_FLOAT_EQ(scene.lights[0].color.g, 0.8f);
+}
+
 TEST(EntityHandle, DefaultInvalidHandleIsSafe) {
     bgl::Entity empty;
     EXPECT_FALSE(empty.IsValid());
