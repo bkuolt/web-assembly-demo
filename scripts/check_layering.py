@@ -18,6 +18,7 @@ RULES = {
     "src/engine":  {"core", "gpu", "scene", "audio", "text", "ui", "engine", "bgl"},
     "apps/viewer": {"core", "gpu", "scene", "audio", "text", "ui", "engine", "bgl", "viewer"},
     "include/bgl": {"core", "bgl"},
+    "samples":     {"bgl"},
 }
 FORBIDDEN_IN_PUBLIC = re.compile(r'webgpu|WGPU|SDL', re.IGNORECASE)
 

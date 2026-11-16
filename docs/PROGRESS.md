@@ -18,7 +18,7 @@
 | T06 | DONE | | include/bgl/Input.hpp, InputState, InputBackendSdl, test_input_state |
 | T07 | DONE | | bgl::Engine (Pimpl) + EngineImpl + ApplySettings |
 | T08 | DONE | | bgl::App + BGL_RUN + RunApp |
-| T09 | TODO | | |
+| T09 | DONE | | samples/01_hello_engine + BGL_BUILD_SAMPLES + Layering-Regel |
 | T10 | TODO | | |
 | T11 | TODO | | |
 | T12 | TODO | | |

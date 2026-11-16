@@ -454,6 +454,11 @@ if(BGL_BUILD_TESTING)
     endif()
 endif()
 
+option(BGL_BUILD_SAMPLES "Build engine samples" ON)
+if(BGL_BUILD_SAMPLES AND NOT EMSCRIPTEN)
+    add_subdirectory(samples)
+endif()
+
 # ==============================================================================
 # 10. Fuzzing Targets (libFuzzer)
 # ==============================================================================
