@@ -18,13 +18,14 @@ tasks:
       - cmake -B {{.BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE={{.BUILD_DIR}}/generators/conan_toolchain.cmake -DBGL_BUILD_TESTING=ON
 
   build:
-    desc: Build all native shared libraries, WebGPU viewer, and test executables
+    desc: Build all native shared libraries, engine samples, viewer, and test executables
     deps: [configure]
     cmds:
       - cmake --build {{.BUILD_DIR}} -j$(nproc)
       - mkdir -p build-native
       - cp -f {{.BUILD_DIR}}/bgl_viewer build-native/ 2>/dev/null || true
       - cp -f {{.BUILD_DIR}}/bgl_unit_tests build-native/ 2>/dev/null || true
+      - cp -f {{.BUILD_DIR}}/sample_* build-native/ 2>/dev/null || true
       - cp -f {{.BUILD_DIR}}/libbgl_*.so build-native/ 2>/dev/null || true
       - cp -f third_party/wgpu-native/lib/libwgpu_native.so build-native/ 2>/dev/null || true
 
@@ -46,7 +47,7 @@ tasks:
       - node tests/test_webgpu_path.js
 
   format:
-    desc: Verify C++23 clang-format compliance across src/ and tests/
+    desc: Verify C++23 clang-format compliance across src/, apps/, include/, samples/, and tests/
     cmds:
       - find src apps include samples tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
@@ -55,7 +56,7 @@ tasks:
     cmds:
       - clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc
       - cmake --preset clang
-      - run-clang-tidy -p {{.CLANG_BUILD_DIR}} -config-file=.clang-tidy '(src/(audio|core|gpu|scene|text|ui)|apps/viewer)/.*\.cpp$'
+      - run-clang-tidy -p {{.CLANG_BUILD_DIR}} -config-file=.clang-tidy '(src/(audio|core|engine|gpu|scene|text|ui)|apps/viewer|samples/.*)/.*\.cpp$'
 
   package-web:
     desc: Build minimal web distribution archive into dist/bgl_web_app_minimal.zip

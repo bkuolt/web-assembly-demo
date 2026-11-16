@@ -1,9 +1,9 @@
-# Doxyfile for WebAssembly and WebGPU Demo (bgl-Engine)
+# Doxyfile for bgl Engine
 # Generate locally with: doxygen Doxyfile  (output: build/docs/html/index.html)
 
-PROJECT_NAME           = "bgl-Engine"
+PROJECT_NAME           = "bgl Engine"
 PROJECT_NUMBER         = "1.0.0"
-PROJECT_BRIEF          = "Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer"
+PROJECT_BRIEF          = "Modular C++23 WebGPU & glTF 2.0/2.1 3D Graphics Engine"
 
 OUTPUT_DIRECTORY       = build/docs
 HTML_OUTPUT            = html
@@ -14,11 +14,17 @@ OUTPUT_LANGUAGE        = English
 # Input Sources & Markdown Guides
 INPUT                  = README.md \
                          docs/modules.dox \
+                         docs/ARCHITECTURE.md \
+                         docs/GETTING_STARTED.md \
+                         docs/CHEATSHEET.md \
                          CHANGELOG.md \
                          AGENT_INSTRUCTIONS.md \
                          web/README.md \
                          docs/FEATURE_AND_PHYSICS_REPORT.md \
-                         src
+                         include \
+                         src \
+                         apps \
+                         samples
 FILE_PATTERNS          = *.hpp *.cpp *.dox *.md
 RECURSIVE              = YES
 EXCLUDE                = src/text/EmbeddedFont.cpp \
