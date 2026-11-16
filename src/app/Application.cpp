@@ -10,8 +10,9 @@
 #include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
-#include <format>
+#include <numbers>
 #include <ranges>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -19,12 +20,6 @@
 #endif
 
 namespace bgl::app {
-
-Application::Application() = default;
-
-Application::~Application() {
-    Shutdown();
-}
 
 core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
     ApplicationConfig config{};
@@ -456,9 +451,7 @@ void Application::Update(float deltaTime) {
                     const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
                     BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
                                  event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE", sanitized);
-                    if (auto loadRes = LoadSceneFromUri(sanitized); !loadRes) {
-                        BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", sanitized, loadRes.error());
-                    }
+                    LoadSceneFromUriAsync(sanitized);
                     SDL_free(droppedStr);
                 }
             }
@@ -515,6 +508,7 @@ void Application::Update(float deltaTime) {
     }
 
     PollShaderHotReload(deltaTime);
+    PollAsyncSceneLoad(deltaTime);
 
     if (activeScene_) {
         activeScene_->UpdateAnimation(deltaTime);
@@ -738,89 +732,8 @@ void Application::Render() {
     gpuContext_.EndFrame(swapchainPass);
 }
 
-void Application::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri) {
-    if (!scene)
-        return;
-    activeScene_ = std::move(scene);
-    currentModelName_ = core::NetworkFetcher::ExtractDisplayName(sourceUri);
-    CacheSceneMetrics();
-    pipelineManager_.PrepareScene(*activeScene_);
-
-    const glm::vec3 center{activeScene_->sceneAABB.Center()};
-    const float radius{glm::length(activeScene_->sceneAABB.Extents())};
-
-    if (sourceUri.find("Sponza") != std::string_view::npos || sourceUri.find("sponza") != std::string_view::npos) {
-        const glm::vec3 courtyardCenter{center.x, 2.0f, center.z};
-        constexpr float camDistance{10.0f};
-        camera_ = core::Camera{courtyardCenter, camDistance};
-        camera_.Orbit(1.2f, 0.15f);
-        BGL_LOG_INFO("Sponza scene activated: courtyardCenter=[{:.2f}, {:.2f}, {:.2f}], camDistance={:.2f}",
-                     courtyardCenter.x, courtyardCenter.y, courtyardCenter.z, camDistance);
-    } else {
-        const float targetDistance{std::max(radius * 2.5f, 0.15f)};
-        camera_ = core::Camera{center, targetDistance};
-        camera_.Orbit(0.8f, 0.4f);
-        BGL_LOG_INFO("Scene '{}' activated: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                     currentModelName_, center.x, center.y, center.z, radius, targetDistance);
-    }
-
-    core::AABB worldBounds{activeScene_->sceneAABB};
-    const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
-    worldBounds.minBound -= margin;
-    worldBounds.maxBound += margin;
-    quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-    quadtree_->InsertNodes(activeScene_->rootNodes);
-    cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
-    lastQuadtreeTransformVersion_ = activeScene_->transformVersion_;
-
-    if (!activeScene_->animations.empty()) {
-        activeScene_->SetAnimation(0);
-        BGL_LOG_INFO("Activated default glTF animation 0 ('{}', duration: {:.2f}s)",
-                     activeScene_->animations[0].name.empty() ? "unnamed" : activeScene_->animations[0].name,
-                     activeScene_->animations[0].duration);
-    }
-}
-
-core::Result<void> Application::LoadScene(std::span<const uint8_t> data, std::string_view baseUri) {
-    if (data.empty()) {
-        return std::unexpected("Cannot load glTF scene from empty byte buffer");
-    }
-    if (!gltfLoader_) {
-        gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
-    }
-    auto sceneRes = gltfLoader_->LoadFromMemory(data, baseUri);
-    if (!sceneRes) {
-        return std::unexpected(sceneRes.error());
-    }
-    ActivateScene(*sceneRes, baseUri);
-    return {};
-}
-
-core::Result<void> Application::LoadSceneFromUri(std::string_view uri) {
-    const std::string sanitizedUri{core::NetworkFetcher::SanitizeUri(uri)};
-    if (sanitizedUri.empty()) {
-        return std::unexpected("Cannot load empty asset URI");
-    }
-
-    BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...", core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path",
-                 sanitizedUri);
-    auto fetchRes = core::NetworkFetcher::FetchSync(sanitizedUri);
-    if (!fetchRes) {
-        return std::unexpected("Failed to fetch glTF asset '" + sanitizedUri + "': " + fetchRes.error());
-    }
-    return LoadScene(*fetchRes, sanitizedUri);
-}
-
-void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
-    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
-    if (auto res = LoadScene(data, filename); res) {
-        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
-    } else {
-        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", filename, res.error());
-    }
-}
-
 void Application::Shutdown() {
+    CancelPendingSceneLoads();
     activeScene_.reset();
     quadtree_.reset();
     gltfLoader_.reset();
@@ -839,139 +752,6 @@ void Application::Shutdown() {
 #endif
     running_ = false;
     BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
-}
-
-void Application::CacheSceneMetrics() {
-    totalPrimitives_ = 0;
-    totalVertices_ = 0;
-    totalIndices_ = 0;
-    if (!activeScene_)
-        return;
-
-    size_t& primCount{totalPrimitives_};
-    size_t& vertCount{totalVertices_};
-    size_t& idxCount{totalIndices_};
-    auto countStats = [&](this auto&& self, const scene::SceneNode& node) -> void {
-        for (const auto& prim : node.GetPrimitives()) {
-            primCount++;
-            vertCount += prim.vertices.size();
-            idxCount += prim.indices.size();
-        }
-        for (const auto& child : node.children) {
-            if (child)
-                self(*child);
-        }
-    };
-
-    for (const auto& rootNode : activeScene_->rootNodes) {
-        if (rootNode)
-            countStats(*rootNode);
-    }
-    BGL_LOG_INFO("Scene '{}' metrics cached: {} primitives, {} vertices, {} indices", currentModelName_,
-                 totalPrimitives_, totalVertices_, totalIndices_);
-}
-
-void Application::FocusSelection() noexcept {
-    if (selectedNode_ && selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
-        camera_.FocusOnBounds(selectedNode_->worldAABB);
-    } else if (activeScene_) {
-        camera_.FocusOnBounds(activeScene_->sceneAABB);
-    }
-}
-
-void Application::FrameAll() noexcept {
-    if (activeScene_) {
-        camera_.FocusOnBounds(activeScene_->sceneAABB);
-    }
-}
-
-void Application::SelectNodeByIndex(int index) noexcept {
-    if (!activeScene_ || index < 0 || static_cast<size_t>(index) >= activeScene_->allNodes.size()) {
-        ClearSelection();
-        return;
-    }
-    SelectNode(activeScene_->allNodes[index], index);
-}
-
-void Application::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) noexcept {
-    selectedNode_ = std::move(node);
-    selectedNodeIndex_ = index;
-    if (index < 0 && node && activeScene_) {
-        for (size_t i = 0; i < activeScene_->allNodes.size(); ++i) {
-            if (activeScene_->allNodes[i] == node) {
-                selectedNodeIndex_ = static_cast<int>(i);
-                break;
-            }
-        }
-    }
-    if (selectedNode_) {
-        if (selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
-            const float distToNode = glm::length(camera_.GetPosition() - selectedNode_->worldAABB.Center());
-            pipelineManager_.GetPostProcessPass().SetDoFFocusDistance(distToNode);
-        }
-        BGL_LOG_INFO("Selected Node #{} '{}' (AABB min=[{:.2f}, {:.2f}, {:.2f}], max=[{:.2f}, {:.2f}, {:.2f}])",
-                     selectedNodeIndex_, selectedNode_->name, selectedNode_->worldAABB.minBound.x,
-                     selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
-                     selectedNode_->worldAABB.maxBound.x, selectedNode_->worldAABB.maxBound.y,
-                     selectedNode_->worldAABB.maxBound.z);
-    }
-}
-
-int Application::PickNodeAt(float screenX, float screenY, float screenWidth, float screenHeight) {
-    if (!activeScene_ || screenWidth <= 0.0f || screenHeight <= 0.0f) {
-        return -1;
-    }
-    const core::Ray pickRay = camera_.ScreenPointToRay(screenX, screenY, screenWidth, screenHeight);
-    if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
-        if (hit->hitNode) {
-            SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
-            if (std::filesystem::exists("assets/audio/click.wav")) {
-                if (auto audioRes = soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
-                    !audioRes) {
-                    BGL_LOG_DEBUG("Audio pick cue skipped: {}", audioRes.error());
-                }
-            }
-            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)", hit->hitNode->name,
-                         hit->hitNode->nodeIndex, hit->distance);
-            return hit->hitNode->nodeIndex;
-        }
-    }
-    ClearSelection();
-    return -1;
-}
-
-void Application::SelectCamera(int cameraIndex) noexcept {
-    if (!activeScene_ || cameraIndex < 0 || static_cast<size_t>(cameraIndex) >= activeScene_->cameras.size()) {
-        activeCameraIndex_ = -1;
-        BGL_LOG_INFO("Switched to default interactive orbit/fly camera");
-        return;
-    }
-    activeCameraIndex_ = cameraIndex;
-    const auto& sc = activeScene_->cameras[cameraIndex];
-    camera_.SetFromTransform(sc.worldTransform, sc.yfov, sc.znear, sc.zfar);
-    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})", cameraIndex, sc.name,
-                 glm::degrees(sc.yfov), sc.znear, sc.zfar);
-}
-
-void Application::CycleCamera() noexcept {
-    if (!activeScene_ || activeScene_->cameras.empty())
-        return;
-    int next = activeCameraIndex_ + 1;
-    if (static_cast<size_t>(next) >= activeScene_->cameras.size()) {
-        next = -1;
-    }
-    SelectCamera(next);
-}
-
-int Application::GetCameraCount() const noexcept {
-    return activeScene_ ? static_cast<int>(activeScene_->cameras.size()) : 0;
-}
-
-std::string_view Application::GetCameraName(int index) const noexcept {
-    if (!activeScene_ || index < 0 || static_cast<size_t>(index) >= activeScene_->cameras.size()) {
-        return "";
-    }
-    return activeScene_->cameras[index].name;
 }
 
 void Application::SetTimeOfDay(float hour) noexcept {
@@ -1014,269 +794,6 @@ void Application::SetKtxCompressionTarget(scene::KtxTranscodeTarget target) {
         resolved = scene::KtxTranscodeTarget::Rgba32;
     }
     pipelineManager_.RetranscodeKtxTextures(*activeScene_, resolved);
-}
-
-void Application::UpdateSettingsUI() {
-    int winW = 1280;
-    int winH = 720;
-    if (nativeWindow_) {
-        SDL_GetWindowSize(nativeWindow_, &winW, &winH);
-    }
-    const uint32_t vpW = static_cast<uint32_t>(std::max(1, winW));
-    const uint32_t vpH = static_cast<uint32_t>(std::max(1, winH));
-    settingsUi_.BeginFrame(uiInput_, vpW, vpH);
-
-    if (!showSettingsUi_) {
-        settingsUi_.EndFrame();
-        return;
-    }
-
-    // Apply live UI accent theme before building widgets
-    settingsUi_.Style().accent = glm::vec4{uiAccentColor_, 1.0f};
-    settingsUi_.Style().sparklineFill = glm::vec4{uiAccentColor_, 0.24f};
-
-    // World-to-screen floating badge anchored on selected 3D node
-    if (showSelectionAnchors_ && selectedNode_ &&
-        selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
-        const glm::vec3 center = selectedNode_->worldAABB.Center();
-        const glm::vec4 clip = camera_.GetViewProjectionMatrix() * glm::vec4{center, 1.0f};
-        if (clip.w > 0.001f) {
-            const glm::vec3 ndc = glm::vec3{clip} / clip.w;
-            if (ndc.z >= 0.0f && ndc.z <= 1.0f && ndc.x >= -0.95f && ndc.x <= 0.95f && ndc.y >= -0.95f &&
-                ndc.y <= 0.95f) {
-                const float sx = (ndc.x * 0.5f + 0.5f) * static_cast<float>(vpW);
-                const float sy = (0.5f - ndc.y * 0.5f) * static_cast<float>(vpH);
-                const float dist = glm::length(camera_.GetPosition() - center);
-                const std::string nodeTitle = selectedNode_->name.empty() ? "Selected" : selectedNode_->name;
-                settingsUi_.DrawFloatingBadge(sx + 8.0f, sy - 24.0f, std::format("{} ({:.1f}m)", nodeTitle, dist),
-                                              glm::vec4{1.0f, 0.72f, 0.12f, 0.95f});
-            }
-        }
-    }
-
-    settingsUi_.BeginWindow("bgl-Engine Studio", std::max(16.0f, static_cast<float>(vpW) - 356.0f), 14.0f, 340.0f);
-
-    const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
-    const double texMb = static_cast<double>(lastTextureVramBytes_) / (1024.0 * 1024.0);
-    bgl::ui::UI::Label(std::format("VRAM: {:.1f} MB (Tex: {:.1f} MB)", totalMb, texMb),
-                       glm::vec4{0.72f, 0.86f, 0.98f, 1.0f});
-    if (fpsHistoryCount_ >= 2) {
-        bgl::ui::UI::Sparkline("Frame Rate (FPS)", std::span<const float>{fpsHistory_.data(), fpsHistoryCount_}, 0.0f,
-                               0.0f, 34.0f, glm::vec4{uiAccentColor_, 1.0f});
-    }
-
-    bgl::ui::UI::Separator();
-
-    // 1. Scene & Camera Section
-    if (bgl::ui::UI::CollapsingHeader("Camera & Scene", true)) {
-        static constexpr const char* kViewModeNames[] = {
-            "Lit PBR", "LOD Heatmap", "Normals", "Metal/Rough/AO", "UV Checker", "Clay + Wireframe", "Toon / Cel",
-        };
-        size_t viewIdx = static_cast<size_t>(std::to_underlying(pipelineManager_.GetDebugViewMode()));
-        if (bgl::ui::UI::Dropdown("Shading View", kViewModeNames, viewIdx)) {
-            pipelineManager_.SetDebugViewMode(static_cast<gpu::DebugViewMode>(viewIdx));
-        }
-
-        if (bgl::ui::UI::Button("Frame All / Reset View")) {
-            FrameAll();
-        }
-        bool turntable = turntableActive_;
-        if (bgl::ui::UI::Checkbox("Auto Turntable", turntable)) {
-            turntableActive_ = turntable;
-        }
-        bool wf = wireframeMode_;
-        if (bgl::ui::UI::Checkbox("Wireframe Overlay [F1]", wf)) {
-            wireframeMode_ = wf;
-        }
-        bool aabbs = showBoundingBoxes_;
-        if (bgl::ui::UI::Checkbox("Bounding Boxes [B]", aabbs)) {
-            showBoundingBoxes_ = aabbs;
-        }
-        bool anchors = showSelectionAnchors_;
-        if (bgl::ui::UI::Checkbox("3D Selection Badge", anchors)) {
-            showSelectionAnchors_ = anchors;
-        }
-
-        if (activeScene_ && !activeScene_->allNodes.empty()) {
-            bgl::ui::UI::Label("Scene Nodes (Scroll):", settingsUi_.Style().textMuted);
-            bgl::ui::UI::BeginScrollArea("scene_hierarchy_scroll", 104.0f);
-            size_t shownCount = 0;
-            for (size_t ni = 0; ni < activeScene_->allNodes.size() && shownCount < 48; ++ni) {
-                const auto& node = activeScene_->allNodes[ni];
-                if (!node || node->GetPrimitives().empty()) {
-                    continue;
-                }
-                ++shownCount;
-                const bool isSel = (selectedNodeIndex_ == static_cast<int>(ni));
-                const std::string btnText =
-                    std::format("{}{} [{}]", isSel ? "* " : "", node->name.empty() ? "MeshNode" : node->name, ni);
-                if (bgl::ui::UI::Button(btnText)) {
-                    SelectNodeByIndex(static_cast<int>(ni));
-                }
-            }
-            bgl::ui::UI::EndScrollArea();
-        }
-    }
-
-    // 2. Post-Processing & Cinema Lens Section
-    if (bgl::ui::UI::CollapsingHeader("Post-Processing & Lens", true)) {
-        auto& pp = pipelineManager_.GetPostProcessPass();
-
-        static constexpr const char* kTonemapNames[] = {"Khronos PBR Neutral", "AgX Cinema", "ACES Filmic"};
-        size_t tmIdx = static_cast<size_t>(std::to_underlying(pp.GetToneMapOperator()));
-        if (bgl::ui::UI::Dropdown("Tone Mapper", kTonemapNames, tmIdx)) {
-            pp.SetToneMapOperator(static_cast<gpu::ToneMapOperator>(tmIdx));
-        }
-
-        static constexpr const char* kGradingNames[] = {"Neutral", "Warm Cinema", "Cool Sci-Fi", "Bleach Bypass",
-                                                        "Noir"};
-        size_t gradeIdx = static_cast<size_t>(std::to_underlying(pp.GetColorGradingPreset()));
-        if (bgl::ui::UI::Dropdown("Color Grading", kGradingNames, gradeIdx)) {
-            pp.SetColorGradingPreset(static_cast<gpu::ColorGradingPreset>(gradeIdx));
-        }
-
-        float exposure = pp.GetExposure();
-        if (bgl::ui::UI::SliderFloat("Exposure (EV)", exposure, 0.2f, 4.0f, "{:.2f}")) {
-            pp.SetExposure(exposure);
-        }
-        bool autoExp = pp.IsAutoExposureEnabled();
-        if (bgl::ui::UI::Checkbox("GPU Auto-Exposure", autoExp)) {
-            pp.SetAutoExposureEnabled(autoExp);
-        }
-        bool fxaa = pp.IsFxaaEnabled();
-        if (bgl::ui::UI::Checkbox("FXAA Edge AA", fxaa)) {
-            pp.SetFxaaEnabled(fxaa);
-        }
-
-        bool bloom = pp.IsBloomEnabled();
-        if (bgl::ui::UI::Checkbox("5-Mip HDR Bloom [Z]", bloom)) {
-            pp.SetBloomEnabled(bloom);
-        }
-        if (bloom) {
-            float bloomInt = pp.GetBloomIntensity();
-            if (bgl::ui::UI::SliderFloat("Bloom Intensity", bloomInt, 0.0f, 2.5f, "{:.2f}")) {
-                pp.SetBloomIntensity(bloomInt);
-            }
-        }
-
-        bool gtao = pp.IsSsaoEnabled();
-        if (bgl::ui::UI::Checkbox("Depth GTAO Occlusion [G]", gtao)) {
-            pp.SetSsaoEnabled(gtao);
-        }
-        if (gtao) {
-            float gtaoInt = pp.GetSsaoIntensity();
-            if (bgl::ui::UI::SliderFloat("GTAO Strength", gtaoInt, 0.0f, 1.5f, "{:.2f}")) {
-                pp.SetSsaoIntensity(gtaoInt);
-            }
-        }
-
-        bool ssr = pp.IsSsrEnabled();
-        if (bgl::ui::UI::Checkbox("Screen-Space Reflections", ssr)) {
-            pp.SetSsrEnabled(ssr);
-        }
-        bool rays = pp.IsGodRaysEnabled();
-        if (bgl::ui::UI::Checkbox("Volumetric Sun God Rays", rays)) {
-            pp.SetGodRaysEnabled(rays);
-        }
-        bool dof = pp.IsDoFEnabled();
-        if (bgl::ui::UI::Checkbox("Bokeh Depth of Field", dof)) {
-            pp.SetDoFEnabled(dof);
-        }
-        if (dof) {
-            float fDist = pp.GetDoFFocusDistance();
-            if (bgl::ui::UI::SliderFloat("DoF Focus Dist", fDist, 0.5f, 40.0f, "{:.1f}m")) {
-                pp.SetDoFFocusDistance(fDist);
-            }
-            float fRange = pp.GetDoFFocusRange();
-            if (bgl::ui::UI::SliderFloat("DoF Range", fRange, 1.0f, 20.0f, "{:.1f}m")) {
-                pp.SetDoFFocusRange(fRange);
-            }
-        }
-
-        float vign = pp.GetVignetteIntensity();
-        if (bgl::ui::UI::SliderFloat("Vignette", vign, 0.0f, 1.0f, "{:.2f}")) {
-            pp.SetVignetteIntensity(vign);
-        }
-    }
-
-    // 3. Environment & Weather Section
-    if (bgl::ui::UI::CollapsingHeader("Atmosphere & Weather", false)) {
-        static constexpr const char* kEnvNames[] = {"Mediterranean Courtyard", "Sunset Studio", "Overcast Atelier",
-                                                    "Night Neon"};
-        size_t envIdx =
-            std::min(static_cast<size_t>(std::to_underlying(pipelineManager_.GetEnvironmentPreset())), size_t{3});
-        if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNames, envIdx)) {
-            pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
-        }
-
-        float tod = timeOfDay_;
-        if (bgl::ui::UI::SliderFloat("Time of Day", tod, 0.0f, 24.0f, "{:.1f}h")) {
-            SetTimeOfDay(tod);
-        }
-        bool dn = dayNightCycleActive_;
-        if (bgl::ui::UI::Checkbox("Animate Sun Cycle", dn)) {
-            dayNightCycleActive_ = dn;
-        }
-
-        static constexpr const char* kWeatherNames[] = {"Clear Sky", "Rain + Puddles", "Snowfall", "Dense Fog",
-                                                        "Volumetric Smoke"};
-        size_t wIdx = static_cast<size_t>(std::to_underlying(pipelineManager_.GetWeatherMode()));
-        if (bgl::ui::UI::Dropdown("Weather Mode", kWeatherNames, wIdx)) {
-            pipelineManager_.SetWeatherMode(static_cast<gpu::WeatherMode>(wIdx));
-        }
-        float wInt = pipelineManager_.GetWeatherIntensity();
-        if (bgl::ui::UI::SliderFloat("Weather Intensity", wInt, 0.0f, 1.5f, "{:.2f}")) {
-            pipelineManager_.SetWeatherIntensity(wInt);
-        }
-    }
-
-    // 4. Engine, Texture Compression & Theme
-    if (bgl::ui::UI::CollapsingHeader("Engine & UI Theme", false)) {
-        static constexpr const char* kKtxOptions[] = {
-            "Auto (Hardware)", "BC7 (Desktop)", "ASTC 4x4 (Mobile)", "ETC2 RGBA", "RGBA32 (Uncompressed)",
-        };
-        if (bgl::ui::UI::Dropdown("KTX2 Compression", kKtxOptions, selectedKtxOption_)) {
-            scene::KtxTranscodeTarget target = scene::KtxTranscodeTarget::Rgba32;
-            switch (selectedKtxOption_) {
-            case 0:
-                if (gpuContext_.SupportsBC()) {
-                    target = scene::KtxTranscodeTarget::Bc7;
-                } else if (gpuContext_.SupportsASTC()) {
-                    target = scene::KtxTranscodeTarget::Astc4x4;
-                } else if (gpuContext_.SupportsETC2()) {
-                    target = scene::KtxTranscodeTarget::Etc2Rgba;
-                }
-                break;
-            case 1:
-                target = scene::KtxTranscodeTarget::Bc7;
-                break;
-            case 2:
-                target = scene::KtxTranscodeTarget::Astc4x4;
-                break;
-            case 3:
-                target = scene::KtxTranscodeTarget::Etc2Rgba;
-                break;
-            case 4:
-            default:
-                target = scene::KtxTranscodeTarget::Rgba32;
-                break;
-            }
-            SetKtxCompressionTarget(target);
-        }
-
-        bool mipmaps = pipelineManager_.IsMipmappingEnabled();
-        if (bgl::ui::UI::Checkbox("Anisotropic Mipmapping", mipmaps)) {
-            ToggleMipmapping();
-        }
-        bool shadows = pipelineManager_.IsShadowsEnabled();
-        if (bgl::ui::UI::Checkbox("Soft Poisson Shadows", shadows)) {
-            ToggleShadows();
-        }
-        bgl::ui::UI::ColorEdit3("UI Accent Color", uiAccentColor_);
-    }
-
-    settingsUi_.EndWindow();
-    settingsUi_.EndFrame();
 }
 
 void Application::PollShaderHotReload(float deltaTime) {

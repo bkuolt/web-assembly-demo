@@ -21,11 +21,24 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 struct SDL_Window;
 
 namespace bgl::app {
+
+/**
+ * @struct ModelPresetEntry
+ * @brief Descriptor for a built-in local or remote glTF/GLB sample model in the viewer dropdown.
+ */
+struct ModelPresetEntry {
+    const char* label{nullptr};
+    const char* localRelPath{nullptr};
+    const char* remoteUrl{nullptr};
+};
 
 /**
  * @struct ApplicationConfig
@@ -338,6 +351,27 @@ public:
      */
     core::Result<void> LoadSceneFromUri(std::string_view uri);
 
+    /**
+     * @brief Asynchronously fetches, parses, and prepares a glTF/GLB model while reporting live progress.
+     * @param uri Local path or remote URL to the glTF/GLB model.
+     * @param displayLabel Optional user-facing label shown in the progress banner.
+     */
+    void LoadSceneFromUriAsync(std::string_view uri, std::string_view displayLabel = {});
+
+    /**
+     * @brief Returns the built-in native model dropdown catalog (local assets + Khronos glTF Sample Assets).
+     */
+    [[nodiscard]] static std::span<const ModelPresetEntry> GetBuiltinModelPresets() noexcept;
+
+    /**
+     * @brief Resolves the preferred local path (`assets/` or `web/assets/`) or remote HTTPS URL for a preset.
+     */
+    [[nodiscard]] static std::string ResolveModelPresetUri(const ModelPresetEntry& preset);
+
+    [[nodiscard]] bool IsLoadingScene() const noexcept;
+    [[nodiscard]] float GetLoadingProgress() const noexcept;
+    [[nodiscard]] std::string GetLoadingStatus() const;
+
     [[nodiscard]] bool IsRunning() const noexcept { return running_; }
     void RequestClose() noexcept { running_ = false; }
 
@@ -354,10 +388,23 @@ public:
     [[nodiscard]] bool IsSettingsUIVisible() const noexcept { return showSettingsUi_; }
 
 private:
+    struct AsyncLoadTask;
+
     void ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri);
     void CacheSceneMetrics();
     void UpdateSettingsUI();
+    void DrawSelectionFloatingBadge(uint32_t vpW, uint32_t vpH);
+    void DrawModelSelectorSection(bool showLoadingUi);
+    void DrawCameraSceneSection();
+    void DrawPostProcessSection();
+    void DrawAtmosphereWeatherSection();
+    void DrawEngineThemeSection();
     void PollShaderHotReload(float deltaTime);
+    void PollAsyncSceneLoad(float deltaTime);
+    void CancelPendingSceneLoads() noexcept;
+    void SyncModelSelectionFromUri(std::string_view sourceUri);
+    void SetLoadingSucceededState();
+    void SetLoadingFailedState(std::string_view titleName, std::string_view errorMsg, bool revertSelection);
 #if defined(BGL_PLATFORM_NATIVE)
     void HandleKeyDown(int32_t keySym, uint16_t keyMod);
 #endif
@@ -422,6 +469,18 @@ private:
     size_t fpsHistoryCount_{0};
     bool showSelectionAnchors_{true};
     glm::vec3 uiAccentColor_{0.24f, 0.62f, 0.96f};
+
+    size_t selectedModelOption_{0};
+    size_t lastCommittedModelOption_{0};
+    std::string customModelLabel_{};
+    float loadingTargetProgress_{0.0f};
+    float loadingVisualProgress_{0.0f};
+    float loadingBannerTimer_{0.0f};
+    bool loadingHasError_{false};
+    std::string loadingTitle_{};
+    std::string loadingStatus_{};
+    std::unique_ptr<AsyncLoadTask> activeLoad_{};
+    std::vector<std::unique_ptr<AsyncLoadTask>> cancellingLoads_{};
 };
 
 } // namespace bgl::app

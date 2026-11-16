@@ -2,6 +2,7 @@
  * @file test_gltf_loader.cpp
  * @brief Unit tests for FastGltfLoader, scene graph hierarchy, and PBR/KHR material extensions.
  */
+#include "app/Application.hpp"
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
@@ -31,7 +32,7 @@ TEST(GltfLoaderTest, LoadToyCarAsset) {
     auto res = loader.LoadFromFile(assetPath);
     ASSERT_TRUE(res.has_value()) << "Failed to load ToyCar.glb: " << res.error();
 
-    auto scene = *res;
+    const auto& scene = *res;
     ASSERT_NE(scene, nullptr);
     EXPECT_FALSE(scene->rootNodes.empty());
 
@@ -138,7 +139,7 @@ TEST(GltfLoaderTest, LoadStressTestMegacityAsset) {
     auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     ASSERT_TRUE(res.has_value()) << "Failed to load 1GB asset: " << res.error();
-    auto scene = *res;
+    const auto& scene = *res;
     ASSERT_NE(scene, nullptr);
     EXPECT_EQ(scene->rootNodes.size(), 20u); // 20 palace districts
 
@@ -382,4 +383,88 @@ TEST(GltfLoaderTest, ParsesKhrIridescenceAndAnisotropyExtensions) {
     EXPECT_NEAR(mat.iridescenceThicknessMaximum, 560.0f, 1e-4f);
     EXPECT_NEAR(mat.anisotropyStrength, 0.8f, 1e-4f);
     EXPECT_NEAR(mat.anisotropyRotation, 0.785398f, 1e-4f);
+}
+
+TEST(GltfLoaderTest, ReportsMonotonicLoadProgressAndSupportsCancellation) {
+    const std::string toyCarPath = FindToyCarAsset();
+    ASSERT_TRUE(std::filesystem::exists(toyCarPath));
+
+    AssetManager assetMgr;
+    FastGltfLoader loader(assetMgr);
+
+    float lastFraction = -1.0f;
+    std::vector<float> fractions{};
+    std::vector<std::string> statuses{};
+
+    auto okRes = loader.LoadFromFile(toyCarPath, [&](const LoadProgressInfo& info) -> bool {
+        EXPECT_GE(info.fraction, 0.0f);
+        EXPECT_LE(info.fraction, 1.0f);
+        EXPECT_GE(info.fraction + 1e-6f, lastFraction);
+        lastFraction = info.fraction;
+        fractions.push_back(info.fraction);
+        statuses.push_back(info.status);
+        return true;
+    });
+    ASSERT_TRUE(okRes.has_value()) << okRes.error();
+    ASSERT_GE(fractions.size(), 4u);
+    EXPECT_GE(fractions.back(), 0.90f);
+    EXPECT_FALSE(statuses.front().empty());
+
+    // Cancellation cleanly aborts mid-ingestion without crashing
+    size_t cbCount = 0;
+    auto cancelRes = loader.LoadFromFile(toyCarPath, [&](const LoadProgressInfo& /*info*/) -> bool {
+        ++cbCount;
+        return cbCount < 2;
+    });
+    EXPECT_FALSE(cancelRes.has_value());
+}
+
+TEST(GltfLoaderTest, BuiltinModelPresetCatalogResolvesLocalAndRemoteEntries) {
+    const auto presets = bgl::app::Application::GetBuiltinModelPresets();
+    ASSERT_GE(presets.size(), 15u);
+
+    bool sawToyCar = false;
+    bool sawDamagedHelmet = false;
+    bool sawRobot = false;
+    for (const auto& entry : presets) {
+        ASSERT_NE(entry.label, nullptr);
+        const std::string resolved = bgl::app::Application::ResolveModelPresetUri(entry);
+        EXPECT_FALSE(resolved.empty());
+        const std::string_view labelView{entry.label};
+        if (labelView.find("ToyCar") != std::string_view::npos) {
+            sawToyCar = true;
+            EXPECT_NE(resolved.find("ToyCar.glb"), std::string::npos);
+            if (std::filesystem::exists("assets/ToyCar.glb") || std::filesystem::exists("web/assets/ToyCar.glb")) {
+                EXPECT_EQ(resolved.find("https://"), std::string::npos);
+            }
+        }
+        if (labelView.find("RobotExpressive") != std::string_view::npos) {
+            sawRobot = true;
+            if (std::filesystem::exists("web/assets/RobotExpressive.glb")) {
+                EXPECT_EQ(resolved.find("https://"), std::string::npos);
+                EXPECT_NE(resolved.find("RobotExpressive.glb"), std::string::npos);
+            }
+        }
+        if (labelView.find("DamagedHelmet") != std::string_view::npos) {
+            sawDamagedHelmet = true;
+            EXPECT_NE(resolved.find("https://"), std::string::npos);
+            EXPECT_NE(resolved.find("DamagedHelmet.glb"), std::string::npos);
+        }
+    }
+    EXPECT_TRUE(sawToyCar);
+    EXPECT_TRUE(sawRobot);
+    EXPECT_TRUE(sawDamagedHelmet);
+}
+
+TEST(GltfLoaderTest, AsyncLoadSpawnsWorkerAndCleansUpSafelyOnShutdown) {
+    const std::string toyCarPath = FindToyCarAsset();
+    ASSERT_TRUE(std::filesystem::exists(toyCarPath));
+
+    bgl::app::Application app;
+    app.LoadSceneFromUriAsync(toyCarPath, "ToyCar (5.1 MB)");
+    EXPECT_TRUE(app.IsLoadingScene());
+    EXPECT_GE(app.GetLoadingProgress(), 0.0f);
+    EXPECT_FALSE(app.GetLoadingStatus().empty());
+    app.Shutdown();
+    EXPECT_FALSE(app.IsLoadingScene());
 }

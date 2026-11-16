@@ -13,11 +13,25 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
+#include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace bgl::scene {
+
+/**
+ * @struct LoadProgressInfo
+ * @brief Normalized ingestion progress [0.0..1.0] and current stage description.
+ */
+struct LoadProgressInfo {
+    float fraction{0.0f};
+    std::string status{};
+};
+
+/// Callback invoked across loading stages; returns false to request cancellation.
+using LoadProgressCallback = std::function<bool(const LoadProgressInfo& info)>;
 
 /**
  * @class FastGltfLoader
@@ -44,15 +58,28 @@ public:
     core::Result<std::shared_ptr<Scene>> LoadFromMemory(std::span<const uint8_t> data, std::string_view baseUri);
 
     /**
+     * @brief Parses and constructs a 3D scene from memory while reporting stage progress and cancellation.
+     */
+    core::Result<std::shared_ptr<Scene>> LoadFromMemory(std::span<const uint8_t> data, std::string_view baseUri,
+                                                        LoadProgressCallback progressCb, float baseProgress = 0.0f);
+
+    /**
      * @brief Loads and parses a glTF or GLB scene directly from a filesystem path or URI.
      * @param path Filesystem path, HTTP/HTTPS URL, or data URI to the 3D model.
      * @return Result containing the constructed Scene on success, or an error description.
      */
     core::Result<std::shared_ptr<Scene>> LoadFromFile(std::string_view path);
 
+    /**
+     * @brief Loads and parses a glTF or GLB scene from disk or URL with live download/decode progress.
+     */
+    core::Result<std::shared_ptr<Scene>> LoadFromFile(std::string_view path, LoadProgressCallback progressCb);
+
 private:
     core::Result<std::shared_ptr<Scene>> ParseAndAssembleScene(fastgltf::GltfDataBuffer& dataBuffer,
-                                                               std::string_view baseUri, size_t totalBytes);
+                                                               std::string_view baseUri, size_t totalBytes,
+                                                               LoadProgressCallback progressCb = {},
+                                                               float baseProgress = 0.0f);
 
     AssetManager& assetManager_;
     fastgltf::Parser parser_;

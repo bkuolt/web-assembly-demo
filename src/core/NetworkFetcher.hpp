@@ -16,6 +16,18 @@ namespace bgl::core {
 using FetchCallback = std::function<void(Result<std::vector<uint8_t>>)>;
 
 /**
+ * @struct FetchProgress
+ * @brief Byte-level download or disk-read progress payload.
+ */
+struct FetchProgress {
+    size_t bytesReceived{0};
+    size_t totalBytes{0}; ///< 0 if total length is unknown (e.g. chunked HTTP without Content-Length).
+};
+
+/// Returns false to cancel an in-flight transfer cooperatively.
+using FetchProgressCallback = std::function<bool(const FetchProgress& progress)>;
+
+/**
  * @class NetworkFetcher
  * @brief Thread-safe URI resolver and synchronous/asynchronous asset downloader for glTF/GLB models,
  *        external binary buffers (.bin), and external textures (PNG, JPEG, WebP, KTX2).
@@ -78,6 +90,13 @@ public:
      *        Thread-safe for concurrent invocation from worker threads.
      */
     [[nodiscard]] static Result<std::vector<uint8_t>> FetchSync(std::string_view url);
+
+    /**
+     * @brief Synchronously fetch an asset with live transfer progress and cooperative cancellation.
+     *        Thread-safe for concurrent invocation from worker threads.
+     */
+    [[nodiscard]] static Result<std::vector<uint8_t>> FetchSync(std::string_view url,
+                                                                const FetchProgressCallback& progressCb);
 };
 
 } // namespace bgl::core

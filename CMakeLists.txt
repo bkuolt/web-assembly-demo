@@ -235,10 +235,13 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/AabbRenderer.cpp
     src/gpu/ShadowPass.cpp
     src/gpu/PostProcessPass.cpp
+    src/gpu/PostProcessPassRender.cpp
     src/gpu/GpuCuller.cpp
     src/gpu/GpuRayPicker.cpp
     src/gpu/Pipeline.cpp
+    src/gpu/PipelineEffects.cpp
     src/gpu/PipelineIBL.cpp
+    src/gpu/PipelineRender.cpp
     src/gpu/PipelineScene.cpp
 )
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
@@ -263,6 +266,7 @@ add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/TextureDecoder.cpp
     src/scene/AssetManager.cpp
     src/scene/FastGltfLoader.cpp
+    src/scene/FastGltfParser.cpp
     src/scene/Quadtree.cpp
     src/scene/RayPicker.cpp
 )
@@ -316,6 +320,7 @@ target_link_libraries(bgl_text PUBLIC
 add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
     src/ui/ImmediateUI.cpp
+    src/ui/ImmediateUIWidgets.cpp
 )
 target_link_libraries(bgl_ui PUBLIC
     bgl_core
@@ -328,6 +333,8 @@ target_link_libraries(bgl_ui PUBLIC
 # ==============================================================================
 add_library(bgl_app ${BGL_LIB_TYPE}
     src/app/Application.cpp
+    src/app/ApplicationModelLoader.cpp
+    src/app/ApplicationUI.cpp
     src/app/CommandLine.cpp
 )
 target_link_libraries(bgl_app PUBLIC

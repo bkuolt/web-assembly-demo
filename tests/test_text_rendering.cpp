@@ -371,3 +371,59 @@ TEST(ImmediateUIAdvancedWidgetsTest, ColorEdit3PopupOpeningAndHsvDragUpdatesRgb)
     EXPECT_GT(color.b, 0.5f);
     EXPECT_LT(color.r, 0.25f);
 }
+
+TEST(ImmediateUIAdvancedWidgetsTest, ScrollableDropdownAndProgressBarAndLoadingBannerWorkCleanly) {
+    ui::ImmediateUI imgui;
+    std::array<const char*, 20> manyModels = {
+        "ToyCar (5.1 MB)",         "Sponza (52.6 MB)",        "RobotExpressive (0.5 MB)", "Soldier (2.1 MB)",
+        "DamagedHelmet (3.6 MB)",  "AntiqueCamera (16.7 MB)", "BoomBox (10.1 MB)",        "WaterBottle (8.6 MB)",
+        "Shoe (7.5 MB)",           "Avocado (7.7 MB)",        "BarramundiFish (11.9 MB)", "Lantern (1.2 MB)",
+        "Corset (0.3 MB)",         "Fox (0.16 MB)",           "CesiumMan (0.42 MB)",      "BrainStem (3.05 MB)",
+        "ClearCoatTest (0.25 MB)", "MorphTest (0.05 MB)",     "Duck (0.11 MB)",           "ExtraCustomModel (1.0 MB)",
+    };
+    size_t selectedModel = 0;
+    bool blockedCheck = false;
+
+    // Frame 1: click anchor at (100, 77) inside BeginWindow(10, 10, 320) to open scrollable dropdown
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 77.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Model Browser", 10.0f, 10.0f, 320.0f);
+    EXPECT_FALSE(ui::UI::Dropdown("glTF Model", manyModels, selectedModel));
+    ui::UI::ProgressBar(0.5f, "Downloading ToyCar.glb: 2.5 / 5.1 MB (50%)");
+    imgui.EndWindow();
+    imgui.DrawLoadingBanner("Loading ToyCar...", 0.5f, "Decoding textures...", false, 1.0f);
+    imgui.EndFrame();
+    EXPECT_TRUE(imgui.WantsMouse());
+    EXPECT_GE(imgui.GetDrawCommandCount(), 2u);
+
+    // Frame 2: wheel down inside popup (91..355) to scroll to bottom items
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 180.0f, .wheelDelta = -5.0f}, 1280, 720);
+    imgui.BeginWindow("Model Browser", 10.0f, 10.0f, 320.0f);
+    EXPECT_FALSE(ui::UI::Dropdown("glTF Model", manyModels, selectedModel));
+    ui::UI::ProgressBar(0.75f, "Building meshes...");
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(imgui.WantsMouse());
+
+    // Frame 3: click last scrolled item at (100, 343); verify checkboxes underneath do not trigger on popup close
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 343.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Model Browser", 10.0f, 10.0f, 320.0f);
+    const bool picked = ui::UI::Dropdown("glTF Model", manyModels, selectedModel);
+    ui::UI::ProgressBar(1.0f, "Ready");
+    for (int i = 0; i < 10; ++i) {
+        ui::UI::Checkbox("Underneath", blockedCheck);
+    }
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(picked);
+    EXPECT_EQ(selectedModel, 19u);
+    EXPECT_FALSE(blockedCheck);
+
+    // Frame 4: unclipped ProgressBar + LoadingBanner preserve single draw call
+    imgui.BeginFrame(ui::UiInputState{}, 1280, 720);
+    imgui.BeginWindow("Progress Only", 10.0f, 10.0f, 320.0f);
+    ui::UI::ProgressBar(0.42f, "Loading...");
+    imgui.EndWindow();
+    imgui.DrawLoadingBanner("Loaded!", 1.0f, "Ready", false, 0.8f);
+    imgui.EndFrame();
+    EXPECT_EQ(imgui.GetDrawCommandCount(), 1u);
+}

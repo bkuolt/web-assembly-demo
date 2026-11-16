@@ -193,6 +193,18 @@ public:
     void EndScrollArea();
 
     /**
+     * @brief Renders a sleek rounded progress bar with optional caption text and percentage readout.
+     */
+    void ProgressBar(float fraction, std::string_view statusText = {}, float height = 18.0f,
+                     const glm::vec4& fillColor = glm::vec4{0.0f});
+
+    /**
+     * @brief Draws a centered floating frosted-glass loading banner (visible even when panels are hidden).
+     */
+    void DrawLoadingBanner(std::string_view title, float fraction, std::string_view detailText, bool isError = false,
+                           float alphaMultiplier = 1.0f);
+
+    /**
      * @brief Draws a compact rounded pill badge at arbitrary screen coordinates (e.g. 3D anchor label).
      */
     void DrawFloatingBadge(float x, float y, std::string_view text, const glm::vec4& accentColor);
@@ -237,6 +249,9 @@ private:
         UiRect popupRect{};
         std::span<const char* const> options{};
         size_t selectedIndex{0};
+        float scrollOffset{0.0f};
+        float contentHeight{0.0f};
+        bool scrollable{false};
     };
 
     struct PendingColorOverlay {
@@ -257,6 +272,8 @@ private:
     };
 
     void FlushDrawCommand(bool hasScissor, const UiRect& scissorRect);
+    void EmitColorPickerOverlay();
+    void EmitDropdownOverlay();
     void EmitQuad(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, float x, float y, float w,
                   float h, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& color, float isSdf,
                   const glm::vec4& sdfRect = glm::vec4{0.0f}, const glm::vec4& auxColor = glm::vec4{0.0f}) const;
@@ -279,6 +296,7 @@ private:
     void ReleaseDynamicBuffers() noexcept;
     void RebuildBindGroup();
     [[nodiscard]] float MeasureTextWidth(std::string_view text, float scale);
+    [[nodiscard]] std::string EllipsizeText(std::string_view text, float maxWidth, float scale);
     [[nodiscard]] bool IsBlockedByPopup() const noexcept;
     [[nodiscard]] bool IsMouseInClipArea() const noexcept;
     [[nodiscard]] static uint64_t HashId(std::string_view label) noexcept;
@@ -363,6 +381,9 @@ private:
     // Persistent popup states (dropdown / color picker)
     uint64_t openDropdownId_{0};
     bool dropdownToggledThisFrame_{false};
+    bool popupConsumedInputThisFrame_{false};
+    uint64_t activeDropdownScrollId_{0};
+    std::unordered_map<uint64_t, float> dropdownScrollOffsets_{};
     UiRect activePopupRect_{};
     bool hasActivePopupRect_{false};
     PendingDropdownOverlay pendingOverlay_{};
@@ -392,6 +413,8 @@ bool ColorEdit3(std::string_view label, glm::vec3& color);
 void Sparkline(std::string_view label, std::span<const float> values, float minVal = 0.0f, float maxVal = 0.0f,
                float height = 40.0f, const glm::vec4& lineColor = glm::vec4{0.24f, 0.78f, 0.96f, 1.0f});
 bool Dropdown(std::string_view label, std::span<const char* const> options, size_t& selectedIndex);
+void ProgressBar(float fraction, std::string_view statusText = {}, float height = 18.0f,
+                 const glm::vec4& fillColor = glm::vec4{0.0f});
 void BeginScrollArea(std::string_view id, float maxHeight);
 void EndScrollArea();
 } // namespace UI

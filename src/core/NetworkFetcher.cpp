@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -147,9 +148,37 @@ size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
     buffer->insert(buffer->end(), bytePtr, bytePtr + totalBytes);
     return totalBytes;
 }
+
+struct CurlProgressContext {
+    const FetchProgressCallback* callback{nullptr};
+    bool cancelled{false};
+    std::chrono::steady_clock::time_point lastReport{};
+};
+
+int CurlXferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t /*ultotal*/,
+                         curl_off_t /*ulnow*/) {
+    auto* ctx{static_cast<CurlProgressContext*>(clientp)};
+    if (!ctx || !ctx->callback || !(*ctx->callback)) {
+        return 0;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const bool finished = (dltotal > 0 && dlnow >= dltotal);
+    if (!finished && (now - ctx->lastReport) < std::chrono::milliseconds(30)) {
+        return 0;
+    }
+    ctx->lastReport = now;
+    const size_t received = (dlnow > 0) ? static_cast<size_t>(dlnow) : 0u;
+    const size_t total = (dltotal > 0) ? static_cast<size_t>(dltotal) : 0u;
+    if (!(*ctx->callback)(FetchProgress{.bytesReceived = received, .totalBytes = total})) {
+        ctx->cancelled = true;
+        return 1;
+    }
+    return 0;
+}
 #endif
 
-[[nodiscard]] Result<std::vector<uint8_t>> ReadLocalFileBytes(const std::filesystem::path& filePath) {
+[[nodiscard]] Result<std::vector<uint8_t>> ReadLocalFileBytes(const std::filesystem::path& filePath,
+                                                              const FetchProgressCallback& progressCb = {}) {
     std::error_code ec{};
     if (!std::filesystem::exists(filePath, ec) || std::filesystem::is_directory(filePath, ec)) {
         return std::unexpected("File does not exist: " + filePath.string());
@@ -169,9 +198,33 @@ size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
     }
     file.seekg(0, std::ios::beg);
 
-    std::vector<uint8_t> buffer(static_cast<size_t>(size));
-    if (size > 0 && !file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        return std::unexpected("Failed to read local file: " + filePath.string());
+    const size_t totalBytes{static_cast<size_t>(size)};
+    std::vector<uint8_t> buffer(totalBytes);
+    if (totalBytes == 0) {
+        if (progressCb && !progressCb(FetchProgress{.bytesReceived = 0, .totalBytes = 0})) {
+            return std::unexpected("Loading cancelled");
+        }
+        return buffer;
+    }
+
+    if (!progressCb) {
+        if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+            return std::unexpected("Failed to read local file: " + filePath.string());
+        }
+        return buffer;
+    }
+
+    constexpr size_t kChunkBytes = 512ULL * 1024ULL;
+    size_t offset{0};
+    while (offset < totalBytes) {
+        const size_t toRead{std::min(kChunkBytes, totalBytes - offset)};
+        if (!file.read(reinterpret_cast<char*>(buffer.data() + offset), static_cast<std::streamsize>(toRead))) {
+            return std::unexpected("Failed to read local file: " + filePath.string());
+        }
+        offset += toRead;
+        if (!progressCb(FetchProgress{.bytesReceived = offset, .totalBytes = totalBytes})) {
+            return std::unexpected("Loading cancelled");
+        }
     }
     return buffer;
 }
@@ -359,6 +412,10 @@ std::string NetworkFetcher::ExtractDisplayName(std::string_view uri) {
 }
 
 Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
+    return FetchSync(url, FetchProgressCallback{});
+}
+
+Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, const FetchProgressCallback& progressCb) {
     const std::string cleanedUri{SanitizeUri(url)};
     if (cleanedUri.empty()) {
         return std::unexpected("Cannot fetch empty URI");
@@ -389,7 +446,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
             pathPart.remove_prefix(9);
         }
         const std::string decodedPath{DecodeUrlPercent(pathPart)};
-        return ReadLocalFileBytes(std::filesystem::path{decodedPath});
+        return ReadLocalFileBytes(std::filesystem::path{decodedPath}, progressCb);
     }
 
     // 3. Remote HTTP / HTTPS URL
@@ -448,9 +505,22 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
         curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 15L);
         curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 120L);
 
+        CurlProgressContext progressCtx{&progressCb, false, std::chrono::steady_clock::now()};
+        if (progressCb) {
+            if (!progressCb(FetchProgress{.bytesReceived = 0, .totalBytes = 0})) {
+                return std::unexpected("Download cancelled");
+            }
+            curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
+            curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, CurlXferInfoCallback);
+            curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &progressCtx);
+        }
+
         BGL_LOG_INFO("[NetworkFetcher] Downloading via libcurl: '{}'", cleanedUri);
         const CURLcode res{curl_easy_perform(curl.get())};
         if (res != CURLE_OK) {
+            if (progressCtx.cancelled || res == CURLE_ABORTED_BY_CALLBACK) {
+                return std::unexpected("Download cancelled");
+            }
             const std::string detail{errBuf[0] != '\0' ? errBuf.data() : curl_easy_strerror(res)};
             return std::unexpected("libcurl download failed for '" + cleanedUri + "': " + detail);
         }
@@ -462,6 +532,11 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
             return std::unexpected("HTTP error " + std::to_string(httpCode) + " when fetching URL: " + cleanedUri);
         }
 
+        if (progressCb) {
+            (void)progressCb(
+                FetchProgress{.bytesReceived = responseBuffer.size(), .totalBytes = responseBuffer.size()});
+        }
+
         BGL_LOG_INFO("[NetworkFetcher] Downloaded {} bytes ({:.2f} MB) from '{}' (HTTP {})", responseBuffer.size(),
                      static_cast<double>(responseBuffer.size()) / (1024.0 * 1024.0), cleanedUri, httpCode);
         return responseBuffer;
@@ -471,13 +546,13 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url) {
     }
 
     // 4. Local filesystem path (with automatic percent-decoding fallback)
-    auto localRes = ReadLocalFileBytes(std::filesystem::path{cleanedUri});
+    auto localRes = ReadLocalFileBytes(std::filesystem::path{cleanedUri}, progressCb);
     if (localRes) {
         return localRes;
     }
     if (cleanedUri.find('%') != std::string::npos) {
         const std::string decodedPath{DecodeUrlPercent(cleanedUri)};
-        auto decodedRes = ReadLocalFileBytes(std::filesystem::path{decodedPath});
+        auto decodedRes = ReadLocalFileBytes(std::filesystem::path{decodedPath}, progressCb);
         if (decodedRes) {
             return decodedRes;
         }

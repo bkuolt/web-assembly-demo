@@ -171,6 +171,12 @@ private:
                                 WGPUTextureView gtaoView);
     void UploadTonemapUniforms(const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& lightDir,
                                float envRotation, uint32_t viewportW, uint32_t viewportH);
+    void PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPUTextureView depthReadView, uint32_t sampleCount);
+    void PrepareBloomAndBackdropPasses(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView);
+    void PrepareAutoExposurePass(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView, float deltaTime);
+    void PrepareFxaaTonemapPass(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView,
+                                WGPUTextureView depthReadView, const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                                const glm::vec3& lightDir, float envRotation, uint32_t viewportW, uint32_t viewportH);
     void MoveFrom(PostProcessPass& other) noexcept;
 
     WGPUDevice device_{nullptr};
