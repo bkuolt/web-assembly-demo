@@ -29,43 +29,16 @@ core::Result<void> Application::Initialize(uint32_t width, uint32_t height) {
 }
 
 core::Result<void> Application::Initialize(const ApplicationConfig& config) {
-    const uint32_t width{config.width};
-    const uint32_t height{config.height};
-    BGL_LOG_INFO("Initializing {} v{} ({}x{})...", kEngineName, kEngineVersion, width, height);
+    engine::EngineCoreConfig coreConfig{};
+    coreConfig.width = config.width;
+    coreConfig.height = config.height;
+    if (auto res = EngineCore::Initialize(coreConfig); !res) {
+        return res;
+    }
 
     showBoundingBoxes_ = config.enableBoundingBoxes;
     showQuadtreeBounds_ = config.enableQuadtreeBounds;
 
-#if defined(BGL_PLATFORM_NATIVE)
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
-        return std::unexpected(std::string{"Failed to initialize SDL2: "} + SDL_GetError());
-    }
-
-    SDL_Window* window{SDL_CreateWindow(std::string{kEngineName}.c_str(), SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED, static_cast<int>(width), static_cast<int>(height),
-                                        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE)};
-    if (window) {
-        nativeWindow_ = window;
-        SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
-        SDL_EventState(SDL_DROPTEXT, SDL_ENABLE);
-        BGL_LOG_INFO("Created native SDL2 window {}x{} (Drag & Drop enabled for files and URLs)", width, height);
-    }
-#endif
-
-    gpu::ContextConfig cfg{};
-    cfg.width = width;
-    cfg.height = height;
-    cfg.nativeWindowHandle = nativeWindow_;
-
-    if (auto res = gpuContext_.Initialize(cfg); !res) {
-        return res;
-    }
-
-    if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
-                                               gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount());
-        !res) {
-        return res;
-    }
     pipelineManager_.SetBumpMappingEnabled(config.enableBumpMapping);
     pipelineManager_.SetMipmappingEnabled(config.enableMipmapping);
     pipelineManager_.SetShadowsEnabled(config.enableShadows);
@@ -83,13 +56,7 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     SetDayNightSpeed(config.dayNightSpeed);
     SetTimeOfDay(config.timeOfDay);
 
-    if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(),
-                                      gpuContext_.GetSampleCount());
-        !res) {
-        BGL_LOG_WARN("Could not initialize Atmospheric Skybox: {}", res.error());
-    }
     skybox_.SetEnabled(config.enableSkybox);
-    skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
 
     if (auto res = debugOverlay_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
                                             gpuContext_.GetPreferredFormat(), 1);
@@ -119,11 +86,6 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         break;
     }
 
-    if (auto audioRes = soundEngine_.Initialize(); !audioRes) {
-        BGL_LOG_WARN("3D audio engine disabled: {}", audioRes.error());
-    }
-    gltfLoader_ = std::make_unique<scene::FastGltfLoader>(assetManager_);
-
     // Resolve model asset path from config or auto-detect Sponza.glb (primary) / ToyCar.glb (fallback)
     std::string assetPathToLoad{config.assetPath};
     if (assetPathToLoad.empty()) {
@@ -142,15 +104,6 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
         }
     }
 
-    if (!quadtree_) {
-        core::AABB worldBounds;
-        worldBounds.minBound = glm::vec3(-100.0f);
-        worldBounds.maxBound = glm::vec3(100.0f);
-        quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
-    }
-
-    running_ = true;
-    BGL_LOG_INFO("bgl Engine initialized successfully.");
     return {};
 }
 
@@ -370,9 +323,8 @@ void Application::Update(float deltaTime) {
     if (!running_)
         return;
 
-    lastDeltaTime_ = std::clamp(deltaTime, 0.0005f, 0.25f);
-    elapsedTime_ += lastDeltaTime_;
-    fpsSampleTimer_ += lastDeltaTime_;
+    const float clampedDelta = std::clamp(deltaTime, 0.0005f, 0.25f);
+    fpsSampleTimer_ += clampedDelta;
     if (fpsSampleTimer_ >= 0.06f) {
         fpsSampleTimer_ = 0.0f;
         const float instFps = std::clamp(1.0f / std::max(deltaTime, 1e-4f), 1.0f, 360.0f);
@@ -507,28 +459,8 @@ void Application::Update(float deltaTime) {
         camera_.Orbit(turntableSpeed_ * deltaTime, 0.0f);
     }
 
-    PollShaderHotReload(deltaTime);
     PollAsyncSceneLoad(deltaTime);
-
-    if (activeScene_) {
-        activeScene_->UpdateAnimation(deltaTime);
-        if (quadtree_ && activeScene_->transformVersion_ != lastQuadtreeTransformVersion_) {
-            quadtree_->Refit();
-            cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
-            lastQuadtreeTransformVersion_ = activeScene_->transformVersion_;
-        }
-    }
-
-    pipelineManager_.AdvanceWeatherTime(deltaTime);
-    pipelineManager_.UpdateAutoLod(deltaTime);
-    if (dayNightCycleActive_) {
-        SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * deltaTime);
-    }
-
-    float aspect =
-        static_cast<float>(gpuContext_.GetWidth()) / std::max(1.0f, static_cast<float>(gpuContext_.GetHeight()));
-    camera_.Update(aspect);
-    soundEngine_.UpdateListener(camera_.GetPosition(), glm::normalize(camera_.GetTarget() - camera_.GetPosition()));
+    UpdateSimulation(deltaTime);
 
     // Collect telemetry stats for the in-engine debug HUD overlay
     ui::OverlayStats& stats{cachedOverlayStats_};
@@ -630,200 +562,25 @@ void Application::Update(float deltaTime) {
     debugOverlay_.Update(deltaTime, stats);
 }
 
-void Application::Render() {
-    if (!running_)
-        return;
+void Application::OnSceneActivated(std::string_view sourceUri) {
+    SyncModelSelectionFromUri(sourceUri);
+}
 
-    if (!gpuContext_.PrepareFrame())
-        return;
-
-    glm::mat4 vp = camera_.GetViewProjectionMatrix();
-    glm::vec3 camPos = camera_.GetPosition();
-    glm::vec3 sunDir = sunDir_;
-
-    // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
-    if (activeScene_) {
-        pipelineManager_.EnsureOpaqueCopyTexture(gpuContext_.GetWidth(), gpuContext_.GetHeight());
-        pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
-    }
-
-    WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
-    if (!hdrPass)
-        return;
-
-    if (activeScene_) {
-        // 1. Hardware 4x MSAA Opaque/Masked PBR Pass (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
-        pipelineManager_.RenderOpaqueScene(hdrPass, *activeScene_, vp, camPos, wireframeMode_, quadtree_.get(),
-                                           camera_.GetViewMatrix(), camera_.GetProjectionMatrix(),
-                                           gpuContext_.GetWidth(), gpuContext_.GetHeight(), camera_.GetNearPlane(),
-                                           camera_.GetFarPlane());
-        static bool loggedFirstFrame = false;
-        if (!loggedFirstFrame) {
-            loggedFirstFrame = true;
-            BGL_LOG_DEBUG("Frame 1 Render Diagnostic: {} visible primitives rendered ({} occluded by Hi-Z)",
-                          pipelineManager_.GetVisiblePrimitiveCount(), pipelineManager_.GetOccludedPrimitiveCount());
-        }
-    }
-
-    // 2. Procedural Atmospheric Skybox (rendered before opaque snapshot so glass refracts the skybox)
-    skybox_.Render(hdrPass, vp, camPos, sunDir, pipelineManager_.GetSolarElevationFactor(),
-                   static_cast<uint32_t>(pipelineManager_.GetWeatherMode()), pipelineManager_.GetWeatherIntensity());
-
-    // 3. Snapshot Opaque + Skybox HDR Resolve -> OpaqueColorCopyTexture, generate roughness-aware frosted mips,
-    //    and render Transparent/Transmissive Pass
-    gpuContext_.SnapshotOpaqueToCopy(hdrPass, pipelineManager_.GetOpaqueColorCopyTexture(),
-                                     pipelineManager_.GetOpaqueCopyWidth(), pipelineManager_.GetOpaqueCopyHeight());
-    pipelineManager_.GenerateOpaqueCopyMips(gpuContext_.GetCommandEncoder());
-    WGPURenderPassEncoder transparentPass = gpuContext_.OpenTransparentPass();
-    if (!transparentPass)
-        return;
-
-    if (activeScene_) {
-        pipelineManager_.RenderTransparentScene(transparentPass, *activeScene_, vp, wireframeMode_);
-
-        // 4. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
-        if (showBoundingBoxes_) {
-            pipelineManager_.BatchSceneAABBs(*activeScene_, true, true);
-        }
-        if (showQuadtreeBounds_ && quadtree_) {
-            pipelineManager_.BatchQuadtreeBounds(*quadtree_);
-        }
-        if (selectedNode_ && selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
-            // Highlight selected node with a vibrant gold bounding outline
-            pipelineManager_.AppendAABBLines(selectedNode_->worldAABB, glm::vec4{1.0f, 0.72f, 0.05f, 1.0f});
-        }
-        if (showBoundingBoxes_ || (showQuadtreeBounds_ && quadtree_) || selectedNode_) {
-            pipelineManager_.FlushAABBLines(transparentPass, vp);
-        }
-    }
-
-    // 5. End HDR MSAA pass so resolved HDR color + depth can be read by Selection Outline & Post-Processing
-    gpuContext_.FinishHdrPass(transparentPass);
-
-    if (activeScene_ && selectedNode_) {
-        pipelineManager_.RenderSelectionOutline(gpuContext_.GetCommandEncoder(), *activeScene_, selectedNode_.get(), vp,
-                                                gpuContext_.GetHdrResolveView(), gpuContext_.GetWidth(),
-                                                gpuContext_.GetHeight());
-    }
-
-    // 6. Execute pre-swapchain GPU passes (Depth Linearize, GTAO, 5-Mip Bloom + UI Backdrop, Auto-Exposure,
-    // Tonemap->LDR)
-    pipelineManager_.PreparePostProcessPass(
-        gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), gpuContext_.GetDepthReadView(),
-        gpuContext_.GetSampleCount(), vp, camera_.GetProjectionMatrix(), camPos, sunDir, skybox_.GetRotation(),
-        gpuContext_.GetWidth(), gpuContext_.GetHeight(), lastDeltaTime_, elapsedTime_);
-
+void Application::OnPrepareOverlay() {
     settingsUi_.SetBackdropTextureView(pipelineManager_.GetUiBackdropView());
+}
 
-    // 7. Open Swapchain pass (1x), finish FXAA / Tonemap, and draw HUD + ImmediateUI crisp on top
-    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
-    if (!swapchainPass)
-        return;
-
-    pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(),
-                                       camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,
-                                       skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
-
+void Application::OnRenderOverlay(WGPURenderPassEncoder swapchainPass) {
     debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
     if (showSettingsUi_) {
         settingsUi_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
     }
-
-    gpuContext_.EndFrame(swapchainPass);
 }
 
 void Application::Shutdown() {
     CancelPendingSceneLoads();
-    activeScene_.reset();
-    quadtree_.reset();
-    gltfLoader_.reset();
-    assetManager_.Clear();
     settingsUi_.Shutdown();
-    skybox_.Shutdown();
-    pipelineManager_.Shutdown();
-    soundEngine_.Shutdown();
-    gpuContext_.Shutdown();
-#if defined(BGL_PLATFORM_NATIVE)
-    if (nativeWindow_) {
-        SDL_DestroyWindow(nativeWindow_);
-        nativeWindow_ = nullptr;
-        SDL_Quit();
-    }
-#endif
-    running_ = false;
-    BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
-}
-
-void Application::SetTimeOfDay(float hour) noexcept {
-    float wrapped = std::fmod(hour, 24.0f);
-    if (wrapped < 0.0f) {
-        wrapped += 24.0f;
-    }
-    timeOfDay_ = wrapped;
-    pipelineManager_.SetTimeOfDay(timeOfDay_);
-
-    // Diurnal cycle: sunrise ~6:00, noon 12:00 (peak elevation), sunset ~18:00, midnight 0:00 (moon peak)
-    const float solarSin = -std::cos((timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>);
-    const float activeElev = (solarSin >= 0.0f) ? std::asin(std::clamp(solarSin, 0.0f, 1.0f))
-                                                : std::asin(std::clamp(-solarSin * 0.75f, 0.0f, 1.0f));
-    const float azimuth = (timeOfDay_ / 24.0f) * 2.0f * std::numbers::pi_v<float>;
-    SetSunAzimuthElevation(azimuth, std::max(activeElev, 0.06f));
-}
-
-void Application::SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept {
-    sunAzimuth_ = azimuthRad;
-    sunElevation_ = std::clamp(elevationRad, 0.02f, 1.57f);
-    UpdateSunDirection();
-}
-
-void Application::UpdateSunDirection() noexcept {
-    const float cosEl = std::cos(sunElevation_);
-    sunDir_ = glm::normalize(
-        glm::vec3{cosEl * std::sin(sunAzimuth_), std::sin(sunElevation_), cosEl * std::cos(sunAzimuth_)});
-}
-
-void Application::SetKtxCompressionTarget(scene::KtxTranscodeTarget target) {
-    if (!activeScene_) {
-        return;
-    }
-    scene::KtxTranscodeTarget resolved = target;
-    const bool unsupported = (resolved == scene::KtxTranscodeTarget::Bc7 && !gpuContext_.SupportsBC()) ||
-                             (resolved == scene::KtxTranscodeTarget::Astc4x4 && !gpuContext_.SupportsASTC()) ||
-                             (resolved == scene::KtxTranscodeTarget::Etc2Rgba && !gpuContext_.SupportsETC2());
-    if (unsupported) {
-        resolved = scene::KtxTranscodeTarget::Rgba32;
-    }
-    pipelineManager_.RetranscodeKtxTextures(*activeScene_, resolved);
-}
-
-void Application::PollShaderHotReload(float deltaTime) {
-#if defined(BGL_PLATFORM_NATIVE)
-    hotReloadPollTimer_ += deltaTime;
-    if (hotReloadPollTimer_ < 0.25f) {
-        return;
-    }
-    hotReloadPollTimer_ = 0.0f;
-
-    const auto modified = gpu::ShaderManager::Instance().PollModifiedShaders();
-    if (modified.empty()) {
-        return;
-    }
-
-    if (std::ranges::find(modified, std::string{"skybox.wgsl"}) != modified.end()) {
-        if (auto res = skybox_.ReloadShader(); !res) {
-            BGL_LOG_ERROR("WGSL hot-reload failed for skybox.wgsl: {}", res.error());
-        } else {
-            BGL_LOG_INFO("WGSL hot-reloaded: skybox.wgsl");
-        }
-    }
-    if (auto res = pipelineManager_.ReloadShaders(modified); !res) {
-        BGL_LOG_ERROR("WGSL hot-reload failed for pipeline shaders: {}", res.error());
-    } else {
-        BGL_LOG_INFO("WGSL hot-reloaded pipeline shaders cleanly.");
-    }
-#else
-    (void)deltaTime;
-#endif
+    EngineCore::Shutdown();
 }
 
 } // namespace bgl::app

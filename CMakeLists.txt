@@ -335,6 +335,15 @@ target_link_libraries(bgl_ui PUBLIC
 add_library(bgl::ui ALIAS bgl_ui)
 
 # ==============================================================================
+# 6b. libbgl_engine (reusable runtime core)
+# ==============================================================================
+add_library(bgl_engine ${BGL_LIB_TYPE}
+    src/engine/EngineCore.cpp
+)
+target_link_libraries(bgl_engine PUBLIC bgl_scene)
+add_library(bgl::engine ALIAS bgl_engine)
+
+# ==============================================================================
 # 7. libbgl_viewer_lib
 # ==============================================================================
 add_library(bgl_viewer_lib ${BGL_LIB_TYPE}
@@ -347,6 +356,7 @@ target_include_directories(bgl_viewer_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/apps>
 )
 target_link_libraries(bgl_viewer_lib PUBLIC
+    bgl_engine
     bgl_scene
     bgl_text
     bgl_ui
@@ -476,6 +486,7 @@ include(GNUInstallDirs)
 install(TARGETS
     bgl_viewer
     bgl_viewer_lib
+    bgl_engine
     bgl_ui
     bgl_text
     bgl_scene

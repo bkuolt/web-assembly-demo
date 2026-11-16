@@ -4,18 +4,8 @@
  */
 #pragma once
 
-#include "audio/SoundEngine.hpp"
-#include "core/Camera.hpp"
-#include "core/Gamepad.hpp"
 #include "core/MemoryTracker.hpp"
-#include "gpu/Context.hpp"
-#include "gpu/Pipeline.hpp"
-#include "gpu/Skybox.hpp"
-#include "scene/AssetManager.hpp"
-#include "scene/FastGltfLoader.hpp"
-#include "scene/Quadtree.hpp"
-#include "scene/RayPicker.hpp"
-#include "scene/Scene.hpp"
+#include "engine/EngineCore.hpp"
 #include "ui/DebugOverlay.hpp"
 #include "ui/ImmediateUI.hpp"
 #include <array>
@@ -25,8 +15,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-struct SDL_Window;
 
 namespace bgl::app {
 
@@ -74,10 +62,10 @@ struct ApplicationConfig {
  * @class Application
  * @brief Main engine application runtime coordinating rendering, physics, audio, and inputs.
  */
-class Application {
+class Application : public engine::EngineCore {
 public:
     Application();
-    ~Application();
+    ~Application() override;
 
     /**
      * @brief Initializes all engine subsystems (WebGPU context, audio, pipelines, default scene).
@@ -101,20 +89,9 @@ public:
     void Update(float deltaTime);
 
     /**
-     * @brief Records and submits all rendering passes (shadow map, HDR clustered PBR, tonemap, HUD).
-     */
-    void Render();
-
-    /**
      * @brief Gracefully releases WebGPU device resources, pipelines, and native window handles.
      */
     void Shutdown();
-
-    /** @brief Toggles rendering of 3D scene and mesh primitive bounding boxes. */
-    void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }
-
-    /** @brief Toggles rendering of spatial Quadtree ground partition cells. */
-    void ToggleQuadtreeBounds() noexcept { showQuadtreeBounds_ = !showQuadtreeBounds_; }
 
     /** @brief Toggles procedural atmospheric skybox rendering. */
     void ToggleSkybox() noexcept { skybox_.Toggle(); }
@@ -142,33 +119,6 @@ public:
 
     /** @brief Toggles directional sun lens flare post-processing effect. */
     void ToggleLensFlare() noexcept { pipelineManager_.ToggleLensFlare(); }
-
-    /** @brief Selects active glTF animation by index (-1 to disable). */
-    void SetAnimation(int index) noexcept {
-        if (activeScene_)
-            activeScene_->SetAnimation(index);
-    }
-
-    /** @brief Returns currently playing animation index or -1. */
-    [[nodiscard]] int GetActiveAnimationIndex() const noexcept {
-        return activeScene_ ? activeScene_->activeAnimationIndex : -1;
-    }
-
-    /** @brief Returns total number of animations loaded in active scene. */
-    [[nodiscard]] size_t GetAnimationCount() const noexcept {
-        return activeScene_ ? activeScene_->animations.size() : 0;
-    }
-
-    /** @brief Sets animation playback state (playing / paused). */
-    void SetAnimationPlaying(bool playing) noexcept {
-        if (activeScene_)
-            activeScene_->animationPlaying = playing;
-    }
-
-    /** @brief Queries whether animation playback is currently active. */
-    [[nodiscard]] bool IsAnimationPlaying() const noexcept {
-        return activeScene_ ? activeScene_->animationPlaying : false;
-    }
 
     /** @brief Toggles screen-space ambient occlusion (SSAO/GTAO) post-pass. */
     void ToggleSSAO() noexcept { pipelineManager_.ToggleSSAO(); }
@@ -271,51 +221,6 @@ public:
     /** @brief Toggles between Orbit and First-Person Fly camera modes. */
     void ToggleCameraMode() noexcept { camera_.ToggleMode(); }
 
-    /** @brief Focuses camera target and distance onto current selection or scene. */
-    void FocusSelection() noexcept;
-
-    /** @brief Frames entire scene AABB. */
-    void FrameAll() noexcept;
-
-    /** @brief Selects scene node by index (-1 clears selection). */
-    void SelectNodeByIndex(int index) noexcept;
-    void SelectNode(std::shared_ptr<scene::SceneNode> node, int index = -1) noexcept;
-    void ClearSelection() noexcept {
-        selectedNode_ = nullptr;
-        selectedNodeIndex_ = -1;
-    }
-    [[nodiscard]] std::shared_ptr<scene::SceneNode> GetSelectedNode() const noexcept { return selectedNode_; }
-    [[nodiscard]] int GetSelectedNodeIndex() const noexcept { return selectedNodeIndex_; }
-
-    /**
-     * @brief Ray-pick object under screen coordinate and select it.
-     * @return Selected nodeIndex, or -1 if no node was hit.
-     */
-    int PickNodeAt(float screenX, float screenY, float screenWidth, float screenHeight);
-
-    /** @brief Switches to a glTF camera by index (-1 for default interactive camera). */
-    void SelectCamera(int cameraIndex) noexcept;
-    void CycleCamera() noexcept;
-    [[nodiscard]] int GetCameraCount() const noexcept;
-    [[nodiscard]] std::string_view GetCameraName(int index) const noexcept;
-    [[nodiscard]] int GetActiveCameraIndex() const noexcept { return activeCameraIndex_; }
-
-    /** @brief Sun position and diurnal cycle live controls. */
-    void SetTimeOfDay(float hour) noexcept;
-    [[nodiscard]] float GetTimeOfDay() const noexcept { return timeOfDay_; }
-    void ToggleDayNightCycle() noexcept { dayNightCycleActive_ = !dayNightCycleActive_; }
-    void SetDayNightCycle(bool active) noexcept { dayNightCycleActive_ = active; }
-    [[nodiscard]] bool IsDayNightCycleActive() const noexcept { return dayNightCycleActive_; }
-    void SetDayNightSpeed(float hoursPerSec) noexcept { dayNightSpeed_ = std::clamp(hoursPerSec, 0.05f, 12.0f); }
-    [[nodiscard]] float GetDayNightSpeed() const noexcept { return dayNightSpeed_; }
-    void SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept;
-    [[nodiscard]] float GetSunAzimuth() const noexcept { return sunAzimuth_; }
-    [[nodiscard]] float GetSunElevation() const noexcept { return sunElevation_; }
-    [[nodiscard]] glm::vec3 GetSunDirection() const noexcept { return sunDir_; }
-    void UpdateSunDirection() noexcept;
-
-    [[nodiscard]] bool IsBoundingBoxesEnabled() const noexcept { return showBoundingBoxes_; }
-    [[nodiscard]] bool IsQuadtreeBoundsEnabled() const noexcept { return showQuadtreeBounds_; }
     [[nodiscard]] bool IsSkyboxEnabled() const noexcept { return skybox_.IsEnabled(); }
     [[nodiscard]] bool IsDebugOverlayEnabled() const noexcept { return debugOverlay_.IsVisible(); }
     [[nodiscard]] bool IsBumpMappingEnabled() const noexcept { return pipelineManager_.IsBumpMappingEnabled(); }
@@ -334,22 +239,7 @@ public:
      * @param filename Target file name or path.
      * @param data Byte span containing file contents.
      */
-    void OnFileDrop(std::string_view filename, std::span<const uint8_t> data);
-
-    /**
-     * @brief Parses and activates a 3D scene from an in-memory glTF / GLB buffer.
-     * @param data Byte view over binary glTF / GLB asset data.
-     * @param baseUri Base directory or URL for resolving external buffers/textures.
-     * @return Result indicating success or error string.
-     */
-    core::Result<void> LoadScene(std::span<const uint8_t> data, std::string_view baseUri);
-
-    /**
-     * @brief Loads and activates a 3D model from a local file path, `file://` URI, or `http://`/`https://` URL.
-     * @param uri Local path or remote URL to the glTF/GLB model.
-     * @return Result indicating success or error string.
-     */
-    core::Result<void> LoadSceneFromUri(std::string_view uri);
+    void OnFileDrop(std::string_view filename, std::span<const uint8_t> data) override;
 
     /**
      * @brief Asynchronously fetches, parses, and prepares a glTF/GLB model while reporting live progress.
@@ -372,26 +262,20 @@ public:
     [[nodiscard]] float GetLoadingProgress() const noexcept;
     [[nodiscard]] std::string GetLoadingStatus() const;
 
-    [[nodiscard]] bool IsRunning() const noexcept { return running_; }
-    void RequestClose() noexcept { running_ = false; }
-
-    [[nodiscard]] core::Camera& GetCamera() noexcept { return camera_; }
-    [[nodiscard]] core::Gamepad& GetGamepad() noexcept { return gamepad_; }
-    [[nodiscard]] scene::AssetManager& GetAssetManager() noexcept { return assetManager_; }
-    [[nodiscard]] audio::SoundEngine& GetSoundEngine() noexcept { return soundEngine_; }
     [[nodiscard]] ui::DebugOverlay& GetDebugOverlay() noexcept { return debugOverlay_; }
     [[nodiscard]] ui::ImmediateUI& GetImmediateUI() noexcept { return settingsUi_; }
 
-    /** @brief Switches active KTX2 texture transcoding target at runtime and re-uploads loaded KTX2 assets. */
-    void SetKtxCompressionTarget(scene::KtxTranscodeTarget target);
     void ToggleSettingsUI() noexcept { showSettingsUi_ = !showSettingsUi_; }
     [[nodiscard]] bool IsSettingsUIVisible() const noexcept { return showSettingsUi_; }
+
+protected:
+    void OnSceneActivated(std::string_view sourceUri) override;
+    void OnPrepareOverlay() override;
+    void OnRenderOverlay(WGPURenderPassEncoder swapchainPass) override;
 
 private:
     struct AsyncLoadTask;
 
-    void ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_view sourceUri);
-    void CacheSceneMetrics();
     void UpdateSettingsUI();
     void DrawSelectionFloatingBadge(uint32_t vpW, uint32_t vpH);
     void DrawModelSelectorSection(bool showLoadingUi);
@@ -399,7 +283,6 @@ private:
     void DrawPostProcessSection();
     void DrawAtmosphereWeatherSection();
     void DrawEngineThemeSection();
-    void PollShaderHotReload(float deltaTime);
     void PollAsyncSceneLoad(float deltaTime);
     void CancelPendingSceneLoads() noexcept;
     void SyncModelSelectionFromUri(std::string_view sourceUri);
@@ -409,16 +292,6 @@ private:
     void HandleKeyDown(int32_t keySym, uint16_t keyMod);
 #endif
 
-    bool running_{false};
-    bool showBoundingBoxes_{true};
-    bool showQuadtreeBounds_{false};
-    bool wireframeMode_{false};
-
-    core::Camera camera_{};
-    core::Gamepad gamepad_{};
-    gpu::Context gpuContext_{};
-    gpu::PipelineManager pipelineManager_{};
-    gpu::Skybox skybox_{};
     ui::DebugOverlay debugOverlay_{};
     ui::ImmediateUI settingsUi_{};
     ui::UiInputState uiInput_{};
@@ -428,42 +301,14 @@ private:
     size_t selectedKtxOption_{0};
     size_t lastVramBytes_{0};
     size_t lastTextureVramBytes_{0};
-    audio::SoundEngine soundEngine_{};
-    SDL_Window* nativeWindow_{nullptr};
-    scene::AssetManager assetManager_{};
-    std::unique_ptr<scene::FastGltfLoader> gltfLoader_{nullptr};
-    std::shared_ptr<scene::Scene> activeScene_{nullptr};
-    std::unique_ptr<scene::Quadtree> quadtree_{nullptr};
-
-    // Selection & Interactivity
-    std::shared_ptr<scene::SceneNode> selectedNode_{nullptr};
-    int selectedNodeIndex_{-1};
 
     // Camera Navigation & Turntable
     bool turntableActive_{false};
     float turntableSpeed_{0.35f}; // rad/s
-    int activeCameraIndex_{-1};
 
-    // Sun & Time-of-Day
-    float timeOfDay_{14.0f}; // 14:00 (2 PM)
-    bool dayNightCycleActive_{false};
-    float dayNightSpeed_{1.0f}; // hours per second
-    float sunAzimuth_{0.8f};
-    float sunElevation_{0.95f};
-    glm::vec3 sunDir_{0.35f, 1.0f, 0.25f};
-
-    std::string currentModelName_{"None"};
-    size_t totalPrimitives_{0};
-    size_t totalVertices_{0};
-    size_t totalIndices_{0};
-    size_t cachedQuadtreeNodeCount_{0};
-    uint64_t lastQuadtreeTransformVersion_{0};
     ui::OverlayStats cachedOverlayStats_{};
     core::MemoryTelemetry cachedMemTelemetry_{};
     float memTelemetryTimer_{0.25f};
-    float hotReloadPollTimer_{0.0f};
-    float lastDeltaTime_{0.016f};
-    float elapsedTime_{0.0f};
     float fpsSampleTimer_{0.0f};
     std::array<float, 48> fpsHistory_{};
     size_t fpsHistoryCount_{0};

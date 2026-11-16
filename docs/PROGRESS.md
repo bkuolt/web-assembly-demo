@@ -12,7 +12,7 @@
 |------|--------|--------|-------|
 | T01 | DONE | | Viewer nach apps/viewer verschoben (inkl. ApplicationUI.cpp, ApplicationModelLoader.cpp) |
 | T02 | DONE | | bgl_viewer_lib, bgl:: Aliase, scripts/check_layering.py + CTest |
-| T03 | TODO | | |
+| T03 | DONE | | EngineCore extrahiert; Application erbt von EngineCore (inkl. OnSceneActivated/OnFileDrop) |
 | T04 | TODO | | |
 | T05 | TODO | | |
 | T06 | TODO | | |
