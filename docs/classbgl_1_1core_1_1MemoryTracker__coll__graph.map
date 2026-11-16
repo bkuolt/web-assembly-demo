@@ -1,0 +1,9 @@
+<map id="bgl::core::MemoryTracker" name="bgl::core::MemoryTracker">
+<area shape="rect" id="Node000001" title="Thread&#45;safe telemetry tracker for process RAM and WebGPU VRAM resources." alt="" coords="5,464,189,804"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="22,296,173,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,365,100,447,95,447,97,370"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="36,151,158,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="98,235,100,296,95,296,97,240"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="88,5,107,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="98,75,100,134,95,133,97,80"/>
+</map>

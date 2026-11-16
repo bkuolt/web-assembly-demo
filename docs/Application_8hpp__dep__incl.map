@@ -1,0 +1,15 @@
+<map id="apps/viewer/Application.hpp" name="apps/viewer/Application.hpp">
+<area shape="rect" id="Node000001" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="622,5,828,33"/>
+<area shape="rect" id="Node000002" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="5,90,210,117"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="604,33,426,56,223,84,176,91,175,86,222,78,425,51,610,32"/>
+<area shape="rect" id="Node000003" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="234,90,472,117"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="653,37,413,92,412,86,648,37"/>
+<area shape="rect" id="Node000004" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="496,81,714,126"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="696,41,638,83,636,78,691,43"/>
+<area shape="rect" id="Node000005" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="737,90,955,117"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="757,39,829,89,824,88,756,44"/>
+<area shape="rect" id="Node000006" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="979,90,1188,117"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="797,34,1029,89,1023,89,797,40"/>
+<area shape="rect" id="Node000007" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="1212,90,1376,117"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="843,30,1012,50,1200,78,1242,89,1237,89,1199,84,1012,55,843,35"/>
+</map>

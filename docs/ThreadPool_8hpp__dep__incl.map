@@ -1,0 +1,17 @@
+<map id="src/core/ThreadPool.hpp" name="src/core/ThreadPool.hpp">
+<area shape="rect" id="Node000001" title="High&#45;performance centralized thread pool and parallel&#45;for job scheduler." alt="" coords="637,5,814,33"/>
+<area shape="rect" id="Node000002" href="$NetworkFetcher_8cpp.html" title="Implementation of HTTP/HTTPS (libcurl / Emscripten Fetch), data:, file://, and local file fetching." alt="" coords="5,81,211,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="622,35,211,84,211,79,621,30"/>
+<area shape="rect" id="Node000003" href="$ThreadPool_8cpp.html" title="Implementation of centralized ThreadPool worker loop." alt="" coords="234,81,411,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="641,36,396,83,395,78,635,36"/>
+<area shape="rect" id="Node000004" href="$PipelineIBL_8cpp.html" title="IBL cubemap generation, BRDF LUT &amp; GGX prefilter compute pipelines, and L2 SH irradiance." alt="" coords="434,81,606,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="677,38,557,83,556,78,672,39"/>
+<area shape="rect" id="Node000005" href="$PipelineScene_8cpp.html" title="Scene GPU resource upload, material bind&#45;group management, and KTX2 re&#45;transcoding." alt="" coords="630,81,820,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="727,47,727,82,723,79,723,51"/>
+<area shape="rect" id="Node000006" href="$FastGltfParser_8cpp.html" title="glTF asset stage parsers: textures, materials, lights, meshes/LODs, hierarchy, skins,..." alt="" coords="844,81,1046,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="779,36,909,81,903,80,779,41"/>
+<area shape="rect" id="Node000007" href="$FastGltfSceneBuilder_8cpp.html" title="glTF material, punctual light, instancing, hierarchy, camera, skin, and animation builders." alt="" coords="1071,81,1318,109"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="825,33,1113,80,1107,80,824,39"/>
+<area shape="rect" id="Node000008" href="$Scene_8cpp.html" title="Implementation of Scene graph hierarchy transforms, WebGPU resource cleanup, and multithreaded MikkTS..." alt="" coords="1342,81,1495,109"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="829,27,1060,49,1331,78,1345,83,1339,82,1330,84,1059,54,829,32"/>
+</map>

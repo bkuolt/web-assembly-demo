@@ -1,0 +1,12 @@
+<map id="bgl::core::ScratchArena" name="bgl::core::ScratchArena">
+<area shape="rect" id="Node000001" title="O(1) resettable monotonic buffer resource staging arena for per&#45;frame uploads." alt="" coords="84,498,245,749"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,327,148,416"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,413,118,481,112,482,91,418"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="92,151,238,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="120,237,115,248,98,288,87,328,82,327,93,286,111,246,122,232"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="172,318,339,425"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="206,232,216,246,233,282,245,319,240,319,228,284,212,248,207,238"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="155,5,174,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="165,75,167,134,162,133,164,80"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="238,422,218,483,213,481,235,427"/>
+</map>

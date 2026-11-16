@@ -1,0 +1,45 @@
+<map id="bgl::ui::DebugOverlay" name="bgl::ui::DebugOverlay">
+<area shape="rect" id="Node000001" title="Renders an interactive, glassmorphism HUD panel over the 3D scene." alt="" coords="525,2988,717,3329"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1text_1_1FontAtlas.html" title="Manages FreeType face loading (including fallback faces), glyph rasterization, HarfBuzz font handles,..." alt="" coords="520,886,722,1740"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="623,1739,623,2972,618,2971,618,1740"/>
+<area shape="rect" id="Node000014" href="$classbgl_1_1text_1_1TextRenderer.html" title="Batched WebGPU 2D text and UI renderer with orthographic projection." alt="" coords="786,2195,976,2915"/>
+<area shape="poly" id="edge18_Node000014_Node000002" title=" " alt="" coords="711,1737,805,2179,799,2178,709,1742"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="458,447,613,519"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="525,522,514,583,502,657,498,730,500,805,508,880,519,954,514,954,502,881,495,806,493,730,497,656,509,582,526,517"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="627,657,790,746"/>
+<area shape="poly" id="edge8_Node000007_Node000003" title=" " alt="" coords="533,517,541,576,549,605,564,631,614,656,609,658,560,635,544,607,535,577,533,522"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="679,206,797,279"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="664,275,610,311,583,334,561,360,550,381,543,403,537,448,532,447,538,402,545,379,557,357,579,330,606,307,667,271"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="758,560,918,633"/>
+<area shape="poly" id="edge6_Node000006_Node000004" title=" " alt="" coords="758,290,785,357,809,429,825,499,836,561,830,561,820,500,803,431,780,358,758,295"/>
+<area shape="poly" id="edge9_Node000007_Node000004" title=" " alt="" coords="711,294,686,357,663,430,659,492,665,553,678,609,694,657,688,657,673,611,660,554,653,492,658,430,681,355,713,289"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="909,438,1058,528"/>
+<area shape="poly" id="edge21_Node000015_Node000004" title=" " alt="" coords="809,280,861,314,908,357,923,380,934,405,955,438,950,439,929,407,918,383,904,360,858,319,810,285"/>
+<area shape="rect" id="Node000017" title=" " alt="" coords="1110,780,1273,852"/>
+<area shape="poly" id="edge23_Node000017_Node000004" title=" " alt="" coords="810,266,925,299,1053,332,1089,335,1137,337,1182,342,1200,348,1213,357,1231,381,1245,407,1263,464,1268,524,1264,584,1254,643,1240,697,1209,781,1204,779,1235,696,1249,642,1259,584,1263,524,1257,465,1240,409,1227,384,1209,361,1198,353,1181,347,1136,342,1089,340,1052,337,924,305,812,270"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="525,5,543,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="543,49,693,194,688,196,544,54"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="212,198,352,287"/>
+<area shape="poly" id="edge16_Node000012_Node000005" title=" " alt="" coords="523,50,458,89,413,119,369,153,333,187,328,185,366,149,410,115,456,85,526,46"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="840,630,840,737,834,800,822,863,804,926,782,989,731,1108,726,1106,777,987,799,924,817,861,828,799,835,736,839,635"/>
+<area shape="poly" id="edge7_Node000002_Node000007" title=" " alt="" coords="703,743,687,870,682,869,702,749"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="76,665,152,738"/>
+<area shape="poly" id="edge10_Node000002_Node000008" title=" " alt="" coords="151,726,175,745,195,769,207,793,212,815,216,836,226,861,290,959,364,1051,439,1135,510,1208,505,1210,435,1139,360,1055,286,962,221,863,211,838,207,816,202,795,190,771,172,749,153,730"/>
+<area shape="rect" id="Node000018" href="$structbgl_1_1ui_1_1OverlayStats.html" title="Snapshot of engine runtime metrics passed to the debug overlay each frame." alt="" coords="5,1764,201,2171"/>
+<area shape="poly" id="edge25_Node000018_Node000008" title=" " alt="" coords="75,729,58,748,43,771,36,795,36,814,43,862,64,1336,90,1747,84,1747,59,1337,38,862,31,815,31,794,38,769,54,745,77,725"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="50,438,178,528"/>
+<area shape="poly" id="edge11_Node000008_Node000009" title=" " alt="" coords="114,540,117,666,111,665,114,545"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="273,430,414,536"/>
+<area shape="poly" id="edge12_Node000002_Node000010" title=" " alt="" coords="350,534,370,634,397,745,452,912,516,1072,510,1073,447,914,391,747,365,635,350,539"/>
+<area shape="rect" id="Node000011" href="$structbgl_1_1text_1_1GlyphInfo.html" title="Metrics and texture atlas coordinates for a single rasterized glyph." alt="" coords="380,151,515,335"/>
+<area shape="poly" id="edge13_Node000010_Node000011" title=" " alt="" coords="440,337,434,372,420,407,414,417,409,416,416,405,429,370,441,332"/>
+<area shape="poly" id="edge14_Node000010_Node000012" title=" " alt="" coords="272,299,273,353,276,380,282,405,295,430,290,431,278,407,271,381,267,354,271,305"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="272,5,292,78"/>
+<area shape="poly" id="edge15_Node000012_Node000013" title=" " alt="" coords="282,75,285,181,279,181,282,80"/>
+<area shape="poly" id="edge17_Node000001_Node000014" title=" " alt="" coords="788,2774,703,2975,698,2972,784,2778"/>
+<area shape="poly" id="edge19_Node000014_Node000015" title=" " alt="" coords="984,526,902,2179,897,2178,979,529"/>
+<area shape="rect" id="Node000016" href="$structbgl_1_1text_1_1TextVertex.html" title="2D vertex layout for batched text and UI quads." alt="" coords="1064,184,1206,301"/>
+<area shape="poly" id="edge20_Node000015_Node000016" title=" " alt="" coords="1137,298,1131,355,1122,382,1108,408,1092,427,1073,442,1069,439,1088,423,1104,404,1117,380,1126,354,1136,303"/>
+<area shape="poly" id="edge22_Node000014_Node000017" title=" " alt="" coords="1189,849,1173,1051,1137,1376,1112,1567,1082,1769,1046,1973,1005,2172,983,2258,978,2256,999,2171,1041,1972,1076,1768,1107,1567,1132,1375,1168,1050,1188,854"/>
+<area shape="poly" id="edge24_Node000001_Node000018" title=" " alt="" coords="180,2169,322,2520,406,2719,495,2914,523,2973,518,2973,490,2916,402,2721,317,2522,179,2174"/>
+</map>

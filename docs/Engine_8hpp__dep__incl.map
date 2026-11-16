@@ -1,0 +1,24 @@
+<map id="include/bgl/Engine.hpp" name="include/bgl/Engine.hpp">
+<area shape="rect" id="Node000001" title="Public facade of the bgl Engine: window, rendering, model loading, camera and settings." alt="" coords="458,5,627,33"/>
+<area shape="rect" id="Node000002" href="$App_8hpp.html" title="Base class with lifecycle hooks (OnStart/OnUpdate/OnGui/...) and the BGL_RUN entry&#45;point macro." alt="" coords="290,81,440,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="494,41,398,83,396,78,499,38"/>
+<area shape="rect" id="Node000003" href="$bgl_8hpp.html" title="Umbrella header of the bgl Engine public API." alt="" coords="125,157,269,184"/>
+<area shape="poly" id="edge6_Node000001_Node000003" title=" " alt="" coords="441,30,361,50,319,64,280,83,257,100,237,120,207,158,204,154,233,117,253,96,277,79,317,59,359,45,446,28"/>
+<area shape="rect" id="Node000007" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="461,157,624,184"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="544,46,545,157,540,155,541,50"/>
+<area shape="rect" id="Node000008" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="614,81,807,109"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="587,37,683,80,678,81,586,42"/>
+<area shape="rect" id="Node000010" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="864,157,1019,184"/>
+<area shape="poly" id="edge12_Node000001_Node000010" title=" " alt="" coords="642,29,731,48,777,61,821,79,853,96,883,116,930,157,925,156,880,121,851,100,819,83,775,66,730,53,642,35"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="319,116,228,159,226,154,324,114"/>
+<area shape="rect" id="Node000006" href="$App_8cpp.html" title="Implementation of bgl::RunApp main loop driving bgl::App lifecycle hooks." alt="" coords="293,157,437,184"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="367,122,367,158,363,155,364,127"/>
+<area shape="rect" id="Node000004" href="$samples_201__hello__engine_2main_8cpp.html" title=" " alt="" coords="5,232,192,277"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="172,193,126,234,123,229,167,195"/>
+<area shape="rect" id="Node000005" href="$samples_202__entities__and__lights_2main_8cpp.html" title=" " alt="" coords="216,232,376,277"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="225,192,272,232,267,232,224,197"/>
+<area shape="poly" id="edge9_Node000008_Node000007" title=" " alt="" coords="669,114,573,159,571,154,664,116"/>
+<area shape="rect" id="Node000009" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="648,157,840,184"/>
+<area shape="poly" id="edge10_Node000008_Node000009" title=" " alt="" coords="724,121,740,157,736,155,721,125"/>
+<area shape="poly" id="edge11_Node000008_Node000010" title=" " alt="" coords="767,111,903,156,897,156,766,116"/>
+</map>

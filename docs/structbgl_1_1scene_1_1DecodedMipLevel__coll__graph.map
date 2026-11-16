@@ -1,0 +1,9 @@
+<map id="bgl::scene::DecodedMipLevel" name="bgl::scene::DecodedMipLevel">
+<area shape="rect" id="Node000001" title="Single mipmap level payload for block&#45;compressed or pre&#45;filtered KTX2 textures." alt="" coords="5,441,206,536"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="28,296,183,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,366,108,425,103,424,104,370"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="47,151,164,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="106,235,108,296,103,296,105,240"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="96,5,115,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="106,75,108,134,103,133,105,80"/>
+</map>

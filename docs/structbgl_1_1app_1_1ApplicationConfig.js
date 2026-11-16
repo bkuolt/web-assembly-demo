@@ -1,0 +1,26 @@
+var structbgl_1_1app_1_1ApplicationConfig =
+[
+    [ "assetPath", "structbgl_1_1app_1_1ApplicationConfig.html#a832f4653cc84fd9fc3bd00a2fff69368", null ],
+    [ "dayNightSpeed", "structbgl_1_1app_1_1ApplicationConfig.html#a5275fbcd6bb2c46a6b0295a8623d8033", null ],
+    [ "debugViewMode", "structbgl_1_1app_1_1ApplicationConfig.html#ac3bc248680e621dcba3737eae1aec0d1", null ],
+    [ "enableAmbientOcclusion", "structbgl_1_1app_1_1ApplicationConfig.html#a56eecf717b60d309f3eace9b6171f750", null ],
+    [ "enableAutoLod", "structbgl_1_1app_1_1ApplicationConfig.html#a1dab8aaa8940938f6f40f89b86e8f33f", null ],
+    [ "enableBoundingBoxes", "structbgl_1_1app_1_1ApplicationConfig.html#a3ed85089aba63eab991fadc9a3f3d649", null ],
+    [ "enableBumpMapping", "structbgl_1_1app_1_1ApplicationConfig.html#ace82c445c2e96333d90bdc3b9e60d1f1", null ],
+    [ "enableDayNightCycle", "structbgl_1_1app_1_1ApplicationConfig.html#a95859ced1536ea8734e9048130a7df2c", null ],
+    [ "enableDebugOverlay", "structbgl_1_1app_1_1ApplicationConfig.html#a08412ce28ea00e68ae427c4dce507d0a", null ],
+    [ "enableLod", "structbgl_1_1app_1_1ApplicationConfig.html#acbe63bbe1ab49c0d5065acc5a290c2b2", null ],
+    [ "enableMipmapping", "structbgl_1_1app_1_1ApplicationConfig.html#a0cd083d8a745e2cc19873bc52e190742", null ],
+    [ "enableOcclusionCulling", "structbgl_1_1app_1_1ApplicationConfig.html#a7ee06b02a40ffcf341aa88c0f254e972", null ],
+    [ "enableQuadtreeBounds", "structbgl_1_1app_1_1ApplicationConfig.html#a21af808ab0d09ef3bfcdb765fb4916c6", null ],
+    [ "enableReflections", "structbgl_1_1app_1_1ApplicationConfig.html#a0d95aefa9643f94a25c12acf25973211", null ],
+    [ "enableShadows", "structbgl_1_1app_1_1ApplicationConfig.html#ab7d04e0a29c2188e8f1d589f94aac125", null ],
+    [ "enableSkybox", "structbgl_1_1app_1_1ApplicationConfig.html#a7bd0ea72caad26cbaf4878aea96e9ce8", null ],
+    [ "height", "structbgl_1_1app_1_1ApplicationConfig.html#acc42802f01a841b88b0fdc698a800244", null ],
+    [ "lodBias", "structbgl_1_1app_1_1ApplicationConfig.html#a0a03e0529eacb18549bc93aa2ea04501", null ],
+    [ "timeOfDay", "structbgl_1_1app_1_1ApplicationConfig.html#a3893cbf460122e75ebea276b6303fbf2", null ],
+    [ "weatherIntensity", "structbgl_1_1app_1_1ApplicationConfig.html#a2a1dfacb7004e53cf59bd8c77e635fab", null ],
+    [ "weatherMode", "structbgl_1_1app_1_1ApplicationConfig.html#a0fb07b7d76dfba3fbb6e285799f89449", null ],
+    [ "width", "structbgl_1_1app_1_1ApplicationConfig.html#aa6ade5da9eb9b5a4d331f2a9bb7f7f5b", null ],
+    [ "windStrength", "structbgl_1_1app_1_1ApplicationConfig.html#ac48d0a15057104022fda13c60ab0a934", null ]
+];

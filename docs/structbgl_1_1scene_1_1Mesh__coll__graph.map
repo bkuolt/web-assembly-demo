@@ -1,0 +1,38 @@
+<map id="bgl::scene::Mesh" name="bgl::scene::Mesh">
+<area shape="rect" id="Node000001" title="Shared mesh resource containing one or more mesh primitives." alt="" coords="80,2039,200,2112"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="31,1886,107,1958"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="86,1955,114,2014,118,2024,113,2023,109,2016,84,1960"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,1399,133,1489"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="72,1503,72,1886,67,1886,67,1504"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="132,1877,292,1966"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="193,1965,166,2025,162,2022,189,1968"/>
+<area shape="rect" id="Node000005" href="$structbgl_1_1scene_1_1MeshPrimitive.html" title="PMR&#45;backed mesh primitive holding GPU vertices, indices, multi&#45;tier LOD slices, and WebGPU buffers." alt="" coords="568,1084,790,1804"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="570,1560,268,1867,264,1863,566,1556"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="674,531,830,620"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="722,622,707,656,693,694,682,761,675,851,671,1068,666,1067,670,850,677,760,688,692,702,654,724,618"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="593,318,756,391"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="698,388,725,436,737,475,746,514,741,514,732,476,720,438,698,393"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="469,151,587,223"/>
+<area shape="poly" id="edge20_Node000004_Node000008" title=" " alt="" coords="452,194,372,208,328,219,286,235,249,256,220,282,200,314,193,353,193,1445,200,1690,211,1877,206,1877,195,1690,188,1445,188,353,195,312,216,279,246,252,284,230,326,214,371,203,456,190"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="568,232,646,318,641,319,569,237"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="448,807,608,897"/>
+<area shape="poly" id="edge18_Node000013_Node000008" title=" " alt="" coords="527,235,527,437,530,808,524,807,522,437,526,241"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="308,318,481,391"/>
+<area shape="poly" id="edge17_Node000015_Node000008" title=" " alt="" coords="454,212,430,227,409,249,401,265,396,283,393,319,388,318,391,282,396,263,405,245,427,223,457,207"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="653,5,672,78"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="652,55,574,140,570,137,655,50"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="807,318,918,391"/>
+<area shape="poly" id="edge10_Node000010_Node000009" title=" " alt="" coords="672,54,834,304,828,305,672,60"/>
+<area shape="poly" id="edge9_Node000006_Node000010" title=" " alt="" coords="859,403,850,457,829,508,810,532,806,529,824,505,845,455,857,408"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="964,531,1118,620"/>
+<area shape="poly" id="edge13_Node000011_Node000010" title=" " alt="" coords="931,379,973,403,1007,435,1021,458,1031,483,1041,532,1036,531,1026,484,1016,460,1003,439,969,407,932,384"/>
+<area shape="poly" id="edge11_Node000005_Node000011" title=" " alt="" coords="1034,617,1017,703,989,814,951,939,904,1061,854,1161,800,1257,796,1254,850,1158,899,1059,946,937,984,813,1012,702,1032,622"/>
+<area shape="rect" id="Node000012" href="$structbgl_1_1scene_1_1LodSubMesh.html" title="Index buffer slice and error metric for a single geometry LOD tier." alt="" coords="1199,296,1366,413"/>
+<area shape="poly" id="edge12_Node000011_Node000012" title=" " alt="" coords="1284,411,1276,463,1266,487,1251,508,1226,530,1197,547,1166,559,1136,567,1133,562,1165,554,1195,542,1223,526,1247,505,1261,484,1271,461,1282,415"/>
+<area shape="poly" id="edge14_Node000005_Node000013" title=" " alt="" coords="531,894,540,973,554,1059,566,1107,561,1107,549,1061,535,973,530,899"/>
+<area shape="rect" id="Node000014" href="$structbgl_1_1scene_1_1MorphTarget.html" title="Delta attributes for morph target blending." alt="" coords="313,539,479,612"/>
+<area shape="poly" id="edge15_Node000013_Node000014" title=" " alt="" coords="407,609,432,668,496,792,491,793,427,670,407,614"/>
+<area shape="poly" id="edge16_Node000014_Node000015" title=" " alt="" coords="390,388,388,437,388,507,390,522,384,522,383,507,383,437,389,393"/>
+<area shape="rect" id="Node000016" href="$structbgl_1_1core_1_1AABB.html" title="Axis&#45;Aligned Bounding Box with min and max bounds." alt="" coords="788,693,906,1011"/>
+<area shape="poly" id="edge19_Node000005_Node000016" title=" " alt="" coords="803,1008,788,1069,783,1066,800,1013"/>
+</map>

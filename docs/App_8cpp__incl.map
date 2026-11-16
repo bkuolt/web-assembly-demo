@@ -1,0 +1,80 @@
+<map id="src/engine/App.cpp" name="src/engine/App.cpp">
+<area shape="rect" id="Node000001" title="Implementation of bgl::RunApp main loop driving bgl::App lifecycle hooks." alt="" coords="1048,5,1192,33"/>
+<area shape="rect" id="Node000002" href="$App_8hpp.html" title="Base class with lifecycle hooks (OnStart/OnUpdate/OnGui/...) and the BGL_RUN entry&#45;point macro." alt="" coords="984,81,1082,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1106,32,1061,73,1058,69,1102,35"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="132,535,216,563"/>
+<area shape="poly" id="edge50_Node000001_Node000008" title=" " alt="" coords="1044,26,821,43,538,72,405,91,295,114,253,127,221,141,201,155,194,170,194,399,190,464,182,521,177,518,185,464,189,399,189,169,197,152,218,136,251,122,294,109,404,86,537,67,821,38,1049,23"/>
+<area shape="rect" id="Node000017" href="$Log_8hpp.html" title="Structured logging utilities with spdlog and scoped microsecond timers." alt="" coords="1018,384,1122,411"/>
+<area shape="poly" id="edge49_Node000001_Node000017" title=" " alt="" coords="1120,32,1076,369,1072,367,1116,35"/>
+<area shape="rect" id="Node000018" title=" " alt="" coords="1367,459,1432,487"/>
+<area shape="poly" id="edge51_Node000001_Node000018" title=" " alt="" coords="1192,21,1270,33,1310,43,1348,58,1383,77,1410,101,1429,132,1436,169,1436,323,1428,390,1411,447,1408,443,1422,389,1430,323,1430,169,1424,134,1406,105,1380,81,1346,63,1308,48,1268,38,1193,27"/>
+<area shape="rect" id="Node000027" href="$CrashHandler_8hpp.html" title="Crash interception, POSIX signal handling, and stacktrace diagnostics." alt="" coords="1228,157,1396,184"/>
+<area shape="poly" id="edge47_Node000001_Node000027" title=" " alt="" coords="1137,31,1286,147,1280,147,1136,36"/>
+<area shape="rect" id="Node000003" href="$Engine_8hpp.html" title="Public facade of the bgl Engine: window, rendering, model loading, camera and settings." alt="" coords="666,157,784,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="981,109,796,155,794,150,986,107"/>
+<area shape="rect" id="Node000020" title=" " alt="" coords="1213,459,1309,487"/>
+<area shape="poly" id="edge46_Node000002_Node000020" title=" " alt="" coords="1045,107,1130,217,1184,297,1233,383,1256,446,1251,443,1228,385,1179,300,1125,220,1043,112"/>
+<area shape="rect" id="Node000022" title=" " alt="" coords="440,308,506,336"/>
+<area shape="poly" id="edge44_Node000002_Node000022" title=" " alt="" coords="981,98,819,107,713,115,602,127,494,144,397,167,319,197,291,215,270,234,261,252,265,267,279,279,302,290,363,306,427,316,422,318,362,311,300,295,276,284,260,269,256,251,266,231,287,210,317,192,395,162,493,139,601,122,713,110,819,101,986,96"/>
+<area shape="rect" id="Node000023" title=" " alt="" coords="904,308,980,336"/>
+<area shape="poly" id="edge45_Node000002_Node000023" title=" " alt="" coords="1034,107,1024,176,1012,219,995,261,968,299,965,294,991,259,1007,218,1019,175,1030,111"/>
+<area shape="rect" id="Node000004" href="$Entity_8hpp.html" title="Lightweight handle to a node in the active scene (transform, hierarchy, lights)." alt="" coords="872,232,981,260"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="761,182,879,226,874,227,761,188"/>
+<area shape="rect" id="Node000005" href="$include_2bgl_2Types_8hpp.html" title="Fundamental public types of the bgl Engine API." alt="" coords="548,308,659,336"/>
+<area shape="poly" id="edge37_Node000003_Node000005" title=" " alt="" coords="709,183,683,208,658,234,636,265,618,296,615,292,631,262,654,231,680,204,705,186"/>
+<area shape="rect" id="Node000014" title=" " alt="" coords="839,535,891,563"/>
+<area shape="poly" id="edge41_Node000003_Node000014" title=" " alt="" coords="725,182,726,219,732,259,757,337,789,410,851,523,846,521,785,412,752,338,726,261,721,219,723,187"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="937,535,996,563"/>
+<area shape="poly" id="edge42_Node000003_Node000015" title=" " alt="" coords="783,174,843,181,906,193,960,209,981,219,995,231,1005,254,1010,286,1005,367,991,453,975,522,972,518,986,452,1000,367,1004,286,1000,255,991,234,978,223,958,214,905,198,842,187,784,179"/>
+<area shape="poly" id="edge43_Node000003_Node000020" title=" " alt="" coords="783,170,840,174,906,184,974,202,1038,230,1074,253,1108,279,1167,339,1215,398,1248,447,1243,445,1211,401,1163,343,1104,283,1071,257,1036,235,972,207,904,190,840,180,784,175"/>
+<area shape="poly" id="edge38_Node000003_Node000022" title=" " alt="" coords="705,184,509,302,507,298,701,186"/>
+<area shape="poly" id="edge40_Node000003_Node000023" title=" " alt="" coords="726,182,733,221,740,241,752,258,783,282,818,298,855,309,891,317,886,317,853,314,816,303,780,286,748,262,736,243,728,222,724,187"/>
+<area shape="rect" id="Node000024" href="$Input_8hpp.html" title="Polling&#45;based keyboard and mouse input." alt="" coords="280,232,386,260"/>
+<area shape="poly" id="edge32_Node000003_Node000024" title=" " alt="" coords="664,184,402,234,401,229,668,181"/>
+<area shape="rect" id="Node000025" href="$Settings_8hpp.html" title="Plain&#45;data render settings of the bgl Engine." alt="" coords="410,232,536,260"/>
+<area shape="poly" id="edge35_Node000003_Node000025" title=" " alt="" coords="678,186,534,230,532,225,682,184"/>
+<area shape="rect" id="Node000026" title=" " alt="" coords="762,232,848,260"/>
+<area shape="poly" id="edge39_Node000003_Node000026" title=" " alt="" coords="740,182,782,222,777,221,739,188"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="869,261,675,307,673,302,874,259"/>
+<area shape="poly" id="edge30_Node000004_Node000015" title=" " alt="" coords="918,259,905,283,894,309,892,322,894,335,906,388,923,439,956,522,951,520,918,440,901,389,889,336,887,322,889,307,900,281,914,262"/>
+<area shape="poly" id="edge31_Node000004_Node000020" title=" " alt="" coords="947,258,1136,381,1233,450,1227,449,1133,386,946,263"/>
+<area shape="poly" id="edge28_Node000004_Node000022" title=" " alt="" coords="868,259,860,263,699,286,537,311,522,313,520,308,537,305,698,281,859,257,874,257"/>
+<area shape="poly" id="edge29_Node000004_Node000023" title=" " alt="" coords="931,258,939,294,934,291,928,263"/>
+<area shape="rect" id="Node000006" href="$Camera_8hpp.html" title="Orbit, Pan, and Zoom 3D Camera system." alt="" coords="287,384,419,411"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="556,337,413,381,412,376,561,335"/>
+<area shape="rect" id="Node000007" href="$src_2core_2Types_8hpp.html" title="Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result&lt;T&gt;." alt="" coords="390,459,508,487"/>
+<area shape="poly" id="edge24_Node000005_Node000007" title=" " alt="" coords="587,335,528,386,470,450,466,446,525,382,583,337"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="5,535,109,563"/>
+<area shape="poly" id="edge25_Node000005_Node000012" title=" " alt="" coords="546,333,388,362,275,386,217,417,163,455,82,526,78,522,160,451,214,413,273,381,387,356,551,331"/>
+<area shape="poly" id="edge27_Node000005_Node000014" title=" " alt="" coords="594,334,572,372,568,392,573,410,607,433,675,466,827,532,822,532,673,471,604,438,568,413,562,392,567,370,590,337"/>
+<area shape="poly" id="edge19_Node000005_Node000017" title=" " alt="" coords="660,329,1005,385,1000,386,659,335"/>
+<area shape="rect" id="Node000021" title=" " alt="" coords="583,384,755,411"/>
+<area shape="poly" id="edge26_Node000005_Node000021" title=" " alt="" coords="616,334,650,373,645,372,615,339"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="371,409,423,450,417,450,370,414"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="240,535,295,563"/>
+<area shape="poly" id="edge16_Node000006_Node000009" title=" " alt="" coords="348,411,285,523,281,519,343,412"/>
+<area shape="poly" id="edge17_Node000006_Node000012" title=" " alt="" coords="329,414,98,530,95,525,326,409"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="320,535,536,563"/>
+<area shape="poly" id="edge18_Node000006_Node000013" title=" " alt="" coords="356,409,365,446,381,486,407,524,402,523,376,488,360,447,354,414"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="403,488,232,535,231,530,397,488"/>
+<area shape="poly" id="edge8_Node000007_Node000009" title=" " alt="" coords="419,487,310,533,309,528,414,488"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="560,535,623,563"/>
+<area shape="poly" id="edge9_Node000007_Node000010" title=" " alt="" coords="475,485,556,528,550,527,474,490"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="647,535,728,563"/>
+<area shape="poly" id="edge10_Node000007_Node000011" title=" " alt="" coords="492,485,635,530,629,531,491,490"/>
+<area shape="poly" id="edge11_Node000007_Node000012" title=" " alt="" coords="390,488,125,537,124,532,389,483"/>
+<area shape="poly" id="edge12_Node000007_Node000013" title=" " alt="" coords="447,486,438,522,434,518,443,489"/>
+<area shape="poly" id="edge13_Node000007_Node000014" title=" " alt="" coords="509,481,527,484,674,504,740,515,826,535,821,535,740,520,674,510,526,490,508,487"/>
+<area shape="poly" id="edge14_Node000007_Node000015" title=" " alt="" coords="509,479,686,500,904,532,925,539,919,538,903,538,686,506,509,484"/>
+<area shape="rect" id="Node000016" title=" " alt="" coords="752,535,815,563"/>
+<area shape="poly" id="edge15_Node000007_Node000016" title=" " alt="" coords="509,483,612,503,740,534,735,534,611,508,508,488"/>
+<area shape="poly" id="edge22_Node000017_Node000015" title=" " alt="" coords="1064,410,986,524,983,520,1059,413"/>
+<area shape="poly" id="edge20_Node000017_Node000018" title=" " alt="" coords="1123,408,1354,461,1349,461,1123,413"/>
+<area shape="rect" id="Node000019" title=" " alt="" coords="1066,459,1189,487"/>
+<area shape="poly" id="edge21_Node000017_Node000019" title=" " alt="" coords="1082,409,1111,448,1106,446,1080,414"/>
+<area shape="poly" id="edge23_Node000017_Node000020" title=" " alt="" coords="1105,409,1216,454,1210,453,1104,415"/>
+<area shape="poly" id="edge34_Node000024_Node000012" title=" " alt="" coords="316,262,230,343,173,400,118,461,74,523,70,520,114,458,169,396,227,339,320,259"/>
+<area shape="poly" id="edge33_Node000024_Node000022" title=" " alt="" coords="358,258,437,300,432,301,358,263"/>
+<area shape="poly" id="edge36_Node000025_Node000022" title=" " alt="" coords="474,258,475,294,471,291,472,263"/>
+<area shape="poly" id="edge48_Node000027_Node000020" title=" " alt="" coords="1313,183,1304,280,1282,412,1272,446,1269,442,1277,411,1298,279,1309,187"/>
+</map>

@@ -1,0 +1,39 @@
+<map id="src/scene/FastGltfLoader.hpp" name="src/scene/FastGltfLoader.hpp">
+<area shape="rect" id="Node000001" title="High&#45;performance glTF 2.0 / 2.1 scene loader supporting binary (.glb), JSON (.gltf),..." alt="" coords="1504,5,1711,33"/>
+<area shape="rect" id="Node000002" href="$EngineCore_8hpp.html" title="Reusable engine runtime: native window, WebGPU context, scene loading, picking, sun/time&#45;of&#45;day and t..." alt="" coords="1280,81,1474,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1554,38,1419,83,1417,78,1549,39"/>
+<area shape="rect" id="Node000016" href="$FastGltfInternal_8hpp.html" title="Internal stage declarations and progress reporter shared by FastGltfLoader translation units." alt="" coords="1844,81,2059,109"/>
+<area shape="poly" id="edge15_Node000001_Node000016" title=" " alt="" coords="1684,34,1892,80,1887,80,1684,39"/>
+<area shape="rect" id="Node000003" href="$Application_8hpp.html" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="744,157,949,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1269,111,942,159,941,153,1264,112"/>
+<area shape="rect" id="Node000010" href="$EngineCore_8cpp.html" title="Reusable engine runtime implementation: SDL2/WebGPU initialization, scene loading,..." alt="" coords="1043,157,1236,184"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="1323,113,1183,159,1181,154,1317,114"/>
+<area shape="rect" id="Node000011" href="$EngineCoreScene_8cpp.html" title="Scene loading, node selection/picking, camera cycling, and diurnal sun controls for EngineCore." alt="" coords="1261,157,1493,184"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="1379,123,1379,158,1375,154,1375,126"/>
+<area shape="rect" id="Node000012" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="1518,157,1711,184"/>
+<area shape="poly" id="edge11_Node000002_Node000012" title=" " alt="" coords="1434,111,1574,156,1569,156,1433,116"/>
+<area shape="rect" id="Node000004" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="5,241,210,268"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="726,181,494,203,223,235,174,243,173,238,222,230,494,198,731,180"/>
+<area shape="rect" id="Node000005" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="234,241,472,268"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="755,187,433,243,432,238,749,187"/>
+<area shape="rect" id="Node000006" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="496,232,714,277"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="796,189,670,234,668,229,790,190"/>
+<area shape="rect" id="Node000007" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="737,241,955,268"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="848,198,848,242,844,239,844,202"/>
+<area shape="rect" id="Node000008" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="979,241,1188,268"/>
+<area shape="poly" id="edge7_Node000003_Node000008" title=" " alt="" coords="899,187,1048,240,1043,240,898,192"/>
+<area shape="rect" id="Node000009" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="1212,241,1376,268"/>
+<area shape="poly" id="edge8_Node000003_Node000009" title=" " alt="" coords="945,185,1200,230,1240,240,1235,240,1199,235,944,190"/>
+<area shape="rect" id="Node000013" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="1400,241,1564,268"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="1583,192,1504,243,1502,238,1577,194"/>
+<area shape="rect" id="Node000014" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="1587,241,1780,268"/>
+<area shape="poly" id="edge13_Node000012_Node000014" title=" " alt="" coords="1636,194,1675,242,1670,240,1634,199"/>
+<area shape="rect" id="Node000015" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="1803,241,1958,268"/>
+<area shape="poly" id="edge14_Node000012_Node000015" title=" " alt="" coords="1672,187,1841,241,1835,240,1671,192"/>
+<area shape="rect" id="Node000017" href="$FastGltfLoader_8cpp.html" title="glTF 2.0 / 2.1 ingestion orchestrator: fetching, buffer resolution, stage scheduling,..." alt="" coords="1735,157,1941,184"/>
+<area shape="poly" id="edge16_Node000016_Node000017" title=" " alt="" coords="1921,117,1859,159,1857,154,1916,118"/>
+<area shape="rect" id="Node000018" href="$FastGltfParser_8cpp.html" title="glTF asset stage parsers: textures, materials, lights, meshes/LODs, hierarchy, skins,..." alt="" coords="1965,157,2167,184"/>
+<area shape="poly" id="edge17_Node000016_Node000018" title=" " alt="" coords="1985,115,2048,157,2043,156,1984,120"/>
+<area shape="rect" id="Node000019" href="$FastGltfSceneBuilder_8cpp.html" title="glTF material, punctual light, instancing, hierarchy, camera, skin, and animation builders." alt="" coords="2192,157,2439,184"/>
+<area shape="poly" id="edge18_Node000016_Node000019" title=" " alt="" coords="2032,110,2253,156,2247,156,2032,115"/>
+</map>

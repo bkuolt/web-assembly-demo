@@ -1,0 +1,13 @@
+<map id="src/core/MemoryTracker.cpp" name="src/core/MemoryTracker.cpp">
+<area shape="rect" id="Node000001" title="Implementation of OS resident memory querying and VRAM tracking." alt="" coords="101,5,304,33"/>
+<area shape="rect" id="Node000002" href="$MemoryTracker_8hpp.html" title="System RAM (resident set size) and WebGPU VRAM allocation telemetry tracker." alt="" coords="40,81,221,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="192,32,156,72,152,68,188,35"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="244,81,305,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="216,31,254,70,249,70,215,36"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,157,72,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="117,108,68,149,65,145,112,110"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="96,157,165,184"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="132,107,133,142,128,140,129,111"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="189,157,248,184"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="147,107,194,146,189,147,145,112"/>
+</map>

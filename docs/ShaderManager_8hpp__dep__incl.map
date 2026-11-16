@@ -1,0 +1,31 @@
+<map id="src/gpu/ShaderManager.hpp" name="src/gpu/ShaderManager.hpp">
+<area shape="rect" id="Node000001" title="Modular WGSL shader loader, #include/#pragma once preprocessor, #embed fallback, and hot&#45;reload track..." alt="" coords="1340,5,1542,33"/>
+<area shape="rect" id="Node000002" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="5,81,210,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1322,24,843,46,534,62,221,84,210,85,210,79,221,78,533,57,843,40,1327,24"/>
+<area shape="rect" id="Node000003" href="$EngineCore_8cpp.html" title="Reusable engine runtime implementation: SDL2/WebGPU initialization, scene loading,..." alt="" coords="234,81,427,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="1322,26,932,49,440,84,428,85,427,79,439,78,932,43,1327,25"/>
+<area shape="rect" id="Node000004" href="$AabbRenderer_8cpp.html" title="Implementation of batched 3D wireframe bounding box renderer for Scene and Quadtree spatial partition..." alt="" coords="451,81,641,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="1328,28,1021,52,653,84,642,85,641,79,653,78,1021,47,1322,28"/>
+<area shape="rect" id="Node000005" href="$GpuCuller_8cpp.html" title="Implementation of WebGPU Compute&#45;shader&#45;driven Frustum &amp; Spatial Bounding Culling." alt="" coords="665,81,827,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="1327,31,840,84,828,85,827,80,839,78,1322,31"/>
+<area shape="rect" id="Node000006" href="$GpuRayPicker_8cpp.html" title="Implementation of WebGPU Compute&#45;shader&#45;driven parallel Ray&#45;Bounding &amp; Geometry Picking." alt="" coords="852,81,1040,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="1339,36,1036,83,1035,78,1334,36"/>
+<area shape="rect" id="Node000007" href="$Pipeline_8cpp.html" title="Core PipelineManager lifecycle, main/tonemap/mipgen pipelines, and frame render encoding." alt="" coords="1064,81,1215,109"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="1375,37,1194,83,1193,78,1369,37"/>
+<area shape="rect" id="Node000008" href="$PipelineEffects_8cpp.html" title="GPU/CPU mipmap chain generation, opaque transmission copy mips, and 3D selection silhouette outlines." alt="" coords="1239,81,1434,109"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="1413,41,1356,83,1354,78,1408,43"/>
+<area shape="rect" id="Node000009" href="$PipelineIBL_8cpp.html" title="IBL cubemap generation, BRDF LUT &amp; GGX prefilter compute pipelines, and L2 SH irradiance." alt="" coords="1459,81,1630,109"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="1472,40,1529,81,1524,80,1471,45"/>
+<area shape="rect" id="Node000010" href="$PostProcessPass_8cpp.html" title="Implementation of Depth Linearization, Half&#45;Res GTAO, 5&#45;Mip Bloom Pyramid, GPU Auto&#45;Exposure,..." alt="" coords="1655,81,1861,109"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="1513,34,1704,81,1698,80,1512,40"/>
+<area shape="rect" id="Node000011" href="$PostProcessPassTargets_8cpp.html" title="PostProcessPass shader pipeline compilation, resolution target resizing, and tonemap/DoF helpers." alt="" coords="1885,81,2138,109"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="1557,33,1912,80,1906,80,1556,38"/>
+<area shape="rect" id="Node000012" href="$ShaderManager_8cpp.html" title="Implementation of modular WGSL shader #embed storage, #include preprocessor, and hot&#45;reload tracker." alt="" coords="2162,81,2362,109"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="1557,27,2150,78,2164,82,2159,82,2150,84,1557,32"/>
+<area shape="rect" id="Node000013" href="$Shaders_8hpp.html" title="Modular WGSL Shader accessors backed by #embed .wgsl files and ShaderManager #include expansion." alt="" coords="2386,81,2538,109"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="1557,23,1922,42,2148,58,2374,78,2388,82,2383,82,2374,84,2147,63,1922,47,1557,28"/>
+<area shape="rect" id="Node000014" href="$ShadowPass_8cpp.html" title="Implementation of directional 2048x2048 PCF shadow map depth pre&#45;pass with alpha testing." alt="" coords="2562,81,2741,109"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="1557,22,1994,41,2271,57,2550,78,2564,82,2559,82,2550,84,2271,62,1994,46,1557,27"/>
+<area shape="rect" id="Node000015" href="$Skybox_8cpp.html" title="Implementation of HDR Environment Cubemap &amp; Procedural Atmospheric Skybox with WebGPU 4x MSAA pipelin..." alt="" coords="2765,81,2911,109"/>
+<area shape="poly" id="edge14_Node000001_Node000015" title=" " alt="" coords="1557,19,1779,24,2076,34,2413,52,2753,78,2767,82,2762,82,2753,84,2412,57,2076,40,1779,30,1557,25"/>
+</map>

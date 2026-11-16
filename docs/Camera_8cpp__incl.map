@@ -1,0 +1,30 @@
+<map id="src/core/Camera.cpp" name="src/core/Camera.cpp">
+<area shape="rect" id="Node000001" title="Implementation of Camera orbit, fly, pan, zoom, ray unprojection, bookmarks, and bounds framing." alt="" coords="769,5,924,33"/>
+<area shape="rect" id="Node000002" href="$Camera_8hpp.html" title="Orbit, Pan, and Zoom 3D Camera system." alt="" coords="255,81,387,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="767,33,403,85,402,80,771,29"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="804,232,888,260"/>
+<area shape="poly" id="edge15_Node000001_Node000004" title=" " alt="" coords="848,31,849,218,844,215,844,35"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="912,232,975,260"/>
+<area shape="poly" id="edge16_Node000001_Node000006" title=" " alt="" coords="853,31,935,219,929,217,850,35"/>
+<area shape="rect" id="Node000003" href="$src_2core_2Types_8hpp.html" title="Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result&lt;T&gt;." alt="" coords="480,157,599,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="360,107,489,151,484,152,360,112"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="5,232,61,260"/>
+<area shape="poly" id="edge12_Node000002_Node000005" title=" " alt="" coords="297,111,73,227,70,223,295,107"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="85,232,189,260"/>
+<area shape="poly" id="edge13_Node000002_Node000008" title=" " alt="" coords="308,110,166,225,163,220,303,108"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="213,232,429,260"/>
+<area shape="poly" id="edge14_Node000002_Node000009" title=" " alt="" coords="323,107,323,218,319,215,319,111"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="595,182,792,231,786,231,595,188"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="478,177,303,197,192,213,76,235,75,230,191,208,302,192,483,176"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="599,177,732,197,900,232,895,232,731,202,599,182"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="454,232,535,260"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="534,184,512,221,509,217,529,186"/>
+<area shape="poly" id="edge7_Node000003_Node000008" title=" " alt="" coords="481,185,204,234,203,229,480,180"/>
+<area shape="poly" id="edge8_Node000003_Node000009" title=" " alt="" coords="503,185,375,230,374,224,498,185"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="559,232,611,260"/>
+<area shape="poly" id="edge9_Node000003_Node000010" title=" " alt="" coords="549,183,571,220,566,218,546,187"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="636,232,694,260"/>
+<area shape="poly" id="edge10_Node000003_Node000011" title=" " alt="" coords="563,182,633,225,627,224,561,187"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="718,232,780,260"/>
+<area shape="poly" id="edge11_Node000003_Node000012" title=" " alt="" coords="578,182,706,229,701,229,577,188"/>
+</map>

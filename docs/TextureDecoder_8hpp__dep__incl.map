@@ -1,0 +1,138 @@
+<map id="src/scene/TextureDecoder.hpp" name="src/scene/TextureDecoder.hpp">
+<area shape="rect" id="Node000001" title="Memory decoding for PNG, JPEG, WebP, KTX2 (RGBA32/BC7/ASTC/ETC2), Radiance HDR (.hdr),..." alt="" coords="2305,5,2520,33"/>
+<area shape="rect" id="Node000002" href="$CommandLine_8cpp.html" title="Implementation of command&#45;line parsing and CLI utilities." alt="" coords="5,90,231,117"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="2287,22,1859,30,1268,41,677,59,430,70,244,84,188,91,185,87,243,78,430,65,676,53,1268,36,1859,25,2292,21"/>
+<area shape="rect" id="Node000003" href="$Context_8cpp.html" title="Implementation of hardware native WebGPU context using wgpu&#45;native with 4x MSAA support." alt="" coords="255,90,405,117"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="2287,22,1891,28,1352,37,816,55,593,68,424,84,381,91,379,87,423,78,592,63,815,50,1352,32,1891,22,2292,21"/>
+<area shape="rect" id="Node000004" href="$PipelineScene_8cpp.html" title="Scene GPU resource upload, material bind&#45;group management, and KTX2 re&#45;transcoding." alt="" coords="398,401,588,428"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="2287,25,1819,45,1204,78,913,100,670,126,576,140,504,156,459,172,448,179,445,187,445,264,449,304,461,342,488,401,482,399,456,344,444,305,439,265,439,186,444,176,457,167,503,150,575,135,670,121,913,95,1204,73,1819,40,2292,24"/>
+<area shape="rect" id="Node000005" href="$AssetManager_8hpp.html" title="64&#45;bit FNV&#45;1a content hashing, asset deduplication, and PMR staging management." alt="" coords="3040,90,3246,117"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="2536,27,2762,48,3022,78,3076,89,3070,89,3022,84,2762,53,2536,33"/>
+<area shape="rect" id="Node000024" href="$FastGltfParser_8cpp.html" title="glTF asset stage parsers: textures, materials, lights, meshes/LODs, hierarchy, skins,..." alt="" coords="3269,325,3471,353"/>
+<area shape="poly" id="edge26_Node000001_Node000024" title=" " alt="" coords="2484,34,2700,90,2833,128,2964,171,3030,199,3339,325,3334,324,3028,204,2962,176,2831,134,2699,95,2484,40"/>
+<area shape="rect" id="Node000026" href="$Scene_8hpp.html" title="Scene graph node hierarchy, PBR material definitions, and std::pmr vertex storage with WebGPU resourc..." alt="" coords="1727,90,1880,117"/>
+<area shape="poly" id="edge27_Node000001_Node000026" title=" " alt="" coords="2297,36,1881,94,1880,89,2302,35"/>
+<area shape="rect" id="Node000050" href="$TextureDecoder_8cpp.html" title="Memory decoding for PNG, JPEG, WebP, and KTX2 textures using modular decoders." alt="" coords="3271,90,3485,117"/>
+<area shape="poly" id="edge84_Node000001_Node000050" title=" " alt="" coords="2536,23,2863,42,3061,57,3258,78,3313,89,3308,89,3258,84,3060,63,2863,47,2536,28"/>
+<area shape="rect" id="Node000051" href="$TextureDecoderHdr_8cpp.html" title="Radiance HDR (.hdr) and OpenEXR (.exr) floating&#45;point environment texture decoders." alt="" coords="3509,81,3698,126"/>
+<area shape="poly" id="edge85_Node000001_Node000051" title=" " alt="" coords="2536,19,2723,24,2962,34,3229,51,3497,78,3511,83,3506,83,3496,84,3229,57,2962,39,2723,29,2536,24"/>
+<area shape="rect" id="Node000006" href="$EngineCore_8hpp.html" title="Reusable engine runtime: native window, WebGPU context, scene loading, picking, sun/time&#45;of&#45;day and t..." alt="" coords="2633,401,2827,428"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="3208,119,3317,156,3376,181,3429,209,3473,241,3489,258,3501,276,3507,295,3507,315,3500,334,3485,355,3472,363,3451,371,3390,384,3308,394,3212,402,3006,412,2828,415,2827,410,3006,406,3212,397,3307,389,3389,379,3450,366,3470,359,3481,351,3495,332,3502,314,3502,296,3496,279,3485,262,3469,245,3426,214,3373,186,3315,161,3207,125"/>
+<area shape="rect" id="Node000020" href="$AssetManager_8cpp.html" title="Implementation of AssetManager caching and hash deduplication." alt="" coords="3041,174,3246,201"/>
+<area shape="poly" id="edge19_Node000005_Node000020" title=" " alt="" coords="3145,131,3145,175,3141,172,3142,135"/>
+<area shape="rect" id="Node000021" href="$FastGltfLoader_8hpp.html" title="High&#45;performance glTF 2.0 / 2.1 scene loader supporting binary (.glb), JSON (.gltf),..." alt="" coords="2744,174,2951,201"/>
+<area shape="poly" id="edge20_Node000005_Node000021" title=" " alt="" coords="3084,121,2895,176,2894,170,3079,122"/>
+<area shape="rect" id="Node000007" href="$Application_8hpp.html" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="3397,476,3602,504"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="2843,424,3399,479,3393,479,2843,429"/>
+<area shape="rect" id="Node000014" href="$EngineCore_8cpp.html" title="Reusable engine runtime implementation: SDL2/WebGPU initialization, scene loading,..." alt="" coords="2523,476,2716,504"/>
+<area shape="poly" id="edge13_Node000006_Node000014" title=" " alt="" coords="2700,436,2640,478,2638,473,2695,438"/>
+<area shape="rect" id="Node000015" href="$EngineCoreScene_8cpp.html" title="Scene loading, node selection/picking, camera cycling, and diurnal sun controls for EngineCore." alt="" coords="2266,476,2498,504"/>
+<area shape="poly" id="edge14_Node000006_Node000015" title=" " alt="" coords="2655,432,2445,478,2444,473,2650,432"/>
+<area shape="rect" id="Node000016" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="2740,476,2933,504"/>
+<area shape="poly" id="edge15_Node000006_Node000016" title=" " alt="" coords="2762,435,2820,477,2815,475,2761,440"/>
+<area shape="rect" id="Node000008" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="3605,560,3810,588"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="3547,507,3677,560,3671,559,3546,513"/>
+<area shape="rect" id="Node000009" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="3834,560,4071,588"/>
+<area shape="poly" id="edge8_Node000007_Node000009" title=" " alt="" coords="3587,505,3882,560,3877,560,3587,510"/>
+<area shape="rect" id="Node000010" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="4096,552,4313,597"/>
+<area shape="poly" id="edge9_Node000007_Node000010" title=" " alt="" coords="3618,499,3835,520,4084,549,4098,554,4093,554,4083,555,3834,525,3617,504"/>
+<area shape="rect" id="Node000011" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="2942,560,3160,588"/>
+<area shape="poly" id="edge10_Node000007_Node000011" title=" " alt="" coords="3415,507,3124,563,3123,557,3410,507"/>
+<area shape="rect" id="Node000012" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="3184,560,3393,588"/>
+<area shape="poly" id="edge11_Node000007_Node000012" title=" " alt="" coords="3454,510,3323,563,3322,557,3449,511"/>
+<area shape="rect" id="Node000013" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="3417,560,3582,588"/>
+<area shape="poly" id="edge12_Node000007_Node000013" title=" " alt="" coords="3501,518,3501,562,3497,558,3497,522"/>
+<area shape="rect" id="Node000017" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="2755,560,2918,588"/>
+<area shape="poly" id="edge16_Node000016_Node000017" title=" " alt="" coords="2839,518,2839,562,2835,558,2835,522"/>
+<area shape="rect" id="Node000018" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="2539,560,2732,588"/>
+<area shape="poly" id="edge17_Node000016_Node000018" title=" " alt="" coords="2793,510,2668,563,2667,557,2788,511"/>
+<area shape="rect" id="Node000019" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="2256,560,2412,588"/>
+<area shape="poly" id="edge18_Node000016_Node000019" title=" " alt="" coords="2744,507,2412,563,2412,558,2738,507"/>
+<area shape="poly" id="edge21_Node000021_Node000006" title=" " alt="" coords="2804,208,2778,228,2758,251,2740,290,2732,332,2730,371,2731,402,2727,398,2725,371,2727,331,2735,288,2753,248,2774,224,2799,210"/>
+<area shape="rect" id="Node000022" href="$FastGltfInternal_8hpp.html" title="Internal stage declarations and progress reporter shared by FastGltfLoader translation units." alt="" coords="2767,249,2981,277"/>
+<area shape="poly" id="edge22_Node000021_Node000022" title=" " alt="" coords="2859,214,2872,250,2867,248,2856,218"/>
+<area shape="rect" id="Node000023" href="$FastGltfLoader_8cpp.html" title="glTF 2.0 / 2.1 ingestion orchestrator: fetching, buffer resolution, stage scheduling,..." alt="" coords="3039,325,3245,353"/>
+<area shape="poly" id="edge23_Node000022_Node000023" title=" " alt="" coords="2936,279,3097,325,3091,324,2936,284"/>
+<area shape="poly" id="edge24_Node000022_Node000024" title=" " alt="" coords="2979,277,3283,324,3278,324,2978,283"/>
+<area shape="rect" id="Node000025" href="$FastGltfSceneBuilder_8cpp.html" title="glTF material, punctual light, instancing, hierarchy, camera, skin, and animation builders." alt="" coords="2768,325,3015,353"/>
+<area shape="poly" id="edge25_Node000022_Node000025" title=" " alt="" coords="2882,290,2890,326,2886,323,2879,295"/>
+<area shape="poly" id="edge68_Node000026_Node000004" title=" " alt="" coords="1709,105,1432,108,1075,117,902,126,751,138,636,155,597,165,573,176,548,199,529,227,515,259,505,292,496,355,494,402,490,399,491,355,500,291,510,257,524,225,544,195,570,171,596,160,635,149,750,133,901,120,1074,112,1432,103,1714,104"/>
+<area shape="poly" id="edge28_Node000026_Node000006" title=" " alt="" coords="1895,106,2074,115,2285,129,2470,148,2536,159,2574,171,2607,195,2635,225,2660,257,2681,291,2712,354,2728,402,2724,399,2707,356,2676,293,2656,260,2631,228,2603,199,2571,176,2534,164,2469,153,2284,134,2074,120,1896,111"/>
+<area shape="poly" id="edge70_Node000026_Node000021" title=" " alt="" coords="1896,109,2698,171,2746,177,2741,177,2698,176,1896,114"/>
+<area shape="rect" id="Node000027" href="$EntityOps_8hpp.html" title="Pure CPU scene&#45;graph operations backing bgl::Entity (testable without GPU)." alt="" coords="1712,174,1895,201"/>
+<area shape="poly" id="edge29_Node000026_Node000027" title=" " alt="" coords="1805,131,1805,175,1801,172,1802,135"/>
+<area shape="rect" id="Node000029" href="$AabbRenderer_8hpp.html" title="Batched 3D wireframe bounding box renderer for Scene and Quadtree spatial partitions." alt="" coords="1898,249,2090,277"/>
+<area shape="poly" id="edge32_Node000026_Node000029" title=" " alt="" coords="1839,123,1909,172,1952,212,1986,250,1980,248,1948,216,1906,176,1838,128"/>
+<area shape="rect" id="Node000032" href="$Pipeline_8cpp.html" title="Core PipelineManager lifecycle, main/tonemap/mipgen pipelines, and frame render encoding." alt="" coords="841,401,992,428"/>
+<area shape="poly" id="edge57_Node000026_Node000032" title=" " alt="" coords="1709,107,1473,114,1176,126,909,146,814,160,782,168,761,176,731,196,711,220,705,233,703,246,706,260,712,276,729,295,748,304,771,310,797,323,903,400,898,400,794,327,769,315,746,309,726,299,708,278,700,262,698,246,700,231,706,217,728,192,758,171,780,163,813,155,908,141,1175,121,1473,109,1714,106"/>
+<area shape="rect" id="Node000033" href="$PipelineEffects_8cpp.html" title="GPU/CPU mipmap chain generation, opaque transmission copy mips, and 3D selection silhouette outlines." alt="" coords="1094,401,1289,428"/>
+<area shape="poly" id="edge58_Node000026_Node000033" title=" " alt="" coords="1708,106,1509,113,1257,123,1014,144,915,158,840,176,801,189,770,201,745,219,723,251,718,264,723,275,739,284,776,297,891,331,1143,400,1137,400,890,336,774,302,736,288,719,279,713,264,718,248,742,215,768,196,799,184,839,171,914,153,1013,138,1257,118,1509,107,1714,105"/>
+<area shape="rect" id="Node000034" href="$PipelineIBL_8cpp.html" title="IBL cubemap generation, BRDF LUT &amp; GGX prefilter compute pipelines, and L2 SH irradiance." alt="" coords="612,401,784,428"/>
+<area shape="poly" id="edge65_Node000026_Node000034" title=" " alt="" coords="1709,108,1429,118,1071,132,756,152,652,164,620,170,605,176,568,216,556,236,549,258,547,280,550,303,558,326,571,351,584,367,600,380,640,400,634,400,598,384,580,371,566,354,553,329,544,304,542,280,544,257,551,234,564,213,602,171,619,165,651,158,756,147,1071,127,1429,113,1714,106"/>
+<area shape="rect" id="Node000035" href="$PipelineMath_8cpp.html" title="Pure CPU shading, weather, diurnal sun, LOD heatmap, and blending helpers for PipelineManager." alt="" coords="1796,401,1981,428"/>
+<area shape="poly" id="edge66_Node000026_Node000035" title=" " alt="" coords="1895,105,2049,113,2224,125,2373,145,2425,157,2453,172,2474,201,2482,228,2479,253,2467,275,2445,296,2417,314,2343,345,2253,369,2157,387,1982,409,1981,404,2156,382,2252,364,2341,340,2414,309,2442,291,2463,272,2474,251,2477,228,2469,203,2450,176,2423,162,2372,150,2223,131,2049,118,1896,110"/>
+<area shape="rect" id="Node000036" href="$PipelineRender_8cpp.html" title="Clustered Forward+ light culling, shadow/opaque/transparent frame preparation, and draw dispatch enco..." alt="" coords="1358,401,1555,428"/>
+<area shape="poly" id="edge67_Node000026_Node000036" title=" " alt="" coords="1893,119,1950,136,2008,163,2062,199,2085,222,2104,248,2113,268,2119,296,2117,327,2112,341,2102,355,2080,363,2033,371,1887,386,1555,410,1555,405,1887,381,2032,365,2079,358,2099,351,2107,339,2112,325,2114,296,2108,269,2100,251,2081,226,2058,203,2006,167,1948,141,1893,124"/>
+<area shape="rect" id="Node000037" href="$DrawHelpers_8hpp.html" title="Shared helpers for populating per&#45;draw uniforms, GPU skinning SSBOs, and morph weights across passes." alt="" coords="1311,174,1496,201"/>
+<area shape="poly" id="edge42_Node000026_Node000037" title=" " alt="" coords="1721,121,1468,176,1467,171,1727,120"/>
+<area shape="rect" id="Node000039" href="$ShadowPass_8hpp.html" title="Directional 2048x2048 PCF shadow map depth pre&#45;pass with alpha testing." alt="" coords="1488,249,1668,277"/>
+<area shape="poly" id="edge69_Node000026_Node000039" title=" " alt="" coords="1773,125,1701,176,1597,251,1594,246,1698,171,1768,127"/>
+<area shape="rect" id="Node000040" href="$GpuCuller_8hpp.html" title="WebGPU Compute&#45;shader&#45;driven Frustum &amp; Spatial Bounding Culling." alt="" coords="851,174,1014,201"/>
+<area shape="poly" id="edge51_Node000026_Node000040" title=" " alt="" coords="1709,115,1015,181,1014,176,1714,112"/>
+<area shape="rect" id="Node000042" href="$GpuRayPicker_8hpp.html" title="WebGPU Compute&#45;shader&#45;driven parallel Ray&#45;Bounding &amp; Geometry Picking." alt="" coords="1098,174,1287,201"/>
+<area shape="poly" id="edge54_Node000026_Node000042" title=" " alt="" coords="1709,118,1288,176,1287,171,1714,116"/>
+<area shape="rect" id="Node000044" href="$PipelineHelpers_8hpp.html" title="Internal helper functions shared across PipelineManager translation units." alt="" coords="581,325,783,353"/>
+<area shape="poly" id="edge59_Node000026_Node000044" title=" " alt="" coords="1708,107,1432,117,1081,130,773,150,673,162,642,169,628,176,613,199,611,222,617,247,628,276,645,302,667,325,661,324,641,306,624,278,612,248,605,222,608,197,624,172,640,164,672,157,773,145,1081,125,1432,112,1714,106"/>
+<area shape="rect" id="Node000045" href="$Quadtree_8hpp.html" title="Spatial XZ&#45;plane partitioning, view frustum culling, and LOD selection." alt="" coords="2266,174,2440,201"/>
+<area shape="poly" id="edge71_Node000026_Node000045" title=" " alt="" coords="1895,116,2268,173,2262,173,1895,121"/>
+<area shape="rect" id="Node000047" href="$RayPicker_8hpp.html" title="Broad&#45;phase AABB test and narrow&#45;phase Möller&#45;Trumbore triangle intersection." alt="" coords="2413,325,2591,353"/>
+<area shape="poly" id="edge82_Node000026_Node000047" title=" " alt="" coords="1895,104,2071,110,2276,121,2371,130,2453,141,2514,155,2535,163,2548,172,2564,197,2566,222,2559,248,2548,278,2535,305,2517,327,2514,322,2530,302,2544,276,2554,246,2560,221,2559,199,2544,176,2532,168,2513,160,2452,147,2371,135,2275,127,2071,115,1896,109"/>
+<area shape="rect" id="Node000049" href="$Scene_8cpp.html" title="Implementation of Scene graph hierarchy transforms, WebGPU resource cleanup, and multithreaded MikkTS..." alt="" coords="2088,174,2241,201"/>
+<area shape="poly" id="edge83_Node000026_Node000049" title=" " alt="" coords="1876,118,2109,173,2104,173,1876,124"/>
+<area shape="poly" id="edge30_Node000027_Node000019" title=" " alt="" coords="1910,202,2013,222,2117,251,2162,269,2198,289,2222,312,2229,324,2231,337,2231,416,2236,462,2256,503,2284,534,2315,561,2310,559,2280,538,2252,505,2231,463,2226,416,2226,338,2224,326,2218,315,2195,293,2160,274,2116,256,2012,227,1910,207"/>
+<area shape="rect" id="Node000028" href="$EntityOps_8cpp.html" title="Pure CPU scene&#45;graph operations for node creation, reparenting, and light attachment." alt="" coords="1692,249,1874,277"/>
+<area shape="poly" id="edge31_Node000027_Node000028" title=" " alt="" coords="1798,215,1789,251,1785,247,1794,218"/>
+<area shape="rect" id="Node000030" href="$AabbRenderer_8cpp.html" title="Implementation of batched 3D wireframe bounding box renderer for Scene and Quadtree spatial partition..." alt="" coords="1899,325,2089,353"/>
+<area shape="poly" id="edge33_Node000029_Node000030" title=" " alt="" coords="1996,291,1996,326,1992,323,1992,295"/>
+<area shape="rect" id="Node000031" href="$Pipeline_8hpp.html" title="Hardware WebGPU RenderPipeline, HDR RGBA16Float Post&#45;Processing Tonemapping (Khronos PBR Neutral,..." alt="" coords="1267,325,1420,353"/>
+<area shape="poly" id="edge34_Node000029_Node000031" title=" " alt="" coords="1880,278,1420,332,1419,326,1885,277"/>
+<area shape="poly" id="edge41_Node000031_Node000004" title=" " alt="" coords="1249,347,962,371,601,403,589,405,588,399,600,398,961,366,1254,346"/>
+<area shape="poly" id="edge35_Node000031_Node000006" title=" " alt="" coords="1435,346,1482,350,1788,367,2026,375,2264,383,2570,398,2635,405,2630,405,2570,403,2264,388,2026,380,1788,372,1482,355,1435,352"/>
+<area shape="poly" id="edge36_Node000031_Node000032" title=" " alt="" coords="1249,356,993,403,992,398,1254,355"/>
+<area shape="poly" id="edge37_Node000031_Node000033" title=" " alt="" coords="1305,359,1219,403,1217,398,1300,361"/>
+<area shape="poly" id="edge38_Node000031_Node000034" title=" " alt="" coords="1249,351,785,406,784,401,1254,350"/>
+<area shape="poly" id="edge39_Node000031_Node000035" title=" " alt="" coords="1435,350,1799,401,1793,401,1435,355"/>
+<area shape="poly" id="edge40_Node000031_Node000036" title=" " alt="" coords="1377,359,1439,401,1434,400,1376,364"/>
+<area shape="poly" id="edge44_Node000037_Node000031" title=" " alt="" coords="1395,214,1350,326,1347,322,1391,217"/>
+<area shape="poly" id="edge43_Node000037_Node000032" title=" " alt="" coords="1364,208,946,403,944,398,1359,209"/>
+<area shape="poly" id="edge45_Node000037_Node000033" title=" " alt="" coords="1378,210,1320,264,1257,327,1226,367,1201,402,1198,398,1221,364,1253,323,1317,260,1373,213"/>
+<area shape="poly" id="edge46_Node000037_Node000036" title=" " alt="" coords="1412,214,1456,401,1451,399,1408,219"/>
+<area shape="rect" id="Node000038" href="$ShadowPass_8cpp.html" title="Implementation of directional 2048x2048 PCF shadow map depth pre&#45;pass with alpha testing." alt="" coords="1494,325,1673,353"/>
+<area shape="poly" id="edge47_Node000037_Node000038" title=" " alt="" coords="1421,211,1446,244,1477,275,1516,302,1556,325,1551,324,1513,307,1474,279,1442,247,1419,216"/>
+<area shape="poly" id="edge48_Node000037_Node000039" title=" " alt="" coords="1449,205,1550,249,1544,249,1448,210"/>
+<area shape="poly" id="edge49_Node000039_Node000031" title=" " alt="" coords="1524,281,1386,327,1385,322,1519,283"/>
+<area shape="poly" id="edge50_Node000039_Node000038" title=" " alt="" coords="1582,291,1585,326,1580,323,1578,295"/>
+<area shape="poly" id="edge53_Node000040_Node000031" title=" " alt="" coords="934,214,942,248,949,263,960,275,981,288,1012,299,1092,316,1183,327,1269,335,1264,335,1183,332,1091,322,1010,305,979,293,956,279,945,265,937,250,932,219"/>
+<area shape="rect" id="Node000041" href="$GpuCuller_8cpp.html" title="Implementation of WebGPU Compute&#45;shader&#45;driven Frustum &amp; Spatial Bounding Culling." alt="" coords="733,249,895,277"/>
+<area shape="poly" id="edge52_Node000040_Node000041" title=" " alt="" coords="901,208,836,251,834,247,896,211"/>
+<area shape="poly" id="edge56_Node000042_Node000031" title=" " alt="" coords="1217,209,1333,325,1327,324,1215,214"/>
+<area shape="rect" id="Node000043" href="$GpuRayPicker_8cpp.html" title="Implementation of WebGPU Compute&#45;shader&#45;driven parallel Ray&#45;Bounding &amp; Geometry Picking." alt="" coords="970,249,1159,277"/>
+<area shape="poly" id="edge55_Node000042_Node000043" title=" " alt="" coords="1159,208,1088,251,1086,246,1154,210"/>
+<area shape="poly" id="edge64_Node000044_Node000004" title=" " alt="" coords="636,358,527,403,525,398,631,360"/>
+<area shape="poly" id="edge60_Node000044_Node000032" title=" " alt="" coords="738,355,877,400,872,400,738,360"/>
+<area shape="poly" id="edge61_Node000044_Node000033" title=" " alt="" coords="789,353,1102,399,1097,401,789,358"/>
+<area shape="poly" id="edge62_Node000044_Node000034" title=" " alt="" coords="690,366,698,401,693,399,687,370"/>
+<area shape="poly" id="edge63_Node000044_Node000036" title=" " alt="" coords="799,348,1360,403,1355,405,798,354"/>
+<area shape="poly" id="edge72_Node000045_Node000006" title=" " alt="" coords="2397,205,2482,247,2551,287,2617,330,2715,401,2710,400,2614,335,2548,292,2479,252,2396,211"/>
+<area shape="poly" id="edge73_Node000045_Node000029" title=" " alt="" coords="2276,205,2059,251,2058,246,2271,206"/>
+<area shape="poly" id="edge74_Node000045_Node000036" title=" " alt="" coords="2318,208,2256,251,2225,281,2205,308,2183,333,2147,355,2113,364,2057,373,1898,388,1555,411,1555,405,1897,383,2056,367,2112,359,2145,350,2179,329,2201,304,2221,277,2252,247,2313,210"/>
+<area shape="poly" id="edge75_Node000045_Node000039" title=" " alt="" coords="2247,202,1964,228,1681,252,1669,253,1668,248,1680,247,1963,223,2253,201"/>
+<area shape="rect" id="Node000046" href="$Quadtree_8cpp.html" title="Implementation of Quadtree spatial hierarchy, view frustum culling, and LOD selection." alt="" coords="2266,249,2439,277"/>
+<area shape="poly" id="edge76_Node000045_Node000046" title=" " alt="" coords="2354,215,2355,251,2351,247,2351,219"/>
+<area shape="poly" id="edge77_Node000045_Node000047" title=" " alt="" coords="2396,206,2426,225,2453,248,2482,287,2499,326,2495,324,2477,290,2449,251,2423,229,2395,211"/>
+<area shape="poly" id="edge79_Node000047_Node000006" title=" " alt="" coords="2557,355,2692,400,2687,400,2557,360"/>
+<area shape="poly" id="edge78_Node000047_Node000014" title=" " alt="" coords="2532,360,2572,399,2599,439,2616,477,2612,475,2594,442,2568,402,2530,365"/>
+<area shape="poly" id="edge80_Node000047_Node000015" title=" " alt="" coords="2427,358,2396,378,2372,402,2366,420,2366,440,2377,477,2373,474,2361,440,2361,419,2368,399,2392,374,2422,359"/>
+<area shape="rect" id="Node000048" href="$RayPicker_8cpp.html" title="Implementation of Möller&#45;Trumbore ray picking algorithm with hierarchical scene traversal." alt="" coords="2382,401,2558,428"/>
+<area shape="poly" id="edge81_Node000047_Node000048" title=" " alt="" coords="2492,365,2477,402,2474,398,2488,368"/>
+</map>

@@ -1,0 +1,35 @@
+<map id="src/gpu/Context.hpp" name="src/gpu/Context.hpp">
+<area shape="rect" id="Node000001" title="Native &amp; WebAssembly WebGPU Context management with 4x MSAA support." alt="" coords="1021,5,1172,33"/>
+<area shape="rect" id="Node000002" href="$src_2core_2Types_8hpp.html" title="Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result&lt;T&gt;." alt="" coords="468,81,587,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1018,31,602,87,602,81,1023,30"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="914,157,973,184"/>
+<area shape="poly" id="edge16_Node000001_Node000010" title=" " alt="" coords="1086,32,969,148,967,143,1081,34"/>
+<area shape="rect" id="Node000012" href="$Handle_8hpp.html" title="Modern C++23 zero&#45;overhead RAII wrapper for WebGPU C API handles." alt="" coords="1087,81,1210,109"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="1107,31,1133,69,1128,67,1105,36"/>
+<area shape="rect" id="Node000016" title=" " alt="" coords="1304,157,1444,184"/>
+<area shape="poly" id="edge17_Node000001_Node000016" title=" " alt="" coords="1126,31,1223,79,1343,149,1337,148,1221,83,1125,36"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,157,90,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="465,103,308,126,105,159,104,153,307,121,470,102"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="113,157,168,184"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="466,105,342,127,184,159,183,154,341,122,471,104"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="192,157,255,184"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="471,109,270,158,269,153,465,109"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="279,157,360,184"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="493,109,371,154,370,149,488,110"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="384,157,487,184"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="514,108,465,149,462,145,509,110"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="511,157,728,184"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="545,107,594,148,589,146,543,112"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="752,157,804,184"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="576,107,740,156,735,156,575,112"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="587,101,726,121,902,156,896,156,725,126,587,106"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="828,157,891,184"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="587,105,816,156,810,156,587,110"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="997,157,1076,184"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="1131,108,1070,151,1068,146,1126,110"/>
+<area shape="rect" id="Node000014" title=" " alt="" coords="1101,157,1197,184"/>
+<area shape="poly" id="edge13_Node000012_Node000014" title=" " alt="" coords="1151,107,1151,143,1147,139,1147,111"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="1220,157,1280,184"/>
+<area shape="poly" id="edge14_Node000012_Node000015" title=" " alt="" coords="1168,107,1223,148,1217,147,1166,112"/>
+<area shape="poly" id="edge15_Node000012_Node000016" title=" " alt="" coords="1190,107,1322,152,1317,151,1189,112"/>
+</map>

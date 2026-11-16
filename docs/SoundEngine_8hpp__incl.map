@@ -1,0 +1,35 @@
+<map id="src/audio/SoundEngine.hpp" name="src/audio/SoundEngine.hpp">
+<area shape="rect" id="Node000001" title="3D Spatial Audio Engine using miniaudio and glTF KHR_audio integration." alt="" coords="924,5,1120,33"/>
+<area shape="rect" id="Node000002" href="$src_2core_2Types_8hpp.html" title="Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result&lt;T&gt;." alt="" coords="433,81,552,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="924,34,568,86,567,81,929,33"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="788,157,891,184"/>
+<area shape="poly" id="edge12_Node000001_Node000007" title=" " alt="" coords="990,33,947,56,906,83,878,113,855,146,853,141,874,110,903,79,944,51,984,34"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="915,157,974,184"/>
+<area shape="poly" id="edge15_Node000001_Node000010" title=" " alt="" coords="980,33,944,54,929,67,918,82,913,97,914,112,928,145,923,143,909,114,908,96,913,80,925,63,941,50,975,34"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="927,81,1013,109"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="1015,32,989,71,986,66,1010,35"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="1037,81,1113,109"/>
+<area shape="poly" id="edge13_Node000001_Node000013" title=" " alt="" coords="1032,31,1059,69,1054,67,1030,36"/>
+<area shape="rect" id="Node000014" title=" " alt="" coords="1138,81,1236,109"/>
+<area shape="poly" id="edge14_Node000001_Node000014" title=" " alt="" coords="1052,31,1147,75,1141,74,1051,36"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="1260,81,1357,109"/>
+<area shape="poly" id="edge16_Node000001_Node000015" title=" " alt="" coords="1073,31,1248,77,1243,77,1073,36"/>
+<area shape="rect" id="Node000016" title=" " alt="" coords="1380,81,1504,109"/>
+<area shape="poly" id="edge17_Node000001_Node000016" title=" " alt="" coords="1098,31,1368,80,1363,80,1097,36"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="92,157,176,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="433,110,191,159,190,153,432,105"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="200,157,255,184"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="444,109,270,159,269,153,439,109"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="279,157,341,184"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="462,109,356,153,355,148,457,110"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="365,157,446,184"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="480,108,434,149,431,144,475,110"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="552,106,775,155,770,155,552,111"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="471,157,687,184"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="509,107,555,147,550,146,507,112"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="712,157,764,184"/>
+<area shape="poly" id="edge8_Node000002_Node000009" title=" " alt="" coords="539,107,699,156,694,156,538,112"/>
+<area shape="poly" id="edge9_Node000002_Node000010" title=" " alt="" coords="552,99,707,119,903,156,897,156,706,124,552,105"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="5,157,68,184"/>
+<area shape="poly" id="edge10_Node000002_Node000011" title=" " alt="" coords="430,103,278,125,83,159,82,154,278,119,435,102"/>
+</map>

@@ -1,0 +1,32 @@
+<map id="include/bgl/Input.hpp" name="include/bgl/Input.hpp">
+<area shape="rect" id="Node000001" title="Polling&#45;based keyboard and mouse input." alt="" coords="772,5,930,33"/>
+<area shape="rect" id="Node000002" href="$Engine_8hpp.html" title="Public facade of the bgl Engine: window, rendering, model loading, camera and settings." alt="" coords="488,81,656,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="784,38,623,83,621,78,789,36"/>
+<area shape="rect" id="Node000004" href="$bgl_8hpp.html" title="Umbrella header of the bgl Engine public API." alt="" coords="755,232,899,260"/>
+<area shape="poly" id="edge14_Node000001_Node000004" title=" " alt="" coords="850,46,831,233,826,230,846,50"/>
+<area shape="rect" id="Node000012" href="$Input_8cpp.html" title="Public bgl::Input polling API implementation." alt="" coords="898,157,1050,184"/>
+<area shape="poly" id="edge15_Node000001_Node000012" title=" " alt="" coords="864,45,882,76,904,107,930,133,958,157,952,156,927,137,900,110,878,79,862,50"/>
+<area shape="rect" id="Node000013" href="$InputState_8hpp.html" title="Internal frame&#45;buffered keyboard and mouse state backing bgl::Input." alt="" coords="913,81,1101,109"/>
+<area shape="poly" id="edge16_Node000001_Node000013" title=" " alt="" coords="893,37,982,81,977,81,892,43"/>
+<area shape="rect" id="Node000003" href="$App_8hpp.html" title="Base class with lifecycle hooks (OnStart/OnUpdate/OnGui/...) and the BGL_RUN entry&#45;point macro." alt="" coords="584,157,734,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="600,116,646,157,641,156,599,121"/>
+<area shape="poly" id="edge7_Node000002_Node000004" title=" " alt="" coords="647,111,698,129,747,154,770,173,791,193,821,233,816,231,787,197,767,177,744,159,696,134,646,116"/>
+<area shape="rect" id="Node000008" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="5,232,169,260"/>
+<area shape="poly" id="edge8_Node000002_Node000008" title=" " alt="" coords="470,102,412,110,345,120,277,137,211,159,178,176,148,196,102,234,99,230,145,192,176,171,209,154,275,131,344,115,411,104,475,100"/>
+<area shape="rect" id="Node000009" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="222,157,416,184"/>
+<area shape="poly" id="edge9_Node000002_Node000009" title=" " alt="" coords="510,115,365,159,363,154,515,112"/>
+<area shape="rect" id="Node000011" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="408,232,563,260"/>
+<area shape="poly" id="edge13_Node000002_Node000011" title=" " alt="" coords="560,120,495,234,491,230,555,123"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="703,188,800,232,795,232,702,194"/>
+<area shape="rect" id="Node000007" href="$App_8cpp.html" title="Implementation of bgl::RunApp main loop driving bgl::App lifecycle hooks." alt="" coords="587,232,731,260"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="661,198,661,234,657,230,657,202"/>
+<area shape="rect" id="Node000005" href="$samples_201__hello__engine_2main_8cpp.html" title=" " alt="" coords="635,308,822,353"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="802,269,756,310,753,305,797,271"/>
+<area shape="rect" id="Node000006" href="$samples_202__entities__and__lights_2main_8cpp.html" title=" " alt="" coords="846,308,1005,353"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="855,268,902,308,897,307,853,273"/>
+<area shape="poly" id="edge10_Node000009_Node000008" title=" " alt="" coords="262,192,130,234,127,229,264,187"/>
+<area shape="rect" id="Node000010" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="192,232,384,260"/>
+<area shape="poly" id="edge11_Node000009_Node000010" title=" " alt="" coords="310,197,296,234,292,230,306,201"/>
+<area shape="poly" id="edge12_Node000009_Node000011" title=" " alt="" coords="363,188,459,232,453,232,362,194"/>
+<area shape="poly" id="edge17_Node000013_Node000012" title=" " alt="" coords="997,121,981,158,978,154,993,125"/>
+</map>

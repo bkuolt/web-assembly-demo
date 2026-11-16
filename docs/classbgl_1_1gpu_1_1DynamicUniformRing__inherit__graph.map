@@ -1,0 +1,5 @@
+<map id="bgl::gpu::DynamicUniformRing&lt; T &gt;" name="bgl::gpu::DynamicUniformRing&lt; T &gt;">
+<area shape="rect" id="Node000001" title="Persistent, dynamically&#45;resizable GPU ring buffer for 256&#45;byte aligned per&#45;draw uniforms." alt="" coords="37,5,218,296"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1gpu_1_1DynamicUniformRing.html" title=" " alt="" coords="5,369,250,659"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="128,308,130,369,125,368,127,313"/>
+</map>

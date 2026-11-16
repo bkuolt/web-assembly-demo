@@ -1,0 +1,12 @@
+<map id="bgl::engine::InputState" name="bgl::engine::InputState">
+<area shape="rect" id="Node000001" title=" " alt="" coords="138,481,295,1000"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,304,214,377"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="119,374,145,464,140,464,119,379"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="161,151,272,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="152,236,144,248,129,276,119,305,114,304,124,274,139,246,154,231"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="238,296,413,385"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="274,231,288,245,303,270,314,296,309,296,298,272,284,249,274,236"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="207,5,226,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="217,75,219,134,214,133,216,80"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="315,383,295,465,290,463,313,388"/>
+</map>

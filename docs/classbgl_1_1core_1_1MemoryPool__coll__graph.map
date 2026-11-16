@@ -1,0 +1,13 @@
+<map id="bgl::core::MemoryPool&lt; T, BlockSize &gt;" name="bgl::core::MemoryPool&lt; T, BlockSize &gt;">
+<area shape="rect" id="Node000001" title="Block&#45;based memory pool with a free&#45;list to avoid heap fragmentation." alt="" coords="65,498,222,833"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="190,335,358,425"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="256,422,230,484,225,482,253,427"/>
+<area shape="rect" id="Node000003" href="$unionbgl_1_1core_1_1MemoryPool_1_1Node.html" title=" " alt="" coords="5,151,167,240"/>
+<area shape="poly" id="edge6_Node000001_Node000003" title=" " alt="" coords="87,237,93,325,101,424,109,482,104,481,96,425,87,326,86,242"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="130,237,220,323,215,325,131,242"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="165,179,186,184,194,195,186,206,181,204,188,195,183,188,168,183"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="263,159,381,232"/>
+<area shape="poly" id="edge4_Node000002_Node000004" title=" " alt="" coords="310,244,288,336,283,335,308,249"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="313,5,332,78"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="323,75,325,143,320,142,322,80"/>
+</map>

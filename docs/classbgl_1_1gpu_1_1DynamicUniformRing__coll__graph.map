@@ -1,0 +1,14 @@
+<map id="bgl::gpu::DynamicUniformRing&lt; T &gt;" name="bgl::gpu::DynamicUniformRing&lt; T &gt;">
+<area shape="rect" id="Node000001" title="Persistent, dynamically&#45;resizable GPU ring buffer for 256&#45;byte aligned per&#45;draw uniforms." alt="" coords="181,1134,363,1357"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="26,779,140,852"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="89,849,115,947,132,1004,154,1060,186,1120,181,1120,150,1062,127,1006,109,948,89,854"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,195,160,284"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="84,297,85,779,80,779,82,302"/>
+<area shape="rect" id="Node000004" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="164,570,380,1061"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="273,1058,275,1118,269,1116,271,1063"/>
+<area shape="rect" id="Node000005" href="$classbgl_1_1gpu_1_1Handle.html" title="Move&#45;only RAII wrapper for opaque WebGPU handles (WGPUBuffer, WGPUTexture, etc.)." alt="" coords="315,5,458,474"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="311,436,298,499,286,571,281,569,292,498,310,441"/>
+<area shape="rect" id="Node000006" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="404,570,631,1061"/>
+<area shape="poly" id="edge6_Node000006_Node000005" title=" " alt="" coords="463,434,483,498,497,570,492,570,477,499,463,440"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="405,1039,394,1062,358,1122,354,1118,390,1060,402,1043"/>
+</map>

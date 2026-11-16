@@ -1,0 +1,3 @@
+<map id="bgl::ui::UiInputState" name="bgl::ui::UiInputState">
+<area shape="rect" id="Node000001" title="Per&#45;frame mouse state passed to ImmediateUI::BeginFrame()." alt="" coords="5,5,145,189"/>
+</map>

@@ -1,0 +1,20 @@
+<map id="bgl::audio::SoundEngine" name="bgl::audio::SoundEngine">
+<area shape="rect" id="Node000001" title="Spatial audio playback and 3D emitter binding for scene nodes." alt="" coords="147,731,314,1049"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="134,500,327,658"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="231,655,233,714,228,713,230,660"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="46,334,122,406"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="108,403,168,486,163,487,109,409"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="5,151,133,240"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="74,252,84,334,78,334,74,257"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="159,326,302,415"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="231,412,233,484,228,483,230,417"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="158,159,303,232"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="231,244,233,326,228,326,230,249"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="256,5,274,78"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="255,58,245,77,235,102,230,142,224,141,230,101,240,75,257,53"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="327,151,468,240"/>
+<area shape="poly" id="edge9_Node000008_Node000007" title=" " alt="" coords="274,59,295,92,319,125,331,138,326,140,315,128,290,94,275,64"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="389,252,364,361,344,421,318,478,303,502,298,500,313,475,339,419,359,360,387,257"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="399,5,419,78"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="407,75,405,134,399,133,406,80"/>
+</map>

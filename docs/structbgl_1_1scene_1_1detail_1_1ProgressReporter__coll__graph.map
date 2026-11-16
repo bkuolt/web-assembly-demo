@@ -1,0 +1,11 @@
+<map id="bgl::scene::detail::ProgressReporter" name="bgl::scene::detail::ProgressReporter">
+<area shape="rect" id="Node000001" title=" " alt="" coords="26,441,156,598"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,296,86,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="55,366,71,424,65,425,54,371"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="110,296,251,368"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="165,366,138,427,133,425,162,370"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="120,151,241,223"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="181,235,183,297,178,296,180,240"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="171,5,190,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="181,75,183,134,178,133,180,80"/>
+</map>

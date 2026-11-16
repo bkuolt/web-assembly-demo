@@ -1,0 +1,9 @@
+<map id="bgl::scene::OcclusionBuffer" name="bgl::scene::OcclusionBuffer">
+<area shape="rect" id="Node000001" title="L1&#45;cache&#45;friendly 32x16 hierarchical screen&#45;space depth buffer (Hi&#45;Z tiles) for conservative CPU Quad..." alt="" coords="5,458,192,642"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="30,296,168,385"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="99,382,101,442,96,441,98,387"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="43,151,154,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="99,235,101,296,96,296,98,241"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="89,5,108,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="99,75,101,134,96,133,98,80"/>
+</map>

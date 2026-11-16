@@ -1,0 +1,9 @@
+<map id="src/core/CrashHandler.hpp" name="src/core/CrashHandler.hpp">
+<area shape="rect" id="Node000001" title="Crash interception, POSIX signal handling, and stacktrace diagnostics." alt="" coords="193,5,384,33"/>
+<area shape="rect" id="Node000002" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="5,81,170,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="241,40,124,83,123,78,236,37"/>
+<area shape="rect" id="Node000003" href="$CrashHandler_8cpp.html" title="Crash interception, POSIX signal handling, and stacktrace diagnostics." alt="" coords="194,81,384,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="291,47,291,82,287,79,287,51"/>
+<area shape="rect" id="Node000004" href="$App_8cpp.html" title="Implementation of bgl::RunApp main loop driving bgl::App lifecycle hooks." alt="" coords="409,81,553,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="338,36,449,80,444,81,337,41"/>
+</map>

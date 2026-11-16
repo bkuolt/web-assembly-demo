@@ -1,0 +1,9 @@
+<map id="bgl::core::Gamepad" name="bgl::core::Gamepad">
+<area shape="rect" id="Node000001" title="Polling abstraction for Gamepad API (Wasm HTML5 &amp; Native SDL2) with PS5 DualSense feel." alt="" coords="5,703,203,1021"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1core_1_1GamepadState.html" title="Normalized state of dual&#45;analog gamepad axes, smoothed inputs, and action buttons." alt="" coords="18,289,190,630"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="105,626,107,686,102,686,104,632"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="66,144,142,216"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="105,213,107,272,102,272,104,219"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="40,5,168,95"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="104,107,107,144,102,144,104,112"/>
+</map>

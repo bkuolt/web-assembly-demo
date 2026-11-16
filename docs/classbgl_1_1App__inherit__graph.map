@@ -1,0 +1,7 @@
+<map id="bgl::App" name="bgl::App">
+<area shape="rect" id="Node000001" title="Derive from this class, override the hooks you need and use BGL_RUN(MyApp)." alt="" coords="76,5,195,301"/>
+<area shape="rect" id="Node000002" href="$classEntitiesAndLights.html" title=" " alt="" coords="5,349,129,466"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="93,313,85,350,80,348,90,318"/>
+<area shape="rect" id="Node000003" href="$classHelloEngine.html" title=" " alt="" coords="154,349,256,466"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="181,313,191,350,186,349,178,318"/>
+</map>

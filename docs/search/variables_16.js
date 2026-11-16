@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['valid_0',['valid',['../structbgl_1_1core_1_1CameraBookmark.html#a391d8abbd1a82d2057fc63e38f37c3a0',1,'bgl::core::CameraBookmark']]],
+  ['vertexattributes_1',['vertexAttributes',['../structbgl_1_1gpu_1_1VertexAndInstanceLayoutStorage.html#a4d2c5a0ca679824fb894df69d73291a6',1,'bgl::gpu::VertexAndInstanceLayoutStorage']]],
+  ['vertexbatch_5f_2',['vertexBatch_',['../classbgl_1_1text_1_1TextRenderer.html#a27fb426bec4e080a36198c6985b978b2',1,'bgl::text::TextRenderer']]],
+  ['vertexbuffer_5f_3',['vertexBuffer_',['../classbgl_1_1text_1_1TextRenderer.html#a5f6cdd958dbc912e5c2bb5e4807b16fe',1,'bgl::text::TextRenderer::vertexBuffer_'],['../classbgl_1_1ui_1_1ImmediateUI.html#a2c9dc1ab2eca8106b99b54705c451982',1,'bgl::ui::ImmediateUI::vertexBuffer_']]],
+  ['vertexbufferbytes_5f_4',['vertexBufferBytes_',['../classbgl_1_1ui_1_1ImmediateUI.html#af1175aa302492fab8cd0601aef9dcbb6',1,'bgl::ui::ImmediateUI']]],
+  ['vertexbuffercapacity_5f_5',['vertexBufferCapacity_',['../classbgl_1_1text_1_1TextRenderer.html#a1657e3f6b3ee7e248fe32f4c167ac63c',1,'bgl::text::TextRenderer']]],
+  ['vertexcapacity_5f_6',['vertexCapacity_',['../classbgl_1_1ui_1_1ImmediateUI.html#a8b7f43ee7ad33020bf4e4321c72a4f1d',1,'bgl::ui::ImmediateUI']]],
+  ['vertexcount_7',['vertexCount',['../structbgl_1_1gpu_1_1PerDrawUniforms.html#af8af6546f7884a85d3038317cd7114f1',1,'bgl::gpu::PerDrawUniforms::vertexCount'],['../structbgl_1_1ui_1_1OverlayStats.html#aa94a3d40c2a36d203a6147e665dc8ff6',1,'bgl::ui::OverlayStats::vertexCount']]],
+  ['vertices_8',['vertices',['../structbgl_1_1scene_1_1MeshPrimitive.html#a0017a27021f488b226ed879f5f574022',1,'bgl::scene::MeshPrimitive']]],
+  ['vertices_5f_9',['vertices_',['../classbgl_1_1ui_1_1ImmediateUI.html#a47a805fe39fb0b8b44ba534c7744393b',1,'bgl::ui::ImmediateUI']]],
+  ['view_10',['view',['../structbgl_1_1scene_1_1TextureGpuResource.html#a9105e02b82873309e0ab88b80ac40328',1,'bgl::scene::TextureGpuResource']]],
+  ['viewmatrix_11',['viewMatrix',['../structbgl_1_1gpu_1_1SceneLightingUniforms.html#aad4f3037ca48c4af9d0c67fba698bce9',1,'bgl::gpu::SceneLightingUniforms']]],
+  ['viewmatrix_5f_12',['viewMatrix_',['../classbgl_1_1core_1_1Camera.html#a6f5e91060fe5bde3cc15df7fd39d3246',1,'bgl::core::Camera']]],
+  ['viewportheight_5f_13',['viewportHeight_',['../classbgl_1_1ui_1_1ImmediateUI.html#a0a98ea80ed70e5aec3853e58c4d40c55',1,'bgl::ui::ImmediateUI']]],
+  ['viewportwidth_5f_14',['viewportWidth_',['../classbgl_1_1ui_1_1ImmediateUI.html#a9716ef91aa52d959a035c700829745f0',1,'bgl::ui::ImmediateUI']]],
+  ['viewproj_15',['viewProj',['../structbgl_1_1core_1_1GlobalUniforms.html#a1907cd2daf2beca9be64a8686874b1f4',1,'bgl::core::GlobalUniforms::viewProj'],['../structbgl_1_1gpu_1_1AabbUniforms.html#a5786507352759d9485458acd930ce5da',1,'bgl::gpu::AabbUniforms::viewProj'],['../structbgl_1_1gpu_1_1PerDrawUniforms.html#a9ea2a78c80848229e0a63bfeee2d3e30',1,'bgl::gpu::PerDrawUniforms::viewProj']]],
+  ['vignetteintensity_5f_16',['vignetteIntensity_',['../classbgl_1_1gpu_1_1PostProcessPass.html#a3d3177928ecbea29b8bc7cb0ec301259',1,'bgl::gpu::PostProcessPass']]],
+  ['virtualrambytes_17',['virtualRamBytes',['../structbgl_1_1core_1_1MemoryTelemetry.html#a66292425f04181435668166a92978116',1,'bgl::core::MemoryTelemetry']]],
+  ['visibilitybuffersize_5f_18',['visibilityBufferSize_',['../classbgl_1_1gpu_1_1GpuCuller.html#abfc99cb535f07a095240deaa13575ed3',1,'bgl::gpu::GpuCuller']]],
+  ['visibilitystoragebuffer_5f_19',['visibilityStorageBuffer_',['../classbgl_1_1gpu_1_1GpuCuller.html#a9238cf535f9472a4853515f68f640b07',1,'bgl::gpu::GpuCuller']]],
+  ['visibleitemsscratch_5f_20',['visibleItemsScratch_',['../classbgl_1_1gpu_1_1PipelineManager.html#a3d5fd2099f9a84141ed3f9d5247c75ad',1,'bgl::gpu::PipelineManager::visibleItemsScratch_'],['../classbgl_1_1gpu_1_1ShadowPass.html#a9947b9733ddfa44882f1df69efc5629a',1,'bgl::gpu::ShadowPass::visibleItemsScratch_']]],
+  ['visibleprimitives_21',['visiblePrimitives',['../structbgl_1_1ui_1_1OverlayStats.html#a6fa690c85217790ea7b863e009d12f57',1,'bgl::ui::OverlayStats']]],
+  ['vrambytes_22',['vramBytes',['../structbgl_1_1scene_1_1TextureGpuResource.html#a62f32e48eef8e5af0a0c51f37f4332db',1,'bgl::scene::TextureGpuResource::vramBytes'],['../structbgl_1_1ui_1_1OverlayStats.html#a8ed7137366f4cb5e68acb74c70f01009',1,'bgl::ui::OverlayStats::vramBytes']]]
+];

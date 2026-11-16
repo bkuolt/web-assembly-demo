@@ -1,0 +1,13 @@
+<map id="bgl::text::FontQuery" name="bgl::text::FontQuery">
+<area shape="rect" id="Node000001" title="Structured query supporting exact file paths, family names, generic aliases (&quot;sans&quot;,..." alt="" coords="89,498,228,615"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="26,344,140,416"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="87,414,94,444,103,473,108,483,103,483,99,475,89,445,86,419"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,151,160,240"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="83,252,85,345,80,344,82,258"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="164,335,308,425"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="222,422,202,475,198,484,194,481,198,473,218,426"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="184,159,291,232"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="238,244,239,336,234,335,236,249"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="228,5,247,78"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="238,75,240,143,235,142,237,80"/>
+</map>

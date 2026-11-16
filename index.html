@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebAssembly and WebGPU Demo</title>
+  <!-- Preload WebAssembly module for rapid startup -->
+  <link rel="preload" href="dist/bgl_engine.wasm" as="fetch" type="application/wasm" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Floating Toast Notification System (User-Facing Errors, Warnings & Feedback) -->
+  <div id="user-toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 3D WebGPU Canvas -->
+  <canvas id="canvas"></canvas>
+
+  <!-- Drag and Drop Overlay -->
+  <div id="drop-zone">
+    <div id="drop-text">Drop 3D glTF / GLB file or HTTP/HTTPS URL link to load</div>
+  </div>
+
+  <!-- Browser Compatibility Warning Modal (WebAssembly / WebGPU) -->
+  <div id="compat-warning-modal" class="compat-modal-overlay" style="display: none;" onclick="if(event.target === this) dismissCompatWarning();">
+    <div class="compat-modal-card" role="dialog" aria-modal="true" aria-labelledby="compat-title">
+      <div class="compat-modal-header">
+        <div class="compat-warning-icon-wrapper">
+          <span class="compat-warning-icon">⚠️</span>
+        </div>
+        <div>
+          <h3 id="compat-title">Browser Compatibility Warning</h3>
+          <p class="compat-subtitle">WebGPU or WebAssembly capability missing</p>
+        </div>
+      </div>
+      <div id="compat-modal-content" class="compat-modal-content">
+        <!-- Dynamically injected issues & troubleshooting advice -->
+      </div>
+      <div class="compat-modal-actions">
+        <button class="compat-btn compat-btn-primary" onclick="dismissCompatWarning()">Acknowledge &amp; Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dedicated Model Loading Screen & Download Progress Overlay -->
+  <div id="model-loading-screen" class="loading-overlay" style="display: none;">
+    <div class="loading-card" role="dialog" aria-modal="true" aria-labelledby="loading-model-name">
+      <div class="loading-spinner-wrapper">
+        <div class="loading-spinner"></div>
+        <span class="loading-logo-icon">◈</span>
+      </div>
+      <h3 id="loading-model-name">Downloading 3D Model</h3>
+      <div id="loading-source-label" class="loading-source-label">Khronos glTF 2.0 Sample Repository</div>
+      
+      <div class="loading-bar-wrap">
+        <div id="loading-bar-fill" class="loading-bar-fill" style="width: 0%;"></div>
+      </div>
+
+      <div class="loading-meta-row">
+        <span id="loading-status-text">Connecting to repository...</span>
+        <span id="loading-pct-badge" class="loading-pct-badge">0%</span>
+      </div>
+
+      <div class="loading-stats">
+        <div class="loading-stat-col">
+          <span class="stat-label">Transferred</span>
+          <span id="loading-stat-size" class="stat-value">0.0 / 0.0 MB</span>
+        </div>
+        <div class="loading-stat-col">
+          <span class="stat-label">Transfer Speed</span>
+          <span id="loading-stat-speed" class="stat-value">0.0 MB/s</span>
+        </div>
+        <div class="loading-stat-col">
+          <span class="stat-label">Storage Status</span>
+          <span id="loading-stat-cache" class="stat-value">Streaming</span>
+        </div>
+      </div>
+
+      <div class="loading-actions">
+        <button id="btn-cancel-loading" class="btn-cancel-loading" onclick="cancelModelDownload()">Cancel Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top-Left In-Engine Telemetry HUD -->
+  <div id="ui-hud" class="hud-panel">
+    <!-- Header with Branding, Version Badge and Minimize Toggle -->
+    <div class="hud-header">
+      <div class="hud-brand">
+        <span class="hud-logo-icon">◈</span>
+        <h2>bgl Engine <span class="badge">v1.0.0</span></h2>
+      </div>
+      <div class="hud-header-actions">
+        <button id="btn-minimize-hud" class="hud-icon-btn" onclick="toggleHudMinimize()" title="Minimize / Expand HUD (O)">―</button>
+      </div>
+    </div>
+
+    <!-- Subtitle & Live Performance Telemetry Strip -->
+    <div class="hud-meta-row">
+      <span class="hud-subtitle">Native WebGPU PBR &amp; Wasm Runtime</span>
+      <span id="hud-backend-pill" class="badge badge-webgpu" title="Hardware-accelerated native WebGPU PBR rendering pipeline">WebGPU PBR</span>
+      <span id="hud-fps-pill" class="hud-fps-pill">60.0 FPS</span>
+    </div>
+
+    <div id="status-text" class="status-text">Initializing WebAssembly runtime...</div>
+    <div class="progress-bar-container">
+      <div id="progress-bar" class="progress-bar"></div>
+    </div>
+
+    <div id="gamepad-badge" class="gamepad-indicator" style="display: none;">
+      <span class="gamepad-dot"></span>
+      <span id="gamepad-label">🎮 Controller Active</span>
+    </div>
+
+    <!-- Collapsible HUD Body -->
+    <div id="hud-content-body">
+      <!-- Section 1: Model Selection & Camera Controls -->
+      <div class="hud-group">
+        <div class="hud-row-split">
+          <span class="quick-label">Model:</span>
+          <div class="model-select-wrap">
+            <select id="model-select" class="model-select" onchange="onModelSelectChanged(this.value)">
+              <optgroup label="Local Presets">
+                <option value="assets/ToyCar.glb" selected>ToyCar (5.1 MB)</option>
+                <option value="assets/Sponza.glb">Sponza (52.6 MB)</option>
+                <option value="assets/RobotExpressive.glb">RobotExpressive - Animated Character (0.45 MB)</option>
+                <option value="assets/Soldier.glb">Soldier - Animated Character (2.1 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (PBR)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb">DamagedHelmet (3.6 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AntiqueCamera/glTF-Binary/AntiqueCamera.glb">AntiqueCamera (16.7 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoomBox/glTF-Binary/BoomBox.glb">BoomBox (10.1 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/WaterBottle/glTF-Binary/WaterBottle.glb">WaterBottle (8.6 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb">MaterialsVariantsShoe (7.5 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Avocado/glTF-Binary/Avocado.glb">Avocado (7.7 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BarramundiFish/glTF-Binary/BarramundiFish.glb">BarramundiFish (11.9 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Lantern/glTF-Binary/Lantern.glb">Lantern (1.2 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Corset/glTF-Binary/Corset.glb">Corset (0.3 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (Animation)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb">Fox (0.16 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMan/glTF-Binary/CesiumMan.glb">CesiumMan (0.42 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BrainStem/glTF-Binary/BrainStem.glb">BrainStem (3.05 MB)</option>
+              </optgroup>
+              <optgroup label="Khronos glTF-Sample-Assets (Feature Tests)">
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ClearCoatTest/glTF-Binary/ClearCoatTest.glb">ClearCoatTest (0.25 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MorphPrimitivesTest/glTF-Binary/MorphPrimitivesTest.glb">MorphPrimitivesTest (0.05 MB)</option>
+                <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb">Duck (0.11 MB)</option>
+              </optgroup>
+            </select>
+            <button class="model-action-btn" onclick="promptCustomModelUrl()" title="Load glTF / GLB from custom URL">🔗</button>
+            <button class="model-action-btn" onclick="triggerFileInput()" title="Open local glTF / GLB file">📂</button>
+            <input type="file" id="manual-file-input" accept=".gltf,.glb" style="display: none;" onchange="onManualFileSelected(event)">
+          </div>
+        </div>
+
+        <div class="cache-status-strip">
+          <span id="cache-indicator-pill" class="cache-indicator-pill">⚡ Browser Storage Ready</span>
+          <button id="btn-clear-cache" class="cache-clear-btn" onclick="clearModelCache()" title="Purge locally cached glTF models">Clear Cache</button>
+        </div>
+
+        <div class="hud-row-split" style="margin-top: 6px;">
+          <span class="quick-label">Camera:</span>
+          <select id="camera-select" class="camera-select" onchange="onCameraSelect(this.value)">
+            <option value="-1">Default Interactive Camera</option>
+          </select>
+        </div>
+
+        <div id="animation-controls-group" style="margin-top: 6px; opacity: 0.6;">
+          <div class="hud-row-split">
+            <span class="quick-label">Anim:</span>
+            <div class="model-select-wrap">
+              <select id="animation-select" class="camera-select" onchange="onAnimationSelected(this.value)" disabled>
+                <option value="-1">No Animations</option>
+              </select>
+              <button id="btn-anim-play" class="model-action-btn" onclick="toggleAnimationPlayback()" title="Play / Pause Animation" disabled>⏸ Pause</button>
+            </div>
+          </div>
+          <div class="slider-row" style="margin-top: 4px;">
+            <div class="slider-header">
+              <span>Animation Speed</span>
+              <span class="slider-value" id="val-anim-speed">1.00x</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-anim-speed" min="0.0" max="2.5" step="0.05" value="1.0" oninput="onAnimationSpeedSlider(this.value)">
+          </div>
+        </div>
+
+        <div class="hud-row-split" style="margin-top: 6px;">
+          <span class="quick-label">Slots:</span>
+          <div class="bookmark-bar">
+            <button class="bookmark-btn" onclick="saveBookmark(0)" title="Save Slot 1 (Ctrl+1)">+1</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(0)" title="Recall Slot 1 (1)">1</button>
+            <button class="bookmark-btn" onclick="saveBookmark(1)" title="Save Slot 2 (Ctrl+2)">+2</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(1)" title="Recall Slot 2 (2)">2</button>
+            <button class="bookmark-btn" onclick="saveBookmark(2)" title="Save Slot 3 (Ctrl+3)">+3</button>
+            <button class="bookmark-btn" onclick="restoreBookmark(2)" title="Recall Slot 3 (3)">3</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Camera Navigation Toolbar -->
+      <div class="hud-nav-bar">
+        <button class="btn btn-nav" id="btn-focus" onclick="focusSelection()" title="Focus selected object">Focus [F]</button>
+        <button class="btn btn-nav" id="btn-frame-all" onclick="frameAll()" title="Frame entire scene">Frame All</button>
+        <button class="btn btn-nav" id="btn-cam-mode" onclick="toggleCameraMode()" title="Switch Fly / Orbit">Orbit [C]</button>
+        <button class="btn btn-nav" id="btn-turntable" onclick="toggleTurntable()" title="Auto-rotate turntable">Turntable [T]</button>
+      </div>
+
+      <!-- Section 3: Shading & Render Features (Categorized & Compact) -->
+      <div class="hud-features-wrapper">
+        <div class="hud-section-header" onclick="toggleFeaturesSection()">
+          <span>Render Features &amp; FX</span>
+          <span id="features-chevron">▾</span>
+        </div>
+        <div id="features-chips-container" class="hud-features-categories">
+          <!-- Category A: Environment & Lighting -->
+          <div class="chip-category">
+            <div class="category-title">Lighting &amp; Environment</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-shadows" onclick="toggleShadows()" title="Directional PCF Shadows">Shadow [M]</button>
+              <button class="chip-btn active" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
+              <button class="chip-btn active" id="btn-reflections" onclick="toggleReflections()" title="Split-Sum GGX Cubemap IBL">Reflect [R]</button>
+              <button class="chip-btn active" id="btn-flare" onclick="toggleLensFlare()" title="Sun Lens Flares">Flares [J]</button>
+              <button class="chip-btn" id="btn-day-night" onclick="toggleDayNightCycle()" title="Toggle automatic Day/Night Sun & Moon Cycle [I]">Day/Night [I]</button>
+            </div>
+          </div>
+
+          <!-- Category B: Materials & Shading -->
+          <div class="chip-category">
+            <div class="category-title">Materials &amp; Shading</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-bump" onclick="toggleBump()" title="Normal & Bump mapping">Bump [V]</button>
+              <button class="chip-btn active" id="btn-pom" onclick="togglePOM()" title="Parallax Occlusion Mapping">POM [P]</button>
+              <button class="chip-btn active" id="btn-ao" onclick="toggleAO()" title="glTF Material Ambient Occlusion">Mat AO [U]</button>
+              <button class="chip-btn active" id="btn-ssao" onclick="toggleSSAO()" title="Screen-Space Ambient Occlusion (SSAO)">SSAO [G]</button>
+              <button class="chip-btn active" id="btn-bloom" onclick="toggleBloom()" title="Emissive HDR Bloom">Bloom [Z]</button>
+              <button class="chip-btn active" id="btn-mipmaps" onclick="toggleMipmaps()" title="16x Anisotropic Mipmapping">Mipmap [L]</button>
+            </div>
+          </div>
+
+          <!-- Category C: Scene, LOD & Diagnostics -->
+          <div class="chip-category">
+            <div class="category-title">Scene, LOD &amp; Diagnostics</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-lod" onclick="toggleLod()" title="Multi-Level Mesh &amp; Shader LOD System (LOD0-LOD3) [F11]">LOD [F11]</button>
+              <button class="chip-btn" id="btn-auto-lod" onclick="toggleAutoLod()" title="Adaptive 60 FPS Auto-LOD Bias Scaling [F12]">Auto-LOD [F12]</button>
+              <button class="chip-btn" id="btn-lod-heatmap" onclick="toggleLodHeatmap()" title="Diagnostic LOD Heatmap (LOD0=Emerald, LOD1=Yellow, LOD2=Orange, LOD3=Crimson) [F10]">LOD Map [F10]</button>
+              <button class="chip-btn" id="btn-debug-view" onclick="cycleDebugView()" title="Cycle Diagnostic Shading View (Lit / LOD / Normals / PBR / UV) [F9]">View: Lit [F9]</button>
+              <button class="chip-btn" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
+              <button class="chip-btn active" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
+              <button class="chip-btn active" id="btn-hud" onclick="toggleHUD()" title="In-Engine Native HUD">HUD [O]</button>
+              <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
+            </div>
+          </div>
+
+          <!-- Category D: Atmospheric Weather -->
+          <div class="chip-category">
+            <div class="category-title">Atmospheric Weather</div>
+            <div class="chip-row">
+              <button class="chip-btn active" id="btn-weather-none" onclick="setWeatherMode('none')" title="Clear atmospheric skies">Clear</button>
+              <button class="chip-btn" id="btn-weather-rain" onclick="setWeatherMode('rain')" title="Rain precipitation streaks, ripples & wet glaze [X]">Rain [X]</button>
+              <button class="chip-btn" id="btn-weather-snow" onclick="setWeatherMode('snow')" title="Snowfall flakes & upward surface accumulation [Y]">Snow [Y]</button>
+              <button class="chip-btn" id="btn-weather-fog" onclick="setWeatherMode('fog')" title="Volumetric exponential height/distance fog & Mie glow [F6]">Fog [F6]</button>
+              <button class="chip-btn" id="btn-weather-smoke" onclick="setWeatherMode('smoke')" title="Volumetric rising FBM smoke plumes & ember glow [F7]">Smoke [F7]</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 4: Live Render Tuning Drawer -->
+      <div class="hud-accordion">
+        <div class="hud-section-header" onclick="toggleTuningSection()">
+          <span>Live Parameter Tuning</span>
+          <span id="tuning-chevron">▾</span>
+        </div>
+        <div id="tuning-sliders-container" class="slider-group">
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>LOD Distance Bias</span>
+              <span class="slider-value" id="val-lod-bias">1.00×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-lod-bias" min="0.25" max="4.0" step="0.05" value="1.0" oninput="onLodBiasSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Time of Day (Sun / Moon)</span>
+              <span class="slider-value" id="val-time-of-day">14:00 ☀️</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-time-of-day" min="0" max="24" step="0.1" value="14" oninput="onTimeOfDaySlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Day/Night Cycle Speed</span>
+              <span class="slider-value" id="val-day-night-speed">1.00 h/s</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-day-night-speed" min="0.1" max="6.0" step="0.1" value="1.0" oninput="onDayNightSpeedSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Turntable Speed</span>
+              <span class="slider-value" id="val-turntable-speed">0.35 rad/s</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-turntable-speed" min="0.05" max="2.0" step="0.05" value="0.35" oninput="onTurntableSpeedSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>AO Intensity</span>
+              <span class="slider-value" id="val-ao-intensity">1.00×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-ao" min="0" max="2" step="0.05" value="1.0" oninput="onAoSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Screen-Space AO (SSAO)</span>
+              <span class="slider-value" id="val-ssao-intensity">0.75×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-ssao" min="0" max="2" step="0.05" value="0.75" oninput="onSsaoSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>HDR Bloom Intensity</span>
+              <span class="slider-value" id="val-bloom-intensity">0.65×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-bloom" min="0" max="2.5" step="0.05" value="0.65" oninput="onBloomSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Bump / Normal Relief</span>
+              <span class="slider-value" id="val-bump-scale">1.50×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-bump-scale" min="0.0" max="3.0" step="0.1" value="1.5" oninput="onBumpSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Parallax Depth Scale</span>
+              <span class="slider-value" id="val-pom-scale">0.035</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-pom" min="0.005" max="0.08" step="0.002" value="0.035" oninput="onPomSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Sun Lens Flare Intensity</span>
+              <span class="slider-value" id="val-flare-intensity">0.75×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-flare" min="0" max="2.5" step="0.05" value="0.75" oninput="onFlareSlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Weather Intensity</span>
+              <span class="slider-value" id="val-weather-intensity">1.00×</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-weather-intensity" min="0.0" max="2.0" step="0.05" value="1.0" oninput="onWeatherIntensitySlider(this.value)">
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span>Wind Direction &amp; Strength</span>
+              <span class="slider-value" id="val-wind-strength">+0.30</span>
+            </div>
+            <input type="range" class="slider-input" id="slider-wind-strength" min="-1.0" max="1.0" step="0.05" value="0.30" oninput="onWindSlider(this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 5: Spatial Telemetry & AABBs Drawer -->
+      <div class="hud-accordion">
+        <div class="hud-section-header" onclick="toggleTelemetrySection()">
+          <span>Spatial Telemetry &amp; AABBs</span>
+          <span id="telemetry-chevron">▸</span>
+        </div>
+        <div id="aabb-telemetry-card" style="display: none;">
+          <div class="footer-kv"><span>Dimensions (W×H×D):</span><span id="aabb-dims">--</span></div>
+          <div class="footer-kv"><span>Min Bound:</span><span id="aabb-min">--</span></div>
+          <div class="footer-kv"><span>Max Bound:</span><span id="aabb-max">--</span></div>
+          <div class="footer-kv"><span>Scene Center:</span><span id="aabb-center">--</span></div>
+          <div class="footer-kv"><span>Geometry Metrics:</span><span id="aabb-prims">--</span></div>
+          <div class="footer-kv"><span>LOD &amp; Triangles:</span><span id="lod-telemetry">--</span></div>
+        </div>
+      </div>
+
+      <!-- Navigation & Controls Hint Card -->
+      <div class="keyboard-hint-row">
+        <strong>Keys:</strong> <span class="key-pill">WASD</span> Move, <span class="key-pill">F</span> Focus, <span class="key-pill">C</span> Fly/Orbit, <span class="key-pill">T</span> Turntable, <span class="key-pill">X</span> Rain, <span class="key-pill">Y</span> Snow, <span class="key-pill">1-3</span> Bookmarks, <span class="key-pill">N</span> Hierarchy.
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Pill Toggle Button -->
+  <div id="tree-toggle-pill" onclick="toggleTreePanel()" title="Open Scene Hierarchy (N)">
+    <span>◈</span> Scene Hierarchy [N]
+  </div>
+
+  <!-- Right-side Scene Graph & JSON Node Tree Panel -->
+  <div id="node-tree-panel">
+    <div class="panel-header">
+      <div class="panel-header-title">
+        <span>◈</span>
+        <div>
+          <div>Scene Hierarchy</div>
+          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">ToyCar.glb</div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span id="node-count-badge" class="badge">-- Nodes</span>
+        <button class="panel-close-btn" onclick="toggleTreePanel()" title="Close Hierarchy Panel (N)">✕</button>
+      </div>
+    </div>
+
+    <div class="panel-search-bar">
+      <input type="text" id="node-search-input" class="panel-search-input" placeholder="Filter hierarchy by node name..." oninput="filterNodes(this.value)">
+    </div>
+
+    <div class="panel-tabs">
+      <button class="tab-btn active" id="tab-btn-tree" onclick="switchTab('tree')">Hierarchy Tree</button>
+      <button class="tab-btn" id="tab-btn-json" onclick="switchTab('json')">glTF JSON Inspector</button>
+    </div>
+
+    <div class="panel-body" id="tree-container">
+      <div id="tree-view-root"></div>
+    </div>
+
+    <div class="panel-body" id="json-container" style="display: none;">
+      <div id="json-view-root" class="json-tree"></div>
+    </div>
+
+    <div class="panel-footer" id="node-details-footer" style="display: none;">
+      <h4 id="footer-node-title">Node Telemetry &amp; Properties</h4>
+      <div id="footer-node-props"></div>
+    </div>
+  </div>
+
+  <!-- Modular Application Client Scripts -->
+  <script src="js/core.js" defer></script>
+  <script src="js/gltf.js" defer></script>
+  <script src="js/renderer.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

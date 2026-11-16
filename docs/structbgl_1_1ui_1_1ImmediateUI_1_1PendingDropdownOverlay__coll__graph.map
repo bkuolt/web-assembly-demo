@@ -1,0 +1,11 @@
+<map id="bgl::ui::ImmediateUI::PendingDropdownOverlay" name="bgl::ui::ImmediateUI::PendingDropdownOverlay">
+<area shape="rect" id="Node000001" title=" " alt="" coords="30,531,218,709"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1ui_1_1UiRect.html" title="Screen&#45;space axis&#45;aligned rectangle in pixels." alt="" coords="5,296,107,435"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="59,432,73,506,76,515,71,515,68,507,58,438"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="131,321,283,410"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="195,408,165,507,163,516,158,513,160,506,192,412"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="153,151,261,223"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="208,236,209,322,204,321,206,241"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="198,5,216,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="207,75,209,134,204,133,206,80"/>
+</map>

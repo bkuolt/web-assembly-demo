@@ -1,0 +1,148 @@
+var annotated_dup =
+[
+    [ "bgl", "namespacebgl.html", [
+      [ "app", "namespacebgl_1_1app.html", [
+        [ "Application", "classbgl_1_1app_1_1Application.html", "classbgl_1_1app_1_1Application" ],
+        [ "ApplicationConfig", "structbgl_1_1app_1_1ApplicationConfig.html", "structbgl_1_1app_1_1ApplicationConfig" ],
+        [ "AsyncLoadState", "structbgl_1_1app_1_1AsyncLoadState.html", "structbgl_1_1app_1_1AsyncLoadState" ],
+        [ "CliOptions", "structbgl_1_1app_1_1CliOptions.html", "structbgl_1_1app_1_1CliOptions" ],
+        [ "ModelPresetEntry", "structbgl_1_1app_1_1ModelPresetEntry.html", "structbgl_1_1app_1_1ModelPresetEntry" ]
+      ] ],
+      [ "audio", "namespacebgl_1_1audio.html", [
+        [ "SoundEngine", "classbgl_1_1audio_1_1SoundEngine.html", "classbgl_1_1audio_1_1SoundEngine" ]
+      ] ],
+      [ "core", "namespacebgl_1_1core.html", [
+        [ "AABB", "structbgl_1_1core_1_1AABB.html", "structbgl_1_1core_1_1AABB" ],
+        [ "Camera", "classbgl_1_1core_1_1Camera.html", "classbgl_1_1core_1_1Camera" ],
+        [ "CameraBookmark", "structbgl_1_1core_1_1CameraBookmark.html", "structbgl_1_1core_1_1CameraBookmark" ],
+        [ "FetchProgress", "structbgl_1_1core_1_1FetchProgress.html", "structbgl_1_1core_1_1FetchProgress" ],
+        [ "Frustum", "structbgl_1_1core_1_1Frustum.html", "structbgl_1_1core_1_1Frustum" ],
+        [ "Gamepad", "classbgl_1_1core_1_1Gamepad.html", "classbgl_1_1core_1_1Gamepad" ],
+        [ "GamepadState", "structbgl_1_1core_1_1GamepadState.html", "structbgl_1_1core_1_1GamepadState" ],
+        [ "GlobalUniforms", "structbgl_1_1core_1_1GlobalUniforms.html", "structbgl_1_1core_1_1GlobalUniforms" ],
+        [ "MemoryPool", "classbgl_1_1core_1_1MemoryPool.html", "classbgl_1_1core_1_1MemoryPool" ],
+        [ "MemoryTelemetry", "structbgl_1_1core_1_1MemoryTelemetry.html", "structbgl_1_1core_1_1MemoryTelemetry" ],
+        [ "MemoryTracker", "classbgl_1_1core_1_1MemoryTracker.html", "classbgl_1_1core_1_1MemoryTracker" ],
+        [ "NetworkFetcher", "classbgl_1_1core_1_1NetworkFetcher.html", "classbgl_1_1core_1_1NetworkFetcher" ],
+        [ "Plane", "structbgl_1_1core_1_1Plane.html", "structbgl_1_1core_1_1Plane" ],
+        [ "Ray", "structbgl_1_1core_1_1Ray.html", "structbgl_1_1core_1_1Ray" ],
+        [ "ScopedTimer", "classbgl_1_1core_1_1ScopedTimer.html", "classbgl_1_1core_1_1ScopedTimer" ],
+        [ "ScratchArena", "classbgl_1_1core_1_1ScratchArena.html", "classbgl_1_1core_1_1ScratchArena" ],
+        [ "ThreadPool", "classbgl_1_1core_1_1ThreadPool.html", "classbgl_1_1core_1_1ThreadPool" ],
+        [ "Vertex", "structbgl_1_1core_1_1Vertex.html", "structbgl_1_1core_1_1Vertex" ]
+      ] ],
+      [ "engine", "namespacebgl_1_1engine.html", [
+        [ "EngineCore", "classbgl_1_1engine_1_1EngineCore.html", "classbgl_1_1engine_1_1EngineCore" ],
+        [ "EngineCoreConfig", "structbgl_1_1engine_1_1EngineCoreConfig.html", "structbgl_1_1engine_1_1EngineCoreConfig" ],
+        [ "InputState", "classbgl_1_1engine_1_1InputState.html", "classbgl_1_1engine_1_1InputState" ]
+      ] ],
+      [ "gpu", "namespacebgl_1_1gpu.html", [
+        [ "detail", "namespacebgl_1_1gpu_1_1detail.html", [
+          [ "AutoExposureUniformData", "structbgl_1_1gpu_1_1detail_1_1AutoExposureUniformData.html", "structbgl_1_1gpu_1_1detail_1_1AutoExposureUniformData" ],
+          [ "BloomUniformData", "structbgl_1_1gpu_1_1detail_1_1BloomUniformData.html", "structbgl_1_1gpu_1_1detail_1_1BloomUniformData" ],
+          [ "DepthLinearizeUniformData", "structbgl_1_1gpu_1_1detail_1_1DepthLinearizeUniformData.html", "structbgl_1_1gpu_1_1detail_1_1DepthLinearizeUniformData" ],
+          [ "FxaaUniformData", "structbgl_1_1gpu_1_1detail_1_1FxaaUniformData.html", "structbgl_1_1gpu_1_1detail_1_1FxaaUniformData" ],
+          [ "GtaoUniformData", "structbgl_1_1gpu_1_1detail_1_1GtaoUniformData.html", "structbgl_1_1gpu_1_1detail_1_1GtaoUniformData" ]
+        ] ],
+        [ "AabbRenderer", "classbgl_1_1gpu_1_1AabbRenderer.html", "classbgl_1_1gpu_1_1AabbRenderer" ],
+        [ "AabbUniforms", "structbgl_1_1gpu_1_1AabbUniforms.html", "structbgl_1_1gpu_1_1AabbUniforms" ],
+        [ "AabbVertex", "structbgl_1_1gpu_1_1AabbVertex.html", "structbgl_1_1gpu_1_1AabbVertex" ],
+        [ "Context", "classbgl_1_1gpu_1_1Context.html", "classbgl_1_1gpu_1_1Context" ],
+        [ "ContextConfig", "structbgl_1_1gpu_1_1ContextConfig.html", "structbgl_1_1gpu_1_1ContextConfig" ],
+        [ "DrawIndexedIndirectArgs", "structbgl_1_1gpu_1_1DrawIndexedIndirectArgs.html", "structbgl_1_1gpu_1_1DrawIndexedIndirectArgs" ],
+        [ "DynamicInstanceBuffer", "classbgl_1_1gpu_1_1DynamicInstanceBuffer.html", "classbgl_1_1gpu_1_1DynamicInstanceBuffer" ],
+        [ "DynamicUniformRing", "classbgl_1_1gpu_1_1DynamicUniformRing.html", "classbgl_1_1gpu_1_1DynamicUniformRing" ],
+        [ "GpuBoundingBox", "structbgl_1_1gpu_1_1GpuBoundingBox.html", "structbgl_1_1gpu_1_1GpuBoundingBox" ],
+        [ "GpuCuller", "classbgl_1_1gpu_1_1GpuCuller.html", "classbgl_1_1gpu_1_1GpuCuller" ],
+        [ "GpuCullUniforms", "structbgl_1_1gpu_1_1GpuCullUniforms.html", "structbgl_1_1gpu_1_1GpuCullUniforms" ],
+        [ "GpuPunctualLight", "structbgl_1_1gpu_1_1GpuPunctualLight.html", "structbgl_1_1gpu_1_1GpuPunctualLight" ],
+        [ "GpuRayPicker", "classbgl_1_1gpu_1_1GpuRayPicker.html", "classbgl_1_1gpu_1_1GpuRayPicker" ],
+        [ "GpuRayPickResult", "structbgl_1_1gpu_1_1GpuRayPickResult.html", "structbgl_1_1gpu_1_1GpuRayPickResult" ],
+        [ "GpuRayPickUniforms", "structbgl_1_1gpu_1_1GpuRayPickUniforms.html", "structbgl_1_1gpu_1_1GpuRayPickUniforms" ],
+        [ "Handle", "classbgl_1_1gpu_1_1Handle.html", "classbgl_1_1gpu_1_1Handle" ],
+        [ "MaterialUniforms", "structbgl_1_1gpu_1_1MaterialUniforms.html", "structbgl_1_1gpu_1_1MaterialUniforms" ],
+        [ "PerDrawUniforms", "structbgl_1_1gpu_1_1PerDrawUniforms.html", "structbgl_1_1gpu_1_1PerDrawUniforms" ],
+        [ "PipelineManager", "classbgl_1_1gpu_1_1PipelineManager.html", "classbgl_1_1gpu_1_1PipelineManager" ],
+        [ "PostProcessExtraUniforms", "structbgl_1_1gpu_1_1PostProcessExtraUniforms.html", "structbgl_1_1gpu_1_1PostProcessExtraUniforms" ],
+        [ "PostProcessPass", "classbgl_1_1gpu_1_1PostProcessPass.html", "classbgl_1_1gpu_1_1PostProcessPass" ],
+        [ "PrefilterComputeParams", "structbgl_1_1gpu_1_1PrefilterComputeParams.html", "structbgl_1_1gpu_1_1PrefilterComputeParams" ],
+        [ "PreparedDrawBindings", "structbgl_1_1gpu_1_1PreparedDrawBindings.html", "structbgl_1_1gpu_1_1PreparedDrawBindings" ],
+        [ "PreprocessedShader", "structbgl_1_1gpu_1_1PreprocessedShader.html", "structbgl_1_1gpu_1_1PreprocessedShader" ],
+        [ "SceneLightingUniforms", "structbgl_1_1gpu_1_1SceneLightingUniforms.html", "structbgl_1_1gpu_1_1SceneLightingUniforms" ],
+        [ "ShaderManager", "classbgl_1_1gpu_1_1ShaderManager.html", "classbgl_1_1gpu_1_1ShaderManager" ],
+        [ "ShadowPass", "classbgl_1_1gpu_1_1ShadowPass.html", "classbgl_1_1gpu_1_1ShadowPass" ],
+        [ "Skybox", "classbgl_1_1gpu_1_1Skybox.html", "classbgl_1_1gpu_1_1Skybox" ],
+        [ "SkyboxUniforms", "structbgl_1_1gpu_1_1SkyboxUniforms.html", "structbgl_1_1gpu_1_1SkyboxUniforms" ],
+        [ "TonemapUniforms", "structbgl_1_1gpu_1_1TonemapUniforms.html", "structbgl_1_1gpu_1_1TonemapUniforms" ],
+        [ "VertexAndInstanceLayoutStorage", "structbgl_1_1gpu_1_1VertexAndInstanceLayoutStorage.html", "structbgl_1_1gpu_1_1VertexAndInstanceLayoutStorage" ]
+      ] ],
+      [ "gui", "namespacebgl_1_1gui.html", [
+        [ "FontInfo", "structbgl_1_1gui_1_1FontInfo.html", "structbgl_1_1gui_1_1FontInfo" ]
+      ] ],
+      [ "scene", "namespacebgl_1_1scene.html", [
+        [ "detail", "namespacebgl_1_1scene_1_1detail.html", [
+          [ "ProgressReporter", "structbgl_1_1scene_1_1detail_1_1ProgressReporter.html", "structbgl_1_1scene_1_1detail_1_1ProgressReporter" ]
+        ] ],
+        [ "Animation", "structbgl_1_1scene_1_1Animation.html", "structbgl_1_1scene_1_1Animation" ],
+        [ "AnimationChannel", "structbgl_1_1scene_1_1AnimationChannel.html", "structbgl_1_1scene_1_1AnimationChannel" ],
+        [ "AnimationSampler", "structbgl_1_1scene_1_1AnimationSampler.html", "structbgl_1_1scene_1_1AnimationSampler" ],
+        [ "AssetManager", "classbgl_1_1scene_1_1AssetManager.html", "classbgl_1_1scene_1_1AssetManager" ],
+        [ "CpuImage", "structbgl_1_1scene_1_1CpuImage.html", "structbgl_1_1scene_1_1CpuImage" ],
+        [ "DecodedHdrImage", "structbgl_1_1scene_1_1DecodedHdrImage.html", "structbgl_1_1scene_1_1DecodedHdrImage" ],
+        [ "DecodedImage", "structbgl_1_1scene_1_1DecodedImage.html", "structbgl_1_1scene_1_1DecodedImage" ],
+        [ "DecodedMipLevel", "structbgl_1_1scene_1_1DecodedMipLevel.html", "structbgl_1_1scene_1_1DecodedMipLevel" ],
+        [ "FastGltfLoader", "classbgl_1_1scene_1_1FastGltfLoader.html", "classbgl_1_1scene_1_1FastGltfLoader" ],
+        [ "LoadProgressInfo", "structbgl_1_1scene_1_1LoadProgressInfo.html", "structbgl_1_1scene_1_1LoadProgressInfo" ],
+        [ "LodSubMesh", "structbgl_1_1scene_1_1LodSubMesh.html", "structbgl_1_1scene_1_1LodSubMesh" ],
+        [ "Material", "structbgl_1_1scene_1_1Material.html", "structbgl_1_1scene_1_1Material" ],
+        [ "Mesh", "structbgl_1_1scene_1_1Mesh.html", "structbgl_1_1scene_1_1Mesh" ],
+        [ "MeshPrimitive", "structbgl_1_1scene_1_1MeshPrimitive.html", "structbgl_1_1scene_1_1MeshPrimitive" ],
+        [ "MorphTarget", "structbgl_1_1scene_1_1MorphTarget.html", "structbgl_1_1scene_1_1MorphTarget" ],
+        [ "OcclusionBuffer", "classbgl_1_1scene_1_1OcclusionBuffer.html", "classbgl_1_1scene_1_1OcclusionBuffer" ],
+        [ "PunctualLight", "structbgl_1_1scene_1_1PunctualLight.html", "structbgl_1_1scene_1_1PunctualLight" ],
+        [ "Quadtree", "classbgl_1_1scene_1_1Quadtree.html", "classbgl_1_1scene_1_1Quadtree" ],
+        [ "QuadtreeItem", "structbgl_1_1scene_1_1QuadtreeItem.html", "structbgl_1_1scene_1_1QuadtreeItem" ],
+        [ "QuadtreeNode", "classbgl_1_1scene_1_1QuadtreeNode.html", "classbgl_1_1scene_1_1QuadtreeNode" ],
+        [ "RayHit", "structbgl_1_1scene_1_1RayHit.html", "structbgl_1_1scene_1_1RayHit" ],
+        [ "RayPicker", "classbgl_1_1scene_1_1RayPicker.html", "classbgl_1_1scene_1_1RayPicker" ],
+        [ "Scene", "structbgl_1_1scene_1_1Scene.html", "structbgl_1_1scene_1_1Scene" ],
+        [ "SceneCamera", "structbgl_1_1scene_1_1SceneCamera.html", "structbgl_1_1scene_1_1SceneCamera" ],
+        [ "SceneNode", "classbgl_1_1scene_1_1SceneNode.html", "classbgl_1_1scene_1_1SceneNode" ],
+        [ "Skin", "structbgl_1_1scene_1_1Skin.html", "structbgl_1_1scene_1_1Skin" ],
+        [ "TextureDecoder", "classbgl_1_1scene_1_1TextureDecoder.html", "classbgl_1_1scene_1_1TextureDecoder" ],
+        [ "TextureGpuResource", "structbgl_1_1scene_1_1TextureGpuResource.html", "structbgl_1_1scene_1_1TextureGpuResource" ]
+      ] ],
+      [ "text", "namespacebgl_1_1text.html", [
+        [ "FontAtlas", "classbgl_1_1text_1_1FontAtlas.html", "classbgl_1_1text_1_1FontAtlas" ],
+        [ "FontDescriptor", "structbgl_1_1text_1_1FontDescriptor.html", "structbgl_1_1text_1_1FontDescriptor" ],
+        [ "FontLibrary", "classbgl_1_1text_1_1FontLibrary.html", "classbgl_1_1text_1_1FontLibrary" ],
+        [ "FontQuery", "structbgl_1_1text_1_1FontQuery.html", "structbgl_1_1text_1_1FontQuery" ],
+        [ "GlyphInfo", "structbgl_1_1text_1_1GlyphInfo.html", "structbgl_1_1text_1_1GlyphInfo" ],
+        [ "TextLayout", "structbgl_1_1text_1_1TextLayout.html", "structbgl_1_1text_1_1TextLayout" ],
+        [ "TextQuad", "structbgl_1_1text_1_1TextQuad.html", "structbgl_1_1text_1_1TextQuad" ],
+        [ "TextRenderer", "classbgl_1_1text_1_1TextRenderer.html", "classbgl_1_1text_1_1TextRenderer" ],
+        [ "TextShaper", "classbgl_1_1text_1_1TextShaper.html", "classbgl_1_1text_1_1TextShaper" ],
+        [ "TextVertex", "structbgl_1_1text_1_1TextVertex.html", "structbgl_1_1text_1_1TextVertex" ]
+      ] ],
+      [ "ui", "namespacebgl_1_1ui.html", [
+        [ "ContainerOptions", "structbgl_1_1ui_1_1ContainerOptions.html", "structbgl_1_1ui_1_1ContainerOptions" ],
+        [ "DebugOverlay", "classbgl_1_1ui_1_1DebugOverlay.html", "classbgl_1_1ui_1_1DebugOverlay" ],
+        [ "ImmediateUI", "classbgl_1_1ui_1_1ImmediateUI.html", "classbgl_1_1ui_1_1ImmediateUI" ],
+        [ "OverlayStats", "structbgl_1_1ui_1_1OverlayStats.html", "structbgl_1_1ui_1_1OverlayStats" ],
+        [ "PanelOptions", "structbgl_1_1ui_1_1PanelOptions.html", "structbgl_1_1ui_1_1PanelOptions" ],
+        [ "UiInputState", "structbgl_1_1ui_1_1UiInputState.html", "structbgl_1_1ui_1_1UiInputState" ],
+        [ "UiRect", "structbgl_1_1ui_1_1UiRect.html", "structbgl_1_1ui_1_1UiRect" ],
+        [ "UiStyle", "structbgl_1_1ui_1_1UiStyle.html", "structbgl_1_1ui_1_1UiStyle" ],
+        [ "UiVertex", "structbgl_1_1ui_1_1UiVertex.html", "structbgl_1_1ui_1_1UiVertex" ]
+      ] ],
+      [ "App", "classbgl_1_1App.html", "classbgl_1_1App" ],
+      [ "Engine", "classbgl_1_1Engine.html", "classbgl_1_1Engine" ],
+      [ "EngineConfig", "structbgl_1_1EngineConfig.html", "structbgl_1_1EngineConfig" ],
+      [ "Entity", "classbgl_1_1Entity.html", "classbgl_1_1Entity" ],
+      [ "Input", "classbgl_1_1Input.html", "classbgl_1_1Input" ],
+      [ "LightDesc", "structbgl_1_1LightDesc.html", "structbgl_1_1LightDesc" ],
+      [ "RenderSettings", "structbgl_1_1RenderSettings.html", "structbgl_1_1RenderSettings" ]
+    ] ],
+    [ "EntitiesAndLights", "classEntitiesAndLights.html", "classEntitiesAndLights" ],
+    [ "HelloEngine", "classHelloEngine.html", "classHelloEngine" ]
+];

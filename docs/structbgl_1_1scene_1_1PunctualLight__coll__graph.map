@@ -1,0 +1,7 @@
+<map id="bgl::scene::PunctualLight" name="bgl::scene::PunctualLight">
+<area shape="rect" id="Node000001" title="Punctual light source definition (KHR_lights_punctual)." alt="" coords="5,289,178,473"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="54,144,130,216"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,214,94,273,89,272,91,219"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="28,5,156,95"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="92,107,94,144,89,144,91,112"/>
+</map>

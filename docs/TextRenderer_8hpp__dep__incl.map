@@ -1,0 +1,23 @@
+<map id="src/text/TextRenderer.hpp" name="src/text/TextRenderer.hpp">
+<area shape="rect" id="Node000001" title="WebGPU 2D Batched Quad and Text Renderer with alpha blending and 4x MSAA support." alt="" coords="635,5,822,33"/>
+<area shape="rect" id="Node000002" href="$TextRenderer_8cpp.html" title="WebGPU 2D Batched Quad and Text Renderer implementation." alt="" coords="533,81,719,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="700,41,646,83,643,78,696,44"/>
+<area shape="rect" id="Node000003" href="$DebugOverlay_8hpp.html" title="In&#45;engine 2D Debug Overlay displaying real&#45;time FPS, camera, scene, and spatial metrics." alt="" coords="743,81,922,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="760,39,817,81,812,80,759,45"/>
+<area shape="rect" id="Node000004" href="$Application_8hpp.html" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="622,157,828,184"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="803,117,745,159,743,154,798,119"/>
+<area shape="rect" id="Node000011" href="$DebugOverlay_8cpp.html" title="In&#45;engine 2D Debug Overlay displaying real&#45;time FPS, camera, scene, and spatial metrics." alt="" coords="852,157,1030,184"/>
+<area shape="poly" id="edge10_Node000003_Node000011" title=" " alt="" coords="865,115,924,157,919,156,864,120"/>
+<area shape="rect" id="Node000005" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="5,241,210,268"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="604,184,426,207,223,235,176,243,175,238,222,230,425,202,610,184"/>
+<area shape="rect" id="Node000006" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="234,241,472,268"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="653,188,413,243,412,238,648,188"/>
+<area shape="rect" id="Node000007" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="496,232,714,277"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="696,193,638,234,636,229,691,194"/>
+<area shape="rect" id="Node000008" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="737,241,955,268"/>
+<area shape="poly" id="edge7_Node000004_Node000008" title=" " alt="" coords="757,191,829,241,824,240,756,196"/>
+<area shape="rect" id="Node000009" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="979,241,1188,268"/>
+<area shape="poly" id="edge8_Node000004_Node000009" title=" " alt="" coords="797,186,1029,240,1023,240,797,191"/>
+<area shape="rect" id="Node000010" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="1212,241,1376,268"/>
+<area shape="poly" id="edge9_Node000004_Node000010" title=" " alt="" coords="843,183,1041,207,1200,230,1242,240,1237,240,1199,235,1040,213,843,188"/>
+</map>

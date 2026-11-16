@@ -1,0 +1,7 @@
+<map id="bgl::engine::EngineCore" name="bgl::engine::EngineCore">
+<area shape="rect" id="Node000001" title="Window + GPU + scene + render&#45;sequence runtime shared by the viewer and the public bgl::Engine." alt="" coords="91,5,303,882"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1Engine_1_1Impl.html" title=" " alt="" coords="5,1265,161,1739"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="149,894,111,1265,106,1265,148,899"/>
+<area shape="rect" id="Node000003" href="$classbgl_1_1app_1_1Application.html" title="Main engine application runtime coordinating rendering, physics, audio, and inputs." alt="" coords="185,930,437,2074"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="246,894,252,930,247,930,246,899"/>
+</map>

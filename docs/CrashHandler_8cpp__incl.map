@@ -1,0 +1,19 @@
+<map id="src/core/CrashHandler.cpp" name="src/core/CrashHandler.cpp">
+<area shape="rect" id="Node000001" title="Crash interception, POSIX signal handling, and stacktrace diagnostics." alt="" coords="314,5,505,33"/>
+<area shape="rect" id="Node000002" href="$CrashHandler_8hpp.html" title="Crash interception, POSIX signal handling, and stacktrace diagnostics." alt="" coords="5,81,174,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="351,36,163,80,161,74,353,31"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="198,81,264,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="380,33,278,77,276,72,375,35"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="288,81,355,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="396,32,350,73,347,69,391,35"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="379,81,440,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="411,31,412,67,407,64,408,36"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="464,81,528,109"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="426,31,472,71,467,71,424,36"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="553,81,618,109"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="441,31,543,75,538,75,441,36"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="642,81,716,109"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="458,31,630,79,625,80,457,36"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="41,157,138,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="91,107,92,142,87,140,88,111"/>
+</map>

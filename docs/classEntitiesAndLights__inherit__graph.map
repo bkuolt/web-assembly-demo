@@ -1,0 +1,5 @@
+<map id="EntitiesAndLights" name="EntitiesAndLights">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,349,129,466"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1App.html" title="Derive from this class, override the hooks you need and use BGL_RUN(MyApp)." alt="" coords="8,5,127,301"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="68,313,70,350,65,349,66,318"/>
+</map>

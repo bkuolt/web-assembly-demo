@@ -1,0 +1,14 @@
+<map id="bgl::gpu::PreprocessedShader" name="bgl::gpu::PreprocessedShader">
+<area shape="rect" id="Node000001" title="Result of expanding WGSL #include directives together with all resolved source dependencies." alt="" coords="98,458,300,531"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="209,168,285,240"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="269,237,280,263,293,312,301,351,298,390,281,436,273,448,270,444,276,433,293,389,295,352,288,313,275,265,268,242"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="14,313,189,385"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="214,242,170,291,157,303,153,300,166,287,217,238"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="183,5,311,95"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="248,107,249,168,244,167,246,112"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="96,383,98,410,105,433,114,447,109,447,100,436,93,411,94,388"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="5,168,123,240"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="61,252,68,288,79,313,73,314,63,290,60,257"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="55,14,74,86"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="64,83,67,151,62,151,64,89"/>
+</map>

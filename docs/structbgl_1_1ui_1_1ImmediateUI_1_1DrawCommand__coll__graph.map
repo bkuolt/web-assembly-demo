@@ -1,0 +1,5 @@
+<map id="bgl::ui::ImmediateUI::DrawCommand" name="bgl::ui::ImmediateUI::DrawCommand">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,218,149,374"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1ui_1_1UiRect.html" title="Screen&#45;space axis&#45;aligned rectangle in pixels." alt="" coords="26,5,128,145"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="78,142,80,201,75,200,76,147"/>
+</map>

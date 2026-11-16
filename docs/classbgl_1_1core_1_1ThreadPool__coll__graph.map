@@ -1,0 +1,23 @@
+<map id="bgl::core::ThreadPool" name="bgl::core::ThreadPool">
+<area shape="rect" id="Node000001" title="Centralized worker pool preventing thread oversubscription." alt="" coords="329,458,491,821"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="28,304,208,377"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="152,374,319,543,314,545,151,379"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,151,86,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="45,220,51,247,59,271,70,291,65,292,54,273,46,248,45,226"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="110,151,227,223"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="151,239,132,306,127,304,153,234"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="300,5,319,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="299,50,267,71,226,104,199,138,194,135,222,100,264,67,302,46"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="251,151,368,223"/>
+<area shape="poly" id="edge7_Node000007_Node000005" title=" " alt="" coords="310,75,312,134,307,133,309,80"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="420,151,541,223"/>
+<area shape="poly" id="edge11_Node000010_Node000005" title=" " alt="" coords="318,46,354,68,397,100,438,138,433,139,393,104,351,73,319,51"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="232,296,406,385"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="333,383,352,443,347,442,331,388"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="306,235,308,247,308,272,312,297,306,296,303,272,303,247,305,241"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="596,304,677,377"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="612,375,503,521,499,517,608,378"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="431,304,572,377"/>
+<area shape="poly" id="edge9_Node000001_Node000009" title=" " alt="" coords="493,374,473,443,468,440,489,379"/>
+<area shape="poly" id="edge10_Node000009_Node000010" title=" " alt="" coords="488,235,499,305,494,304,486,240"/>
+</map>

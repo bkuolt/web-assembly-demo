@@ -1,0 +1,54 @@
+<map id="src/gpu/DrawHelpers.hpp" name="src/gpu/DrawHelpers.hpp">
+<area shape="rect" id="Node000001" title="Shared helpers for populating per&#45;draw uniforms, GPU skinning SSBOs, and morph weights across passes." alt="" coords="1125,5,1309,33"/>
+<area shape="rect" id="Node000002" href="$Pipeline_8cpp.html" title="Core PipelineManager lifecycle, main/tonemap/mipgen pipelines, and frame render encoding." alt="" coords="330,232,481,260"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1156,40,453,234,452,229,1155,35"/>
+<area shape="rect" id="Node000003" href="$Pipeline_8hpp.html" title="Hardware WebGPU RenderPipeline, HDR RGBA16Float Post&#45;Processing Tonemapping (Khronos PBR Neutral,..." alt="" coords="949,157,1101,184"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="1124,37,1085,58,1052,83,1041,100,1034,120,1027,158,1023,154,1028,119,1036,98,1049,79,1082,53,1119,39"/>
+<area shape="rect" id="Node000018" href="$PipelineEffects_8cpp.html" title="GPU/CPU mipmap chain generation, opaque transmission copy mips, and 3D selection silhouette outlines." alt="" coords="1341,232,1536,260"/>
+<area shape="poly" id="edge23_Node000001_Node000018" title=" " alt="" coords="1241,41,1428,232,1423,231,1239,46"/>
+<area shape="rect" id="Node000021" href="$PipelineRender_8cpp.html" title="Clustered Forward+ light culling, shadow/opaque/transparent frame preparation, and draw dispatch enco..." alt="" coords="1560,232,1757,260"/>
+<area shape="poly" id="edge24_Node000001_Node000021" title=" " alt="" coords="1257,38,1635,232,1630,232,1256,43"/>
+<area shape="rect" id="Node000023" href="$ShadowPass_8cpp.html" title="Implementation of directional 2048x2048 PCF shadow map depth pre&#45;pass with alpha testing." alt="" coords="1158,157,1338,184"/>
+<area shape="poly" id="edge25_Node000001_Node000023" title=" " alt="" coords="1239,43,1258,80,1262,101,1261,122,1254,158,1250,155,1256,122,1256,101,1253,82,1237,48"/>
+<area shape="rect" id="Node000024" href="$ShadowPass_8hpp.html" title="Directional 2048x2048 PCF shadow map depth pre&#45;pass with alpha testing." alt="" coords="1063,81,1243,109"/>
+<area shape="poly" id="edge26_Node000001_Node000024" title=" " alt="" coords="1198,44,1166,83,1163,78,1193,46"/>
+<area shape="poly" id="edge17_Node000003_Node000002" title=" " alt="" coords="931,183,493,235,482,236,481,231,493,230,935,180"/>
+<area shape="rect" id="Node000004" href="$EngineCore_8hpp.html" title="Reusable engine runtime: native window, WebGPU context, scene loading, picking, sun/time&#45;of&#45;day and t..." alt="" coords="1123,232,1317,260"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="1074,188,1188,232,1183,232,1074,193"/>
+<area shape="poly" id="edge18_Node000003_Node000018" title=" " alt="" coords="1115,185,1367,231,1361,232,1114,190"/>
+<area shape="rect" id="Node000019" href="$PipelineIBL_8cpp.html" title="IBL cubemap generation, BRDF LUT &amp; GGX prefilter compute pipelines, and L2 SH irradiance." alt="" coords="505,232,676,260"/>
+<area shape="poly" id="edge19_Node000003_Node000019" title=" " alt="" coords="931,188,669,234,668,229,936,186"/>
+<area shape="rect" id="Node000020" href="$PipelineMath_8cpp.html" title="Pure CPU shading, weather, diurnal sun, LOD heatmap, and blending helpers for PipelineManager." alt="" coords="700,232,884,260"/>
+<area shape="poly" id="edge20_Node000003_Node000020" title=" " alt="" coords="972,189,834,234,833,229,967,190"/>
+<area shape="poly" id="edge21_Node000003_Node000021" title=" " alt="" coords="1117,180,1563,233,1557,234,1116,185"/>
+<area shape="rect" id="Node000022" href="$PipelineScene_8cpp.html" title="Scene GPU resource upload, material bind&#45;group management, and KTX2 re&#45;transcoding." alt="" coords="909,232,1099,260"/>
+<area shape="poly" id="edge22_Node000003_Node000022" title=" " alt="" coords="1019,198,1009,234,1006,230,1015,201"/>
+<area shape="rect" id="Node000005" href="$Application_8hpp.html" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="668,308,873,336"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="1127,263,852,310,851,305,1122,263"/>
+<area shape="rect" id="Node000012" href="$EngineCore_8cpp.html" title="Reusable engine runtime implementation: SDL2/WebGPU initialization, scene loading,..." alt="" coords="1004,308,1198,336"/>
+<area shape="poly" id="edge11_Node000004_Node000012" title=" " alt="" coords="1189,268,1123,310,1121,305,1183,269"/>
+<area shape="rect" id="Node000013" href="$EngineCoreScene_8cpp.html" title="Scene loading, node selection/picking, camera cycling, and diurnal sun controls for EngineCore." alt="" coords="1222,308,1455,336"/>
+<area shape="poly" id="edge12_Node000004_Node000013" title=" " alt="" coords="1254,266,1320,308,1315,307,1253,271"/>
+<area shape="rect" id="Node000014" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="1486,308,1679,336"/>
+<area shape="poly" id="edge13_Node000004_Node000014" title=" " alt="" coords="1300,261,1520,307,1514,307,1300,266"/>
+<area shape="rect" id="Node000006" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="668,392,873,420"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="772,350,773,394,768,390,769,353"/>
+<area shape="rect" id="Node000007" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="897,392,1134,420"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="825,338,979,392,974,391,824,344"/>
+<area shape="rect" id="Node000008" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="1159,384,1376,428"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="869,336,1147,381,1161,386,1156,386,1146,386,868,341"/>
+<area shape="rect" id="Node000009" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="5,392,224,420"/>
+<area shape="poly" id="edge8_Node000005_Node000009" title=" " alt="" coords="650,335,457,358,236,386,187,394,186,389,235,381,457,353,655,334"/>
+<area shape="rect" id="Node000010" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="248,392,456,420"/>
+<area shape="poly" id="edge9_Node000005_Node000010" title=" " alt="" coords="691,339,420,394,419,389,686,339"/>
+<area shape="rect" id="Node000011" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="480,392,645,420"/>
+<area shape="poly" id="edge10_Node000005_Node000011" title=" " alt="" coords="726,341,597,394,595,389,720,342"/>
+<area shape="rect" id="Node000015" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="1401,392,1564,420"/>
+<area shape="poly" id="edge14_Node000014_Node000015" title=" " alt="" coords="1557,345,1499,394,1497,389,1552,347"/>
+<area shape="rect" id="Node000016" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="1588,392,1780,420"/>
+<area shape="poly" id="edge15_Node000014_Node000016" title=" " alt="" coords="1612,343,1670,393,1665,391,1610,348"/>
+<area shape="rect" id="Node000017" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="1804,392,1959,420"/>
+<area shape="poly" id="edge16_Node000014_Node000017" title=" " alt="" coords="1646,338,1836,392,1831,391,1645,343"/>
+<area shape="poly" id="edge27_Node000024_Node000003" title=" " alt="" coords="1120,116,1049,159,1047,154,1115,118"/>
+<area shape="poly" id="edge28_Node000024_Node000023" title=" " alt="" coords="1183,116,1234,157,1228,156,1181,121"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="bgl::EngineConfig" name="bgl::EngineConfig">
+<area shape="rect" id="Node000001" title="Startup parameters passed to Engine::Create() or returned from App::Configure()." alt="" coords="60,624,238,764"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="31,312,107,384"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="79,381,132,607,127,608,75,385"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,5,133,95"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="69,107,72,312,67,312,69,112"/>
+<area shape="rect" id="Node000004" href="$structbgl_1_1RenderSettings.html" title="Plain&#45;data tuning knobs of the bgl Engine." alt="" coords="130,144,330,551"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="189,549,178,601,176,610,171,607,173,600,186,553"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="bgl::scene::MorphTarget" name="bgl::scene::MorphTarget">
+<area shape="rect" id="Node000001" title="Delta attributes for morph target blending." alt="" coords="9,486,175,558"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,296,179,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="94,367,95,469,90,469,90,370"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="33,151,151,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="93,235,95,296,90,296,92,240"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="83,5,102,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="92,75,95,134,90,133,92,80"/>
+</map>

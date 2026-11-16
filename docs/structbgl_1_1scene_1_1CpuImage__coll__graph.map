@@ -1,0 +1,15 @@
+<map id="bgl::scene::CpuImage" name="bgl::scene::CpuImage">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,816,161,955"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="122,296,277,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,370,122,413,104,438,90,465,75,506,64,550,56,639,58,725,68,799,63,799,53,725,50,639,59,549,70,505,85,463,100,435,118,409,161,366"/>
+<area shape="rect" id="Node000006" href="$structbgl_1_1scene_1_1DecodedMipLevel.html" title="Single mipmap level payload for block&#45;compressed or pre&#45;filtered KTX2 textures." alt="" coords="99,464,300,558"/>
+<area shape="poly" id="edge6_Node000006_Node000002" title=" " alt="" coords="200,366,202,447,197,447,199,371"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="208,151,326,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="240,238,237,248,216,297,211,295,233,246,242,234"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="142,654,302,743"/>
+<area shape="poly" id="edge7_Node000005_Node000003" title=" " alt="" coords="312,233,318,244,324,221,330,201,337,193,341,215,339,273,314,558,313,596,310,612,302,631,283,656,279,652,297,628,305,610,307,595,309,558,333,273,336,215,336,198,335,203,329,223,318,250,312,238"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="258,5,277,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="268,75,270,134,265,133,267,80"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="191,741,147,804,143,801,188,745"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="206,555,217,637,212,636,204,561"/>
+</map>

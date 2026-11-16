@@ -1,0 +1,14 @@
+<map id="bgl::ui::ImmediateUI::QueuedMessageBox" name="bgl::ui::ImmediateUI::QueuedMessageBox">
+<area shape="rect" id="Node000001" title=" " alt="" coords="154,458,305,592"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="209,168,285,240"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="270,237,281,263,283,276,281,289,280,362,277,395,269,435,267,444,263,441,264,434,272,394,275,362,276,289,277,276,276,265,269,242"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="74,313,249,385"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="215,242,201,265,184,299,179,296,197,263,218,237"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="183,5,311,95"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="248,107,249,168,244,167,246,112"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="176,383,200,443,195,442,174,388"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="5,168,123,240"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="65,252,79,288,101,312,96,314,75,290,65,258"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="55,14,74,86"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="64,83,67,151,62,151,64,89"/>
+</map>

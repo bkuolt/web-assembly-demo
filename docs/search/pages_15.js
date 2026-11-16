@@ -1,0 +1,28 @@
+var searchData=
+[
+  ['l_20no_20mipmaps_0',['2. Mip-Mapping with Normal-Map Vector Renormalization (&lt;span class=&quot;tt&quot;&gt;[L]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-mipmaps&lt;/span&gt;)',['../index.html#autotoc_md2-mip-mapping-with-normal-map-vector-renormalization-l----no-mipmaps',1,'']]],
+  ['launch_20native_20desktop_20viewer_1',['4. Launch Native Desktop Viewer',['../index.html#autotoc_md4-launch-native-desktop-viewer',1,'']]],
+  ['launching_20the_20web_20viewer_20locally_2',['Launching the Web Viewer Locally',['../index.html#launching-the-web-viewer-locally',1,'']]],
+  ['layering_20rules_3',['Layering Rules',['../md_docs_2ARCHITECTURE.html#layering-rules',1,'']]],
+  ['layers_4',['Module Layers',['../md_docs_2ARCHITECTURE.html#module-layers',1,'']]],
+  ['lens_20flares_20keyboard_20navigation_5',['Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares &amp;amp; Keyboard Navigation',['../md_CHANGELOG.html#parallax-occlusion-mapping-multi-bounce-ao-sun-lens-flares--keyboard-navigation',1,'']]],
+  ['level_20mesh_20shader_20lod_20system_20screen_20space_20error_20sse_20bayer_20dithered_20cross_20fading_20diagnostic_20render_20views_6',['End-to-End Multi-Level Mesh &amp;amp; Shader LOD System, Screen-Space Error (SSE), Bayer Dithered Cross-Fading &amp;amp; Diagnostic Render Views',['../md_CHANGELOG.html#end-to-end-multi-level-mesh--shader-lod-system-screen-space-error-sse-bayer-dithered-cross-fading--diagnostic-render-views',1,'']]],
+  ['libbgl_5fphysics_7',['3.1 Build, Conan &amp;amp; Module Dependencies (&lt;span class=&quot;tt&quot;&gt;libbgl_physics&lt;/span&gt;)',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#autotoc_md31-build-conan--module-dependencies-libbgl_physics',1,'']]],
+  ['library_8',['Using bgl Engine as a Library',['../index.html#using-bgl-engine-as-a-library',1,'']]],
+  ['license_9',['License',['../index.html#license',1,'']]],
+  ['lifecycle_10',['App Lifecycle',['../md_docs_2CHEATSHEET.html#app-lifecycle',1,'']]],
+  ['lifecycle_20vram_20safety_11',['Memory Lifecycle &amp;amp; VRAM Safety',['../dir_562abdcd8625d4bf7bad2fe6fe01354c.html#memory-lifecycle--vram-safety',1,'']]],
+  ['light_20shadow_20atlas_20pcss_12',['B2. Cascaded Shadow Maps (CSM) + Spot/Point Light Shadow Atlas + PCSS',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#b2-cascaded-shadow-maps-csm--spotpoint-light-shadow-atlas--pcss',1,'']]],
+  ['lighting_20ambient_20specular_20reflection_13',['4. Dual-Lobe Directional Lighting &amp;amp; Ambient Specular Reflection',['../dir_562abdcd8625d4bf7bad2fe6fe01354c.html#autotoc_md4-dual-lobe-directional-lighting--ambient-specular-reflection',1,'']]],
+  ['line_20arguments_14',['Command-Line Arguments',['../index.html#command-line-arguments',1,'']]],
+  ['link_20audit_20engine_20polish_15',['Production Readiness, Universal Cross-Platform Web Rendering, Link Audit &amp;amp; Engine Polish',['../md_CHANGELOG.html#production-readiness-universal-cross-platform-web-rendering-link-audit--engine-polish',1,'']]],
+  ['live_20demo_20in_20browser_20github_20pages_20githack_20preview_20👈_16',['🎮 &lt;b&gt;&lt;a href=&quot;https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html&quot;&gt;👉 RUN LIVE DEMO IN BROWSER (GitHub Pages / GitHack Preview) 👈&lt;/a&gt;&lt;/b&gt;',['../index.html#autotoc_md--run-live-demo-in-browser-github-pages--githack-preview-httpsrawgithackcombkuoltweb-assembly-demomainwebindexhtml',1,'']]],
+  ['live_20demo_20on_20github_17',['Live Demo on GitHub',['../index.html#live-demo-on-github',1,'']]],
+  ['live_20hot_20reload_20implemented_20render_20pass_20inspector_18',['D2. Modular WGSL Pipeline, Live Hot-Reload (Implemented) &amp;amp; Render-Pass Inspector',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#d2-modular-wgsl-pipeline-live-hot-reload-implemented--render-pass-inspector',1,'']]],
+  ['lobe_20directional_20lighting_20ambient_20specular_20reflection_19',['4. Dual-Lobe Directional Lighting &amp;amp; Ambient Specular Reflection',['../dir_562abdcd8625d4bf7bad2fe6fe01354c.html#autotoc_md4-dual-lobe-directional-lighting--ambient-specular-reflection',1,'']]],
+  ['locally_20',['Launching the Web Viewer Locally',['../index.html#launching-the-web-viewer-locally',1,'']]],
+  ['lock_21',['Production Optimization, Cross-Browser WebGPU Hardening &amp;amp; Conan 2.x Lock',['../md_CHANGELOG.html#production-optimization-cross-browser-webgpu-hardening--conan-2x-lock',1,'']]],
+  ['lod_20system_20screen_20space_20error_20sse_20bayer_20dithered_20cross_20fading_20diagnostic_20render_20views_22',['End-to-End Multi-Level Mesh &amp;amp; Shader LOD System, Screen-Space Error (SSE), Bayer Dithered Cross-Fading &amp;amp; Diagnostic Render Views',['../md_CHANGELOG.html#end-to-end-multi-level-mesh--shader-lod-system-screen-space-error-sse-bayer-dithered-cross-fading--diagnostic-render-views',1,'']]],
+  ['loop_23',['3.3 Fixed-Timestep Accumulator in Frame Loop',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#autotoc_md33-fixed-timestep-accumulator-in-frame-loop',1,'']]],
+  ['loop_20performance_24',['Zero-Allocation Render Loop &amp;amp; Performance',['../dir_562abdcd8625d4bf7bad2fe6fe01354c.html#zero-allocation-render-loop--performance',1,'']]]
+];

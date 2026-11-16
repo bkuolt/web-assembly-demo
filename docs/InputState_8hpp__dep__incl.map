@@ -1,0 +1,5 @@
+<map id="src/engine/InputState.hpp" name="src/engine/InputState.hpp">
+<area shape="rect" id="Node000001" title="Internal frame&#45;buffered keyboard and mouse state backing bgl::Input." alt="" coords="5,5,193,33"/>
+<area shape="rect" id="Node000002" href="$Input_8cpp.html" title="Public bgl::Input polling API implementation." alt="" coords="23,81,175,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="101,47,101,82,97,80,97,51"/>
+</map>

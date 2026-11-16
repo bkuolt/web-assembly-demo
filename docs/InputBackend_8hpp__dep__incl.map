@@ -1,0 +1,7 @@
+<map id="src/engine/InputBackend.hpp" name="src/engine/InputBackend.hpp">
+<area shape="rect" id="Node000001" title="Internal platform input backend hooks feeding engine::InputState." alt="" coords="113,5,322,33"/>
+<area shape="rect" id="Node000002" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="5,81,198,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,41,123,83,121,78,181,42"/>
+<area shape="rect" id="Node000003" href="$InputBackendSdl_8cpp.html" title="Native SDL2 backend translating window/keyboard/mouse events into engine::InputState." alt="" coords="221,81,448,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="252,39,317,81,311,81,250,44"/>
+</map>

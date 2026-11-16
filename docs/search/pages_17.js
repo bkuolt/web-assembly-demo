@@ -1,0 +1,18 @@
+var searchData=
+[
+  ['native_20compressed_20textures_0',['Alpha-Tested Shadows, SSAO, Emissive Bloom, True Transmission &amp;amp; Native Compressed Textures',['../md_CHANGELOG.html#alpha-tested-shadows-ssao-emissive-bloom-true-transmission--native-compressed-textures',1,'']]],
+  ['native_20desktop_20viewer_1',['4. Launch Native Desktop Viewer',['../index.html#autotoc_md4-launch-native-desktop-viewer',1,'']]],
+  ['native_20webgpu_20browser_20implementation_20dual_20backend_20architecture_2',['Native WebGPU Browser Implementation &amp;amp; Dual-Backend Architecture',['../md_CHANGELOG.html#native-webgpu-browser-implementation--dual-backend-architecture',1,'']]],
+  ['navigation_3',['Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares &amp;amp; Keyboard Navigation',['../md_CHANGELOG.html#parallax-occlusion-mapping-multi-bounce-ao-sun-lens-flares--keyboard-navigation',1,'']]],
+  ['network_20streaming_4',['Offline Model Cache &amp;amp; Network Streaming',['../dir_562abdcd8625d4bf7bad2fe6fe01354c.html#offline-model-cache--network-streaming',1,'']]],
+  ['new_20features_20architectural_20upgrades_5',['Part I — High-Impact New Features &amp;amp; Architectural Upgrades',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#part-i--high-impact-new-features--architectural-upgrades',1,'']]],
+  ['new_20sample_6',['4. Add a New Sample',['../md_docs_2GETTING__STARTED.html#autotoc_md4-add-a-new-sample',1,'']]],
+  ['night_20cycle_20sponza_20webgpu_20texturing_7',['Atmospheric Weather Simulation (Rain, Snow, Fog, Smoke), Dynamic Day/Night Cycle &amp;amp; Sponza WebGPU Texturing',['../md_CHANGELOG.html#atmospheric-weather-simulation-rain-snow-fog-smoke-dynamic-daynight-cycle--sponza-webgpu-texturing',1,'']]],
+  ['no_20bump_8',['1. Bump Mapping &amp;amp; Tangent-Space Normal Mapping (&lt;span class=&quot;tt&quot;&gt;[V]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-bump&lt;/span&gt;)',['../index.html#autotoc_md1-bump-mapping--tangent-space-normal-mapping-v----no-bump',1,'']]],
+  ['no_20mipmaps_9',['2. Mip-Mapping with Normal-Map Vector Renormalization (&lt;span class=&quot;tt&quot;&gt;[L]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-mipmaps&lt;/span&gt;)',['../index.html#autotoc_md2-mip-mapping-with-normal-map-vector-renormalization-l----no-mipmaps',1,'']]],
+  ['no_20reflections_10',['4. Environment Cubemap Reflections &amp;amp; Specular IBL (&lt;span class=&quot;tt&quot;&gt;[R]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-reflections&lt;/span&gt;)',['../index.html#autotoc_md4-environment-cubemap-reflections--specular-ibl-r----no-reflections',1,'']]],
+  ['no_20shadows_11',['3. Directional Shadow Mapping with 3×3 PCF (&lt;span class=&quot;tt&quot;&gt;[M]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-shadows&lt;/span&gt;)',['../index.html#autotoc_md3-directional-shadow-mapping-with-33-pcf-m----no-shadows',1,'']]],
+  ['normal_20gtao_20dual_20kawase_20mip_20hdr_20bloom_20ssr_12',['B1. True Depth/Normal GTAO + Dual-Kawase/Mip HDR Bloom + SSR',['../md_docs_2FEATURE__AND__PHYSICS__REPORT.html#b1-true-depthnormal-gtao--dual-kawasemip-hdr-bloom--ssr',1,'']]],
+  ['normal_20map_20vector_20renormalization_20l_20no_20mipmaps_13',['2. Mip-Mapping with Normal-Map Vector Renormalization (&lt;span class=&quot;tt&quot;&gt;[L]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-mipmaps&lt;/span&gt;)',['../index.html#autotoc_md2-mip-mapping-with-normal-map-vector-renormalization-l----no-mipmaps',1,'']]],
+  ['normal_20mapping_20v_20no_20bump_14',['1. Bump Mapping &amp;amp; Tangent-Space Normal Mapping (&lt;span class=&quot;tt&quot;&gt;[V]&lt;/span&gt; / &lt;span class=&quot;tt&quot;&gt;--no-bump&lt;/span&gt;)',['../index.html#autotoc_md1-bump-mapping--tangent-space-normal-mapping-v----no-bump',1,'']]]
+];

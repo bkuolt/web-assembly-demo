@@ -1,0 +1,23 @@
+<map id="bgl::scene::Animation" name="bgl::scene::Animation">
+<area shape="rect" id="Node000001" title="Named collection of animation channels and samplers." alt="" coords="193,878,347,950"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="143,724,219,796"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="182,793,187,824,198,852,207,866,202,865,193,855,182,826,179,798"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="105,539,233,628"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="174,641,181,724,176,723,172,646"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="138,341,299,430"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="229,427,248,525,265,710,272,862,266,861,259,711,242,526,227,432"/>
+<area shape="rect" id="Node000005" href="$structbgl_1_1scene_1_1AnimationChannel.html" title="Binds a sampler to a target node property." alt="" coords="5,151,210,268"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="98,265,103,292,111,315,128,337,123,338,107,318,98,293,98,270"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="412,173,529,245"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="394,214,350,222,302,236,258,259,238,275,222,293,213,316,211,342,206,341,207,315,217,290,235,271,255,255,300,231,349,217,399,211"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="390,715,551,805"/>
+<area shape="poly" id="edge11_Node000008_Node000006" title=" " alt="" coords="471,258,469,454,472,716,467,715,464,454,468,262"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="586,349,725,422"/>
+<area shape="poly" id="edge10_Node000010_Node000006" title=" " alt="" coords="519,253,621,349,616,350,518,258"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="461,5,480,78"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="471,75,473,157,468,155,470,80"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="416,804,331,870,329,865,411,806"/>
+<area shape="rect" id="Node000009" href="$structbgl_1_1scene_1_1AnimationSampler.html" title="Keyframe sequence with input timestamps and output values." alt="" coords="577,525,782,642"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="613,641,537,707,534,702,609,643"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="688,419,708,453,712,481,709,510,705,507,707,481,702,455,687,424"/>
+</map>

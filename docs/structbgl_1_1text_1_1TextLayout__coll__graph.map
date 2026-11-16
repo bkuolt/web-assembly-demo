@@ -1,0 +1,11 @@
+<map id="bgl::text::TextLayout" name="bgl::text::TextLayout">
+<area shape="rect" id="Node000001" title="Output of text shaping containing layout quads and text bounding box." alt="" coords="64,548,208,620"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="62,385,210,475"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="138,473,139,531,134,530,135,477"/>
+<area shape="rect" id="Node000003" href="$structbgl_1_1text_1_1TextQuad.html" title="2D Quad representing a single shaped glyph or solid rect to be rendered." alt="" coords="5,151,139,312"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="79,309,95,360,99,370,93,371,90,362,79,315"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="163,195,280,268"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="206,279,175,362,163,387,158,384,170,360,203,284"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="212,5,231,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="222,75,224,179,219,178,221,80"/>
+</map>

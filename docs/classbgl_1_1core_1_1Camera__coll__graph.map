@@ -1,0 +1,11 @@
+<map id="bgl::core::Camera" name="bgl::core::Camera">
+<area shape="rect" id="Node000001" title="Free&#45;orbit, pan, zoom, and first&#45;person fly camera with bookmarks and bounds framing." alt="" coords="57,592,256,1268"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="72,430,240,519"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,516,159,576,154,575,156,522"/>
+<area shape="rect" id="Node000003" href="$structbgl_1_1core_1_1CameraBookmark.html" title="Stored viewpoint bookmark state for rapid scene recall." alt="" coords="5,151,198,357"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="123,354,138,405,140,413,134,414,132,407,123,360"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="222,218,333,290"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="261,306,244,355,217,407,200,431,195,429,213,405,239,353,263,301"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="268,5,287,78"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="278,75,280,201,275,200,277,80"/>
+</map>

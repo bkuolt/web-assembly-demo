@@ -1,0 +1,5 @@
+<map id="bgl::Engine::Impl" name="bgl::Engine::Impl">
+<area shape="rect" id="Node000001" title=" " alt="" coords="33,930,189,1404"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1engine_1_1EngineCore.html" title="Window + GPU + scene + render&#45;sequence runtime shared by the viewer and the public bgl::Engine." alt="" coords="5,5,217,882"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,894,114,930,109,929,111,899"/>
+</map>

@@ -1,0 +1,21 @@
+<map id="src/core/Types.hpp" name="src/core/Types.hpp">
+<area shape="rect" id="Node000001" title="Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result&lt;T&gt;." alt="" coords="365,5,506,33"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,81,90,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="365,35,105,83,104,78,364,30"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="113,81,168,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="376,36,184,83,183,78,374,31"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="192,81,255,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="400,33,270,80,269,75,395,34"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="279,81,360,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="417,33,354,75,352,70,412,34"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="384,81,487,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="437,32,438,67,433,64,434,35"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="511,81,728,109"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="469,31,575,75,570,75,468,36"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="752,81,804,109"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="507,30,612,49,740,81,735,81,611,55,506,35"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="829,81,887,109"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="507,26,646,46,817,81,811,81,645,51,507,32"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="911,81,973,109"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="507,24,681,43,787,58,898,81,893,80,786,63,680,48,507,29"/>
+</map>

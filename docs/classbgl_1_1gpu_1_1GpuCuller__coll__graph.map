@@ -1,0 +1,32 @@
+<map id="bgl::gpu::GpuCuller" name="bgl::gpu::GpuCuller">
+<area shape="rect" id="Node000001" title="Evaluates view frustum and spatial bounding tests in parallel on the GPU via compute shaders." alt="" coords="863,1497,1059,2061"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="245,724,528,1215"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="484,1212,553,1345,592,1410,634,1472,685,1533,741,1591,853,1693,848,1693,737,1595,681,1537,630,1475,588,1413,549,1348,483,1217"/>
+<area shape="rect" id="Node000003" href="$classbgl_1_1gpu_1_1Handle.html" title="Move&#45;only RAII wrapper for opaque WebGPU handles (WGPUBuffer, WGPUTexture, etc.)." alt="" coords="603,151,746,620"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="590,455,552,494,510,540,472,591,440,645,424,684,411,724,406,723,419,682,435,642,467,588,506,536,548,491,593,451"/>
+<area shape="rect" id="Node000004" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="552,724,813,1215"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="676,632,679,691,680,724,674,723,674,691,675,637"/>
+<area shape="rect" id="Node000005" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="837,715,1086,1223"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="757,459,833,543,868,591,897,643,925,716,920,715,892,645,863,594,829,546,757,464"/>
+<area shape="rect" id="Node000006" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="1110,724,1338,1215"/>
+<area shape="poly" id="edge8_Node000006_Node000003" title=" " alt="" coords="759,406,854,438,961,487,1015,518,1066,554,1113,596,1154,642,1178,681,1197,724,1191,724,1173,683,1150,645,1109,599,1063,559,1012,523,958,492,852,443,761,411"/>
+<area shape="rect" id="Node000007" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="5,724,221,1215"/>
+<area shape="poly" id="edge10_Node000007_Node000003" title=" " alt="" coords="587,418,505,453,410,503,362,533,315,567,272,604,233,645,205,683,183,725,178,723,201,681,229,642,268,600,312,563,359,529,407,498,503,449,590,414"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="756,1212,842,1472,860,1522,855,1520,837,1474,754,1217"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="963,1221,964,1481,959,1479,960,1225"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="1173,1213,1140,1345,1100,1474,1068,1557,1064,1554,1095,1472,1135,1343,1170,1217"/>
+<area shape="poly" id="edge9_Node000001_Node000007" title=" " alt="" coords="187,1212,220,1282,256,1349,298,1414,347,1471,404,1523,466,1569,532,1610,600,1646,732,1704,850,1747,844,1747,731,1709,597,1651,529,1615,463,1574,400,1527,344,1475,294,1417,252,1352,215,1284,187,1217"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="1709,924,1856,1014"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="1769,1012,1731,1106,1672,1227,1635,1292,1593,1357,1546,1419,1495,1475,1447,1519,1394,1560,1283,1633,1173,1692,1076,1736,1074,1731,1171,1687,1281,1628,1391,1556,1443,1515,1491,1471,1542,1415,1588,1353,1630,1289,1667,1224,1726,1104,1765,1015"/>
+<area shape="rect" id="Node000009" href="$structbgl_1_1gpu_1_1GpuBoundingBox.html" title=" " alt="" coords="1932,293,2115,477"/>
+<area shape="poly" id="edge12_Node000008_Node000009" title=" " alt="" coords="2021,475,2008,582,1995,638,1977,692,1947,755,1910,815,1835,914,1831,910,1905,812,1942,752,1972,690,1990,637,2003,581,2018,479"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="1645,349,1763,421"/>
+<area shape="poly" id="edge13_Node000008_Node000010" title=" " alt="" coords="1716,434,1737,532,1756,643,1773,798,1782,926,1778,924,1768,799,1751,644,1732,533,1714,439"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="1362,924,1558,1014"/>
+<area shape="poly" id="edge17_Node000012_Node000010" title=" " alt="" coords="1678,432,1624,523,1555,621,1543,633,1533,645,1503,718,1483,795,1471,867,1464,926,1460,924,1465,867,1477,794,1498,717,1529,642,1539,629,1551,618,1620,520,1675,436"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="1694,5,1713,78"/>
+<area shape="poly" id="edge14_Node000010_Node000011" title=" " alt="" coords="1705,75,1706,333,1701,331,1703,80"/>
+<area shape="poly" id="edge15_Node000001_Node000012" title=" " alt="" coords="1450,1012,1423,1103,1381,1220,1325,1350,1292,1414,1255,1475,1214,1532,1168,1587,1073,1684,1070,1680,1164,1584,1210,1529,1251,1472,1287,1411,1320,1347,1376,1218,1418,1101,1446,1016"/>
+<area shape="rect" id="Node000013" href="$structbgl_1_1gpu_1_1DrawIndexedIndirectArgs.html" title=" " alt="" coords="1307,304,1541,466"/>
+<area shape="poly" id="edge16_Node000012_Node000013" title=" " alt="" coords="1423,463,1424,573,1428,691,1439,806,1453,909,1448,907,1434,807,1423,691,1418,573,1421,468"/>
+</map>

@@ -1,0 +1,37 @@
+<map id="bgl::ui::ImmediateUI::FontSlot" name="bgl::ui::ImmediateUI::FontSlot">
+<area shape="rect" id="Node000001" title=" " alt="" coords="677,1956,821,2112"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="875,690,951,762"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="911,761,763,1939,758,1938,906,762"/>
+<area shape="rect" id="Node000005" href="$classbgl_1_1text_1_1FontAtlas.html" title="Manages FreeType face loading (including fallback faces), glyph rasterization, HarfBuzz font handles,..." alt="" coords="484,866,686,1720"/>
+<area shape="poly" id="edge13_Node000005_Node000002" title=" " alt="" coords="873,757,851,773,821,783,809,787,796,797,779,824,755,874,695,1015,690,1012,750,871,774,821,793,793,807,783,820,778,849,769,877,754"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="849,464,977,553"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="914,565,915,691,910,690,912,570"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="514,1793,656,1883"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="622,1880,675,1943,670,1942,620,1885"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="586,1717,587,1777,582,1775,583,1722"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="502,472,657,544"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="580,542,584,850,579,849,579,547"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="374,682,537,771"/>
+<area shape="poly" id="edge11_Node000010_Node000006" title=" " alt="" coords="523,546,506,565,488,587,472,625,462,665,457,664,467,623,484,584,502,561,526,542"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="279,206,397,279"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="372,288,428,357,492,429,538,471,533,473,488,433,424,360,373,293"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="152,585,313,658"/>
+<area shape="poly" id="edge9_Node000009_Node000007" title=" " alt="" coords="280,291,255,322,233,360,224,389,218,419,215,481,219,539,227,586,222,586,214,540,210,482,213,419,219,388,228,358,250,319,282,286"/>
+<area shape="poly" id="edge12_Node000010_Node000007" title=" " alt="" coords="332,291,331,350,331,417,337,490,353,561,366,594,383,625,421,681,416,682,378,628,361,596,348,562,332,491,325,418,326,350,332,297"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="329,5,348,78"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="338,75,341,190,336,189,338,80"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="505,198,646,287"/>
+<area shape="poly" id="edge18_Node000013_Node000008" title=" " alt="" coords="347,46,425,100,522,185,517,187,422,104,348,51"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="5,359,151,431"/>
+<area shape="poly" id="edge20_Node000015_Node000008" title=" " alt="" coords="328,58,116,346,112,344,330,53"/>
+<area shape="poly" id="edge8_Node000005_Node000009" title=" " alt="" coords="234,655,242,711,257,770,302,875,358,976,418,1070,476,1153,471,1154,413,1073,353,979,298,877,252,772,237,712,234,660"/>
+<area shape="poly" id="edge10_Node000005_Node000010" title=" " alt="" coords="449,768,449,806,451,842,464,915,482,989,477,989,459,916,446,843,443,806,448,773"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="681,455,822,561"/>
+<area shape="poly" id="edge14_Node000005_Node000011" title=" " alt="" coords="743,559,705,772,688,850,683,849,700,770,741,564"/>
+<area shape="rect" id="Node000012" href="$structbgl_1_1text_1_1GlyphInfo.html" title="Metrics and texture atlas coordinates for a single rasterized glyph." alt="" coords="684,151,819,335"/>
+<area shape="poly" id="edge15_Node000011_Node000012" title=" " alt="" coords="752,332,754,438,749,437,751,337"/>
+<area shape="poly" id="edge16_Node000011_Node000013" title=" " alt="" coords="572,300,576,334,582,368,593,400,610,429,623,440,636,444,652,446,670,453,684,461,679,462,668,457,650,451,635,449,620,445,606,433,588,403,577,369,571,335,571,305"/>
+<area shape="rect" id="Node000014" title=" " alt="" coords="566,5,585,78"/>
+<area shape="poly" id="edge17_Node000013_Node000014" title=" " alt="" coords="576,75,578,182,573,181,575,80"/>
+<area shape="poly" id="edge19_Node000004_Node000015" title=" " alt="" coords="62,448,45,527,38,574,35,620,35,1295,39,1343,50,1390,67,1434,89,1476,116,1517,148,1555,219,1624,298,1684,377,1734,452,1775,516,1807,511,1808,449,1779,374,1739,295,1688,216,1628,144,1558,112,1520,85,1479,62,1436,45,1391,34,1344,30,1295,30,620,33,573,40,526,63,442"/>
+</map>

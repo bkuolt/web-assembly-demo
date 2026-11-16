@@ -1,0 +1,9 @@
+<map id="src/engine/GuiInternal.hpp" name="src/engine/GuiInternal.hpp">
+<area shape="rect" id="Node000001" title="Internal thread&#45;local active ImmediateUI context for bgl::gui." alt="" coords="192,5,384,33"/>
+<area shape="rect" id="Node000002" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="5,81,169,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="241,40,124,83,122,78,236,37"/>
+<area shape="rect" id="Node000003" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="192,81,384,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="290,47,290,82,286,79,286,51"/>
+<area shape="rect" id="Node000004" href="$Gui_8cpp.html" title="Implementation of the public bgl::gui immediate&#45;mode facade backed by bgl::ui::ImmediateUI and FontLi..." alt="" coords="408,81,550,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="337,36,448,80,443,81,336,42"/>
+</map>

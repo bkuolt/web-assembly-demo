@@ -1,0 +1,9 @@
+<map id="src/scene/FastGltfInternal.hpp" name="src/scene/FastGltfInternal.hpp">
+<area shape="rect" id="Node000001" title="Internal stage declarations and progress reporter shared by FastGltfLoader translation units." alt="" coords="229,5,444,33"/>
+<area shape="rect" id="Node000002" href="$FastGltfLoader_8cpp.html" title="glTF 2.0 / 2.1 ingestion orchestrator: fetching, buffer resolution, stage scheduling,..." alt="" coords="5,81,212,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="284,39,150,83,149,78,279,37"/>
+<area shape="rect" id="Node000003" href="$FastGltfParser_8cpp.html" title="glTF asset stage parsers: textures, materials, lights, meshes/LODs, hierarchy, skins,..." alt="" coords="235,81,438,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="338,47,339,82,334,79,335,51"/>
+<area shape="rect" id="Node000004" href="$FastGltfSceneBuilder_8cpp.html" title="glTF material, punctual light, instancing, hierarchy, camera, skin, and animation builders." alt="" coords="462,81,710,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="396,35,544,80,539,81,395,40"/>
+</map>

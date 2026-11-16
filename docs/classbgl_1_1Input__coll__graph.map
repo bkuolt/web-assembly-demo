@@ -1,0 +1,3 @@
+<map id="bgl::Input" name="bgl::Input">
+<area shape="rect" id="Node000001" title="Static polling API updated every frame by Engine::PollEvents()." alt="" coords="5,5,156,256"/>
+</map>

@@ -1,0 +1,28 @@
+<map id="bgl::gpu::Context" name="bgl::gpu::Context">
+<area shape="rect" id="Node000001" title="RAII Manager for WebGPU Instance, Adapter, Device, Queue, Surface, MSAA, and RenderPass." alt="" coords="899,1246,1082,1899"/>
+<area shape="rect" id="Node000002" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="5,570,237,1061"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="236,1042,251,1059,323,1139,403,1213,488,1281,576,1343,662,1398,744,1446,887,1522,881,1523,742,1451,659,1403,573,1348,485,1286,400,1217,319,1143,247,1063,237,1048"/>
+<area shape="rect" id="Node000003" href="$classbgl_1_1gpu_1_1Handle.html" title="Move&#45;only RAII wrapper for opaque WebGPU handles (WGPUBuffer, WGPUTexture, etc.)." alt="" coords="921,5,1065,474"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="905,257,722,294,495,348,385,381,287,418,209,458,179,479,157,500,135,533,120,570,115,569,130,531,153,497,175,474,206,453,285,413,384,376,494,343,721,288,909,254"/>
+<area shape="rect" id="Node000004" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="261,570,488,1061"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="905,253,789,277,721,297,650,322,580,354,514,394,454,443,404,500,384,534,371,571,366,569,379,531,399,497,450,439,511,390,578,350,648,317,719,292,788,272,909,249"/>
+<area shape="rect" id="Node000005" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="513,570,735,1061"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="906,277,838,314,763,363,726,392,692,425,662,461,637,500,622,534,612,571,607,569,617,532,632,497,658,457,688,421,722,388,759,358,836,309,910,273"/>
+<area shape="rect" id="Node000006" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="758,570,977,1061"/>
+<area shape="poly" id="edge8_Node000006_Node000003" title=" " alt="" coords="915,349,877,423,848,499,837,571,832,569,843,498,872,421,912,353"/>
+<area shape="rect" id="Node000007" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="1002,570,1227,1061"/>
+<area shape="poly" id="edge10_Node000007_Node000003" title=" " alt="" coords="1072,384,1095,441,1112,498,1123,570,1118,569,1107,499,1090,443,1071,390"/>
+<area shape="rect" id="Node000008" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="1252,570,1476,1061"/>
+<area shape="poly" id="edge12_Node000008_Node000003" title=" " alt="" coords="1078,279,1144,317,1212,366,1277,426,1305,460,1329,497,1345,532,1358,570,1352,569,1340,534,1324,500,1301,464,1273,430,1209,370,1141,322,1079,284"/>
+<area shape="rect" id="Node000009" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="1501,570,1734,1061"/>
+<area shape="poly" id="edge14_Node000009_Node000003" title=" " alt="" coords="1079,253,1191,280,1255,301,1321,327,1387,359,1450,397,1508,443,1558,497,1580,531,1597,571,1592,569,1576,534,1554,500,1504,447,1447,402,1384,363,1319,332,1253,306,1189,285,1080,258"/>
+<area shape="rect" id="Node000010" href="$classbgl_1_1gpu_1_1Handle.html" title=" " alt="" coords="1758,570,2050,1061"/>
+<area shape="poly" id="edge16_Node000010_Node000003" title=" " alt="" coords="1079,242,1231,259,1323,276,1421,301,1521,333,1619,376,1710,430,1753,462,1792,496,1821,530,1845,570,1840,569,1817,533,1789,500,1750,466,1707,434,1616,381,1519,338,1420,306,1322,282,1231,265,1081,247"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="488,1039,503,1059,597,1179,699,1292,800,1394,889,1480,884,1479,796,1398,696,1296,593,1182,499,1063,488,1045"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="736,1042,894,1368,889,1368,733,1047"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="909,1058,937,1229,932,1228,906,1063"/>
+<area shape="poly" id="edge9_Node000001_Node000007" title=" " alt="" coords="1076,1058,1049,1230,1044,1227,1073,1063"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="1254,1042,1092,1372,1087,1369,1249,1045"/>
+<area shape="poly" id="edge13_Node000001_Node000009" title=" " alt="" coords="1503,1038,1490,1062,1446,1126,1398,1188,1294,1304,1189,1406,1096,1489,1094,1484,1186,1402,1290,1301,1394,1185,1442,1123,1486,1060,1499,1042"/>
+<area shape="poly" id="edge15_Node000001_Node000010" title=" " alt="" coords="1760,1042,1747,1063,1678,1149,1644,1184,1596,1224,1468,1316,1334,1398,1207,1469,1098,1524,1096,1519,1204,1464,1332,1394,1465,1311,1593,1220,1640,1180,1674,1146,1743,1059,1756,1046"/>
+</map>

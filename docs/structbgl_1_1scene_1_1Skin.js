@@ -1,0 +1,26 @@
+var structbgl_1_1scene_1_1Skin =
+[
+    [ "Skin", "structbgl_1_1scene_1_1Skin.html#ac7c884e2c9ea040f1b78fd581fca2a6f", null ],
+    [ "Skin", "structbgl_1_1scene_1_1Skin.html#a9da0d1cad9425b3522e8f2e2579b3d73", null ],
+    [ "Skin", "structbgl_1_1scene_1_1Skin.html#a9b02740032036e4fc9b564f19cab8087", null ],
+    [ "~Skin", "structbgl_1_1scene_1_1Skin.html#a6a0e2f09885354a93eb0e2105ccc4218", null ],
+    [ "ComputeJointMatrices", "structbgl_1_1scene_1_1Skin.html#aba670fb5258776499593f203054c6833", null ],
+    [ "GetOrComputeJointMatrices", "structbgl_1_1scene_1_1Skin.html#af2502904fc86e5735c9c61fdef5fc268", null ],
+    [ "MarkGpuUploaded", "structbgl_1_1scene_1_1Skin.html#a1516fdc97b05bd693977f2840e2a51f6", null ],
+    [ "NeedsGpuUpload", "structbgl_1_1scene_1_1Skin.html#a39860fdbf0ce69bb1084641a658dd595", null ],
+    [ "operator=", "structbgl_1_1scene_1_1Skin.html#a6e487b182f2efe9f6cd45b2fb370da51", null ],
+    [ "operator=", "structbgl_1_1scene_1_1Skin.html#a622bc755e0f944667b780095b80c6636", null ],
+    [ "ReleaseGpu", "structbgl_1_1scene_1_1Skin.html#ac7e65e8b0389cd6cbd1ba6cc7a41cb4c", null ],
+    [ "cachedFrameId", "structbgl_1_1scene_1_1Skin.html#a6916fe048d5cb4b90dc654a75f1db9ec", null ],
+    [ "cachedJointCount", "structbgl_1_1scene_1_1Skin.html#ac9143a05b5e44c205765476397f67b87", null ],
+    [ "cachedJointMatrices", "structbgl_1_1scene_1_1Skin.html#a1fabd85f7d1468738b644aa8cf3d6ae1", null ],
+    [ "cachedMeshNode", "structbgl_1_1scene_1_1Skin.html#acff6ebfaf85d501eed1cc8ee3d1d67b4", null ],
+    [ "cachedUploadedFrameId", "structbgl_1_1scene_1_1Skin.html#afd569cbcd8ef8ab68473732cc01cbc2e", null ],
+    [ "gpuBindGroup", "structbgl_1_1scene_1_1Skin.html#a5768fc984e8b9416dc12fc1e587ea05c", null ],
+    [ "gpuJointBuffer", "structbgl_1_1scene_1_1Skin.html#a9067a63c1d98cbd70d1a5c6858491211", null ],
+    [ "gpuJointBufferSize", "structbgl_1_1scene_1_1Skin.html#a01936ffb6d03293caaf2910be82cb4d6", null ],
+    [ "inverseBindMatrices", "structbgl_1_1scene_1_1Skin.html#ab0905afdc7ff48fa8acab1ca90973368", null ],
+    [ "joints", "structbgl_1_1scene_1_1Skin.html#af1d7f9b6b78cbe7fe0e06b2ff8ab9f6f", null ],
+    [ "name", "structbgl_1_1scene_1_1Skin.html#acd631f6e6a0dc4cdf95aceecd805e9c5", null ],
+    [ "skeletonRootNodeIndex", "structbgl_1_1scene_1_1Skin.html#af8c19be0d914cc4324e81b5a8ba550dc", null ]
+];

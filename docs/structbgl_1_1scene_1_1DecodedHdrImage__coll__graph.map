@@ -1,0 +1,9 @@
+<map id="bgl::scene::DecodedHdrImage" name="bgl::scene::DecodedHdrImage">
+<area shape="rect" id="Node000001" title="High Dynamic Range linear floating&#45;point RGBA texture (4 floats per pixel) decoded from ...." alt="" coords="5,441,211,536"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="39,296,178,368"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,366,111,425,106,424,107,370"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="49,151,167,223"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="109,235,111,296,106,296,107,240"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="99,5,118,78"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="109,75,111,134,106,133,108,80"/>
+</map>

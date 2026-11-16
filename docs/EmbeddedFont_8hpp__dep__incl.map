@@ -1,0 +1,7 @@
+<map id="src/text/EmbeddedFont.hpp" name="src/text/EmbeddedFont.hpp">
+<area shape="rect" id="Node000001" title="Built&#45;in TrueType font data for zero&#45;dependency standalone text rendering." alt="" coords="83,5,282,33"/>
+<area shape="rect" id="Node000002" href="$FontAtlas_8cpp.html" title="Dynamic GPU Font Atlas powered by FreeType 2 and HarfBuzz text shaping." alt="" coords="5,81,168,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="156,42,105,83,102,78,151,43"/>
+<area shape="rect" id="Node000003" href="$ImmediateUI_8cpp.html" title="Frame lifecycle, PMR arena management, multi&#45;font slots, hover animation evaluator,..." alt="" coords="192,81,365,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="213,40,264,81,259,80,211,45"/>
+</map>

@@ -1,0 +1,52 @@
+<map id="src/text/TextShaper.hpp" name="src/text/TextShaper.hpp">
+<area shape="rect" id="Node000001" title="Unicode text shaping, measurement, and word wrapping via HarfBuzz and FontAtlas." alt="" coords="932,5,1105,33"/>
+<area shape="rect" id="Node000002" href="$TextRenderer_8hpp.html" title="WebGPU 2D Batched Quad and Text Renderer with alpha blending and 4x MSAA support." alt="" coords="604,81,792,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="943,38,757,83,755,78,948,36"/>
+<area shape="rect" id="Node000013" href="$TextShaper_8cpp.html" title="Unicode text shaping, measurement, and word wrapping via HarfBuzz and FontAtlas." alt="" coords="932,81,1104,109"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="1020,47,1020,82,1016,79,1017,51"/>
+<area shape="rect" id="Node000014" href="$ImmediateUI_8hpp.html" title="C++23 Immediate Mode GUI (IMGUI) with std::pmr per&#45;frame arena allocation, multi&#45;font FreeType SDF re..." alt="" coords="1350,81,1524,109"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="1108,34,1364,80,1359,81,1108,39"/>
+<area shape="rect" id="Node000003" href="$TextRenderer_8cpp.html" title="WebGPU 2D Batched Quad and Text Renderer implementation." alt="" coords="398,157,585,184"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="644,115,529,159,528,154,649,113"/>
+<area shape="rect" id="Node000004" href="$DebugOverlay_8hpp.html" title="In&#45;engine 2D Debug Overlay displaying real&#45;time FPS, camera, scene, and spatial metrics." alt="" coords="608,157,788,184"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="700,122,700,158,696,155,697,127"/>
+<area shape="rect" id="Node000005" href="$Application_8hpp.html" title="Application lifecycle, event loop, UI&#45;Bridge, and drag&#45;and&#45;drop file ingestion." alt="" coords="622,232,828,260"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="709,197,722,233,718,231,707,201"/>
+<area shape="rect" id="Node000012" href="$DebugOverlay_8cpp.html" title="In&#45;engine 2D Debug Overlay displaying real&#45;time FPS, camera, scene, and spatial metrics." alt="" coords="420,232,598,260"/>
+<area shape="poly" id="edge11_Node000004_Node000012" title=" " alt="" coords="653,190,543,234,542,229,648,191"/>
+<area shape="rect" id="Node000006" href="$Application_8cpp.html" title="Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration." alt="" coords="5,316,210,344"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="607,264,223,311,176,318,175,313,222,305,607,258"/>
+<area shape="rect" id="Node000007" href="$ApplicationInput_8cpp.html" title="Desktop SDL2 keyboard shortcut handler for the bgl reference viewer." alt="" coords="234,316,472,344"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="653,264,413,319,412,313,648,264"/>
+<area shape="rect" id="Node000008" href="$ApplicationModelLoader_8cpp.html" title="Built&#45;in glTF model preset catalog, async/sync scene loading, node selection, and camera framing." alt="" coords="496,308,714,353"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="696,268,638,310,636,305,691,270"/>
+<area shape="rect" id="Node000009" href="$ApplicationUI_8cpp.html" title="Native in&#45;engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI..." alt="" coords="737,316,955,344"/>
+<area shape="poly" id="edge8_Node000005_Node000009" title=" " alt="" coords="757,266,829,316,824,315,756,271"/>
+<area shape="rect" id="Node000010" href="$WebExports_8cpp.html" title="Emscripten HTML5 main loop and C&#45;ABI exports for the WebAssembly viewer build." alt="" coords="979,316,1188,344"/>
+<area shape="poly" id="edge9_Node000005_Node000010" title=" " alt="" coords="797,261,1029,316,1023,316,797,267"/>
+<area shape="rect" id="Node000011" href="$apps_2viewer_2main_8cpp.html" title="Entrypoint for the native desktop bgl_viewer application." alt="" coords="1212,316,1376,344"/>
+<area shape="poly" id="edge10_Node000005_Node000011" title=" " alt="" coords="843,259,1041,283,1200,305,1242,316,1237,316,1199,311,1040,288,843,264"/>
+<area shape="poly" id="edge14_Node000014_Node000005" title=" " alt="" coords="1332,101,1072,122,944,138,892,148,853,159,800,191,743,234,740,229,797,187,850,154,890,143,943,133,1071,117,1337,100"/>
+<area shape="rect" id="Node000015" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="863,157,1056,184"/>
+<area shape="poly" id="edge15_Node000014_Node000015" title=" " alt="" coords="1333,112,1046,159,1045,153,1338,111"/>
+<area shape="rect" id="Node000019" href="$Gui_8cpp.html" title="Implementation of the public bgl::gui immediate&#45;mode facade backed by bgl::ui::ImmediateUI and FontLi..." alt="" coords="1081,157,1222,184"/>
+<area shape="poly" id="edge19_Node000014_Node000019" title=" " alt="" coords="1374,112,1203,159,1202,154,1369,113"/>
+<area shape="rect" id="Node000020" href="$ImmediateUI_8cpp.html" title="Frame lifecycle, PMR arena management, multi&#45;font slots, hover animation evaluator,..." alt="" coords="1247,157,1419,184"/>
+<area shape="poly" id="edge20_Node000014_Node000020" title=" " alt="" coords="1409,117,1352,159,1350,154,1404,119"/>
+<area shape="rect" id="Node000021" href="$ImmediateUIGpu_8cpp.html" title="WebGPU shader/pipeline/buffer setup, multi&#45;font bind&#45;group management, and batched submission for Imm..." alt="" coords="1443,157,1641,184"/>
+<area shape="poly" id="edge21_Node000014_Node000021" title=" " alt="" coords="1469,115,1526,157,1521,156,1467,120"/>
+<area shape="rect" id="Node000022" href="$ImmediateUILayout_8cpp.html" title="Layout containers, panels, visual groups, and toggle/option widgets for ImmediateUI." alt="" coords="1666,157,1882,184"/>
+<area shape="poly" id="edge22_Node000014_Node000022" title=" " alt="" coords="1513,110,1716,156,1711,156,1512,115"/>
+<area shape="rect" id="Node000023" href="$ImmediateUIModals_8cpp.html" title="Frosted&#45;glass modal MessageBox, fullscreen LoadingScreen, LoadingBanner, and FloatingBadge components..." alt="" coords="1906,157,2125,184"/>
+<area shape="poly" id="edge23_Node000014_Node000023" title=" " alt="" coords="1539,106,1914,156,1909,156,1539,112"/>
+<area shape="rect" id="Node000024" href="$ImmediateUIOverlays_8cpp.html" title="Dropdowns, scroll areas, progress bars, deferred popups, and bgl::ui::UI facade." alt="" coords="2150,157,2380,184"/>
+<area shape="poly" id="edge24_Node000014_Node000024" title=" " alt="" coords="1539,102,2137,154,2152,158,2146,158,2137,159,1539,107"/>
+<area shape="rect" id="Node000025" href="$ImmediateUIWidgets_8cpp.html" title="Immediate&#45;mode windowing and SDF widgets with unified optional hover animations." alt="" coords="2404,157,2630,184"/>
+<area shape="poly" id="edge25_Node000014_Node000025" title=" " alt="" coords="1539,99,1915,120,2392,154,2406,158,2401,158,2391,159,1914,126,1539,104"/>
+<area shape="rect" id="Node000016" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="851,232,1014,260"/>
+<area shape="poly" id="edge16_Node000015_Node000016" title=" " alt="" coords="952,197,939,234,936,230,947,201"/>
+<area shape="rect" id="Node000017" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="1038,232,1230,260"/>
+<area shape="poly" id="edge17_Node000015_Node000017" title=" " alt="" coords="1005,188,1106,232,1101,232,1004,193"/>
+<area shape="rect" id="Node000018" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="1254,232,1409,260"/>
+<area shape="poly" id="edge18_Node000015_Node000018" title=" " alt="" coords="1041,185,1267,232,1262,232,1041,191"/>
+</map>

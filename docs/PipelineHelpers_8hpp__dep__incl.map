@@ -1,0 +1,13 @@
+<map id="src/gpu/PipelineHelpers.hpp" name="src/gpu/PipelineHelpers.hpp">
+<area shape="rect" id="Node000001" title="Internal helper functions shared across PipelineManager translation units." alt="" coords="385,5,588,33"/>
+<area shape="rect" id="Node000002" href="$Pipeline_8cpp.html" title="Core PipelineManager lifecycle, main/tonemap/mipgen pipelines, and frame render encoding." alt="" coords="5,81,157,109"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="399,39,155,83,154,78,398,34"/>
+<area shape="rect" id="Node000003" href="$PipelineEffects_8cpp.html" title="GPU/CPU mipmap chain generation, opaque transmission copy mips, and 3D selection silhouette outlines." alt="" coords="181,81,376,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="438,38,316,83,315,78,432,39"/>
+<area shape="rect" id="Node000004" href="$PipelineIBL_8cpp.html" title="IBL cubemap generation, BRDF LUT &amp; GGX prefilter compute pipelines, and L2 SH irradiance." alt="" coords="401,81,572,109"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="488,47,488,82,484,79,484,51"/>
+<area shape="rect" id="Node000005" href="$PipelineRender_8cpp.html" title="Clustered Forward+ light culling, shadow/opaque/transparent frame preparation, and draw dispatch enco..." alt="" coords="596,81,792,109"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="538,36,660,81,654,80,537,41"/>
+<area shape="rect" id="Node000006" href="$PipelineScene_8cpp.html" title="Scene GPU resource upload, material bind&#45;group management, and KTX2 re&#45;transcoding." alt="" coords="816,81,1007,109"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="578,34,838,80,832,81,578,39"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="bgl::gpu::PreparedDrawBindings" name="bgl::gpu::PreparedDrawBindings">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,352,224,424"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1gpu_1_1PerDrawUniforms.html" title="Dynamic&#45;offset per&#45;draw uniform block (256&#45;byte WebGPU dynamic stride)." alt="" coords="22,5,208,279"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,276,117,336,112,334,113,281"/>
+</map>

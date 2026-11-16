@@ -1,0 +1,7 @@
+<map id="bgl::ui::ImmediateUI::ActivePanel" name="bgl::ui::ImmediateUI::ActivePanel">
+<area shape="rect" id="Node000001" title=" " alt="" coords="72,329,230,597"/>
+<area shape="rect" id="Node000002" href="$structbgl_1_1ui_1_1PanelOptions.html" title="Styling and behavior options for ImmediateUI::BeginPanel()." alt="" coords="5,5,149,256"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="105,253,120,313,115,313,104,259"/>
+<area shape="rect" id="Node000003" href="$structbgl_1_1ui_1_1UiRect.html" title="Screen&#45;space axis&#45;aligned rectangle in pixels." alt="" coords="173,61,275,200"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="211,198,189,306,187,314,182,312,184,305,208,203"/>
+</map>

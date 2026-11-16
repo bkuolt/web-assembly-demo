@@ -1,0 +1,37 @@
+<map id="include/bgl/Types.hpp" name="include/bgl/Types.hpp">
+<area shape="rect" id="Node000001" title="Fundamental public types of the bgl Engine API." alt="" coords="705,5,866,33"/>
+<area shape="rect" id="Node000002" href="$Engine_8hpp.html" title="Public facade of the bgl Engine: window, rendering, model loading, camera and settings." alt="" coords="524,157,692,184"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="771,44,746,79,714,111,675,138,638,159,635,154,673,133,711,107,742,75,767,47"/>
+<area shape="rect" id="Node000004" href="$bgl_8hpp.html" title="Umbrella header of the bgl Engine public API." alt="" coords="755,308,899,336"/>
+<area shape="poly" id="edge21_Node000001_Node000004" title=" " alt="" coords="791,46,828,309,823,307,788,50"/>
+<area shape="rect" id="Node000012" href="$Entity_8hpp.html" title="Lightweight handle to a node in the active scene (transform, hierarchy, lights)." alt="" coords="540,81,700,109"/>
+<area shape="poly" id="edge14_Node000001_Node000012" title=" " alt="" coords="740,41,651,83,648,78,745,39"/>
+<area shape="rect" id="Node000013" href="$Gui_8hpp.html" title="Lightweight immediate&#45;mode GUI helpers callable inside App::OnGui(), plus font discovery,..." alt="" coords="859,81,1006,109"/>
+<area shape="poly" id="edge18_Node000001_Node000013" title=" " alt="" coords="826,38,909,80,904,81,825,43"/>
+<area shape="rect" id="Node000003" href="$App_8hpp.html" title="Base class with lifecycle hooks (OnStart/OnUpdate/OnGui/...) and the BGL_RUN entry&#45;point macro." alt="" coords="534,232,683,260"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="610,198,611,233,606,230,607,202"/>
+<area shape="poly" id="edge7_Node000002_Node000004" title=" " alt="" coords="641,191,811,307,805,308,639,196"/>
+<area shape="rect" id="Node000008" href="$Engine_8cpp.html" title="Public bgl::Engine facade implementation delegating to Engine::Impl." alt="" coords="400,308,563,336"/>
+<area shape="poly" id="edge8_Node000002_Node000008" title=" " alt="" coords="572,192,546,213,524,234,501,273,487,309,483,305,496,270,520,231,543,208,567,194"/>
+<area shape="rect" id="Node000009" href="$EngineImpl_8hpp.html" title="Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore." alt="" coords="246,232,440,260"/>
+<area shape="poly" id="edge9_Node000002_Node000009" title=" " alt="" coords="544,190,391,234,390,229,549,188"/>
+<area shape="rect" id="Node000011" href="$Entity_8cpp.html" title="Implementation of bgl::Entity and Engine::CreateEntity / FindEntity." alt="" coords="5,308,161,336"/>
+<area shape="poly" id="edge13_Node000002_Node000011" title=" " alt="" coords="506,179,376,198,304,214,235,235,196,252,159,272,102,310,98,306,156,267,193,247,233,230,303,209,375,193,511,177"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="662,263,791,307,785,308,661,268"/>
+<area shape="rect" id="Node000007" href="$App_8cpp.html" title="Implementation of bgl::RunApp main loop driving bgl::App lifecycle hooks." alt="" coords="587,308,731,336"/>
+<area shape="poly" id="edge6_Node000003_Node000007" title=" " alt="" coords="627,271,653,308,647,307,625,276"/>
+<area shape="rect" id="Node000005" href="$samples_201__hello__engine_2main_8cpp.html" title=" " alt="" coords="635,384,822,428"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="802,345,756,385,753,381,797,347"/>
+<area shape="rect" id="Node000006" href="$samples_202__entities__and__lights_2main_8cpp.html" title=" " alt="" coords="846,384,1005,428"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="855,343,902,384,897,382,853,348"/>
+<area shape="poly" id="edge10_Node000009_Node000008" title=" " alt="" coords="382,265,460,307,454,308,381,270"/>
+<area shape="rect" id="Node000010" href="$EngineImpl_8cpp.html" title="Implementation of bgl::Engine::Impl: settings diffing, SDL event pumping, camera controls,..." alt="" coords="184,308,376,336"/>
+<area shape="poly" id="edge11_Node000009_Node000010" title=" " alt="" coords="324,271,293,310,290,305,320,274"/>
+<area shape="poly" id="edge12_Node000009_Node000011" title=" " alt="" coords="281,267,130,310,129,305,283,262"/>
+<area shape="poly" id="edge15_Node000012_Node000002" title=" " alt="" coords="617,122,613,158,608,155,614,126"/>
+<area shape="poly" id="edge16_Node000012_Node000004" title=" " alt="" coords="655,115,706,155,743,195,776,238,822,308,817,307,772,241,739,199,703,159,654,120"/>
+<area shape="poly" id="edge17_Node000012_Node000011" title=" " alt="" coords="522,112,446,131,356,156,262,190,174,235,149,252,127,272,95,309,90,306,123,269,146,248,171,230,260,186,354,151,445,126,527,110"/>
+<area shape="poly" id="edge19_Node000013_Node000004" title=" " alt="" coords="919,120,900,158,861,243,834,310,830,306,856,241,895,155,915,124"/>
+<area shape="rect" id="Node000014" href="$Gui_8cpp.html" title="Implementation of the public bgl::gui immediate&#45;mode facade backed by bgl::ui::ImmediateUI and FontLi..." alt="" coords="910,157,1051,184"/>
+<area shape="poly" id="edge20_Node000013_Node000014" title=" " alt="" coords="950,119,974,157,969,155,948,124"/>
+</map>
