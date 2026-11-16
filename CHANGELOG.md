@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Simplified Table-Driven Viewer CLI (`apps/viewer/ApplicationConfig.hpp`, `CommandLine.*`, `main.cpp`)
+- Extracted shared startup settings into backend-free [`ApplicationConfig`](apps/viewer/ApplicationConfig.hpp) and derived [`CliOptions`](apps/viewer/CommandLine.hpp) directly from it, eliminating duplicated struct fields and the 24-line manual copy in [`apps/viewer/main.cpp`](apps/viewer/main.cpp).
+- Replaced the manual `if/else` parser chain and duplicate hardcoded help string in [`CommandLine.cpp`](apps/viewer/CommandLine.cpp) with declarative option tables (`kStringOpts`, `kUIntOpts`, `kBoolOpts`, `kFloatOpts`, `kEnumOpts`, `kPresets`) that drive both parsing and `--help` output, added `--flag=value` and `--` support, restored symmetric `--hud`/`--no-quadtree`/`--no-day-night-cycle` toggles, and expanded [`tests/test_command_line.cpp`](tests/test_command_line.cpp) (`20` tests).
+
 ### Sprites, Animated Sprites & 3D Billboards (`include/bgl/Sprite.hpp`, `src/core/Sprite.*`, `src/gpu/SpriteRenderer.*`, `src/gpu/shaders/sprite.wgsl`, `samples/03_sprites_and_billboards/`)
 - **Core Sprite & Billboard Primitives (`src/core/Sprite.*`):**
   - Added [`Sprite`](src/core/Sprite.hpp), [`AnimatedSprite`](src/core/Sprite.hpp), [`SpriteClip`](src/core/Sprite.hpp), [`SpriteFrame`](src/core/Sprite.hpp), [`SpriteAnimator`](src/core/Sprite.hpp) (`Loop`, `Once`, `PingPong` playback modes, `FromGrid` uniform slicing with bleed guard, and pixel-region frames), [`Billboard`](src/core/Sprite.hpp), [`AnimatedBillboard`](src/core/Sprite.hpp) (`Spherical`, `CylindricalY`, and `ScreenAligned` camera basis math with roll), and [`SpriteTexture`](src/core/Sprite.hpp) (`FromRGBA8`, `CreateSolid`, `CreateRadialGlow`, `CreateRing`, `CreateChecker`).

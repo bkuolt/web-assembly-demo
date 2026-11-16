@@ -9,6 +9,7 @@
 #include "engine/EngineCore.hpp"
 #include "ui/DebugOverlay.hpp"
 #include "ui/ImmediateUI.hpp"
+#include "viewer/ApplicationConfig.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -27,36 +28,6 @@ struct ModelPresetEntry {
     const char* label{nullptr};
     const char* localRelPath{nullptr};
     const char* remoteUrl{nullptr};
-};
-
-/**
- * @struct ApplicationConfig
- * @brief Startup parameters and initial rendering states.
- */
-struct ApplicationConfig {
-    uint32_t width{1280};
-    uint32_t height{720};
-    std::string assetPath{};
-    bool enableSkybox{true};
-    bool enableBoundingBoxes{true};
-    bool enableQuadtreeBounds{false};
-    bool enableDebugOverlay{true};
-    bool enableBumpMapping{true};
-    bool enableMipmapping{true};
-    bool enableShadows{true};
-    bool enableReflections{true};
-    bool enableAmbientOcclusion{true};
-    bool enableOcclusionCulling{true};
-    bool enableLod{true};
-    bool enableAutoLod{false};
-    float lodBias{1.0f};
-    gpu::DebugViewMode debugViewMode{gpu::DebugViewMode::LitPbr};
-    gpu::WeatherMode weatherMode{gpu::WeatherMode::None};
-    float weatherIntensity{1.0f};
-    float windStrength{0.3f};
-    float timeOfDay{14.0f};
-    bool enableDayNightCycle{false};
-    float dayNightSpeed{1.0f};
 };
 
 /**

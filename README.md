@@ -5,7 +5,7 @@
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-364_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-366_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 ## bgl Engine
@@ -328,14 +328,15 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── ApplicationInput.cpp           # Desktop SDL2 keyboard shortcuts & camera bookmark hotkeys
 │   ├── ApplicationModelLoader.cpp     # 19-model preset catalog, async worker lifecycle & node picking
 │   ├── ApplicationUI.cpp              # Per-section SDF UI studio builders & selection badge
-│   ├── CommandLine.hpp/.cpp           # CLI argument parsing, help screen, and format inspection
+│   ├── ApplicationConfig.hpp          # Shared backend-free viewer startup settings base
+│   ├── CommandLine.hpp/.cpp           # Table-driven CLI parser, auto-generated help, format report
 │   ├── main.cpp                       # Native desktop viewer entry point
 │   └── WebExports.cpp                 # Emscripten C-ABI bridge exports for full-engine browser builds
 ├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   ├── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
 │   └── 03_sprites_and_billboards/main.cpp # 2D animated sprites + 3D spherical/cylindrical HDR billboards
-├── tests/                             # C++ GTest (291 tests across 45 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (293 tests across 45 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
@@ -674,14 +675,14 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **291 C++ GTests across 45 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
+The engine includes an extensive, production-grade test suite with **293 C++ GTests across 45 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
 | `RenderingFeaturesTest` | 58 | Bump Mapping tangents & handedness, mipmaps & normal renormalization, shadow matrices, cubemap IBL, uniform std140 packing, clustered Forward+ Z-slices, POM, Multi-Bounce AO, lens flare, tonemappers, KTX2 targets, transmission Volume attenuation, bloom, weather (`rain`/`snow`/`fog`/`smoke`), diurnal sun, DualSense response curves, `GpuCuller`/`GpuRayPicker`, `DebugOverlay`, per-channel `KHR_texture_transform`, split passes & offscreen WebGPU validation. |
 | `TypesMathTest` | 24 | AABB expansion/overlap/grazing rays, Hesse planes, WebGPU perspective frustum planes, 96-byte Vertex alignment, MikkTSpace tangents, normal-map mipmaps, shadow matrices, cubemap mip generation, Arvo box transform, slerp/affine inversion, and degenerate geometry safety. |
 | `CameraTest` | 18 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection composition, screen-point-to-ray unprojection, pitch clamping, ultrawide/portrait aspect ratios, WASD/fly navigation, bounds framing, bookmarks, and glTF camera ingestion. |
-| `CommandLineTest` | 18 | Default config, `--help`, `--version`, `--formats`, resolution, feature toggles, weather/time-of-day flags, LOD bias & debug views, crash signal options, `--headless`, and invalid argument fallbacks. |
+| `CommandLineTest` | 20 | Default config, `--help`, `--version`, `--formats`, resolution, symmetric toggles, `--flag=value` & `--`, weather/time-of-day flags, LOD bias & debug views, crash signal options, `--headless`, `ApplicationConfig` slicing, and fallbacks. |
 | `GltfLoaderTest` | 15 | `ToyCar.glb` parsing, KHR material/iridescence/anisotropy extensions, corrupted GLB rejection, deep hierarchy transforms, monotonic async load progress callbacks & cancellation, builtin 19-model preset resolution, async worker teardown safety, and optional 1 GB stress test. |
 | `MemoryPoolTest` | 15 | Fixed-size block allocation, multi-block chaining, free-list reuse, destructor tracking, move semantics, nullptr/rapid-LIFO safety, 64-byte alignment, and PMR monotonic `ScratchArena` stress tests. |
 | `RayPickerTest` | 14 | Möller-Trumbore ray-triangle direct/edge/vertex hits, backface/negative-distance rejection, hit normal orthogonality, hierarchical child transforms, and empty/multi-root picking. |

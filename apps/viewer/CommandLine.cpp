@@ -1,288 +1,368 @@
 /**
  * @file CommandLine.cpp
- * @brief Implementation of command-line parsing and CLI utilities.
+ * @brief Table-driven command-line parser and help/format output for `bgl_viewer`.
  */
 #include "viewer/CommandLine.hpp"
 #include "core/NetworkFetcher.hpp"
 #include "core/Version.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <iostream>
-#include <optional>
+#include <type_traits>
 
 namespace bgl::app {
+namespace {
+
+struct EnumChoice {
+    std::string_view name;
+    uint32_t value;
+};
+
+// Keep compact initializer lists (no trailing comma before `}}`) for concise multi-item layout.
+constexpr std::array<EnumChoice, 5> kCrashSignalChoices{
+    {{"segv", 0}, {"abrt", 1}, {"abort", 1}, {"fpe", 2}, {"div0", 2}}};
+constexpr std::array<EnumChoice, 11> kWeatherChoices{{{"clear", 0},
+                                                      {"none", 0},
+                                                      {"0", 0},
+                                                      {"rain", 1},
+                                                      {"1", 1},
+                                                      {"snow", 2},
+                                                      {"2", 2},
+                                                      {"fog", 3},
+                                                      {"3", 3},
+                                                      {"smoke", 4},
+                                                      {"4", 4}}};
+constexpr std::array<EnumChoice, 14> kDebugViewChoices{{{"lit", 0},
+                                                        {"0", 0},
+                                                        {"lod", 1},
+                                                        {"heatmap", 1},
+                                                        {"1", 1},
+                                                        {"normals", 2},
+                                                        {"normal", 2},
+                                                        {"2", 2},
+                                                        {"pbr", 3},
+                                                        {"mrao", 3},
+                                                        {"3", 3},
+                                                        {"uv", 4},
+                                                        {"checker", 4},
+                                                        {"4", 4}}};
+
+struct BoolOpt {
+    std::string_view stem, help;
+    bool CliOptions::* field;
+};
+template <typename T>
+struct RangeOpt {
+    std::string_view shortFlag, longFlag, hint, help;
+    T CliOptions::* field;
+    T minVal, maxVal;
+    bool wrapMod24{false};
+};
+struct StringOpt {
+    std::string_view shortFlag, longFlag, hint, help;
+    std::string CliOptions::* field;
+};
+struct EnumOpt {
+    std::string_view shortFlag, longFlag, hint, help;
+    uint32_t CliOptions::* field;
+    std::span<const EnumChoice> choices;
+};
+struct PresetOpt {
+    std::string_view longFlag, help;
+    uint32_t CliOptions::* field;
+    uint32_t value;
+};
+
+constexpr std::array<StringOpt, 2> kStringOpts{
+    {{"-a", "--asset", "<path|url>", "Explicit path or HTTP(S) URL to glTF/GLB asset", &CliOptions::assetPath},
+     {"-l", "--log-level", "<level>", "Log level: trace, debug, info, warn, error (default: info)",
+      &CliOptions::logLevel}}};
+constexpr std::array<RangeOpt<uint32_t>, 2> kUIntOpts{
+    {{"-w", "--width", "<pixels>", "Window width in pixels [64-16384] (default: 1280)", &CliOptions::width, 64, 16384},
+     {"-H", "--height", "<pixels>", "Window height in pixels [64-16384] (default: 720)", &CliOptions::height, 64,
+      16384}}};
+constexpr std::array<BoolOpt, 13> kBoolOpts{
+    {{"skybox", "Procedural atmospheric skybox", &CliOptions::enableSkybox},
+     {"hud", "In-engine Debug Overlay HUD", &CliOptions::enableDebugOverlay},
+     {"bounds", "3D wireframe bounding boxes", &CliOptions::enableBoundingBoxes},
+     {"quadtree", "3D Quadtree ground boundaries", &CliOptions::enableQuadtreeBounds},
+     {"bump", "Bump & tangent-space normal mapping", &CliOptions::enableBumpMapping},
+     {"mipmaps", "Trilinear mipmapping", &CliOptions::enableMipmapping},
+     {"shadows", "2048x2048 PCF directional shadows", &CliOptions::enableShadows},
+     {"reflections", "Environment cubemap reflections", &CliOptions::enableReflections},
+     {"ao", "glTF ambient occlusion mapping", &CliOptions::enableAmbientOcclusion},
+     {"occlusion", "Quadtree hierarchical occlusion culling", &CliOptions::enableOcclusionCulling},
+     {"lod", "Multi-level mesh & shader LOD system", &CliOptions::enableLod},
+     {"auto-lod", "Adaptive 60 FPS Auto-LOD scaling", &CliOptions::enableAutoLod},
+     {"day-night-cycle", "Automatic day/night sun & moon cycle", &CliOptions::enableDayNightCycle}}};
+constexpr std::array<RangeOpt<float>, 5> kFloatOpts{
+    {{"", "--lod-bias", "<0.25-4.0>", "Screen-Space Error LOD bias multiplier (default: 1.0)", &CliOptions::lodBias,
+      0.25f, 4.0f},
+     {"", "--weather-intensity", "<0.0-2.0>", "Weather particle/fog intensity (default: 1.0)",
+      &CliOptions::weatherIntensity, 0.0f, 2.0f},
+     {"", "--wind", "<-1.0-1.0>", "Lateral wind direction and speed (default: 0.3)", &CliOptions::windStrength, -1.0f,
+      1.0f},
+     {"", "--time", "<0.0-24.0>", "Initial diurnal time of day in hours (default: 14.0)", &CliOptions::timeOfDay, 0.0f,
+      24.0f, true},
+     {"", "--day-night-speed", "<0.05-12.0>", "Day/night progression speed in hrs/sec (default: 1.0)",
+      &CliOptions::dayNightSpeed, 0.05f, 12.0f}}};
+constexpr std::array<EnumOpt, 2> kEnumOpts{
+    {{"", "--debug-view", "<lit|lod|normals|pbr|uv>", "Initial diagnostic shading mode (default: lit)",
+      &CliOptions::debugViewMode, kDebugViewChoices},
+     {"", "--weather", "<clear|rain|snow|fog|smoke>", "Initial atmospheric weather mode (default: clear)",
+      &CliOptions::weatherMode, kWeatherChoices}}};
+constexpr std::array<PresetOpt, 5> kPresets{
+    {{"--lod-heatmap", "Start in LOD Heatmap diagnostic view", &CliOptions::debugViewMode, 1},
+     {"--rain", "Start with Rain weather shader active", &CliOptions::weatherMode, 1},
+     {"--snow", "Start with Snow weather shader active", &CliOptions::weatherMode, 2},
+     {"--fog", "Start with Fog weather shader active", &CliOptions::weatherMode, 3},
+     {"--smoke", "Start with Smoke weather shader active", &CliOptions::weatherMode, 4}}};
+
+[[nodiscard]] std::optional<uint32_t> LookupChoice(std::span<const EnumChoice> choices,
+                                                   std::string_view token) noexcept {
+    const auto it = std::ranges::find(choices, token, &EnumChoice::name);
+    return it != choices.end() ? std::optional<uint32_t>{it->value} : std::nullopt;
+}
+
+template <typename T>
+[[nodiscard]] std::optional<T> TryParseNumber(std::string_view raw) noexcept {
+    if (raw.empty()) {
+        return std::nullopt;
+    }
+    T val{};
+    const auto [ptr, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), val);
+    if (ec != std::errc{} || ptr != raw.data() + raw.size()) {
+        return std::nullopt;
+    }
+    if constexpr (std::is_floating_point_v<T>) {
+        if (!std::isfinite(val)) {
+            return std::nullopt;
+        }
+    }
+    return val;
+}
+
+[[nodiscard]] std::optional<std::string_view> ConsumeValue(std::optional<std::string_view> inlineVal,
+                                                           std::span<const char* const> args, size_t& index) noexcept {
+    if (inlineVal.has_value()) {
+        return inlineVal;
+    }
+    return (index + 1 < args.size() && args[index + 1]) ? std::optional<std::string_view>{args[++index]} : std::nullopt;
+}
+
+[[nodiscard]] bool MatchFlag(std::string_view flag, std::string_view shortFlag, std::string_view longFlag) noexcept {
+    return (!shortFlag.empty() && flag == shortFlag) || flag == longFlag;
+}
+
+template <typename Range, typename ApplyFn>
+[[nodiscard]] bool DispatchValue(const Range& entries, std::string_view flag, std::optional<std::string_view> inlineVal,
+                                 std::span<const char* const> args, size_t& index, ApplyFn&& apply) {
+    for (const auto& entry : entries) {
+        if (MatchFlag(flag, entry.shortFlag, entry.longFlag)) {
+            if (const auto val = ConsumeValue(inlineVal, args, index)) {
+                apply(entry, *val);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool TryApplyOption(CliOptions& opt, std::string_view flag, std::optional<std::string_view> inlineVal,
+                                  std::span<const char* const> args, size_t& index) {
+    for (const auto& entry : kBoolOpts) {
+        if (flag.starts_with("--no-") && flag.substr(5) == entry.stem) {
+            opt.*(entry.field) = false;
+            return true;
+        }
+        if (flag.starts_with("--") && flag.substr(2) == entry.stem) {
+            opt.*(entry.field) = !inlineVal.has_value() || (*inlineVal != "false" && *inlineVal != "0");
+            return true;
+        }
+    }
+    for (const auto& entry : kPresets) {
+        if (flag == entry.longFlag) {
+            opt.*(entry.field) = entry.value;
+            return true;
+        }
+    }
+    if (DispatchValue(kStringOpts, flag, inlineVal, args, index,
+                      [&](const StringOpt& e, std::string_view val) { opt.*(e.field) = std::string{val}; })) {
+        return true;
+    }
+    if (DispatchValue(kUIntOpts, flag, inlineVal, args, index, [&](const RangeOpt<uint32_t>& e, std::string_view val) {
+            if (const auto n = TryParseNumber<long>(val); n && *n >= e.minVal && *n <= e.maxVal) {
+                opt.*(e.field) = static_cast<uint32_t>(*n);
+            }
+        })) {
+        return true;
+    }
+    if (DispatchValue(kFloatOpts, flag, inlineVal, args, index, [&](const RangeOpt<float>& e, std::string_view val) {
+            if (const auto n = TryParseNumber<float>(val)) {
+                if (e.wrapMod24) {
+                    const float wrapped = std::fmod(*n, 24.0f);
+                    opt.*(e.field) = wrapped < 0.0f ? wrapped + 24.0f : wrapped;
+                } else {
+                    opt.*(e.field) = std::clamp(*n, e.minVal, e.maxVal);
+                }
+            }
+        })) {
+        return true;
+    }
+    return DispatchValue(kEnumOpts, flag, inlineVal, args, index, [&](const EnumOpt& e, std::string_view val) {
+        opt.*(e.field) = LookupChoice(e.choices, val).value_or(0u);
+    });
+}
+
+void PrintRow(std::string_view label, std::string_view desc) {
+    std::cout << std::format("  {:<38} {}\n", label, desc);
+}
+
+template <typename OptT>
+void PrintOptionRow(const OptT& opt) {
+    const std::string flag =
+        opt.shortFlag.empty() ? std::string{opt.longFlag} : std::format("{}, {}", opt.shortFlag, opt.longFlag);
+    PrintRow(opt.hint.empty() ? flag : std::format("{} {}", flag, opt.hint), opt.help);
+}
+
+} // namespace
 
 CliOptions CliOptions::Parse(int argc, char** argv) {
-    if (argc <= 0 || !argv)
+    if (argc <= 0 || !argv) {
         return CliOptions{};
+    }
     return Parse(std::span<const char* const>{argv, static_cast<size_t>(argc)});
 }
 
 CliOptions CliOptions::Parse(std::span<const char* const> args) {
     CliOptions opt{};
-    const auto tryParseFloat = [](const char* raw) -> std::optional<float> {
-        if (!raw)
-            return std::nullopt;
-        const std::string_view sv{raw};
-        float val{0.0f};
-        const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
-        if (ec != std::errc{} || ptr == sv.data() || !std::isfinite(val)) {
-            return std::nullopt;
-        }
-        return val;
-    };
-    const auto parseFiniteFloat = [&](const char* raw, float minV, float maxV, float& out) {
-        if (const auto val = tryParseFloat(raw); val.has_value()) {
-            out = std::clamp(*val, minV, maxV);
-        }
-    };
-    const auto parseDimension = [](const char* raw, uint32_t& out) {
-        if (!raw)
-            return;
-        const std::string_view sv{raw};
-        long val{0};
-        const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), val);
-        if (ec == std::errc{} && ptr != sv.data() && val >= 64 && val <= 16384) {
-            out = static_cast<uint32_t>(val);
-        }
-    };
+    bool endOfOptions{false};
 
     for (size_t i{1}; i < args.size(); ++i) {
-        std::string_view arg{args[i] ? args[i] : ""};
-
-        if (arg == "-h" || arg == "--help") {
-            opt.showHelp = true;
-            return opt;
-        } else if (arg == "-v" || arg == "--version") {
-            opt.showVersion = true;
-            return opt;
-        } else if (arg == "--formats") {
-            opt.listFormats = true;
-            return opt;
-        } else if (arg == "--test-crash") {
-            opt.testCrash = true;
-            if (i + 1 < args.size() && args[i + 1] && args[i + 1][0] != '-') {
-                std::string_view type{args[++i]};
-                if (type == "abrt" || type == "abort") {
-                    opt.testCrashSignal = 1;
-                } else if (type == "fpe" || type == "div0") {
-                    opt.testCrashSignal = 2;
-                } else {
-                    opt.testCrashSignal = 0;
-                }
-            }
-        } else if ((arg == "-a" || arg == "--asset") && i + 1 < args.size()) {
-            opt.assetPath = args[++i];
-        } else if ((arg == "-w" || arg == "--width") && i + 1 < args.size()) {
-            parseDimension(args[++i], opt.width);
-        } else if ((arg == "-H" || arg == "--height") && i + 1 < args.size()) {
-            parseDimension(args[++i], opt.height);
-        } else if ((arg == "-l" || arg == "--log-level") && i + 1 < args.size()) {
-            opt.logLevel = args[++i];
-        } else if (arg == "--no-skybox") {
-            opt.enableSkybox = false;
-        } else if (arg == "--no-hud") {
-            opt.enableDebugOverlay = false;
-        } else if (arg == "--no-bounds") {
-            opt.enableBoundingBoxes = false;
-        } else if (arg == "--bounds") {
-            opt.enableBoundingBoxes = true;
-        } else if (arg == "--quadtree") {
-            opt.enableQuadtreeBounds = true;
-        } else if (arg == "--no-bump") {
-            opt.enableBumpMapping = false;
-        } else if (arg == "--bump") {
-            opt.enableBumpMapping = true;
-        } else if (arg == "--no-mipmaps") {
-            opt.enableMipmapping = false;
-        } else if (arg == "--mipmaps") {
-            opt.enableMipmapping = true;
-        } else if (arg == "--no-shadows") {
-            opt.enableShadows = false;
-        } else if (arg == "--shadows") {
-            opt.enableShadows = true;
-        } else if (arg == "--no-reflections") {
-            opt.enableReflections = false;
-        } else if (arg == "--reflections") {
-            opt.enableReflections = true;
-        } else if (arg == "--no-ao") {
-            opt.enableAmbientOcclusion = false;
-        } else if (arg == "--ao") {
-            opt.enableAmbientOcclusion = true;
-        } else if (arg == "--no-occlusion") {
-            opt.enableOcclusionCulling = false;
-        } else if (arg == "--occlusion") {
-            opt.enableOcclusionCulling = true;
-        } else if (arg == "--no-lod") {
-            opt.enableLod = false;
-        } else if (arg == "--lod") {
-            opt.enableLod = true;
-        } else if (arg == "--no-auto-lod") {
-            opt.enableAutoLod = false;
-        } else if (arg == "--auto-lod") {
-            opt.enableAutoLod = true;
-        } else if (arg == "--lod-bias" && i + 1 < args.size()) {
-            parseFiniteFloat(args[++i], 0.25f, 4.0f, opt.lodBias);
-        } else if (arg == "--lod-heatmap") {
-            opt.debugViewMode = 1;
-        } else if (arg == "--debug-view" && i + 1 < args.size()) {
-            std::string_view dv{args[++i]};
-            if (dv == "lod" || dv == "heatmap" || dv == "1") {
-                opt.debugViewMode = 1;
-            } else if (dv == "normals" || dv == "normal" || dv == "2") {
-                opt.debugViewMode = 2;
-            } else if (dv == "pbr" || dv == "mrao" || dv == "3") {
-                opt.debugViewMode = 3;
-            } else if (dv == "uv" || dv == "checker" || dv == "4") {
-                opt.debugViewMode = 4;
-            } else {
-                opt.debugViewMode = 0;
-            }
-        } else if (arg == "--rain") {
-            opt.weatherMode = 1;
-        } else if (arg == "--snow") {
-            opt.weatherMode = 2;
-        } else if (arg == "--fog") {
-            opt.weatherMode = 3;
-        } else if (arg == "--smoke") {
-            opt.weatherMode = 4;
-        } else if (arg == "--weather" && i + 1 < args.size()) {
-            std::string_view w{args[++i]};
-            if (w == "rain" || w == "1") {
-                opt.weatherMode = 1;
-            } else if (w == "snow" || w == "2") {
-                opt.weatherMode = 2;
-            } else if (w == "fog" || w == "3") {
-                opt.weatherMode = 3;
-            } else if (w == "smoke" || w == "4") {
-                opt.weatherMode = 4;
-            } else {
-                opt.weatherMode = 0;
-            }
-        } else if (arg == "--weather-intensity" && i + 1 < args.size()) {
-            parseFiniteFloat(args[++i], 0.0f, 2.0f, opt.weatherIntensity);
-        } else if (arg == "--wind" && i + 1 < args.size()) {
-            parseFiniteFloat(args[++i], -1.0f, 1.0f, opt.windStrength);
-        } else if (arg == "--time" && i + 1 < args.size()) {
-            if (const auto raw = tryParseFloat(args[++i]); raw.has_value()) {
-                float val = std::fmod(*raw, 24.0f);
-                if (val < 0.0f) {
-                    val += 24.0f;
-                }
-                opt.timeOfDay = val;
-            }
-        } else if (arg == "--day-night-cycle") {
-            opt.enableDayNightCycle = true;
-        } else if (arg == "--day-night-speed" && i + 1 < args.size()) {
-            parseFiniteFloat(args[++i], 0.05f, 12.0f, opt.dayNightSpeed);
-        } else if (arg == "--headless") {
-            opt.headless = true;
-        } else if (!arg.starts_with("-")) {
-            // Positional argument interpreted as asset path if not set
+        const std::string_view rawArg{args[i] ? args[i] : ""};
+        if (rawArg.empty()) {
+            continue;
+        }
+        if (!endOfOptions && rawArg == "--") {
+            endOfOptions = true;
+            continue;
+        }
+        if (endOfOptions || !rawArg.starts_with('-')) {
             if (opt.assetPath.empty()) {
-                opt.assetPath = std::string{arg};
+                opt.assetPath = std::string{rawArg};
+            }
+            continue;
+        }
+
+        std::string_view flag{rawArg};
+        std::optional<std::string_view> inlineVal{};
+        if (rawArg.starts_with("--")) {
+            if (const size_t eq = rawArg.find('='); eq != std::string_view::npos) {
+                flag = rawArg.substr(0, eq);
+                inlineVal = rawArg.substr(eq + 1);
             }
         }
+
+        if (MatchFlag(flag, "-h", "--help")) {
+            opt.showHelp = true;
+            return opt;
+        }
+        if (MatchFlag(flag, "-v", "--version")) {
+            opt.showVersion = true;
+            return opt;
+        }
+        if (flag == "--formats") {
+            opt.listFormats = true;
+            return opt;
+        }
+        if (flag == "--headless") {
+            opt.headless = true;
+            continue;
+        }
+        if (flag == "--test-crash") {
+            opt.testCrash = true;
+            std::optional<std::string_view> sig = inlineVal;
+            if (!sig.has_value() && i + 1 < args.size() && args[i + 1] && args[i + 1][0] != '-') {
+                sig = std::string_view{args[++i]};
+            }
+            if (sig.has_value()) {
+                opt.testCrashSignal = static_cast<int>(LookupChoice(kCrashSignalChoices, *sig).value_or(0u));
+            }
+            continue;
+        }
+
+        (void)TryApplyOption(opt, flag, inlineVal, args, i);
     }
 
     return opt;
 }
 
+std::optional<int> CliOptions::DispatchInfoAction(std::string_view programName) const {
+    if (showHelp) {
+        PrintHelp(programName);
+        return 0;
+    }
+    if (showVersion) {
+        PrintVersion();
+        return 0;
+    }
+    if (listFormats) {
+        PrintFormats();
+        return 0;
+    }
+    return std::nullopt;
+}
+
 void CliOptions::PrintHelp(std::string_view programName) {
     std::string exec{std::filesystem::path{programName}.filename().string()};
-    if (exec.empty())
+    if (exec.empty()) {
         exec = "bgl_viewer";
+    }
+    const CliOptions defaults{};
 
-    std::cout << std::format(R"(================================================================================
-{} (bgl_viewer v{})
-================================================================================
-
-USAGE:
-  {} [OPTIONS] [ASSET_PATH_OR_URL]
-
-ARGUMENTS:
-  [ASSET_PATH_OR_URL]           Local path or HTTP/HTTPS URL to .glb/.gltf model
-                                (e.g. assets/Sponza.glb or https://.../Model.glb)
-
-GENERAL OPTIONS:
-  -h, --help                    Show this help message and exit
-  -v, --version                 Print engine version information and exit
-  --formats                     Display compiled texture decoders and asset support
-  -a, --asset <path|url>        Explicit path or HTTP/HTTPS URL to glTF/GLB asset
-  -w, --width <pixels>          Window width in pixels (default: 1280)
-  -H, --height <pixels>         Window height in pixels (default: 720)
-  -l, --log-level <level>       Set log level: trace, debug, info, warn, error (default: info)
-
-RENDERING TOGGLES:
-  --no-skybox                   Start with procedural atmospheric skybox disabled
-  --no-hud                      Start with in-engine Debug Overlay HUD hidden
-  --no-bounds                   Start with 3D wireframe bounding boxes hidden
-  --bounds                      Start with 3D wireframe bounding boxes visible
-  --quadtree                    Start with 3D Quadtree ground boundaries visible
-  --no-bump / --bump            Disable / enable Bump & Normal Mapping (default: ON)
-  --no-mipmaps / --mipmaps      Disable / enable Trilinear Mipmapping (default: ON)
-  --no-shadows / --shadows      Disable / enable 2048x2048 PCF Shadow Mapping (default: ON)
-  --no-reflections / --reflections Disable / enable Environment Cubemap Reflections (default: ON)
-  --no-ao / --ao                Disable / enable glTF Ambient Occlusion (default: ON)
-  --no-occlusion / --occlusion  Disable / enable Quadtree Hierarchical Occlusion Culling (default: ON)
-  --no-lod / --lod              Disable / enable Multi-Level Mesh & Shader LOD System (default: ON)
-  --auto-lod / --no-auto-lod    Enable / disable Adaptive 60 FPS Auto-LOD scaling (default: OFF)
-  --lod-bias <0.25-4.0>         Set Screen-Space Error LOD distance bias multiplier (default: 1.0)
-  --lod-heatmap                 Start in LOD Heatmap diagnostic visualization mode
-  --debug-view <lit|lod|normals|pbr|uv> Select initial diagnostic shading mode (default: lit)
-  --rain / --snow / --fog / --smoke Start with Rain, Snow, Fog, or Smoke shader active
-  --weather <clear|rain|snow|fog|smoke> Select initial atmospheric weather mode (default: clear)
-  --weather-intensity <0.0-2.0> Set precipitation, fog, and smoke density intensity (default: 1.0)
-  --wind <-1.0-1.0>             Set lateral wind direction and speed (default: 0.3)
-  --time <0.0-24.0>             Set initial diurnal time of day in hours (default: 14.0)
-  --day-night-cycle             Enable automatic continuous day/night sun/moon progression
-  --day-night-speed <hrs/sec>   Set automatic day/night progression speed (default: 1.0)
-
-DEBUG & DIAGNOSTICS:
-  --test-crash [segv|abrt|fpe]  Trigger intentional crash to test signal handler and stacktrace
-  --headless                    Run in headless CI smoke-test mode (renders 10 frames and exits)
-
-INTERACTIVE CONTROLS:
-  LMB + Drag                    Orbit camera around target
-  RMB / Shift + Drag            Pan camera laterally and vertically
-  Mouse Wheel                   Smooth zoom in / out
-  B                             Toggle 3D Wireframe Bounding Boxes & AABBs
-  Q                             Toggle 3D Quadtree Ground Partition Boundaries
-  H                             Toggle Quadtree Hierarchical Occlusion Culling (Hi-Z)
-  K                             Cycle Skybox Mode (Sharp / Blurred / Hidden)
-  V                             Toggle Bump & Tangent-Space Normal Mapping
-  L                             Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0)
-  M                             Toggle Directional Shadow Mapping (2048x2048 PCF)
-  R                             Toggle Environment Cubemap Reflections & Specular IBL
-  U                             Toggle Ambient Occlusion & Micro-Cavity Shading
-  X                             Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES)
-  Z                             Toggle Emissive HDR Bloom
-  Y                             Cycle Atmospheric Weather (Clear / Rain / Snow / Fog / Smoke)
-  F4 / F5 / F6 / F7             Toggle Rain (F4) / Snow (F5) / Fog (F6) / Smoke (F7)
-  I / F8                        Toggle Automatic Day/Night Sun & Moon Cycle
-  N / F9                        Cycle Diagnostic Debug View (Lit / LOD Heatmap / Normals / PBR / UV)
-  F10                           Toggle LOD Heatmap Diagnostic View
-  F11                           Toggle Multi-Level Mesh & Shader LOD System (LOD0-LOD3)
-  F12                           Toggle Adaptive 60 FPS Auto-LOD Bias Scaling
-  ; / '                         Decrease / Increase LOD Bias (-0.15 / +0.15)
-  , / .                         Step Time of Day backward / forward (-30m / +30m)
-  C                             Switch Camera Navigation Mode (Orbit / First-Person Fly)
-  T                             Toggle Turntable Autorotation
-  F                             Focus Camera on Selection or Scene Bounds
-  E                             Cycle Environment Preset
-  + / -                         Increase / Decrease Exposure
-  [ / ]                         Rotate Environment (-5° / +5°)
-  O / F3                        Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay
-  Double-Click / MMB            Pick geometry node with RayPicker
-  ESC                           Exit viewer
-  Drag & Drop                   Drop any .glb/.gltf file or HTTP/HTTPS URL onto the window
-================================================================================
-)",
+    std::cout << std::format("================================================================================\n"
+                             "{} (bgl_viewer v{})\n"
+                             "================================================================================\n\n"
+                             "USAGE:\n"
+                             "  {} [OPTIONS] [ASSET_PATH_OR_URL]\n\n"
+                             "GENERAL OPTIONS:\n",
                              kEngineName, kEngineVersion, exec);
+
+    PrintRow("-h, --help", "Show this help message and exit");
+    PrintRow("-v, --version", "Print engine version information and exit");
+    PrintRow("--formats", "Display compiled asset, texture, font, and audio support");
+    std::ranges::for_each(kStringOpts, [](const auto& o) { PrintOptionRow(o); });
+    std::ranges::for_each(kUIntOpts, [](const auto& o) { PrintOptionRow(o); });
+
+    std::cout << "\nRENDERING OPTIONS:\n";
+    for (const auto& opt : kBoolOpts) {
+        PrintRow(std::format("--[no-]{}", opt.stem),
+                 std::format("{} (default: {})", opt.help, (defaults.*(opt.field)) ? "ON" : "OFF"));
+    }
+    std::ranges::for_each(kFloatOpts, [](const auto& o) { PrintOptionRow(o); });
+    std::ranges::for_each(kEnumOpts, [](const auto& o) { PrintOptionRow(o); });
+    std::ranges::for_each(kPresets, [](const auto& o) { PrintRow(o.longFlag, o.help); });
+
+    std::cout << "\nDEBUG & DIAGNOSTICS:\n";
+    PrintRow("--test-crash [segv|abrt|fpe]", "Trigger intentional crash to test signal handler & stacktrace");
+    PrintRow("--headless", "Run in headless CI smoke-test mode (10 frames and exit)");
+
+    std::cout
+        << "\nINTERACTIVE CONTROLS:\n"
+           "  LMB / RMB / Wheel                      Orbit / Pan / Zoom camera\n"
+           "  WASD / Arrows, C, T, F, 1-9            Fly/move, Orbit/Fly mode, Turntable, Focus, Bookmarks\n"
+           "  B, Q, H, K, V, L, M, R, U              Bounding boxes, Quadtree, Occlusion, Skybox, Bump, Mips, "
+           "Shadows, IBL, AO\n"
+           "  X, Z, E, + / -, [ / ]                  Tonemapper, Bloom, Environment preset, Exposure, Env rotation\n"
+           "  Y / F4-F7, I / F8, , / .               Weather modes, Day/Night cycle, Time step\n"
+           "  N / F9, F10-F12, ; / ', F1-F3, ESC     Debug view, LOD controls, Wireframe, Settings UI, HUD, Exit\n"
+           "  Double-Click / MMB, Drag & Drop        RayPicker node pick, Load .glb/.gltf or HTTP(S) URL\n"
+           "================================================================================\n";
 }
 
 void CliOptions::PrintVersion() {
@@ -291,23 +371,29 @@ void CliOptions::PrintVersion() {
 }
 
 void CliOptions::PrintFormats() {
+    struct FeatureRow {
+        std::string_view label;
+        bool enabled;
+        std::string_view backend;
+    };
+    const std::array<FeatureRow, 8> rows{
+        {{"glTF 2.0 / 2.1 (.gltf, .glb)", true, "fastgltf SIMD parser"},
+         {"HTTP/HTTPS Asset Streaming", core::NetworkFetcher::IsCurlSupported(), "libcurl / Fetch API"},
+         {"PNG textures", scene::TextureDecoder::IsPngSupported(), "libpng"},
+         {"JPEG textures", scene::TextureDecoder::IsJpegSupported(), "libjpeg-turbo"},
+         {"WebP textures", scene::TextureDecoder::IsWebpSupported(), "libwebp"},
+         {"KTX / KTX2 (Basis Universal)", scene::TextureDecoder::IsKtxSupported(), "libktx"},
+         {"Audio (WAV, MP3, FLAC)", true, "miniaudio"},
+         {"Fonts (TTF, OTF)", true, "FreeType + HarfBuzz"}}};
+
     std::cout << "================================================================================\n"
-              << "bgl-Engine Compiled Asset & Texture Decoders:\n"
-              << "================================================================================\n"
-              << "  - glTF 2.0 / 2.1 (.gltf, .glb): [ENABLED] (fastgltf SIMD parser)\n"
-              << "  - HTTP/HTTPS Asset Streaming:  "
-              << (core::NetworkFetcher::IsCurlSupported() ? "[ENABLED] (libcurl / Fetch API)" : "[DISABLED]") << "\n"
-              << "  - PNG textures:                "
-              << (scene::TextureDecoder::IsPngSupported() ? "[ENABLED] (libpng)" : "[DISABLED]") << "\n"
-              << "  - JPEG textures:               "
-              << (scene::TextureDecoder::IsJpegSupported() ? "[ENABLED] (libjpeg-turbo)" : "[DISABLED]") << "\n"
-              << "  - WebP textures:               "
-              << (scene::TextureDecoder::IsWebpSupported() ? "[ENABLED] (libwebp)" : "[DISABLED]") << "\n"
-              << "  - KTX / KTX2 (Basis Universal): "
-              << (scene::TextureDecoder::IsKtxSupported() ? "[ENABLED] (libktx 4.3.2)" : "[DISABLED]") << "\n"
-              << "  - Audio (WAV, MP3, FLAC):      [ENABLED] (miniaudio)\n"
-              << "  - Fonts (TTF, OTF):            [ENABLED] (FreeType 2.13.2 + HarfBuzz 8.3.0)\n"
-              << "================================================================================\n";
+                 "bgl-Engine Compiled Asset & Texture Decoders:\n"
+                 "================================================================================\n";
+    for (const auto& row : rows) {
+        std::cout << std::format("  - {:<30} {} ({})\n", row.label, row.enabled ? "[ENABLED]" : "[DISABLED]",
+                                 row.backend);
+    }
+    std::cout << "================================================================================\n";
 }
 
 } // namespace bgl::app

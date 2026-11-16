@@ -13,61 +13,23 @@ int main(int argc, char** argv) {
     // 1. Install crash signal handling immediately
     bgl::core::InstallCrashHandler();
 
-    // 2. Parse command-line arguments
-    auto cli = bgl::app::CliOptions::Parse(argc, argv);
-
-    if (cli.showHelp) {
-        bgl::app::CliOptions::PrintHelp(argv[0]);
-        return 0;
+    // 2. Parse command-line arguments and run early-exit info commands
+    const std::string_view progName{(argc > 0 && argv && argv[0]) ? argv[0] : "bgl_viewer"};
+    const auto cli = bgl::app::CliOptions::Parse(argc, argv);
+    if (const auto exitCode = cli.DispatchInfoAction(progName); exitCode.has_value()) {
+        return *exitCode;
     }
 
-    if (cli.showVersion) {
-        bgl::app::CliOptions::PrintVersion();
-        return 0;
-    }
-
-    if (cli.listFormats) {
-        bgl::app::CliOptions::PrintFormats();
-        return 0;
-    }
-
+    // 3. Initialize logging and handle optional intentional crash test
+    bgl::core::InitLogging(cli.logLevel);
     if (cli.testCrash) {
-        bgl::core::InitLogging(cli.logLevel);
         BGL_LOG_WARN("Executing intentional test crash (signal type {})...", cli.testCrashSignal);
         bgl::core::TriggerTestCrash(cli.testCrashSignal);
     }
 
-    // 3. Initialize logging with CLI level
-    bgl::core::InitLogging(cli.logLevel);
-
-    // 4. Configure and initialize Application
-    bgl::app::ApplicationConfig config;
-    config.width = cli.width;
-    config.height = cli.height;
-    config.assetPath = cli.assetPath;
-    config.enableSkybox = cli.enableSkybox;
-    config.enableBoundingBoxes = cli.enableBoundingBoxes;
-    config.enableQuadtreeBounds = cli.enableQuadtreeBounds;
-    config.enableDebugOverlay = cli.enableDebugOverlay;
-    config.enableBumpMapping = cli.enableBumpMapping;
-    config.enableMipmapping = cli.enableMipmapping;
-    config.enableShadows = cli.enableShadows;
-    config.enableReflections = cli.enableReflections;
-    config.enableAmbientOcclusion = cli.enableAmbientOcclusion;
-    config.enableOcclusionCulling = cli.enableOcclusionCulling;
-    config.enableLod = cli.enableLod;
-    config.enableAutoLod = cli.enableAutoLod;
-    config.lodBias = cli.lodBias;
-    config.debugViewMode = static_cast<bgl::gpu::DebugViewMode>(cli.debugViewMode);
-    config.weatherMode = static_cast<bgl::gpu::WeatherMode>(cli.weatherMode);
-    config.weatherIntensity = cli.weatherIntensity;
-    config.windStrength = cli.windStrength;
-    config.timeOfDay = cli.timeOfDay;
-    config.enableDayNightCycle = cli.enableDayNightCycle;
-    config.dayNightSpeed = cli.dayNightSpeed;
-
+    // 4. Configure and initialize Application directly from CliOptions (derives from ApplicationConfig)
     bgl::app::Application app;
-    if (auto res = app.Initialize(config); !res) {
+    if (auto res = app.Initialize(cli); !res) {
         BGL_LOG_ERROR("Initialization error: {}", res.error());
         return -1;
     }

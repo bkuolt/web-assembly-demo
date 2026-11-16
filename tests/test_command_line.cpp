@@ -337,3 +337,58 @@ TEST(CommandLineTest, LodAndDebugViewCommandLineFlags) {
     const std::array<const char*, 3> litArgs{"bgl_viewer", "--debug-view", "lit"};
     EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{litArgs}).debugViewMode, 0u);
 }
+
+TEST(CommandLineTest, InlineEqualsEndOfOptionsAndSymmetricToggles) {
+    const std::array<const char*, 11> args{
+        "bgl_viewer",      "--width=1920",   "--height=1080", "--asset=https://example.com/load?file=car.glb",
+        "--weather=fog",   "--lod-bias=2.5", "--time=-2.0",   "--test-crash=fpe",
+        "--shadows=false", "--quadtree",     "--no-quadtree",
+    };
+    const auto opt = CliOptions::Parse(std::span<const char* const>{args});
+    EXPECT_EQ(opt.width, 1920u);
+    EXPECT_EQ(opt.height, 1080u);
+    EXPECT_EQ(opt.assetPath, "https://example.com/load?file=car.glb");
+    EXPECT_EQ(opt.weatherMode, 3u);
+    EXPECT_NEAR(opt.lodBias, 2.5f, 1e-4f);
+    EXPECT_NEAR(opt.timeOfDay, 22.0f, 1e-4f);
+    EXPECT_TRUE(opt.testCrash);
+    EXPECT_EQ(opt.testCrashSignal, 2);
+    EXPECT_FALSE(opt.enableShadows);
+    EXPECT_FALSE(opt.enableQuadtreeBounds);
+
+    // Explicit --hud after --no-hud re-enables HUD (previously missing branch)
+    const std::array<const char*, 5> toggleArgs{"bgl_viewer", "--no-hud", "--hud", "--day-night-cycle",
+                                                "--no-day-night-cycle"};
+    const auto toggled = CliOptions::Parse(std::span<const char* const>{toggleArgs});
+    EXPECT_TRUE(toggled.enableDebugOverlay);
+    EXPECT_FALSE(toggled.enableDayNightCycle);
+
+    // POSIX end-of-options marker allows asset paths starting with '-'
+    const std::array<const char*, 3> dashArgs{"bgl_viewer", "--", "-dash-asset.glb"};
+    const auto dashOpt = CliOptions::Parse(std::span<const char* const>{dashArgs});
+    EXPECT_EQ(dashOpt.assetPath, "-dash-asset.glb");
+}
+
+TEST(CommandLineTest, InfoActionDispatchAndApplicationConfigInheritance) {
+    const std::array<const char*, 1> normalArgs{"bgl_viewer"};
+    const auto normalOpt = CliOptions::Parse(std::span<const char* const>{normalArgs});
+    EXPECT_FALSE(normalOpt.DispatchInfoAction("bgl_viewer").has_value());
+
+    const std::array<const char*, 2> helpArgs{"bgl_viewer", "-h"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{helpArgs}).DispatchInfoAction("bgl_viewer"), 0);
+
+    const std::array<const char*, 2> verArgs{"bgl_viewer", "--version"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{verArgs}).DispatchInfoAction("bgl_viewer"), 0);
+
+    const std::array<const char*, 2> fmtArgs{"bgl_viewer", "--formats"};
+    EXPECT_EQ(CliOptions::Parse(std::span<const char* const>{fmtArgs}).DispatchInfoAction("bgl_viewer"), 0);
+
+    // CliOptions directly slices into ApplicationConfig with zero field copy boilerplate
+    const std::array<const char*, 5> cfgArgs{"bgl_viewer", "--width=1600", "--rain", "assets/Car.glb", "--headless"};
+    const CliOptions cli = CliOptions::Parse(std::span<const char* const>{cfgArgs});
+    const ApplicationConfig& cfg = cli;
+    EXPECT_EQ(cfg.width, 1600u);
+    EXPECT_EQ(cfg.weatherMode, 1u);
+    EXPECT_EQ(cfg.assetPath, "assets/Car.glb");
+    EXPECT_TRUE(cli.headless);
+}

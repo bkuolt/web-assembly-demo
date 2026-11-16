@@ -1,80 +1,51 @@
 /**
  * @file CommandLine.hpp
- * @brief Command-line argument parsing and configuration for bgl_viewer.
+ * @brief Command-line argument parsing and CLI utilities for `bgl_viewer`.
  */
 #ifndef BGL_VIEWER_COMMANDLINE_HPP
 #define BGL_VIEWER_COMMANDLINE_HPP
 
-#include <cstdint>
+#include "viewer/ApplicationConfig.hpp"
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace bgl::app {
 
 /**
  * @struct CliOptions
- * @brief Processed command-line arguments for the desktop viewer.
+ * @brief Parsed `bgl_viewer` startup configuration extended with CLI execution flags.
  */
-struct CliOptions {
+struct CliOptions : ApplicationConfig {
     bool showHelp{false};
     bool showVersion{false};
     bool listFormats{false};
     bool testCrash{false};
-    int testCrashSignal{0}; // 0=SIGSEGV, 1=SIGABRT, 2=SIGFPE
-    bool headless{false};   // Headless CI smoke-test mode (renders 10 frames and terminates)
-
-    uint32_t width{1280};
-    uint32_t height{720};
-    std::string assetPath{};
+    int testCrashSignal{0}; ///< 0=SIGSEGV, 1=SIGABRT, 2=SIGFPE
+    bool headless{false};   ///< Headless CI smoke-test mode (renders 10 frames and exits)
     std::string logLevel{"info"};
 
-    bool enableSkybox{true};
-    bool enableBoundingBoxes{true};
-    bool enableQuadtreeBounds{false};
-    bool enableDebugOverlay{true};
-    bool enableBumpMapping{true};
-    bool enableMipmapping{true};
-    bool enableShadows{true};
-    bool enableReflections{true};
-    bool enableAmbientOcclusion{true};
-    bool enableOcclusionCulling{true};
-    bool enableLod{true};
-    bool enableAutoLod{false};
-    float lodBias{1.0f};
-    uint32_t debugViewMode{0}; // 0=LitPbr, 1=LodHeatmap, 2=Normals, 3=MetallicRoughnessAo, 4=UvChecker
+    /** @brief Parses a span of command-line arguments into a validated `CliOptions` struct. */
+    [[nodiscard]] static CliOptions Parse(std::span<const char* const> args);
 
-    uint32_t weatherMode{0}; // 0=None/Clear, 1=Rain, 2=Snow, 3=Fog, 4=Smoke
-    float weatherIntensity{1.0f};
-    float windStrength{0.3f};
-    float timeOfDay{14.0f};
-    bool enableDayNightCycle{false};
-    float dayNightSpeed{1.0f};
+    /** @brief Parses `argc`/`argv` into a validated `CliOptions` struct. */
+    [[nodiscard]] static CliOptions Parse(int argc, char** argv);
 
     /**
-     * @brief Parses a span of command-line arguments into a validated CliOptions structure.
+     * @brief Executes early-exit informational flags (`--help`, `--version`, `--formats`).
+     * @param programName Executable name (typically `argv[0]`).
+     * @return Process exit code (`0`) if an info command ran, or `std::nullopt` to continue.
      */
-    static CliOptions Parse(std::span<const char* const> args);
+    [[nodiscard]] std::optional<int> DispatchInfoAction(std::string_view programName) const;
 
-    /**
-     * @brief Parses argc and argv into a validated CliOptions structure.
-     */
-    static CliOptions Parse(int argc, char** argv);
-
-    /**
-     * @brief Prints standard help text showing all options and hotkey controls.
-     */
+    /** @brief Prints CLI help generated from the declarative option table plus runtime controls. */
     static void PrintHelp(std::string_view programName);
 
-    /**
-     * @brief Prints version information.
-     */
+    /** @brief Prints engine and viewer version information. */
     static void PrintVersion();
 
-    /**
-     * @brief Prints supported texture and asset formats.
-     */
+    /** @brief Prints compiled asset, texture, font, and audio support. */
     static void PrintFormats();
 };
 

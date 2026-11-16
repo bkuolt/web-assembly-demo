@@ -48,8 +48,8 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     pipelineManager_.SetLodEnabled(config.enableLod);
     pipelineManager_.SetAutoLodEnabled(config.enableAutoLod);
     pipelineManager_.SetLodBias(config.lodBias);
-    pipelineManager_.SetDebugViewMode(config.debugViewMode);
-    pipelineManager_.SetWeatherMode(config.weatherMode);
+    pipelineManager_.SetDebugViewMode(static_cast<gpu::DebugViewMode>(config.debugViewMode));
+    pipelineManager_.SetWeatherMode(static_cast<gpu::WeatherMode>(config.weatherMode));
     pipelineManager_.SetWeatherIntensity(config.weatherIntensity);
     pipelineManager_.SetWindStrength(config.windStrength);
     dayNightCycleActive_ = config.enableDayNightCycle;
