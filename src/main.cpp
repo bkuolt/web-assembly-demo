@@ -445,7 +445,6 @@ int main() {
 #include "app/CommandLine.hpp"
 #include "core/CrashHandler.hpp"
 #include <chrono>
-#include <thread>
 
 int main(int argc, char** argv) {
     // 1. Install crash signal handling immediately

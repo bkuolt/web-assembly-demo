@@ -370,14 +370,14 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
     passDesc.label = ToWgpuStringView("DirectionalShadowDepthPass");
     passDesc.depthStencilAttachment = &depthAttachment;
 
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+    RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &passDesc)};
     if (!pass) {
         return;
     }
 
     WGPUBuffer instBuf{instanceBuffer_.GetBuffer()};
     if (!drawItemsScratch_.empty() && perDrawBg && instBuf) {
-        wgpuRenderPassEncoderSetPipeline(pass, shadowPipeline_);
+        wgpuRenderPassEncoderSetPipeline(pass.Get(), shadowPipeline_.Get());
 
         WGPUBindGroup boundMatBg{nullptr};
         WGPUBindGroup boundSkinBg{nullptr};
@@ -388,21 +388,22 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
 
         for (const auto& draw : drawItemsScratch_) {
             const scene::MeshPrimitive* prim = draw.prim;
-            wgpuRenderPassEncoderSetBindGroup(pass, 0, perDrawBg, 1, &draw.dynamicOffset);
+            wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, perDrawBg, 1, &draw.dynamicOffset);
             if (prim->gpuBindGroup != boundMatBg) {
-                wgpuRenderPassEncoderSetBindGroup(pass, 1, prim->gpuBindGroup, 0, nullptr);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 1, prim->gpuBindGroup, 0, nullptr);
                 boundMatBg = prim->gpuBindGroup;
             }
             if (draw.skinBindGroup != boundSkinBg) {
-                wgpuRenderPassEncoderSetBindGroup(pass, 2, draw.skinBindGroup, 0, nullptr);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 2, draw.skinBindGroup, 0, nullptr);
                 boundSkinBg = draw.skinBindGroup;
             }
             if (prim->gpuVertexBuffer != boundVb) {
-                wgpuRenderPassEncoderSetVertexBuffer(pass, 0, prim->gpuVertexBuffer, 0, prim->gpuVertexBufferSize);
+                wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 0, prim->gpuVertexBuffer, 0,
+                                                     prim->gpuVertexBufferSize);
                 boundVb = prim->gpuVertexBuffer;
             }
             if (draw.instanceStart != boundInstStart || draw.instanceCount != boundInstCount) {
-                wgpuRenderPassEncoderSetVertexBuffer(pass, 1, instBuf,
+                wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 1, instBuf,
                                                      DynamicInstanceBuffer::GetByteOffset(draw.instanceStart),
                                                      DynamicInstanceBuffer::GetSliceSize(draw.instanceCount));
                 boundInstStart = draw.instanceStart;
@@ -412,19 +413,20 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
             if (prim->gpuIndexBuffer && !prim->indices.empty()) {
                 const auto slice = prim->GetLodSlice(1u);
                 if (prim->gpuIndexBuffer != boundIb) {
-                    wgpuRenderPassEncoderSetIndexBuffer(pass, prim->gpuIndexBuffer, prim->indexFormat, 0,
+                    wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), prim->gpuIndexBuffer, prim->indexFormat, 0,
                                                         prim->gpuIndexBufferSize);
                     boundIb = prim->gpuIndexBuffer;
                 }
-                wgpuRenderPassEncoderDrawIndexed(pass, slice.indexCount, draw.instanceCount, slice.firstIndex, 0, 0);
+                wgpuRenderPassEncoderDrawIndexed(pass.Get(), slice.indexCount, draw.instanceCount, slice.firstIndex, 0,
+                                                 0);
             } else {
-                wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(prim->vertices.size()), draw.instanceCount, 0, 0);
+                wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(prim->vertices.size()), draw.instanceCount,
+                                          0, 0);
             }
         }
     }
 
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
+    wgpuRenderPassEncoderEnd(pass.Get());
 
     dirty_ = false;
     cleared_ = false;

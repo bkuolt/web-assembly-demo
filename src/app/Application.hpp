@@ -18,6 +18,7 @@
 #include "scene/Scene.hpp"
 #include "ui/DebugOverlay.hpp"
 #include "ui/ImmediateUI.hpp"
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
@@ -356,6 +357,9 @@ private:
     void CacheSceneMetrics();
     void UpdateSettingsUI();
     void PollShaderHotReload(float deltaTime);
+#if defined(BGL_PLATFORM_NATIVE)
+    void HandleKeyDown(int32_t keySym, uint16_t keyMod);
+#endif
 
     bool running_{false};
     bool showBoundingBoxes_{true};

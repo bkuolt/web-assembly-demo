@@ -1,16 +1,16 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v0.9.18)
+# WebAssembly and WebGPU Demo (bgl-Engine v1.0.0)
 
 # 🎮 **[👉 RUN LIVE DEMO IN BROWSER (Instant GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-318_Passing-22c55e?style=for-the-badge)](tests/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.18-f59e0b?style=for-the-badge)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](assets/sponza_screenshot.png)
-*Crytek Sponza Atrium (`assets/Sponza.glb`, 103 primitives, 69 PBR textures, 262,267 triangles) rendered in real time by **bgl-Engine v0.9.18** with Cook-Torrance GGX PBR, 16× Anisotropic Mipmapping, MikkTSpace Normal & Bump Mapping, Parallax Occlusion Mapping (POM), and Multi-Level Mesh & Shader LOD (`LOD0`–`LOD3`).*
+*Crytek Sponza Atrium (`assets/Sponza.glb`, 103 primitives, 69 PBR textures, 262,267 triangles) rendered in real time by **bgl-Engine v1.0.0** with Cook-Torrance GGX PBR, 16× Anisotropic Mipmapping, MikkTSpace Normal & Bump Mapping, Parallax Occlusion Mapping (POM), and Multi-Level Mesh & Shader LOD (`LOD0`–`LOD3`).*
 
 > **🚀 Live Web Application (Run Directly in Browser):**
 > - **Direct Live Preview (GitHack, Instant):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
@@ -138,7 +138,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 .
 ├── CMakeLists.txt                 # Modern target-based CMake configuration (C++23)
 ├── CMakePresets.json              # Release, Clang, ASan, UBSan & TSan build/test presets
-├── CHANGELOG.md                   # Complete release history (v0.6.0 -> v0.9.18)
+├── CHANGELOG.md                   # Complete release history (v0.6.0 -> v1.0.0)
 ├── Taskfile.yml                   # Developer workflow tasks (format, lint, build, test, web)
 ├── conanfile.py                   # Conan 2.x package recipe
 ├── conan.lock                     # Deterministic dependency lockfile
@@ -417,7 +417,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with all arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `0.9.18` |
+| `-v`, `--version` | — | Print engine version string | `1.0.0` |
 | `--formats` | — | Query compiled texture decoders and `libcurl` streaming availability | — |
 | `-a`, `--asset` | `<path\|url>` | Load specified `.glb` or `.gltf` model from local path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
@@ -442,10 +442,13 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 - **L Key**: Toggle Texture Mipmapping (`16x Anisotropic Trilinear` vs `Base Mip 0`).
 - **M Key**: Toggle Directional Shadow Mapping (`2048x2048 3x3 PCF Soft Shadows`).
 - **R Key**: Toggle Environment Cubemap Reflections (`Pre-filtered Roughness Cubemap IBL`).
-- **C Key**: Toggle Quadtree Hierarchical Occlusion Culling (`Front-to-Back Hi-Z + Sub-Pixel`).
+- **H Key**: Toggle Quadtree Hierarchical Occlusion Culling (`Front-to-Back Hi-Z + Sub-Pixel`).
+- **C Key**: Toggle Camera Mode (`Orbit` / `First-Person Fly`).
+- **T Key**: Toggle Turntable Autorotation.
+- **X Key**: Cycle HDR Tonemapper (`Khronos PBR Neutral` / `AgX` / `ACES`).
 - **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs (Gold for scene root, Cyan for mesh primitives).
 - **Q Key**: Toggle 3D Quadtree spatial ground partition boundaries (Emerald green).
-- **K Key**: Toggle Procedural Atmospheric Skybox with solar corona.
+- **K Key**: Cycle Procedural Atmospheric Skybox mode (`Sharp` / `Blurred` / `Hidden`).
 - **O / F3 Key**: Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay HUD.
 - **File & URL Drag-and-Drop**: Drop any local `.glb`/`.gltf` file or HTTP/HTTPS URL link directly onto the window.
 - **ESC**: Exit viewer.
@@ -518,7 +521,10 @@ The engine includes an extensive, production-grade test suite with **246 C++ GTe
 
 ## Changelog & Release History
 
-See [**CHANGELOG.md**](CHANGELOG.md) for the complete, retroactive version history from `v0.6.0` through `v0.6.8` and the latest rendering pipeline additions:
+See [**CHANGELOG.md**](CHANGELOG.md) for the complete version history from `v0.6.0` through **`v1.0.0`**:
+
+- **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Official 1.0 production release — complete RAII `Handle<>` WebGPU resource lifecycle across all GPU passes, decomposed `FastGltfLoader` / `PipelineManager` / `Application` subsystems, consolidated swapchain and attachment helpers, zero compiler or `clang-tidy` warnings, and verified cross-compiler/sanitizer/browser E2E parity.
+- **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular external `.wgsl` shader pipeline with `#include`/`#pragma once` and live hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and upgraded Conan 2 dependencies.
 
 - **[Unreleased / 0.7.0](CHANGELOG.md#unreleased--070---2026-10-22)**: Bump & Normal Mapping (`[V]`), Vector-Renormalized Mipmapping (`[L]`), 2048×2048 3×3 PCF Directional Shadow Mapping (`[M]`), 6-Face Roughness Environment Cubemap Reflections (`[R]`), C++23 `{}` uniform initialization, `std::span` APIs, and multithreaded CPU mip/cubemap/tangent generation.
 - **[0.6.8](CHANGELOG.md#068---2026-10-22)**: Per-format CMake options, POSIX crash signal handler with C++23 `std::stacktrace`, desktop CLI parser, batched single-draw AABB wireframes, Quadtree loose-bounds culling fix, minimal web zip packager, and 1 GB megacity stress test.

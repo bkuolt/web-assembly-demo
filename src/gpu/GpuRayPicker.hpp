@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 #include "scene/Scene.hpp"
 #include <glm/glm.hpp>
 #include <optional>
@@ -62,14 +63,14 @@ private:
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
-    WGPUComputePipeline computePipeline_{nullptr};
-    WGPUComputePipeline resolvePipeline_{nullptr};
-    WGPUPipelineLayout pipelineLayout_{nullptr};
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
-    WGPUBindGroup bindGroup_{nullptr};
+    ComputePipelineHandle computePipeline_{};
+    ComputePipelineHandle resolvePipeline_{};
+    PipelineLayoutHandle pipelineLayout_{};
+    BindGroupLayoutHandle bindGroupLayout_{};
+    BindGroupHandle bindGroup_{};
 
-    WGPUBuffer uniformBuffer_{nullptr};
-    WGPUBuffer resultBuffer_{nullptr};
+    BufferHandle uniformBuffer_{};
+    BufferHandle resultBuffer_{};
     WGPUBuffer cachedBoundsBuffer_{nullptr};
     uint32_t cachedPrimitiveCount_{0};
 };

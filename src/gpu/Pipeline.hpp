@@ -535,6 +535,10 @@ private:
         uint32_t instanceCount{1};
     };
 
+    core::Result<void> CreateSharedBindGroupLayouts();
+    core::Result<void> CreateDummyStorageBuffers();
+    void CreateSamplersAndLightingBuffer();
+    void CreateFallbackTextures();
     void InitializeComputeIBLPipelines();
     void InitMipGenPipelines();
     core::Result<void> CreateMainRenderPipelines(bool validateScope);

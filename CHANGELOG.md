@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-11-16
+
+### Official 1.0.0 Release — Production Hardening, RAII Uniformity & Architecture Polish
+- **Uniform RAII WebGPU Handle Lifecycle & Dead-Code Removal (`src/gpu/`):**
+  - Migrated all remaining raw owning WebGPU handles and pass encoders in [`PostProcessPass`](src/gpu/PostProcessPass.hpp), [`GpuRayPicker`](src/gpu/GpuRayPicker.hpp), [`GpuCuller`](src/gpu/GpuCuller.hpp), and [`ShadowPass`](src/gpu/ShadowPass.cpp) to zero-overhead RAII `Handle<>` wrappers (`Handle.hpp`), eliminating manual `wgpu*Release` boilerplate and guaranteeing leak-free move/shutdown semantics.
+  - Removed the unused `tonemapVertexBuffer_` member from `PostProcessPass` and consolidated tracked storage buffer reallocation in `GpuCuller` via `FreeTrackedBuffer` / `RecreateTrackedBuffer`.
+- **Swapchain & Render-Pass Helper Consolidation (`src/gpu/Context.cpp`):**
+  - Extracted `ConfigureSwapchainSurface()`, `CreateRenderTarget()`, `BuildHdrColorAttachment()`, and `EndAndReleasePass()` helpers, removing 3x duplicated surface configuration blocks and duplicated MSAA/resolve attachment branches across `BeginFrame()`, `BeginTransparentPass()`, `BeginPostProcessPass()`, and `EndFrame()`.
+- **Clean Subsystem Decomposition & Modernization (`src/scene/`, `src/gpu/`, `src/app/`):**
+  - Decomposed the 1,000-line `FastGltfLoader::ParseAndAssembleScene()` into focused stages (`ResolveExternalBuffers`, `DecodeImagesAndTextures`, `ParseMaterialsAndLogStructure`, `ParsePunctualLights`, `ParseMeshesAndGenerateLods`, `BuildSceneHierarchy`, `ParseCamerasSkinsAndAnimations`, `LogSceneSummary`) and removed redundant single-use lambdas in `PipelineManager::GenerateNextMipLevel()`.
+  - Decomposed `PipelineManager::Initialize()` into `CreateSharedBindGroupLayouts()`, `CreateDummyStorageBuffers()`, `CreateSamplersAndLightingBuffer()`, and `CreateFallbackTextures()` with consistent rollback via `Shutdown()` on initialization failure.
+  - Extracted `Application::HandleKeyDown()` using a clean `switch` dispatch, replaced `std::snprintf` in `Application::UpdateSettingsUI()` with C++23 `std::format`, and pruned unused standard headers across `Pipeline*.cpp`, `FastGltfLoader.cpp`, `Scene.cpp`, and `main.cpp`.
+- **Documentation & Version Alignment (`CMakeLists.txt`, `conanfile.py`, `src/core/Version.hpp`, `README.md`, `AGENT_INSTRUCTIONS.md`, `web/`):**
+  - Elevated engine version to `1.0.0` across CMake, Conan, WASM metadata, web HUD/console banner, and documentation, and aligned hotkey documentation in `README.md` and `AGENT_INSTRUCTIONS.md` with `Application::HandleKeyDown()`.
+
+---
+
 ## [0.9.18] - 2026-11-16
 
 ### Modular WGSL Shader Pipeline, Transparent/Transmission Pass, Hardware GPU Instancing & Quality Hardening

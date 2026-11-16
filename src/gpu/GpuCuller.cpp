@@ -14,6 +14,34 @@
 
 namespace bgl::gpu {
 
+namespace {
+
+void FreeTrackedBuffer(BufferHandle& buffer, size_t& trackedBytes) noexcept {
+    if (buffer) {
+        core::MemoryTracker::Instance().TrackBufferFree(trackedBytes);
+        buffer.Reset();
+    }
+    trackedBytes = 0;
+}
+
+bool RecreateTrackedBuffer(WGPUDevice device, BufferHandle& buffer, size_t& trackedBytes, size_t newBytes,
+                           WGPUBufferUsage usage, const char* label) {
+    FreeTrackedBuffer(buffer, trackedBytes);
+    WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    desc.size = newBytes;
+    desc.usage = usage;
+    desc.label = ToWgpuStringView(label);
+    buffer = wgpuDeviceCreateBuffer(device, &desc);
+    if (!buffer) {
+        return false;
+    }
+    trackedBytes = newBytes;
+    core::MemoryTracker::Instance().TrackBufferAlloc(trackedBytes);
+    return true;
+}
+
+} // namespace
+
 GpuCuller::~GpuCuller() {
     Shutdown();
 }
@@ -33,15 +61,15 @@ GpuCuller& GpuCuller::operator=(GpuCuller&& other) noexcept {
 void GpuCuller::MoveFrom(GpuCuller& other) noexcept {
     device_ = std::exchange(other.device_, nullptr);
     queue_ = std::exchange(other.queue_, nullptr);
-    computePipeline_ = std::exchange(other.computePipeline_, nullptr);
-    pipelineLayout_ = std::exchange(other.pipelineLayout_, nullptr);
-    bindGroupLayout_ = std::exchange(other.bindGroupLayout_, nullptr);
-    bindGroup_ = std::exchange(other.bindGroup_, nullptr);
-    uniformBuffer_ = std::exchange(other.uniformBuffer_, nullptr);
-    boundsStorageBuffer_ = std::exchange(other.boundsStorageBuffer_, nullptr);
-    visibilityStorageBuffer_ = std::exchange(other.visibilityStorageBuffer_, nullptr);
-    atomicCounterBuffer_ = std::exchange(other.atomicCounterBuffer_, nullptr);
-    indirectArgsBuffer_ = std::exchange(other.indirectArgsBuffer_, nullptr);
+    computePipeline_ = std::move(other.computePipeline_);
+    pipelineLayout_ = std::move(other.pipelineLayout_);
+    bindGroupLayout_ = std::move(other.bindGroupLayout_);
+    bindGroup_ = std::move(other.bindGroup_);
+    uniformBuffer_ = std::move(other.uniformBuffer_);
+    boundsStorageBuffer_ = std::move(other.boundsStorageBuffer_);
+    visibilityStorageBuffer_ = std::move(other.visibilityStorageBuffer_);
+    atomicCounterBuffer_ = std::move(other.atomicCounterBuffer_);
+    indirectArgsBuffer_ = std::move(other.indirectArgsBuffer_);
     primitiveCount_ = std::exchange(other.primitiveCount_, 0);
     boundsBufferSize_ = std::exchange(other.boundsBufferSize_, 0);
     visibilityBufferSize_ = std::exchange(other.visibilityBufferSize_, 0);
@@ -51,53 +79,24 @@ void GpuCuller::MoveFrom(GpuCuller& other) noexcept {
 }
 
 void GpuCuller::Shutdown() noexcept {
-    if (bindGroup_) {
-        wgpuBindGroupRelease(bindGroup_);
-        bindGroup_ = nullptr;
-    }
-    if (indirectArgsBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(indirectArgsBufferSize_);
-        wgpuBufferRelease(indirectArgsBuffer_);
-        indirectArgsBuffer_ = nullptr;
-    }
+    bindGroup_.Reset();
+    FreeTrackedBuffer(indirectArgsBuffer_, indirectArgsBufferSize_);
     if (atomicCounterBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(uint32_t));
-        wgpuBufferRelease(atomicCounterBuffer_);
-        atomicCounterBuffer_ = nullptr;
+        atomicCounterBuffer_.Reset();
     }
-    if (visibilityStorageBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(visibilityBufferSize_);
-        wgpuBufferRelease(visibilityStorageBuffer_);
-        visibilityStorageBuffer_ = nullptr;
-    }
-    if (boundsStorageBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
-        wgpuBufferRelease(boundsStorageBuffer_);
-        boundsStorageBuffer_ = nullptr;
-    }
+    FreeTrackedBuffer(visibilityStorageBuffer_, visibilityBufferSize_);
+    FreeTrackedBuffer(boundsStorageBuffer_, boundsBufferSize_);
     if (uniformBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(GpuCullUniforms));
-        wgpuBufferRelease(uniformBuffer_);
-        uniformBuffer_ = nullptr;
+        uniformBuffer_.Reset();
     }
-    if (computePipeline_) {
-        wgpuComputePipelineRelease(computePipeline_);
-        computePipeline_ = nullptr;
-    }
-    if (pipelineLayout_) {
-        wgpuPipelineLayoutRelease(pipelineLayout_);
-        pipelineLayout_ = nullptr;
-    }
-    if (bindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(bindGroupLayout_);
-        bindGroupLayout_ = nullptr;
-    }
+    computePipeline_.Reset();
+    pipelineLayout_.Reset();
+    bindGroupLayout_.Reset();
     cpuBounds_.clear();
     cpuIndirectArgs_.clear();
     primitiveCount_ = 0;
-    boundsBufferSize_ = 0;
-    visibilityBufferSize_ = 0;
-    indirectArgsBufferSize_ = 0;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -108,19 +107,16 @@ core::Result<void> GpuCuller::CreateComputePipeline(WGPUShaderModule shaderModul
     }
 
     WGPUComputePipelineDescriptor cpDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
-    cpDesc.layout = pipelineLayout_;
+    cpDesc.layout = pipelineLayout_.Get();
     cpDesc.compute.module = shaderModule;
     cpDesc.compute.entryPoint = ToWgpuStringView("cs_cull");
     cpDesc.label = ToWgpuStringView("GpuCull_ComputePipeline");
 
-    WGPUComputePipeline nextPipe = wgpuDeviceCreateComputePipeline(device_, &cpDesc);
+    ComputePipelineHandle nextPipe{wgpuDeviceCreateComputePipeline(device_, &cpDesc)};
     if (!nextPipe) {
         return std::unexpected("Failed to create GPU culler compute pipeline");
     }
-    if (computePipeline_) {
-        wgpuComputePipelineRelease(computePipeline_);
-    }
-    computePipeline_ = nextPipe;
+    computePipeline_ = std::move(nextPipe);
     return {};
 }
 
@@ -199,9 +195,10 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
     }
 
     // 3. Compute Pipeline Layout & Pipeline
+    const WGPUBindGroupLayout bglRaw{bindGroupLayout_.Get()};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &bindGroupLayout_;
+    plDesc.bindGroupLayouts = &bglRaw;
     plDesc.label = ToWgpuStringView("GpuCull_PipelineLayout");
     pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
     if (!pipelineLayout_) {
@@ -303,111 +300,66 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     if (neededBytes > boundsBufferSize_ || visNeededBytes > visibilityBufferSize_ ||
         indirectNeededBytes > indirectArgsBufferSize_ || !boundsStorageBuffer_ || !visibilityStorageBuffer_ ||
         !indirectArgsBuffer_ || !bindGroup_) {
-        if (boundsStorageBuffer_) {
-            core::MemoryTracker::Instance().TrackBufferFree(boundsBufferSize_);
-            wgpuBufferRelease(boundsStorageBuffer_);
-            boundsStorageBuffer_ = nullptr;
-            boundsBufferSize_ = 0;
-        }
-        if (visibilityStorageBuffer_) {
-            core::MemoryTracker::Instance().TrackBufferFree(visibilityBufferSize_);
-            wgpuBufferRelease(visibilityStorageBuffer_);
-            visibilityStorageBuffer_ = nullptr;
-            visibilityBufferSize_ = 0;
-        }
-        if (indirectArgsBuffer_) {
-            core::MemoryTracker::Instance().TrackBufferFree(indirectArgsBufferSize_);
-            wgpuBufferRelease(indirectArgsBuffer_);
-            indirectArgsBuffer_ = nullptr;
-            indirectArgsBufferSize_ = 0;
-        }
-
         const size_t newBoundsSize = std::max(neededBytes * 2, size_t{64 * 1024});
-        WGPUBufferDescriptor bDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        bDesc.size = newBoundsSize;
-        bDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-        bDesc.label = ToWgpuStringView("GpuCull_BoundsStorage");
-        boundsStorageBuffer_ = wgpuDeviceCreateBuffer(device_, &bDesc);
-        if (!boundsStorageBuffer_) {
-            primitiveCount_ = 0;
-            return;
-        }
-        boundsBufferSize_ = newBoundsSize;
-        core::MemoryTracker::Instance().TrackBufferAlloc(boundsBufferSize_);
-
         const size_t newVisSize = std::max(visNeededBytes * 2, size_t{16 * 1024});
-        WGPUBufferDescriptor vDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        vDesc.size = newVisSize;
-        vDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
-        vDesc.label = ToWgpuStringView("GpuCull_VisibilityStorage");
-        visibilityStorageBuffer_ = wgpuDeviceCreateBuffer(device_, &vDesc);
-        if (!visibilityStorageBuffer_) {
-            primitiveCount_ = 0;
-            return;
-        }
-        visibilityBufferSize_ = newVisSize;
-        core::MemoryTracker::Instance().TrackBufferAlloc(visibilityBufferSize_);
-
         const size_t newIndirectSize = std::max(indirectNeededBytes * 2, size_t{32 * 1024});
-        WGPUBufferDescriptor iDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        iDesc.size = newIndirectSize;
-        iDesc.usage =
-            WGPUBufferUsage_Storage | WGPUBufferUsage_Indirect | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
-        iDesc.label = ToWgpuStringView("GpuCull_IndirectArgs");
-        indirectArgsBuffer_ = wgpuDeviceCreateBuffer(device_, &iDesc);
-        if (!indirectArgsBuffer_) {
+
+        if (!RecreateTrackedBuffer(device_, boundsStorageBuffer_, boundsBufferSize_, newBoundsSize,
+                                   WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst, "GpuCull_BoundsStorage") ||
+            !RecreateTrackedBuffer(device_, visibilityStorageBuffer_, visibilityBufferSize_, newVisSize,
+                                   WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc,
+                                   "GpuCull_VisibilityStorage") ||
+            !RecreateTrackedBuffer(device_, indirectArgsBuffer_, indirectArgsBufferSize_, newIndirectSize,
+                                   WGPUBufferUsage_Storage | WGPUBufferUsage_Indirect | WGPUBufferUsage_CopyDst |
+                                       WGPUBufferUsage_CopySrc,
+                                   "GpuCull_IndirectArgs")) {
             primitiveCount_ = 0;
             return;
         }
-        indirectArgsBufferSize_ = newIndirectSize;
-        core::MemoryTracker::Instance().TrackBufferAlloc(indirectArgsBufferSize_);
 
-        if (bindGroup_) {
-            wgpuBindGroupRelease(bindGroup_);
-            bindGroup_ = nullptr;
-        }
+        bindGroup_.Reset();
 
         std::array<WGPUBindGroupEntry, 5> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[0].binding = 0;
-        bgEntries[0].buffer = uniformBuffer_;
+        bgEntries[0].buffer = uniformBuffer_.Get();
         bgEntries[0].offset = 0;
         bgEntries[0].size = sizeof(GpuCullUniforms);
 
         bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[1].binding = 1;
-        bgEntries[1].buffer = boundsStorageBuffer_;
+        bgEntries[1].buffer = boundsStorageBuffer_.Get();
         bgEntries[1].offset = 0;
         bgEntries[1].size = boundsBufferSize_;
 
         bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[2].binding = 2;
-        bgEntries[2].buffer = visibilityStorageBuffer_;
+        bgEntries[2].buffer = visibilityStorageBuffer_.Get();
         bgEntries[2].offset = 0;
         bgEntries[2].size = visibilityBufferSize_;
 
         bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[3].binding = 3;
-        bgEntries[3].buffer = atomicCounterBuffer_;
+        bgEntries[3].buffer = atomicCounterBuffer_.Get();
         bgEntries[3].offset = 0;
         bgEntries[3].size = sizeof(uint32_t);
 
         bgEntries[4] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[4].binding = 4;
-        bgEntries[4].buffer = indirectArgsBuffer_;
+        bgEntries[4].buffer = indirectArgsBuffer_.Get();
         bgEntries[4].offset = 0;
         bgEntries[4].size = indirectArgsBufferSize_;
 
         WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        bgDesc.layout = bindGroupLayout_;
+        bgDesc.layout = bindGroupLayout_.Get();
         bgDesc.entryCount = bgEntries.size();
         bgDesc.entries = bgEntries.data();
         bgDesc.label = ToWgpuStringView("GpuCull_BindGroup");
         bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
     }
 
-    wgpuQueueWriteBuffer(queue_, boundsStorageBuffer_, 0, cpuBounds_.data(), neededBytes);
-    wgpuQueueWriteBuffer(queue_, indirectArgsBuffer_, 0, cpuIndirectArgs_.data(), indirectNeededBytes);
+    wgpuQueueWriteBuffer(queue_, boundsStorageBuffer_.Get(), 0, cpuBounds_.data(), neededBytes);
+    wgpuQueueWriteBuffer(queue_, indirectArgsBuffer_.Get(), 0, cpuIndirectArgs_.data(), indirectNeededBytes);
 }
 
 void GpuCuller::Dispatch(WGPUCommandEncoder encoder, const core::Frustum& frustum) {
@@ -420,23 +372,22 @@ void GpuCuller::Dispatch(WGPUCommandEncoder encoder, const core::Frustum& frustu
     }
     uniforms.primitiveCount = static_cast<uint32_t>(primitiveCount_);
 
-    wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &uniforms, sizeof(uniforms));
+    wgpuQueueWriteBuffer(queue_, uniformBuffer_.Get(), 0, &uniforms, sizeof(uniforms));
     const uint32_t zeroCount = 0;
-    wgpuQueueWriteBuffer(queue_, atomicCounterBuffer_, 0, &zeroCount, sizeof(uint32_t));
+    wgpuQueueWriteBuffer(queue_, atomicCounterBuffer_.Get(), 0, &zeroCount, sizeof(uint32_t));
 
     WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     cpDesc.label = ToWgpuStringView("GpuCull_Pass");
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &cpDesc);
+    ComputePassEncoderHandle pass{wgpuCommandEncoderBeginComputePass(encoder, &cpDesc)};
     if (!pass)
         return;
 
-    wgpuComputePassEncoderSetPipeline(pass, computePipeline_);
-    wgpuComputePassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
+    wgpuComputePassEncoderSetPipeline(pass.Get(), computePipeline_.Get());
+    wgpuComputePassEncoderSetBindGroup(pass.Get(), 0, bindGroup_.Get(), 0, nullptr);
 
     const uint32_t workgroups = static_cast<uint32_t>((primitiveCount_ + 63) / 64);
-    wgpuComputePassEncoderDispatchWorkgroups(pass, workgroups, 1, 1);
-    wgpuComputePassEncoderEnd(pass);
-    wgpuComputePassEncoderRelease(pass);
+    wgpuComputePassEncoderDispatchWorkgroups(pass.Get(), workgroups, 1, 1);
+    wgpuComputePassEncoderEnd(pass.Get());
 }
 
 } // namespace bgl::gpu

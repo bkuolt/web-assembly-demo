@@ -5,27 +5,17 @@
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "core/ThreadPool.hpp"
-#include "gpu/DrawHelpers.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/PipelineHelpers.hpp"
-#include "gpu/ShaderManager.hpp"
-#include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
 #include "scene/TextureDecoder.hpp"
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <bit>
 #include <cmath>
 #include <cstring>
-#include <iterator>
 #include <memory_resource>
 #include <span>
 #include <utility>
-#if !defined(__EMSCRIPTEN__)
-#include <thread>
-#endif
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::gpu {
 using namespace detail;

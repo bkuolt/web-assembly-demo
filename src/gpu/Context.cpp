@@ -40,6 +40,70 @@ namespace {
     return chosen;
 }
 
+void ConfigureSwapchainSurface(WGPUSurface surface, WGPUAdapter adapter, WGPUDevice device, WGPUTextureFormat format,
+                               uint32_t width, uint32_t height) {
+    WGPUSurfaceConfiguration configSurface = {};
+    configSurface.device = device;
+    configSurface.format = format;
+    configSurface.usage = WGPUTextureUsage_RenderAttachment;
+    configSurface.width = width;
+    configSurface.height = height;
+    configSurface.presentMode = SelectPresentMode(surface, adapter);
+    configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
+    wgpuSurfaceConfigure(surface, &configSurface);
+}
+
+void CreateRenderTarget(WGPUDevice device, uint32_t width, uint32_t height, WGPUTextureFormat format,
+                        WGPUTextureUsage usage, uint32_t sampleCount, const char* label, TextureHandle& outTexture,
+                        TextureViewHandle& outView) {
+    WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    desc.usage = usage;
+    desc.dimension = WGPUTextureDimension_2D;
+    desc.size = WGPUExtent3D{width, height, 1};
+    desc.format = format;
+    desc.mipLevelCount = 1;
+    desc.sampleCount = sampleCount;
+    desc.label = ToWgpuStringView(label);
+    outTexture = wgpuDeviceCreateTexture(device, &desc);
+    if (outTexture) {
+        outView = wgpuTextureCreateView(outTexture.Get(), nullptr);
+    }
+}
+
+[[nodiscard]] WGPURenderPassColorAttachment BuildHdrColorAttachment(uint32_t sampleCount, WGPUTextureView msaaView,
+                                                                    WGPUTextureView hdrResolveView,
+                                                                    WGPUTextureView swapchainView, WGPULoadOp loadOp,
+                                                                    bool preserveMsaa) noexcept {
+    WGPURenderPassColorAttachment attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    if (sampleCount > 1 && msaaView && hdrResolveView) {
+        attachment.view = msaaView;
+        attachment.resolveTarget = hdrResolveView;
+        attachment.storeOp = preserveMsaa ? WGPUStoreOp_Store : WGPUStoreOp_Discard;
+    } else if (hdrResolveView) {
+        attachment.view = hdrResolveView;
+        attachment.resolveTarget = nullptr;
+        attachment.storeOp = WGPUStoreOp_Store;
+    } else if (sampleCount > 1 && msaaView) {
+        attachment.view = msaaView;
+        attachment.resolveTarget = swapchainView;
+        attachment.storeOp = WGPUStoreOp_Discard;
+    } else {
+        attachment.view = swapchainView;
+        attachment.resolveTarget = nullptr;
+        attachment.storeOp = WGPUStoreOp_Store;
+    }
+    attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    attachment.loadOp = loadOp;
+    return attachment;
+}
+
+void EndAndReleasePass(WGPURenderPassEncoder pass) noexcept {
+    if (pass) {
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+    }
+}
+
 } // namespace
 #endif
 
@@ -86,48 +150,19 @@ void Context::CreateRenderBuffers() {
 
     // 1. Create 4x MSAA Linear HDR (RGBA16Float) Color Texture & View
     if (sampleCount_ > 1) {
-        WGPUTextureDescriptor msaaDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-        msaaDesc.usage = WGPUTextureUsage_RenderAttachment;
-        msaaDesc.dimension = WGPUTextureDimension_2D;
-        msaaDesc.size = WGPUExtent3D{width_, height_, 1};
-        msaaDesc.format = WGPUTextureFormat_RGBA16Float;
-        msaaDesc.mipLevelCount = 1;
-        msaaDesc.sampleCount = sampleCount_;
-        msaaDesc.label = ToWgpuStringView("HDR_MSAAColorTexture_RGBA16F");
-        msaaColorTexture_ = wgpuDeviceCreateTexture(device_, &msaaDesc);
-        if (msaaColorTexture_) {
-            msaaColorView_ = wgpuTextureCreateView(msaaColorTexture_, nullptr);
-        }
+        CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_RGBA16Float,
+                           WGPUTextureUsage_RenderAttachment, sampleCount_, "HDR_MSAAColorTexture_RGBA16F",
+                           msaaColorTexture_, msaaColorView_);
     }
 
     // 1b. Create 1x Linear HDR (RGBA16Float) Resolve & Sampled Texture for Tonemapping Post-Process
-    WGPUTextureDescriptor hdrResolveDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    hdrResolveDesc.usage =
-        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
-    hdrResolveDesc.dimension = WGPUTextureDimension_2D;
-    hdrResolveDesc.size = WGPUExtent3D{width_, height_, 1};
-    hdrResolveDesc.format = WGPUTextureFormat_RGBA16Float;
-    hdrResolveDesc.mipLevelCount = 1;
-    hdrResolveDesc.sampleCount = 1;
-    hdrResolveDesc.label = ToWgpuStringView("HDR_ResolveTexture_RGBA16F");
-    hdrResolveTexture_ = wgpuDeviceCreateTexture(device_, &hdrResolveDesc);
-    if (hdrResolveTexture_) {
-        hdrResolveView_ = wgpuTextureCreateView(hdrResolveTexture_, nullptr);
-    }
+    CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_RGBA16Float,
+                       WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc,
+                       1, "HDR_ResolveTexture_RGBA16F", hdrResolveTexture_, hdrResolveView_);
 
     // 2. Create Depth Buffer (with matching sample count)
-    WGPUTextureDescriptor depthDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    depthDesc.usage = WGPUTextureUsage_RenderAttachment;
-    depthDesc.dimension = WGPUTextureDimension_2D;
-    depthDesc.size = WGPUExtent3D{width_, height_, 1};
-    depthDesc.format = WGPUTextureFormat_Depth24Plus;
-    depthDesc.mipLevelCount = 1;
-    depthDesc.sampleCount = sampleCount_;
-    depthDesc.label = ToWgpuStringView("DepthBuffer");
-    depthTexture_ = wgpuDeviceCreateTexture(device_, &depthDesc);
-    if (depthTexture_) {
-        depthView_ = wgpuTextureCreateView(depthTexture_, nullptr);
-    }
+    CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_Depth24Plus, WGPUTextureUsage_RenderAttachment,
+                       sampleCount_, "DepthBuffer", depthTexture_, depthView_);
 
     BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_,
                  height_, sampleCount_);
@@ -332,16 +367,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         }
         wgpuSurfaceCapabilitiesFreeMembers(caps);
 
-        WGPUSurfaceConfiguration configSurface = {};
-        configSurface.device = device_;
-        configSurface.format = format_;
-        configSurface.usage = WGPUTextureUsage_RenderAttachment;
-        configSurface.width = width_;
-        configSurface.height = height_;
-        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
-        configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
-
-        wgpuSurfaceConfigure(surface_, &configSurface);
+        ConfigureSwapchainSurface(surface_.Get(), adapter_.Get(), device_.Get(), format_, width_, height_);
         BGL_LOG_INFO("WebGPU Surface configured ({}x{}, format: {})", width_, height_, static_cast<int>(format_));
     }
 
@@ -360,15 +386,7 @@ void Context::Resize(uint32_t width, uint32_t height) {
     height_ = height;
 #if defined(BGL_PLATFORM_NATIVE)
     if (surface_ && device_ && adapter_) {
-        WGPUSurfaceConfiguration configSurface = {};
-        configSurface.device = device_;
-        configSurface.format = format_;
-        configSurface.usage = WGPUTextureUsage_RenderAttachment;
-        configSurface.width = width_;
-        configSurface.height = height_;
-        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
-        configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
-        wgpuSurfaceConfigure(surface_, &configSurface);
+        ConfigureSwapchainSurface(surface_.Get(), adapter_.Get(), device_.Get(), format_, width_, height_);
     }
     CreateRenderBuffers();
 #endif
@@ -386,15 +404,7 @@ bool Context::PrepareFrame() {
     wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
     if (surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Timeout ||
         surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
-        WGPUSurfaceConfiguration configSurface = {};
-        configSurface.device = device_;
-        configSurface.format = format_;
-        configSurface.usage = WGPUTextureUsage_RenderAttachment;
-        configSurface.width = width_;
-        configSurface.height = height_;
-        configSurface.presentMode = SelectPresentMode(surface_, adapter_);
-        configSurface.alphaMode = WGPUCompositeAlphaMode_Auto;
-        wgpuSurfaceConfigure(surface_, &configSurface);
+        ConfigureSwapchainSurface(surface_.Get(), adapter_.Get(), device_.Get(), format_, width_, height_);
         return false;
     }
 
@@ -429,26 +439,9 @@ WGPURenderPassEncoder Context::BeginFrame() {
         return nullptr;
     }
 
-    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    if (sampleCount_ > 1 && msaaColorView_ && hdrResolveView_) {
-        colorAttachment.view = msaaColorView_;
-        colorAttachment.resolveTarget = hdrResolveView_;
-        colorAttachment.storeOp = WGPUStoreOp_Store; // Preserve MSAA color for transparent split-pass
-    } else if (hdrResolveView_) {
-        colorAttachment.view = hdrResolveView_;
-        colorAttachment.resolveTarget = nullptr;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-    } else if (sampleCount_ > 1 && msaaColorView_) {
-        colorAttachment.view = msaaColorView_;
-        colorAttachment.resolveTarget = currentView_;
-        colorAttachment.storeOp = WGPUStoreOp_Discard;
-    } else {
-        colorAttachment.view = currentView_;
-        colorAttachment.resolveTarget = nullptr;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-    }
-    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    colorAttachment.loadOp = WGPULoadOp_Clear;
+    WGPURenderPassColorAttachment colorAttachment =
+        BuildHdrColorAttachment(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), currentView_.Get(),
+                                WGPULoadOp_Clear, /*preserveMsaa=*/true);
     colorAttachment.clearValue = WGPUColor{0.04, 0.06, 0.09, 1.0}; // Linear HDR dark studio slate
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
@@ -475,10 +468,7 @@ WGPURenderPassEncoder Context::BeginFrame() {
 WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
                                                     uint32_t copyW, uint32_t copyH) {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (opaquePass) {
-        wgpuRenderPassEncoderEnd(opaquePass);
-        wgpuRenderPassEncoderRelease(opaquePass);
-    }
+    EndAndReleasePass(opaquePass);
     if (!encoder_) {
         return nullptr;
     }
@@ -504,26 +494,9 @@ WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaque
         }
     }
 
-    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    if (sampleCount_ > 1 && msaaColorView_ && hdrResolveView_) {
-        colorAttachment.view = msaaColorView_;
-        colorAttachment.resolveTarget = hdrResolveView_;
-        colorAttachment.storeOp = WGPUStoreOp_Discard;
-    } else if (hdrResolveView_) {
-        colorAttachment.view = hdrResolveView_;
-        colorAttachment.resolveTarget = nullptr;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-    } else if (sampleCount_ > 1 && msaaColorView_) {
-        colorAttachment.view = msaaColorView_;
-        colorAttachment.resolveTarget = currentView_;
-        colorAttachment.storeOp = WGPUStoreOp_Discard;
-    } else {
-        colorAttachment.view = currentView_;
-        colorAttachment.resolveTarget = nullptr;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-    }
-    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    colorAttachment.loadOp = WGPULoadOp_Load;
+    WGPURenderPassColorAttachment colorAttachment =
+        BuildHdrColorAttachment(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), currentView_.Get(),
+                                WGPULoadOp_Load, /*preserveMsaa=*/false);
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.colorAttachmentCount = 1;
@@ -551,10 +524,7 @@ WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaque
 
 WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPass) {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (hdrPass) {
-        wgpuRenderPassEncoderEnd(hdrPass);
-        wgpuRenderPassEncoderRelease(hdrPass);
-    }
+    EndAndReleasePass(hdrPass);
     if (!encoder_ || !currentView_) {
         return nullptr;
     }
@@ -582,10 +552,7 @@ WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPas
 
 void Context::EndFrame(WGPURenderPassEncoder pass) {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (pass) {
-        wgpuRenderPassEncoderEnd(pass);
-        wgpuRenderPassEncoderRelease(pass);
-    }
+    EndAndReleasePass(pass);
 
     if (encoder_) {
         CommandBufferHandle cmdBuf{wgpuCommandEncoderFinish(encoder_, nullptr)};

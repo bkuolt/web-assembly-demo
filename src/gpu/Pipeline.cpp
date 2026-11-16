@@ -4,28 +4,19 @@
  */
 #include "gpu/Pipeline.hpp"
 #include "core/Log.hpp"
-#include "core/MemoryTracker.hpp"
-#include "core/ThreadPool.hpp"
 #include "gpu/DrawHelpers.hpp"
 #include "gpu/PipelineHelpers.hpp"
 #include "gpu/ShaderManager.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
-#include "scene/TextureDecoder.hpp"
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <bit>
 #include <cmath>
-#include <cstring>
+#include <glm/gtc/matrix_transform.hpp>
 #include <iterator>
-#include <memory_resource>
 #include <span>
 #include <utility>
-#if !defined(__EMSCRIPTEN__)
-#include <thread>
-#endif
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::gpu {
 using namespace detail;
@@ -145,53 +136,45 @@ std::vector<uint8_t> PipelineManager::GenerateNextMipLevel(std::span<const uint8
         return dst;
     }
 
-    auto processRows = [&](uint32_t yStart, uint32_t yEnd) {
-        for (uint32_t y{yStart}; y < yEnd; ++y) {
-            for (uint32_t x{0}; x < dstW; ++x) {
-                const uint32_t srcX0{std::min(x * 2, srcW - 1)};
-                const uint32_t srcX1{std::min(x * 2 + 1, srcW - 1)};
-                const uint32_t srcY0{std::min(y * 2, srcH - 1)};
-                const uint32_t srcY1{std::min(y * 2 + 1, srcH - 1)};
+    for (uint32_t y{0}; y < dstH; ++y) {
+        for (uint32_t x{0}; x < dstW; ++x) {
+            const uint32_t srcX0{std::min(x * 2, srcW - 1)};
+            const uint32_t srcX1{std::min(x * 2 + 1, srcW - 1)};
+            const uint32_t srcY0{std::min(y * 2, srcH - 1)};
+            const uint32_t srcY1{std::min(y * 2 + 1, srcH - 1)};
 
-                std::span<const uint8_t> p00{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX0) * 4, 4)};
-                std::span<const uint8_t> p10{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX1) * 4, 4)};
-                std::span<const uint8_t> p01{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX0) * 4, 4)};
-                std::span<const uint8_t> p11{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX1) * 4, 4)};
+            std::span<const uint8_t> p00{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX0) * 4, 4)};
+            std::span<const uint8_t> p10{src.subspan((static_cast<size_t>(srcY0) * srcW + srcX1) * 4, 4)};
+            std::span<const uint8_t> p01{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX0) * 4, 4)};
+            std::span<const uint8_t> p11{src.subspan((static_cast<size_t>(srcY1) * srcW + srcX1) * 4, 4)};
 
-                const size_t dstIdx{(static_cast<size_t>(y) * dstW + x) * 4};
-                if (isNormalMap) {
-                    auto unpackN = [](std::span<const uint8_t> p) -> glm::vec3 {
-                        return glm::vec3{(static_cast<float>(p[0]) / 255.0f) * 2.0f - 1.0f,
-                                         (static_cast<float>(p[1]) / 255.0f) * 2.0f - 1.0f,
-                                         (static_cast<float>(p[2]) / 255.0f) * 2.0f - 1.0f};
-                    };
-                    glm::vec3 avgN{unpackN(p00) + unpackN(p10) + unpackN(p01) + unpackN(p11)};
-                    const float len{glm::length(avgN)};
-                    if (len > 1e-5f) {
-                        avgN /= len;
-                    } else {
-                        avgN = glm::vec3{0.0f, 0.0f, 1.0f};
-                    }
-                    dst[dstIdx + 0] =
-                        static_cast<uint8_t>(std::clamp((avgN.x * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
-                    dst[dstIdx + 1] =
-                        static_cast<uint8_t>(std::clamp((avgN.y * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
-                    dst[dstIdx + 2] =
-                        static_cast<uint8_t>(std::clamp((avgN.z * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
-                    const uint32_t sumA{static_cast<uint32_t>(p00[3]) + p10[3] + p01[3] + p11[3]};
-                    dst[dstIdx + 3] = static_cast<uint8_t>((sumA + 2) / 4);
-                } else {
-                    for (int c{0}; c < 4; ++c) {
-                        const uint32_t sum{static_cast<uint32_t>(p00[c]) + static_cast<uint32_t>(p10[c]) +
-                                           static_cast<uint32_t>(p01[c]) + static_cast<uint32_t>(p11[c])};
-                        dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
-                    }
+            const size_t dstIdx{(static_cast<size_t>(y) * dstW + x) * 4};
+            if (isNormalMap) {
+                auto unpackN = [](std::span<const uint8_t> p) -> glm::vec3 {
+                    return glm::vec3{(static_cast<float>(p[0]) / 255.0f) * 2.0f - 1.0f,
+                                     (static_cast<float>(p[1]) / 255.0f) * 2.0f - 1.0f,
+                                     (static_cast<float>(p[2]) / 255.0f) * 2.0f - 1.0f};
+                };
+                glm::vec3 avgN{unpackN(p00) + unpackN(p10) + unpackN(p01) + unpackN(p11)};
+                const float len{glm::length(avgN)};
+                avgN = (len > 1e-5f) ? (avgN / len) : glm::vec3{0.0f, 0.0f, 1.0f};
+                dst[dstIdx + 0] =
+                    static_cast<uint8_t>(std::clamp((avgN.x * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                dst[dstIdx + 1] =
+                    static_cast<uint8_t>(std::clamp((avgN.y * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                dst[dstIdx + 2] =
+                    static_cast<uint8_t>(std::clamp((avgN.z * 0.5f + 0.5f) * 255.0f + 0.5f, 0.0f, 255.0f));
+                const uint32_t sumA{static_cast<uint32_t>(p00[3]) + p10[3] + p01[3] + p11[3]};
+                dst[dstIdx + 3] = static_cast<uint8_t>((sumA + 2) / 4);
+            } else {
+                for (int c{0}; c < 4; ++c) {
+                    const uint32_t sum{static_cast<uint32_t>(p00[c]) + static_cast<uint32_t>(p10[c]) +
+                                       static_cast<uint32_t>(p01[c]) + static_cast<uint32_t>(p11[c])};
+                    dst[dstIdx + c] = static_cast<uint8_t>((sum + 2) / 4);
                 }
             }
         }
-    };
-
-    processRows(0, dstH);
+    }
     return dst;
 }
 
@@ -305,18 +288,8 @@ void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGP
                             viewportH);
 }
 
-core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
-                                               uint32_t sampleCount) {
-    device_ = device;
-    queue_ = queue;
-    surfaceFormat_ = surfaceFormat;
-    hdrFormat_ = WGPUTextureFormat_RGBA16Float;
-    sampleCount_ = sampleCount;
-    if (!device_ || !queue_) {
-        return std::unexpected("Cannot initialize PipelineManager without valid WGPUDevice and WGPUQueue");
-    }
-
-    // 1. Shared 4-BindGroup Architecture:
+core::Result<void> PipelineManager::CreateSharedBindGroupLayouts() {
+    // Shared 4-BindGroup Architecture:
     // @group(0) SceneGlobals: Lighting + IBL + ShadowMap + BRDF LUT + Opaque Copy
     // @group(1) PerDrawDynamic: 256-byte dynamic-offset PerDrawUniforms ring
     // @group(2) MaterialStatic: 256-byte MaterialUniforms + Sampler + 8 Textures + MorphDeltas SSBO
@@ -428,8 +401,10 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     if (!sceneGlobalsBgl_ || !perDrawBgl_ || !materialBgl_ || !skinBgl_) {
         return std::unexpected("Failed to create shared WebGPU BindGroupLayouts");
     }
+    return {};
+}
 
-    // 4. Create dummy fallback storage buffers for non-morphed / non-skinned primitives
+core::Result<void> PipelineManager::CreateDummyStorageBuffers() {
     constexpr std::array<glm::vec4, 3> kZeroMorphDeltas{};
     WGPUBufferDescriptor dmDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     dmDesc.size = sizeof(kZeroMorphDeltas);
@@ -464,30 +439,10 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     if (!dummyMorphDeltaBuffer_ || !dummySkinBuffer_ || !dummySkinBindGroup_) {
         return std::unexpected("Failed to create dummy storage buffers for skinning/morphing");
     }
+    return {};
+}
 
-    // 5. Shared 4-Group Pipeline Layout
-    const std::array<WGPUBindGroupLayout, 4> plLayouts{sceneGlobalsBgl_.Get(), perDrawBgl_.Get(), materialBgl_.Get(),
-                                                       skinBgl_.Get()};
-    WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    plDesc.bindGroupLayoutCount = plLayouts.size();
-    plDesc.bindGroupLayouts = plLayouts.data();
-    mainPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
-    if (!mainPipelineLayout_) {
-        Shutdown();
-        return std::unexpected("Failed to create main PBR pipeline layout");
-    }
-
-    if (auto res = instanceBuffer_.Initialize(device_, 256, "Main_InstanceBuffer"); !res) {
-        Shutdown();
-        return res;
-    }
-
-    if (auto res = CreateMainRenderPipelines(false); !res) {
-        Shutdown();
-        return res;
-    }
-
-    // 9. Create Samplers: Trilinear 16x Anisotropic + Base-Mip-Only Sampler
+void PipelineManager::CreateSamplersAndLightingBuffer() {
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     sampDesc.addressModeU = WGPUAddressMode_Repeat;
     sampDesc.addressModeV = WGPUAddressMode_Repeat;
@@ -512,18 +467,14 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     noMipDesc.maxAnisotropy = 1;
     noMipSampler_ = wgpuDeviceCreateSampler(device_, &noMipDesc);
 
-    // 11. Create SceneLightingUniforms buffer (for L2 SH + Clustered Forward+ KHR_lights_punctual)
     WGPUBufferDescriptor slDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     slDesc.size = sizeof(SceneLightingUniforms);
     slDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     slDesc.label = ToWgpuStringView("SceneLightingUniforms");
     sceneLightingBuffer_ = wgpuDeviceCreateBuffer(device_, &slDesc);
+}
 
-    // 12. Initialize Compute IBL Pipelines (BRDF LUT + GGX Prefilter) & Build Default HDR Environment
-    InitializeComputeIBLPipelines();
-    SetEnvironmentPreset(EnvironmentPreset::MediterraneanCourtyard, nullptr);
-
-    // 13. Helper to create 1x1 fallback textures
+void PipelineManager::CreateFallbackTextures() {
     auto create1x1Texture = [&](std::span<const uint8_t, 4> rgba,
                                 std::string_view label) -> std::pair<WGPUTexture, WGPUTextureView> {
         WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -568,14 +519,65 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     auto [blackTex, blackView] = create1x1Texture(blackPixels, "DefaultBlackTexture");
     defaultBlackTexture_ = blackTex;
     defaultBlackTextureView_ = blackView;
+}
 
-    // Initialize required modular passes before marking PipelineManager ready
+core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
+                                               uint32_t sampleCount) {
+    device_ = device;
+    queue_ = queue;
+    surfaceFormat_ = surfaceFormat;
+    hdrFormat_ = WGPUTextureFormat_RGBA16Float;
+    sampleCount_ = sampleCount;
+    if (!device_ || !queue_) {
+        return std::unexpected("Cannot initialize PipelineManager without valid WGPUDevice and WGPUQueue");
+    }
+
+    if (auto res = CreateSharedBindGroupLayouts(); !res) {
+        Shutdown();
+        return res;
+    }
+
+    if (auto res = CreateDummyStorageBuffers(); !res) {
+        Shutdown();
+        return res;
+    }
+
+    const std::array<WGPUBindGroupLayout, 4> plLayouts{sceneGlobalsBgl_.Get(), perDrawBgl_.Get(), materialBgl_.Get(),
+                                                       skinBgl_.Get()};
+    WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    plDesc.bindGroupLayoutCount = plLayouts.size();
+    plDesc.bindGroupLayouts = plLayouts.data();
+    mainPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+    if (!mainPipelineLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create main PBR pipeline layout");
+    }
+
+    if (auto res = instanceBuffer_.Initialize(device_, 256, "Main_InstanceBuffer"); !res) {
+        Shutdown();
+        return res;
+    }
+
+    if (auto res = CreateMainRenderPipelines(false); !res) {
+        Shutdown();
+        return res;
+    }
+
+    CreateSamplersAndLightingBuffer();
+
+    InitializeComputeIBLPipelines();
+    SetEnvironmentPreset(EnvironmentPreset::MediterraneanCourtyard, nullptr);
+
+    CreateFallbackTextures();
+
     if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
+        Shutdown();
         return std::unexpected("Failed to initialize PostProcessPass: " + res.error());
     }
     if (auto res = shadowPass_.Initialize(device_, queue_, perDrawBgl_.Get(), materialBgl_.Get(), skinBgl_.Get(),
                                           dummySkinBindGroup_.Get());
         !res) {
+        Shutdown();
         return std::unexpected("Failed to initialize ShadowPass: " + res.error());
     }
 
@@ -588,7 +590,6 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
         (opaquePipeline_ != nullptr && blendPipeline_ != nullptr && postProcessPass_.IsInitialized() &&
          shadowPass_.IsInitialized() && sceneGlobalsBindGroup_ != nullptr && instanceBuffer_.GetBuffer() != nullptr);
 
-    // Initialize auxiliary AABB debug pass; compute engines initialize lazily on first use.
     if (auto res = aabbRenderer_.Initialize(device_, queue_, hdrFormat_, sampleCount_, WGPUTextureFormat_Depth24Plus);
         !res) {
         BGL_LOG_WARN("Failed to initialize AabbRenderer: {}", res.error());

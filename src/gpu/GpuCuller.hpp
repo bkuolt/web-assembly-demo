@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 #include "scene/Scene.hpp"
 #include <glm/glm.hpp>
 #include <span>
@@ -74,9 +75,9 @@ public:
 
     [[nodiscard]] size_t GetPrimitiveCount() const noexcept { return primitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
-    [[nodiscard]] WGPUBuffer GetIndirectArgsBuffer() const noexcept { return indirectArgsBuffer_; }
-    [[nodiscard]] WGPUBuffer GetVisibilityBuffer() const noexcept { return visibilityStorageBuffer_; }
-    [[nodiscard]] WGPUBuffer GetAtomicCounterBuffer() const noexcept { return atomicCounterBuffer_; }
+    [[nodiscard]] WGPUBuffer GetIndirectArgsBuffer() const noexcept { return indirectArgsBuffer_.Get(); }
+    [[nodiscard]] WGPUBuffer GetVisibilityBuffer() const noexcept { return visibilityStorageBuffer_.Get(); }
+    [[nodiscard]] WGPUBuffer GetAtomicCounterBuffer() const noexcept { return atomicCounterBuffer_.Get(); }
 
 private:
     core::Result<void> CreateComputePipeline(WGPUShaderModule shaderModule);
@@ -85,16 +86,16 @@ private:
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
-    WGPUComputePipeline computePipeline_{nullptr};
-    WGPUPipelineLayout pipelineLayout_{nullptr};
-    WGPUBindGroupLayout bindGroupLayout_{nullptr};
-    WGPUBindGroup bindGroup_{nullptr};
+    ComputePipelineHandle computePipeline_{};
+    PipelineLayoutHandle pipelineLayout_{};
+    BindGroupLayoutHandle bindGroupLayout_{};
+    BindGroupHandle bindGroup_{};
 
-    WGPUBuffer uniformBuffer_{nullptr};
-    WGPUBuffer boundsStorageBuffer_{nullptr};
-    WGPUBuffer visibilityStorageBuffer_{nullptr};
-    WGPUBuffer atomicCounterBuffer_{nullptr};
-    WGPUBuffer indirectArgsBuffer_{nullptr};
+    BufferHandle uniformBuffer_{};
+    BufferHandle boundsStorageBuffer_{};
+    BufferHandle visibilityStorageBuffer_{};
+    BufferHandle atomicCounterBuffer_{};
+    BufferHandle indirectArgsBuffer_{};
 
     size_t primitiveCount_{0};
     size_t boundsBufferSize_{0};

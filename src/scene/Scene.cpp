@@ -9,9 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
-#if !defined(__EMSCRIPTEN__)
-#include <thread>
-#endif
 
 namespace bgl::scene {
 

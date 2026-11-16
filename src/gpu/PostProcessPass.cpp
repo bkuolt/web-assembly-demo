@@ -43,13 +43,12 @@ void PostProcessPass::MoveFrom(PostProcessPass& other) noexcept {
     device_ = std::exchange(other.device_, nullptr);
     queue_ = std::exchange(other.queue_, nullptr);
     surfaceFormat_ = other.surfaceFormat_;
-    tonemapPipeline_ = std::exchange(other.tonemapPipeline_, nullptr);
-    tonemapPipelineLayout_ = std::exchange(other.tonemapPipelineLayout_, nullptr);
-    tonemapBindGroupLayout_ = std::exchange(other.tonemapBindGroupLayout_, nullptr);
-    tonemapUniformBuffer_ = std::exchange(other.tonemapUniformBuffer_, nullptr);
-    tonemapVertexBuffer_ = std::exchange(other.tonemapVertexBuffer_, nullptr);
-    tonemapSampler_ = std::exchange(other.tonemapSampler_, nullptr);
-    tonemapBindGroup_ = std::exchange(other.tonemapBindGroup_, nullptr);
+    tonemapPipeline_ = std::move(other.tonemapPipeline_);
+    tonemapPipelineLayout_ = std::move(other.tonemapPipelineLayout_);
+    tonemapBindGroupLayout_ = std::move(other.tonemapBindGroupLayout_);
+    tonemapUniformBuffer_ = std::move(other.tonemapUniformBuffer_);
+    tonemapSampler_ = std::move(other.tonemapSampler_);
+    tonemapBindGroup_ = std::move(other.tonemapBindGroup_);
     cachedHdrResolveView_ = std::exchange(other.cachedHdrResolveView_, nullptr);
     exposure_ = other.exposure_;
     toneMapOp_ = other.toneMapOp_;
@@ -64,44 +63,20 @@ void PostProcessPass::MoveFrom(PostProcessPass& other) noexcept {
 }
 
 void PostProcessPass::InvalidateBindGroup() noexcept {
-    if (tonemapBindGroup_) {
-        wgpuBindGroupRelease(tonemapBindGroup_);
-        tonemapBindGroup_ = nullptr;
-    }
+    tonemapBindGroup_.Reset();
     cachedHdrResolveView_ = nullptr;
 }
 
 void PostProcessPass::Shutdown() noexcept {
-    if (tonemapBindGroup_) {
-        wgpuBindGroupRelease(tonemapBindGroup_);
-        tonemapBindGroup_ = nullptr;
-    }
-    if (tonemapSampler_) {
-        wgpuSamplerRelease(tonemapSampler_);
-        tonemapSampler_ = nullptr;
-    }
-    if (tonemapVertexBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(3 * sizeof(glm::vec2));
-        wgpuBufferRelease(tonemapVertexBuffer_);
-        tonemapVertexBuffer_ = nullptr;
-    }
+    tonemapBindGroup_.Reset();
+    tonemapSampler_.Reset();
     if (tonemapUniformBuffer_) {
         core::MemoryTracker::Instance().TrackBufferFree(sizeof(TonemapUniforms));
-        wgpuBufferRelease(tonemapUniformBuffer_);
-        tonemapUniformBuffer_ = nullptr;
+        tonemapUniformBuffer_.Reset();
     }
-    if (tonemapPipeline_) {
-        wgpuRenderPipelineRelease(tonemapPipeline_);
-        tonemapPipeline_ = nullptr;
-    }
-    if (tonemapPipelineLayout_) {
-        wgpuPipelineLayoutRelease(tonemapPipelineLayout_);
-        tonemapPipelineLayout_ = nullptr;
-    }
-    if (tonemapBindGroupLayout_) {
-        wgpuBindGroupLayoutRelease(tonemapBindGroupLayout_);
-        tonemapBindGroupLayout_ = nullptr;
-    }
+    tonemapPipeline_.Reset();
+    tonemapPipelineLayout_.Reset();
+    tonemapBindGroupLayout_.Reset();
     cachedHdrResolveView_ = nullptr;
     device_ = nullptr;
     queue_ = nullptr;
@@ -146,9 +121,10 @@ core::Result<void> PostProcessPass::Initialize(WGPUDevice device, WGPUQueue queu
     }
 
     // 2. Pipeline Layout
+    const WGPUBindGroupLayout bglRaw{tonemapBindGroupLayout_.Get()};
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
-    plDesc.bindGroupLayouts = &tonemapBindGroupLayout_;
+    plDesc.bindGroupLayouts = &bglRaw;
     plDesc.label = ToWgpuStringView("Tonemap_PipelineLayout");
     tonemapPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
     if (!tonemapPipelineLayout_) {
@@ -202,26 +178,25 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureVie
 
     if (hdrResolveView != cachedHdrResolveView_ || !tonemapBindGroup_) {
         cachedHdrResolveView_ = hdrResolveView;
-        if (tonemapBindGroup_)
-            wgpuBindGroupRelease(tonemapBindGroup_);
+        tonemapBindGroup_.Reset();
 
         std::array<WGPUBindGroupEntry, 3> bgEntries{};
         bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[0].binding = 0;
-        bgEntries[0].buffer = tonemapUniformBuffer_;
+        bgEntries[0].buffer = tonemapUniformBuffer_.Get();
         bgEntries[0].offset = 0;
         bgEntries[0].size = sizeof(TonemapUniforms);
 
         bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[1].binding = 1;
-        bgEntries[1].sampler = tonemapSampler_;
+        bgEntries[1].sampler = tonemapSampler_.Get();
 
         bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
         bgEntries[2].binding = 2;
         bgEntries[2].textureView = hdrResolveView;
 
         WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        bgDesc.layout = tonemapBindGroupLayout_;
+        bgDesc.layout = tonemapBindGroupLayout_.Get();
         bgDesc.entryCount = bgEntries.size();
         bgDesc.entries = bgEntries.data();
         bgDesc.label = ToWgpuStringView("Tonemap_BindGroup");
@@ -266,10 +241,10 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureVie
                                  glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, enableBloom_ ? 1.0f : 0.0f},
                              .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, enableSsao_ ? 1.0f : 0.0f}};
 
-    wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_, 0, &uniforms, sizeof(uniforms));
+    wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_.Get(), 0, &uniforms, sizeof(uniforms));
 
-    wgpuRenderPassEncoderSetPipeline(swapchainPass, tonemapPipeline_);
-    wgpuRenderPassEncoderSetBindGroup(swapchainPass, 0, tonemapBindGroup_, 0, nullptr);
+    wgpuRenderPassEncoderSetPipeline(swapchainPass, tonemapPipeline_.Get());
+    wgpuRenderPassEncoderSetBindGroup(swapchainPass, 0, tonemapBindGroup_.Get(), 0, nullptr);
     wgpuRenderPassEncoderDraw(swapchainPass, 3, 1, 0, 0);
 }
 
@@ -305,7 +280,7 @@ core::Result<void> PostProcessPass::CreatePipeline(bool validateScope) {
     fragState.targets = &colorTarget;
 
     WGPURenderPipelineDescriptor rpDesc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    rpDesc.layout = tonemapPipelineLayout_;
+    rpDesc.layout = tonemapPipelineLayout_.Get();
     rpDesc.vertex.module = shaderModuleRes->Get();
     rpDesc.vertex.entryPoint = ToWgpuStringView("vs_tonemap");
     rpDesc.vertex.bufferCount = 0;
@@ -319,15 +294,12 @@ core::Result<void> PostProcessPass::CreatePipeline(bool validateScope) {
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
     rpDesc.label = ToWgpuStringView("Tonemap_RenderPipeline");
 
-    WGPURenderPipeline nextPipeline = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    RenderPipelineHandle nextPipeline{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
     if (!nextPipeline) {
         return std::unexpected("Failed to create tonemap post-process render pipeline");
     }
 
-    if (tonemapPipeline_) {
-        wgpuRenderPipelineRelease(tonemapPipeline_);
-    }
-    tonemapPipeline_ = nextPipeline;
+    tonemapPipeline_ = std::move(nextPipeline);
     return {};
 }
 

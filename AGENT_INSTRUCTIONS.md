@@ -1,7 +1,7 @@
 # Master Specification & Architecture Guide (bgl-Engine)
 **Project:** Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance Renderer (`bgl`-Engine)  
 **Target Environments:** Linux (amd64) Desktop (`bgl_viewer`) & WebAssembly (`wasm32-unknown-emscripten`)  
-**Version:** `0.9.18`
+**Version:** `1.0.0`
 
 ---
 
@@ -98,15 +98,20 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
 - **Mouse Wheel**: Smooth zoom in / out.
 - **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs.
 - **Q Key**: Toggle 3D Quadtree ground partition boundaries.
-- **C Key**: Toggle Quadtree Hierarchical Occlusion Culling.
+- **H Key**: Toggle Quadtree Hierarchical Occlusion Culling.
 - **K Key**: Cycle Skybox Mode (Sharp / Blurred / Hidden).
 - **V Key**: Toggle Bump & Tangent-Space Normal Mapping.
 - **L Key**: Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0).
 - **M Key**: Toggle Directional Shadow Mapping (2048x2048 PCF).
 - **R Key**: Toggle Environment Cubemap Reflections & Specular IBL.
 - **U Key**: Toggle Ambient Occlusion & Micro-Cavity Shading.
-- **T Key**: Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES).
+- **X Key**: Cycle Tonemapper (Khronos PBR Neutral / AgX / ACES).
+- **Z Key**: Toggle Emissive HDR Bloom.
+- **G Key**: Toggle Screen-Space Ambient Occlusion (SSAO/GTAO).
 - **E Key**: Cycle Environment Preset (Mediterranean Courtyard, Sunset Studio, Overcast Atelier, Night Neon, Custom HDR).
+- **C Key**: Toggle Camera Mode (Orbit / First-Person Fly).
+- **T Key**: Toggle Turntable Autorotation.
+- **F Key**: Focus Selection / Scene Bounds.
 - **+ / - Key**: Increase / Decrease Exposure.
 - **[ / ] Key**: Rotate Environment (-5° / +5°).
 - **O / F3 Key**: Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay HUD.
@@ -116,7 +121,7 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
 
 ---
 
-## 5. Web Client Runtime Architecture (`web/app.js`)
+## 5. Web Client Runtime Architecture (`web/js/`, `web/app.js`)
 
 - **Streaming WebAssembly Compilation**:
   - Leverages `WebAssembly.instantiateStreaming` to compile WASM bytecode concurrently in a background thread while downloading across the network, with seamless fallback to `fetch().arrayBuffer()`.

@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include "gpu/Handle.hpp"
 #include <glm/glm.hpp>
 #include <webgpu/webgpu.h>
 
@@ -92,13 +93,12 @@ private:
     WGPUQueue queue_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
 
-    WGPURenderPipeline tonemapPipeline_{nullptr};
-    WGPUPipelineLayout tonemapPipelineLayout_{nullptr};
-    WGPUBindGroupLayout tonemapBindGroupLayout_{nullptr};
-    WGPUBuffer tonemapUniformBuffer_{nullptr};
-    WGPUBuffer tonemapVertexBuffer_{nullptr};
-    WGPUSampler tonemapSampler_{nullptr};
-    WGPUBindGroup tonemapBindGroup_{nullptr};
+    RenderPipelineHandle tonemapPipeline_{};
+    PipelineLayoutHandle tonemapPipelineLayout_{};
+    BindGroupLayoutHandle tonemapBindGroupLayout_{};
+    BufferHandle tonemapUniformBuffer_{};
+    SamplerHandle tonemapSampler_{};
+    BindGroupHandle tonemapBindGroup_{};
     WGPUTextureView cachedHdrResolveView_{nullptr};
 
     float exposure_{1.0f};
