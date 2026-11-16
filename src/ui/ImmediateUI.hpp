@@ -3,7 +3,8 @@
  * @brief C++23 Immediate Mode GUI (IMGUI) with std::pmr per-frame arena allocation,
  *        FreeType SDF font rendering, single-draw-call batching, and embedded WGSL shader.
  */
-#pragma once
+#ifndef BGL_UI_IMMEDIATEUI_HPP
+#define BGL_UI_IMMEDIATEUI_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -420,3 +421,5 @@ void EndScrollArea();
 } // namespace UI
 
 } // namespace bgl::ui
+
+#endif // BGL_UI_IMMEDIATEUI_HPP

@@ -2,7 +2,8 @@
  * @file Entity.hpp
  * @brief Lightweight handle to a node in the active scene (transform, hierarchy, lights).
  */
-#pragma once
+#ifndef BGL_PUBLIC_ENTITY_HPP
+#define BGL_PUBLIC_ENTITY_HPP
 
 #include "bgl/Types.hpp"
 #include <cstdint>
@@ -53,3 +54,5 @@ private:
 };
 
 } // namespace bgl
+
+#endif // BGL_PUBLIC_ENTITY_HPP

@@ -2,7 +2,8 @@
  * @file App.hpp
  * @brief Base class with lifecycle hooks (OnStart/OnUpdate/OnGui/...) and the BGL_RUN entry-point macro.
  */
-#pragma once
+#ifndef BGL_PUBLIC_APP_HPP
+#define BGL_PUBLIC_APP_HPP
 
 #include "bgl/Engine.hpp"
 #include <memory>
@@ -53,3 +54,5 @@ int RunApp(std::unique_ptr<App> app, int argc, char** argv);
     int main(int argc, char** argv) {                                                                                  \
         return ::bgl::RunApp(std::make_unique<AppClass>(), argc, argv);                                                \
     }
+
+#endif // BGL_PUBLIC_APP_HPP

@@ -2,7 +2,8 @@
  * @file Shaders.hpp
  * @brief Modular WGSL Shader accessors backed by `#embed` `.wgsl` files and `ShaderManager` `#include` expansion.
  */
-#pragma once
+#ifndef BGL_GPU_SHADERS_HPP
+#define BGL_GPU_SHADERS_HPP
 
 #include "gpu/ShaderManager.hpp"
 #include <string_view>
@@ -22,3 +23,5 @@ inline const std::string_view kGpuCullComputeWGSL{ShaderManager::GetEmbeddedPrep
 inline const std::string_view kGpuRayPickComputeWGSL{ShaderManager::GetEmbeddedPreprocessed("gpu_ray_pick.wgsl")};
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_SHADERS_HPP

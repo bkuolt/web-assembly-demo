@@ -2,7 +2,8 @@
  * @file EmbeddedFont.hpp
  * @brief Built-in TrueType font data for zero-dependency standalone text rendering.
  */
-#pragma once
+#ifndef BGL_TEXT_EMBEDDEDFONT_HPP
+#define BGL_TEXT_EMBEDDEDFONT_HPP
 
 #include <cstdint>
 #include <span>
@@ -16,3 +17,5 @@ namespace bgl::text {
 [[nodiscard]] std::span<const uint8_t> GetEmbeddedFontData() noexcept;
 
 } // namespace bgl::text
+
+#endif // BGL_TEXT_EMBEDDEDFONT_HPP

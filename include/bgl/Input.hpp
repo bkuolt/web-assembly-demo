@@ -2,7 +2,8 @@
  * @file Input.hpp
  * @brief Polling-based keyboard and mouse input. Query state once per frame in App::OnUpdate().
  */
-#pragma once
+#ifndef BGL_PUBLIC_INPUT_HPP
+#define BGL_PUBLIC_INPUT_HPP
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -97,3 +98,5 @@ public:
 };
 
 } // namespace bgl
+
+#endif // BGL_PUBLIC_INPUT_HPP

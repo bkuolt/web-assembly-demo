@@ -3,7 +3,8 @@
  * @brief Reusable engine runtime: native window, WebGPU context, scene loading, picking, sun/time-of-day
  *        and the full HDR frame render sequence. Contains no viewer UI or hotkeys.
  */
-#pragma once
+#ifndef BGL_ENGINE_ENGINECORE_HPP
+#define BGL_ENGINE_ENGINECORE_HPP
 
 #include "audio/SoundEngine.hpp"
 #include "core/Camera.hpp"
@@ -237,3 +238,5 @@ protected:
 };
 
 } // namespace bgl::engine
+
+#endif // BGL_ENGINE_ENGINECORE_HPP

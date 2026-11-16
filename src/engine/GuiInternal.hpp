@@ -2,7 +2,8 @@
  * @file GuiInternal.hpp
  * @brief Internal thread-local active ImmediateUI context for bgl::gui.
  */
-#pragma once
+#ifndef BGL_ENGINE_GUIINTERNAL_HPP
+#define BGL_ENGINE_GUIINTERNAL_HPP
 
 #include <cstdint>
 
@@ -16,3 +17,5 @@ inline thread_local ui::ImmediateUI* g_currentGui{nullptr};
 inline thread_local uint32_t g_currentViewportWidth{1280};
 
 } // namespace bgl::engine
+
+#endif // BGL_ENGINE_GUIINTERNAL_HPP

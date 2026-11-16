@@ -2,7 +2,8 @@
  * @file EngineImpl.hpp
  * @brief Internal Pimpl implementation of bgl::Engine backed by engine::EngineCore.
  */
-#pragma once
+#ifndef BGL_ENGINE_ENGINEIMPL_HPP
+#define BGL_ENGINE_ENGINEIMPL_HPP
 
 #include "bgl/Engine.hpp"
 #include "engine/EngineCore.hpp"
@@ -37,3 +38,5 @@ protected:
 };
 
 } // namespace bgl
+
+#endif // BGL_ENGINE_ENGINEIMPL_HPP

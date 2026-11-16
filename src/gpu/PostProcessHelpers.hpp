@@ -2,7 +2,8 @@
  * @file PostProcessHelpers.hpp
  * @brief Internal shared uniform structs and pass helpers for PostProcessPass translation units.
  */
-#pragma once
+#ifndef BGL_GPU_POSTPROCESSHELPERS_HPP
+#define BGL_GPU_POSTPROCESSHELPERS_HPP
 
 #include "gpu/Handle.hpp"
 #include <array>
@@ -94,3 +95,5 @@ inline void DrawFullscreenPass(WGPUCommandEncoder encoder, WGPUTextureView targe
 }
 
 } // namespace bgl::gpu::detail
+
+#endif // BGL_GPU_POSTPROCESSHELPERS_HPP

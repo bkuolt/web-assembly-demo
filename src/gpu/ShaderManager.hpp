@@ -2,7 +2,8 @@
  * @file ShaderManager.hpp
  * @brief Modular WGSL shader loader, `#include`/`#pragma once` preprocessor, `#embed` fallback, and hot-reload tracker.
  */
-#pragma once
+#ifndef BGL_GPU_SHADERMANAGER_HPP
+#define BGL_GPU_SHADERMANAGER_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -119,3 +120,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_SHADERMANAGER_HPP

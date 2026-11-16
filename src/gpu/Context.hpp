@@ -2,7 +2,8 @@
  * @file Context.hpp
  * @brief Native & WebAssembly WebGPU Context management with 4x MSAA support.
  */
-#pragma once
+#ifndef BGL_GPU_CONTEXT_HPP
+#define BGL_GPU_CONTEXT_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -165,3 +166,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_CONTEXT_HPP

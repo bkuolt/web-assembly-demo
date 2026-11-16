@@ -2,7 +2,8 @@
  * @file Application.hpp
  * @brief Application lifecycle, event loop, UI-Bridge, and drag-and-drop file ingestion.
  */
-#pragma once
+#ifndef BGL_VIEWER_APPLICATION_HPP
+#define BGL_VIEWER_APPLICATION_HPP
 
 #include "core/MemoryTracker.hpp"
 #include "engine/EngineCore.hpp"
@@ -329,3 +330,5 @@ private:
 };
 
 } // namespace bgl::app
+
+#endif // BGL_VIEWER_APPLICATION_HPP

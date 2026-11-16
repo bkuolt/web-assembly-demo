@@ -2,7 +2,8 @@
  * @file Uniforms.hpp
  * @brief Shared WebGPU uniform buffer contracts and dynamic UBO ring-buffer helper.
  */
-#pragma once
+#ifndef BGL_GPU_UNIFORMS_HPP
+#define BGL_GPU_UNIFORMS_HPP
 
 #include "gpu/Handle.hpp"
 #include <algorithm>
@@ -215,3 +216,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_UNIFORMS_HPP

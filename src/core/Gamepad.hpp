@@ -2,7 +2,8 @@
  * @file Gamepad.hpp
  * @brief Zero-GLFW Gamepad input handler with PS5 DualSense detection and exponential response curves.
  */
-#pragma once
+#ifndef BGL_CORE_GAMEPAD_HPP
+#define BGL_CORE_GAMEPAD_HPP
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -89,3 +90,5 @@ private:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_GAMEPAD_HPP

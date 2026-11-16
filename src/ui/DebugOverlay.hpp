@@ -2,7 +2,8 @@
  * @file DebugOverlay.hpp
  * @brief In-engine 2D Debug Overlay displaying real-time FPS, camera, scene, and spatial metrics.
  */
-#pragma once
+#ifndef BGL_UI_DEBUGOVERLAY_HPP
+#define BGL_UI_DEBUGOVERLAY_HPP
 
 #include "core/Types.hpp"
 #include "text/FontAtlas.hpp"
@@ -130,3 +131,5 @@ private:
 };
 
 } // namespace bgl::ui
+
+#endif // BGL_UI_DEBUGOVERLAY_HPP

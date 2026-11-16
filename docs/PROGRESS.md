@@ -24,6 +24,7 @@
 | T12 | DONE | `29af6fb` | Verified `LayeringCheck`, zero `WGPU`/`SDL` in `include/bgl/`, zero `Application` in `src/`/`samples/` |
 | T13 | DONE | `29af6fb` | Updated `README.md`, `ARCHITECTURE.md`, `GETTING_STARTED.md`, `CHEATSHEET.md`, `AGENT_INSTRUCTIONS.md`, `CHANGELOG.md` |
 | T14 | DONE | `a9d9e9a` | Expanded API unit tests (`test_engine_api.cpp`, `EntityHandle`, `InputState`, `RenderSettings`) and cleaned up helpers |
+| T15 | DONE | | Replaced `#pragma once` with include guards (56 headers); decomposed oversized `.cpp` files (`EngineCoreScene`, `ApplicationInput`, `WebExports`, `TextureDecoderHdr`, `PipelineMath`, `ImmediateUIOverlays`, `FastGltfSceneBuilder`, `PostProcessPassTargets`) |
 
 ## Deviations from the Guide
 - Pre-existing split in repo: `ApplicationUI.cpp` and `ApplicationModelLoader.cpp` already existed alongside `Application.cpp`.

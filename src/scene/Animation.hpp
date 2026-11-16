@@ -2,7 +2,8 @@
  * @file Animation.hpp
  * @brief glTF 2.0 Animation, Skeletal Skinning, and Morph Target data structures and evaluators.
  */
-#pragma once
+#ifndef BGL_SCENE_ANIMATION_HPP
+#define BGL_SCENE_ANIMATION_HPP
 
 #include "core/Types.hpp"
 #include <algorithm>
@@ -151,3 +152,5 @@ struct MorphTarget {
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_ANIMATION_HPP

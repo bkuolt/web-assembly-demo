@@ -2,7 +2,8 @@
  * @file EntityOps.hpp
  * @brief Pure CPU scene-graph operations backing bgl::Entity (testable without GPU).
  */
-#pragma once
+#ifndef BGL_ENGINE_ENTITYOPS_HPP
+#define BGL_ENGINE_ENTITYOPS_HPP
 
 #include "scene/Scene.hpp"
 #include <memory>
@@ -15,3 +16,5 @@ void Reparent(scene::Scene& scene, scene::SceneNode& child, scene::SceneNode* ne
 void AttachLight(scene::Scene& scene, scene::SceneNode& node, const scene::PunctualLight& light);
 
 } // namespace bgl::engine
+
+#endif // BGL_ENGINE_ENTITYOPS_HPP

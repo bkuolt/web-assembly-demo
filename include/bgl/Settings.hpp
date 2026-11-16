@@ -2,7 +2,8 @@
  * @file Settings.hpp
  * @brief Plain-data render settings of the bgl Engine. Modify and the engine applies changes on the next frame.
  */
-#pragma once
+#ifndef BGL_PUBLIC_SETTINGS_HPP
+#define BGL_PUBLIC_SETTINGS_HPP
 
 #include <cstdint>
 
@@ -74,3 +75,5 @@ struct RenderSettings {
 };
 
 } // namespace bgl
+
+#endif // BGL_PUBLIC_SETTINGS_HPP

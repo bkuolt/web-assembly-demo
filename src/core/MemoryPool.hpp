@@ -2,7 +2,8 @@
  * @file MemoryPool.hpp
  * @brief Fixed-block memory pool and polymorphic memory resource (PMR) staging arena.
  */
-#pragma once
+#ifndef BGL_CORE_MEMORYPOOL_HPP
+#define BGL_CORE_MEMORYPOOL_HPP
 
 #include "core/Types.hpp"
 #include <concepts>
@@ -143,3 +144,5 @@ private:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_MEMORYPOOL_HPP

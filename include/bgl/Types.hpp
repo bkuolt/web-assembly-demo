@@ -2,7 +2,8 @@
  * @file Types.hpp
  * @brief Fundamental public types of the bgl Engine API.
  */
-#pragma once
+#ifndef BGL_PUBLIC_TYPES_HPP
+#define BGL_PUBLIC_TYPES_HPP
 
 #include "core/Log.hpp"
 #include "core/Types.hpp"
@@ -16,3 +17,5 @@ template <typename T>
 using Result = core::Result<T>;
 
 } // namespace bgl
+
+#endif // BGL_PUBLIC_TYPES_HPP

@@ -2,7 +2,8 @@
  * @file Engine.hpp
  * @brief Public facade of the bgl Engine: window, rendering, model loading, camera and settings.
  */
-#pragma once
+#ifndef BGL_PUBLIC_ENGINE_HPP
+#define BGL_PUBLIC_ENGINE_HPP
 
 #include "bgl/Entity.hpp"
 #include "bgl/Input.hpp"
@@ -87,3 +88,5 @@ private:
 };
 
 } // namespace bgl
+
+#endif // BGL_PUBLIC_ENGINE_HPP

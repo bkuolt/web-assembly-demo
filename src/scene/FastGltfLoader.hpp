@@ -4,7 +4,8 @@
  *        KHR_lights_punctual, EXT_texture_webp, KHR_texture_basisu, MikkTSpace tangents,
  *        and deduplicated multi-threaded image decoding.
  */
-#pragma once
+#ifndef BGL_SCENE_FASTGLTFLOADER_HPP
+#define BGL_SCENE_FASTGLTFLOADER_HPP
 
 #include "core/Types.hpp"
 #include "scene/AssetManager.hpp"
@@ -86,3 +87,5 @@ private:
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_FASTGLTFLOADER_HPP

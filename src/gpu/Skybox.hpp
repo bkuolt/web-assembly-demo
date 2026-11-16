@@ -2,7 +2,8 @@
  * @file Skybox.hpp
  * @brief HDR Environment Cubemap & Procedural Atmospheric Skybox with WebGPU 4x MSAA RGBA16Float pipeline.
  */
-#pragma once
+#ifndef BGL_GPU_SKYBOX_HPP
+#define BGL_GPU_SKYBOX_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -144,3 +145,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_SKYBOX_HPP

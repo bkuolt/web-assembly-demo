@@ -5,7 +5,8 @@
  *        Compute GGX Prefiltered Cubemap, Compute Split-Sum BRDF LUT),
  *        Clustered Forward+ KHR_lights_punctual, and Native GPU Compressed Textures (BC7/ASTC/ETC2).
  */
-#pragma once
+#ifndef BGL_GPU_PIPELINE_HPP
+#define BGL_GPU_PIPELINE_HPP
 
 #include "core/Types.hpp"
 #include "gpu/AabbRenderer.hpp"
@@ -723,3 +724,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_PIPELINE_HPP

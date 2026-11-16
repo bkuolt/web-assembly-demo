@@ -2,7 +2,8 @@
  * @file Gui.hpp
  * @brief Immediate-mode debug UI. Call only inside App::OnGui().
  */
-#pragma once
+#ifndef BGL_PUBLIC_GUI_HPP
+#define BGL_PUBLIC_GUI_HPP
 
 #include <string_view>
 
@@ -22,3 +23,5 @@ bool Checkbox(std::string_view label, bool& value);
 bool Slider(std::string_view label, float& value, float minValue, float maxValue);
 
 } // namespace bgl::gui
+
+#endif // BGL_PUBLIC_GUI_HPP

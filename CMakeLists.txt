@@ -241,6 +241,7 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/Pipeline.cpp
     src/gpu/PipelineEffects.cpp
     src/gpu/PipelineIBL.cpp
+    src/gpu/PipelineMath.cpp
     src/gpu/PipelineRender.cpp
     src/gpu/PipelineScene.cpp
 )
@@ -267,6 +268,7 @@ add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/Scene.cpp
     src/scene/Animation.cpp
     src/scene/TextureDecoder.cpp
+    src/scene/TextureDecoderHdr.cpp
     src/scene/AssetManager.cpp
     src/scene/FastGltfLoader.cpp
     src/scene/FastGltfParser.cpp
@@ -341,6 +343,7 @@ add_library(bgl_engine ${BGL_LIB_TYPE}
     src/engine/App.cpp
     src/engine/Engine.cpp
     src/engine/EngineCore.cpp
+    src/engine/EngineCoreScene.cpp
     src/engine/EngineImpl.cpp
     src/engine/Entity.cpp
     src/engine/EntityOps.cpp
@@ -363,6 +366,7 @@ add_library(bgl::engine ALIAS bgl_engine)
 # ==============================================================================
 add_library(bgl_viewer_lib ${BGL_LIB_TYPE}
     apps/viewer/Application.cpp
+    apps/viewer/ApplicationInput.cpp
     apps/viewer/ApplicationModelLoader.cpp
     apps/viewer/ApplicationUI.cpp
     apps/viewer/CommandLine.cpp
@@ -380,7 +384,10 @@ target_link_libraries(bgl_viewer_lib PUBLIC
 # ==============================================================================
 # 8. Native Viewer Executable
 # ==============================================================================
-add_executable(bgl_viewer apps/viewer/main.cpp)
+add_executable(bgl_viewer
+    apps/viewer/main.cpp
+    apps/viewer/WebExports.cpp
+)
 target_link_libraries(bgl_viewer PRIVATE bgl_viewer_lib)
 
 # ==============================================================================

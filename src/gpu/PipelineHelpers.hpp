@@ -2,7 +2,8 @@
  * @file PipelineHelpers.hpp
  * @brief Internal helper functions shared across PipelineManager translation units.
  */
-#pragma once
+#ifndef BGL_GPU_PIPELINEHELPERS_HPP
+#define BGL_GPU_PIPELINEHELPERS_HPP
 
 #include "gpu/Uniforms.hpp"
 #include "scene/Scene.hpp"
@@ -164,3 +165,5 @@ inline void FillMaterialUniforms(const scene::Material* mat, MaterialUniforms& o
 }
 
 } // namespace bgl::gpu::detail
+
+#endif // BGL_GPU_PIPELINEHELPERS_HPP

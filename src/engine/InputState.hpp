@@ -2,7 +2,8 @@
  * @file InputState.hpp
  * @brief Internal frame-buffered keyboard and mouse state backing bgl::Input.
  */
-#pragma once
+#ifndef BGL_ENGINE_INPUTSTATE_HPP
+#define BGL_ENGINE_INPUTSTATE_HPP
 
 #include "bgl/Input.hpp"
 #include <array>
@@ -84,3 +85,5 @@ private:
 [[nodiscard]] InputState& GetInputState() noexcept;
 
 } // namespace bgl::engine
+
+#endif // BGL_ENGINE_INPUTSTATE_HPP

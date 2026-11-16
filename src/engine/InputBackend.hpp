@@ -2,7 +2,8 @@
  * @file InputBackend.hpp
  * @brief Internal platform input backend hooks feeding engine::InputState.
  */
-#pragma once
+#ifndef BGL_ENGINE_INPUTBACKEND_HPP
+#define BGL_ENGINE_INPUTBACKEND_HPP
 
 #if defined(BGL_PLATFORM_NATIVE)
 union SDL_Event;
@@ -15,3 +16,5 @@ void SyncKeyboardState() noexcept;
 
 } // namespace bgl::engine
 #endif
+
+#endif // BGL_ENGINE_INPUTBACKEND_HPP

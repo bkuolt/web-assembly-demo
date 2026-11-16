@@ -2,7 +2,8 @@
  * @file Types.hpp
  * @brief Fundamental mathematical types, AABB, Ray, Plane, Frustum, Vertex, Uniforms, and Result<T>.
  */
-#pragma once
+#ifndef BGL_CORE_TYPES_HPP
+#define BGL_CORE_TYPES_HPP
 
 #include <algorithm>
 #include <array>
@@ -233,3 +234,5 @@ struct alignas(16) GlobalUniforms {
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_TYPES_HPP

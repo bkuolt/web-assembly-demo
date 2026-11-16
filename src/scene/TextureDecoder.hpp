@@ -3,7 +3,8 @@
  * @brief Memory decoding for PNG, JPEG, WebP, KTX2 (RGBA32/BC7/ASTC/ETC2), Radiance HDR (.hdr), and OpenEXR (.exr)
  * textures.
  */
-#pragma once
+#ifndef BGL_SCENE_TEXTUREDECODER_HPP
+#define BGL_SCENE_TEXTUREDECODER_HPP
 
 #include "core/Types.hpp"
 #include <cstdint>
@@ -208,3 +209,5 @@ public:
 };
 
 } // namespace bgl::scene
+
+#endif // BGL_SCENE_TEXTUREDECODER_HPP

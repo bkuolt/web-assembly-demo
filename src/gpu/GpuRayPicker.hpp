@@ -2,7 +2,8 @@
  * @file GpuRayPicker.hpp
  * @brief WebGPU Compute-shader-driven parallel Ray-Bounding & Geometry Picking.
  */
-#pragma once
+#ifndef BGL_GPU_GPURAYPICKER_HPP
+#define BGL_GPU_GPURAYPICKER_HPP
 
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
@@ -76,3 +77,5 @@ private:
 };
 
 } // namespace bgl::gpu
+
+#endif // BGL_GPU_GPURAYPICKER_HPP

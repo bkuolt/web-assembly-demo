@@ -2,7 +2,8 @@
  * @file NetworkFetcher.hpp
  * @brief Unified HTTP/HTTPS (libcurl / Emscripten Fetch), file://, data:, and local filesystem asset fetcher.
  */
-#pragma once
+#ifndef BGL_CORE_NETWORKFETCHER_HPP
+#define BGL_CORE_NETWORKFETCHER_HPP
 
 #include "core/Types.hpp"
 #include <functional>
@@ -100,3 +101,5 @@ public:
 };
 
 } // namespace bgl::core
+
+#endif // BGL_CORE_NETWORKFETCHER_HPP
