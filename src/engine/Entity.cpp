@@ -49,6 +49,19 @@ bool Entity::IsValid() const noexcept {
     return impl_ && !impl_->node.expired() && !impl_->scene.expired();
 }
 
+bool Entity::operator==(const Entity& other) const noexcept {
+    const auto nodeA = impl_ ? impl_->node.lock() : nullptr;
+    const auto nodeB = other.impl_ ? other.impl_->node.lock() : nullptr;
+    const auto sceneA = impl_ ? impl_->scene.lock() : nullptr;
+    const auto sceneB = other.impl_ ? other.impl_->scene.lock() : nullptr;
+    const bool validA = (nodeA != nullptr && sceneA != nullptr);
+    const bool validB = (nodeB != nullptr && sceneB != nullptr);
+    if (!validA && !validB) {
+        return true;
+    }
+    return validA && validB && nodeA == nodeB && sceneA == sceneB;
+}
+
 std::string Entity::Name() const {
     if (impl_) {
         if (auto n = impl_->node.lock()) {

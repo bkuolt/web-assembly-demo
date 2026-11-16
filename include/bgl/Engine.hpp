@@ -9,82 +9,160 @@
 #include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"
 #include "bgl/Types.hpp"
-#include "core/Camera.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
 namespace bgl {
 
-/** @brief Startup parameters of Engine::Create(). */
+/**
+ * @struct EngineConfig
+ * @brief Startup parameters passed to `Engine::Create()` or returned from `App::Configure()`.
+ */
 struct EngineConfig {
-    uint32_t width{1280};
-    uint32_t height{720};
-    std::string title{"bgl Engine"};
-    RenderSettings render{};
-    bool defaultCameraControls{true}; ///< LMB orbit, RMB pan, wheel zoom, WASD/arrow keys move
-    bool loadDroppedFiles{true};      ///< Dropping a .glb/.gltf onto the window loads it
+    uint32_t width{1280};            ///< Initial window / viewport width in pixels.
+    uint32_t height{720};            ///< Initial window / viewport height in pixels.
+    std::string title{"bgl Engine"}; ///< Native window title bar text (unused in browser builds).
+    RenderSettings render{};         ///< Initial rendering and post-processing configuration.
+    bool defaultCameraControls{
+        true}; ///< LMB orbit, RMB pan, wheel zoom, WASD/arrow movement when GUI doesn't capture input.
+    bool loadDroppedFiles{true}; ///< Automatically load dragged-and-dropped `.glb`/`.gltf` files or URLs.
 };
 
 /**
  * @class Engine
- * @brief Owns window, GPU device, renderer and the active scene. Create with Engine::Create().
+ * @brief Owns the window, WebGPU device, renderer, camera, and active scene. Instantiate with `Engine::Create()`.
  */
 class Engine {
 public:
-    /** @brief Creates window and renderer. Returns an error string (e.g. no GPU adapter) on failure. */
+    /**
+     * @brief Creates the native/WASM window, initializes WebGPU, and configures pipelines.
+     * @param config Window dimensions, title, and initial render settings.
+     * @return Owning handle on success, or a human-readable error string (e.g. missing GPU adapter) on failure.
+     */
     [[nodiscard]] static Result<std::unique_ptr<Engine>> Create(const EngineConfig& config = {});
     ~Engine();
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    /** @brief Pumps window/input events. Returns false when the window was closed or Quit() was called. */
-    bool PollEvents();
-    /** @brief Advances simulation (animation, camera, sky). Call once per frame. */
+    /**
+     * @brief Pumps pending window, keyboard, mouse, and file-drop events for the current frame.
+     * @return `false` if the user closed the window or `Quit()` was called; `true` otherwise.
+     */
+    [[nodiscard]] bool PollEvents();
+
+    /**
+     * @brief Applies pending RenderSettings diffs and advances animation, camera, skybox, and telemetry.
+     * @param deltaTime Elapsed wall-clock time since the previous frame in seconds.
+     */
     void Update(float deltaTime);
-    /** @brief Renders one frame (including gui, see bgl/Gui.hpp). */
+
+    /** @brief Encodes and presents one HDR + post-processed + GUI frame. */
     void Render();
 
+    /**
+     * @brief Checks whether the engine loop is still active.
+     * @return `true` until `Quit()` is called or the user closes the window.
+     */
     [[nodiscard]] bool IsRunning() const noexcept;
+
+    /** @brief Signals the engine loop to terminate cleanly after the current frame. */
     void Quit() noexcept;
 
-    /** @brief Loads a glTF/GLB from a path, file:// URI or http(s):// URL and makes it the active scene. */
-    Result<void> LoadModel(std::string_view pathOrUrl);
+    /**
+     * @brief Loads a glTF 2.0/2.1 or GLB asset from a file path, `file://` URI, or `http(s)://` URL.
+     * @param pathOrUrl Filesystem path, `file://`, `data:`, or HTTP/HTTPS resource URI.
+     * @return Empty Result on success, or an error description string on failure.
+     */
+    [[nodiscard]] Result<void> LoadModel(std::string_view pathOrUrl);
 
-    /** @brief Creates an empty entity in the active scene (an empty scene is created if none is loaded). */
+    /**
+     * @brief Loads a glTF 2.0/2.1 or GLB asset from an in-memory byte buffer and makes it the active scene.
+     * @param data Contiguous view of raw `.glb` or `.gltf` bytes.
+     * @param name Virtual filename or base URI used for logging and resolving external relative assets.
+     * @return Empty Result on success, or an error description string on failure.
+     */
+    [[nodiscard]] Result<void> LoadModel(std::span<const uint8_t> data, std::string_view name = "memory.glb");
+
+    /**
+     * @brief Creates an empty entity in the active scene (creates an empty scene automatically if none is loaded).
+     * @param name Debug name assigned to the created scene node.
+     * @return Handle to the newly created Entity.
+     */
     Entity CreateEntity(std::string_view name);
-    /** @brief Finds an entity (e.g. a glTF node) by name; returns an invalid Entity if not found. */
-    Entity FindEntity(std::string_view name);
 
-    /** @brief The orbit/fly camera. */
-    [[nodiscard]] core::Camera& GetCamera() noexcept;
-    /** @brief Moves the camera so the whole scene is visible. */
+    /**
+     * @brief Finds the first entity matching `name` in the active scene.
+     * @param name Exact node name to search for.
+     * @return Valid Entity handle if found, or an invalid handle otherwise.
+     */
+    [[nodiscard]] Entity FindEntity(std::string_view name);
+
+    /**
+     * @brief Returns mutable access to the interactive orbit/fly camera.
+     * @return Reference to the active Camera.
+     */
+    [[nodiscard]] Camera& GetCamera() noexcept;
+
+    /**
+     * @brief Returns read-only access to the interactive orbit/fly camera.
+     * @return Const reference to the active Camera.
+     */
+    [[nodiscard]] const Camera& GetCamera() const noexcept;
+
+    /** @brief Moves the camera target and distance so the whole active scene fits comfortably in view. */
     void FrameAll() noexcept;
 
-    /** @brief Mutable settings; changes are applied automatically at the start of the next Update(). */
+    /**
+     * @brief Returns mutable render settings; modifications are diffed and applied on the next `Update()`.
+     * @return Reference to the live RenderSettings struct.
+     */
     [[nodiscard]] RenderSettings& Settings() noexcept;
 
+    /**
+     * @brief Returns read-only view of the current render settings.
+     * @return Const reference to the current RenderSettings struct.
+     */
+    [[nodiscard]] const RenderSettings& Settings() const noexcept;
+
+    /**
+     * @brief Returns the current drawable viewport width in pixels.
+     * @return Viewport width in pixels.
+     */
     [[nodiscard]] uint32_t Width() const noexcept;
+
+    /**
+     * @brief Returns the current drawable viewport height in pixels.
+     * @return Viewport height in pixels.
+     */
     [[nodiscard]] uint32_t Height() const noexcept;
 
-    /** @brief Called when the window is resized. */
+    /**
+     * @brief Registers a callback invoked whenever the window or swapchain resizes.
+     * @param callback Invoked with the new viewport width and height in pixels.
+     */
     void SetResizeCallback(std::function<void(uint32_t width, uint32_t height)> callback);
-    /** @brief Called for every dropped file/URL (in addition to the automatic load if loadDroppedFiles is set). */
+
+    /**
+     * @brief Registers a callback invoked for each dropped file or URL (in addition to auto-loading if enabled).
+     * @param callback Invoked with the sanitized path or URL string.
+     */
     void SetFileDropCallback(std::function<void(std::string_view path)> callback);
 
-    /** @brief Opens the per-frame immediate-mode GUI bracket (used by App). */
+    /** @brief Opens the per-frame immediate-mode GUI bracket (called automatically around `App::OnGui()`). */
     void BeginGui();
-    /** @brief Closes the per-frame immediate-mode GUI bracket (used by App). */
+
+    /** @brief Closes the per-frame immediate-mode GUI bracket (called automatically around `App::OnGui()`). */
     void EndGui();
 
     struct Impl;
-    [[nodiscard]] Impl& GetImpl() noexcept { return *impl_; }
 
 private:
     Engine();
-    std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Impl> impl_{}; ///< Internal Pimpl state inheriting `engine::EngineCore`.
 };
 
 } // namespace bgl

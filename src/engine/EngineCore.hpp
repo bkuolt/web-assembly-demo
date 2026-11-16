@@ -195,6 +195,8 @@ protected:
     void PollShaderHotReload(float deltaTime);
 
     bool running_{false};
+    bool initialized_{false};
+    bool sdlInitialized_{false};
     bool showBoundingBoxes_{true};
     bool showQuadtreeBounds_{false};
     bool wireframeMode_{false};

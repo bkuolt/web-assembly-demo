@@ -31,7 +31,7 @@ This report summarizes an in-depth codebase audit of the C++23 core (`src/`) and
 * **Verified Current State:**
   * In `v0.9.17`, the earlier 421-byte stub was replaced by [`wasm_bridge.cpp`](../src/wasm/wasm_bridge.cpp) ([`bgl_engine.wasm`](../web/dist/bgl_engine.wasm), **7,481 bytes**), built by the `wasm-emscripten` job in [ci.yml](../.github/workflows/ci.yml) using `em++ -O3 -std=c++23 -ffreestanding` and `wasm-ld`. It exports a custom first-fit heap allocator (`malloc`/`free` over `{ env: { memory } }`), a lightweight glTF/GLB JSON scanner (`bgl_load_file_buffer`), camera bookmarks, and `bgl_*` C-ABI toggles/setters (`bgl_init`, `bgl_resize`, `bgl_toggle_*`, `bgl_set_*`, `bgl_camera_*`, `bgl_gamepad_state`).
   * **Remaining Split:** `wasm_bridge.cpp` currently wraps an isolated `EngineState` struct without linking `src/core/`, `src/gpu/`, `src/scene/`, `src/text/`, `src/ui/`, or `fastgltf`, and [ci.yml](../.github/workflows/ci.yml) does not yet run `emcmake cmake` over the full C++23 engine libraries.
-  * In [Context.cpp](../src/gpu/Context.cpp), the WebGPU runtime implementation remains guarded under `#if defined(BGL_PLATFORM_NATIVE)` (`PrepareFrame()` returns `false` and `BeginFrame()` returns `nullptr` outside native builds). In [TextureDecoder.cpp](../src/scene/TextureDecoder.cpp), `DecodePNG`, `DecodeWebP`, and `DecodeJPEG` fall back to 2x2 white dummies outside native builds, and [main.cpp](../src/main.cpp) is not linked into the browser WASM bundle.
+  * In [Context.cpp](../src/gpu/Context.cpp), the WebGPU runtime implementation remains guarded under `#if defined(BGL_PLATFORM_NATIVE)` (`PrepareFrame()` returns `false` and `BeginFrame()` returns `nullptr` outside native builds). In [TextureDecoder.cpp](../src/scene/TextureDecoder.cpp), `DecodePNG`, `DecodeWebP`, and `DecodeJPEG` fall back to 2x2 white dummies outside native builds, and [main.cpp](../apps/viewer/main.cpp) is not linked into the browser WASM bundle.
   * Meanwhile, [`BglWebGpuRenderer`](../web/app.js) in [app.js](../web/app.js) (assisted by [gltf_worker.js](../web/gltf_worker.js) with JS frustum culling, batched GPU mipmaps, and per-channel `KHR_texture_transform`) maintains a parallel JavaScript WebGPU renderer without 4x MSAA, IBL cubemaps/BRDF LUT, `ShadowPass`, `PostProcessPass`, 2D `Quadtree` / Hi-Z `OcclusionBuffer`, Forward+ clusters, or `Clearcoat`/`Sheen`/`Transmission`/`Volume`.
 * **Target Architecture:** **Unified WASM/WebGPU Runtime (`emdawnwebgpu` + Browser Codec Bridge).**
   * Implement the `BGL_PLATFORM_WASM` path in [`gpu::Context`](../src/gpu/Context.cpp), link the full C++23 engine via `emcmake cmake`, and route image decoding through browser APIs (`createImageBitmap`/`ImageDecoder`) or compiled C decoders inside `TextureDecoder`.
@@ -68,7 +68,7 @@ flowchart LR
 
 #### A3. Split-Pass `AlphaMode::Blend` & `opaqueColorCopyTexture_` (Core Implemented)
 * **Implemented in Current Branch:**
-  * [`Application::Render`](../src/app/Application.cpp) and [`gpu::Context`](../src/gpu/Context.cpp) now execute [`RenderOpaqueScene`](../src/gpu/Pipeline.cpp) -> [`Skybox::Render`](../src/gpu/Skybox.cpp) -> [`BeginTransparentPass`](../src/gpu/Context.cpp) (resolving and copying HDR color into `opaqueColorCopyTexture_` for accurate glass refraction including the skybox) -> [`RenderTransparentScene`](../src/gpu/Pipeline.cpp) using [`GetTransparentBlendState()`](../src/gpu/Pipeline.hpp) (`SrcAlpha` / `OneMinusSrcAlpha`, `depthWriteEnabled = false`).
+  * [`Application::Render`](../apps/viewer/Application.cpp) and [`gpu::Context`](../src/gpu/Context.cpp) now execute [`RenderOpaqueScene`](../src/gpu/Pipeline.cpp) -> [`Skybox::Render`](../src/gpu/Skybox.cpp) -> [`BeginTransparentPass`](../src/gpu/Context.cpp) (resolving and copying HDR color into `opaqueColorCopyTexture_` for accurate glass refraction including the skybox) -> [`RenderTransparentScene`](../src/gpu/Pipeline.cpp) using [`GetTransparentBlendState()`](../src/gpu/Pipeline.hpp) (`SrcAlpha` / `OneMinusSrcAlpha`, `depthWriteEnabled = false`).
 * **Optional Future Enhancement:** Add downsampled roughness-aware blur mipmaps on `opaqueColorCopyTexture_` for frosted glass refraction and optional Weighted Blended OIT for dense overlapping foliage.
 
 ---
@@ -110,7 +110,7 @@ flowchart LR
 * **Target Feature:** Replace spatial grid clustering in [`GenerateLODs`](../src/scene/Scene.cpp) with a **Quadric Error Metric (QEM)** simplifier preserving UV seams and material boundaries, plus an optional **compute-shader morph baking pass** supporting >8 simultaneous morph targets.
 
 #### C3. Dynamic 3D BVH + 2-Pass GPU Hi-Z Occlusion Culling
-* **Implemented Foundation:** [`Quadtree::Refit()`](../src/scene/Quadtree.cpp) updates item AABBs, recomputes `looseBounds_`, and relocates translated/animated nodes across quadrants each frame whenever `Scene::transformVersion_` increments ([`Application::Update`](../src/app/Application.cpp)), preventing stale culling for dynamic objects.
+* **Implemented Foundation:** [`Quadtree::Refit()`](../src/scene/Quadtree.cpp) updates item AABBs, recomputes `looseBounds_`, and relocates translated/animated nodes across quadrants each frame whenever `Scene::transformVersion_` increments ([`Application::Update`](../apps/viewer/Application.cpp)), preventing stale culling for dynamic objects.
 * **Remaining Evolution:** Upgrade from 2D XZ-plane `Quadtree` + CPU `32x16` [`OcclusionBuffer`](../src/scene/Quadtree.hpp) to a **3D TLAS/BLAS BVH** for multi-story vertical scenes paired with **2-pass GPU Hi-Z pyramid occlusion culling**.
 
 #### C4. Animation Crossfade Blending, State Machine & Inverse Kinematics (IK)
@@ -125,7 +125,7 @@ flowchart LR
 * **Target Feature:** Add `Slider`/`DragFloat`, `ColorPicker`, `TextInput`, scrollable `TreeView` outliner, **3D Translate/Rotate/Scale Gizmos**, command **Undo/Redo**, live material/light editing, and binary `.glb` export.
 
 #### D2. Modular WGSL Pipeline, Live Hot-Reload (Implemented) & Render-Pass Inspector
-* **Implemented in Current Branch:** [`ShaderManager`](../src/gpu/ShaderManager.hpp) ([`ShaderManager.cpp`](../src/gpu/ShaderManager.cpp)) loads modular external `.wgsl` files from `src/gpu/shaders/` with `#include`/`#pragma once` preprocessing, C++23 `#embed` compile-time fallback bundles, validation error scopes, and live file-timestamp **hot-reload** in [`Application::PollShaderHotReload`](../src/app/Application.cpp) across PBR, shadow, skybox, tonemap, AABB, wireframe, GPU culler, and GPU ray picker pipelines.
+* **Implemented in Current Branch:** [`ShaderManager`](../src/gpu/ShaderManager.hpp) ([`ShaderManager.cpp`](../src/gpu/ShaderManager.cpp)) loads modular external `.wgsl` files from `src/gpu/shaders/` with `#include`/`#pragma once` preprocessing, C++23 `#embed` compile-time fallback bundles, validation error scopes, and live file-timestamp **hot-reload** in [`Application::PollShaderHotReload`](../apps/viewer/Application.cpp) across PBR, shadow, skybox, tonemap, AABB, wireframe, GPU culler, and GPU ray picker pipelines.
 * **Remaining Tooling:** **Screenshot / HDR EXR Capture** from swapchain/HDR targets and an in-engine **Render-Pass Debug Minimap** (Shadow Map, Depth, Normals, Forward+ cluster heatmap).
 
 #### D3. Embedded `KHR_audio` Memory Decoding & WebAudio Backend
@@ -139,7 +139,7 @@ flowchart LR
 #### E1. Real Headless GPU Golden Images, Timestamp Queries & Full Engine WASM CI
 * **Verified Current State:**
   * [`test_golden_image.cpp`](../tests/test_golden_image.cpp) validates deterministic buffer hashing on CPU rather than reading back actual rendered pixels from Dawn/wgpu-native offscreen targets.
-  * [`Application.cpp`](../src/app/Application.cpp) estimates MSAA VRAM assuming 4x samples instead of querying actual pass sizes, and lacks per-pass GPU hardware timings.
+  * [`Application.cpp`](../apps/viewer/Application.cpp) estimates MSAA VRAM assuming 4x samples instead of querying actual pass sizes, and lacks per-pass GPU hardware timings.
 * **Target Feature:**
   * **Headless Offscreen GPU Render Tests** comparing Dawn/Vulkan output PNGs (SSIM/FLIP) against golden reference images.
   * **WebGPU Timestamp Queries (`WGPUQuerySet`)** for per-pass GPU profiling in the HUD.
@@ -217,7 +217,7 @@ flowchart TD
 * **Pre-Allocated `TempAllocator`:** Back `JPH::TempAllocatorImpl` with a fixed pre-allocated block (e.g., 8–16 MB), matching the engine's zero-uncontrolled-heap policy.
 
 #### 3.3 Fixed-Timestep Accumulator in Frame Loop
-* **Current Gap:** The native loop in [main.cpp](../src/main.cpp) passes variable wall-clock `deltaTime` directly into [`Application::Update(deltaTime)`](../src/app/Application.cpp) (while `EmscriptenMainLoop` passes a fixed `1.0f / 60.0f`). Variable timesteps cause solver instability and tunneling.
+* **Current Gap:** The native loop in [main.cpp](../apps/viewer/main.cpp) passes variable wall-clock `deltaTime` directly into [`Application::Update(deltaTime)`](../apps/viewer/Application.cpp) (while `EmscriptenMainLoop` passes a fixed `1.0f / 60.0f`). Variable timesteps cause solver instability and tunneling.
 * **Recommended Pattern:**
   1. Clamp incoming delta (`dt = std::min(deltaTime, 0.1f)`) to prevent a spiral of death after stalls.
   2. Step physics at fixed intervals (`constexpr float kFixedPhysicsDt = 1.0f / 60.0f`, or `1/120` s).
@@ -245,7 +245,7 @@ sequenceDiagram
 ```
 
 #### 3.4 Data Synchronization Across `Scene`, `Camera`, `AabbRenderer` & `SoundEngine`
-1. **Collider Creation in `ActivateScene` ([Application.cpp](../src/app/Application.cpp)):**
+1. **Collider Creation in `ActivateScene` ([Application.cpp](../apps/viewer/Application.cpp)):**
    * Static world meshes (`Sponza`): build `JPH::MeshShapeSettings` directly from `MeshPrimitive::vertices` / `indices` in a `Static` broadphase layer.
    * Dynamic/kinematic nodes: classify via `KHR_physics_rigid_bodies` / `OMI_collider` or naming/extras conventions, mapping hierarchical scale via `JPH::ScaledShape`.
 2. **Writeback & Spatial Refit:** Dynamic bodies update `SceneNode::translation` / `rotation`, trigger `UpdateLocalTransform()` + `Scene::Update()`, and automatically drive [`Quadtree::Refit()`](../src/scene/Quadtree.cpp). Animated kinematic nodes push dynamic rigid bodies cleanly.

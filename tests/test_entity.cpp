@@ -74,6 +74,8 @@ TEST(EntityOps, AttachLightSetsValidLightIndex) {
 TEST(EntityHandle, DefaultInvalidHandleIsSafe) {
     bgl::Entity empty;
     EXPECT_FALSE(empty.IsValid());
+    EXPECT_FALSE(static_cast<bool>(empty));
+    EXPECT_EQ(empty, bgl::Entity{});
     EXPECT_TRUE(empty.Name().empty());
     EXPECT_EQ(empty.Position(), glm::vec3(0.0f));
     EXPECT_EQ(empty.Scale(), glm::vec3(1.0f));
@@ -86,4 +88,5 @@ TEST(EntityHandle, DefaultInvalidHandleIsSafe) {
     empty.SetParent(empty);
     empty.AddLight({});
     EXPECT_FALSE(empty.IsValid());
+    EXPECT_FALSE(static_cast<bool>(empty));
 }

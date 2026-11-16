@@ -36,17 +36,21 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
         return std::unexpected(std::string{"Failed to initialize SDL2: "} + SDL_GetError());
     }
+    sdlInitialized_ = true;
 
     const std::string title{config.windowTitle.empty() ? std::string{kEngineName} : config.windowTitle};
     SDL_Window* window{SDL_CreateWindow(title.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                         static_cast<int>(width), static_cast<int>(height),
                                         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE)};
-    if (window) {
-        nativeWindow_ = window;
-        SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
-        SDL_EventState(SDL_DROPTEXT, SDL_ENABLE);
-        BGL_LOG_INFO("Created native SDL2 window {}x{} (Drag & Drop enabled for files and URLs)", width, height);
+    if (!window) {
+        const std::string err{SDL_GetError()};
+        Shutdown();
+        return std::unexpected("Failed to create SDL2 window: " + err);
     }
+    nativeWindow_ = window;
+    SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+    SDL_EventState(SDL_DROPTEXT, SDL_ENABLE);
+    BGL_LOG_INFO("Created native SDL2 window {}x{} (Drag & Drop enabled for files and URLs)", width, height);
 #endif
 
     gpu::ContextConfig cfg{};
@@ -55,12 +59,14 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
     cfg.nativeWindowHandle = nativeWindow_;
 
     if (auto res = gpuContext_.Initialize(cfg); !res) {
+        Shutdown();
         return res;
     }
 
     if (auto res = pipelineManager_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
                                                gpuContext_.GetPreferredFormat(), gpuContext_.GetSampleCount());
         !res) {
+        Shutdown();
         return res;
     }
 
@@ -83,6 +89,7 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
         quadtree_ = std::make_unique<scene::Quadtree>(worldBounds);
     }
 
+    initialized_ = true;
     running_ = true;
     BGL_LOG_INFO("bgl Engine initialized successfully.");
     return {};
@@ -215,6 +222,9 @@ void EngineCore::Render() {
 }
 
 void EngineCore::Shutdown() {
+    const bool hadActiveState = initialized_ || sdlInitialized_ || nativeWindow_ != nullptr ||
+                                gpuContext_.IsInitialized() || soundEngine_.IsInitialized() || activeScene_ != nullptr;
+
     activeScene_.reset();
     quadtree_.reset();
     gltfLoader_.reset();
@@ -227,11 +237,17 @@ void EngineCore::Shutdown() {
     if (nativeWindow_) {
         SDL_DestroyWindow(nativeWindow_);
         nativeWindow_ = nullptr;
+    }
+    if (sdlInitialized_) {
         SDL_Quit();
+        sdlInitialized_ = false;
     }
 #endif
+    initialized_ = false;
     running_ = false;
-    BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
+    if (hadActiveState) {
+        BGL_LOG_INFO("bgl Engine shutdown completed cleanly.");
+    }
 }
 
 void EngineCore::PollShaderHotReload(float deltaTime) {

@@ -236,6 +236,7 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/ShadowPass.cpp
     src/gpu/PostProcessPass.cpp
     src/gpu/PostProcessPassRender.cpp
+    src/gpu/PostProcessPassTargets.cpp
     src/gpu/GpuCuller.cpp
     src/gpu/GpuRayPicker.cpp
     src/gpu/Pipeline.cpp
@@ -272,6 +273,7 @@ add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/AssetManager.cpp
     src/scene/FastGltfLoader.cpp
     src/scene/FastGltfParser.cpp
+    src/scene/FastGltfSceneBuilder.cpp
     src/scene/Quadtree.cpp
     src/scene/RayPicker.cpp
 )
@@ -327,6 +329,7 @@ add_library(bgl::text ALIAS bgl_text)
 add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
     src/ui/ImmediateUI.cpp
+    src/ui/ImmediateUIOverlays.cpp
     src/ui/ImmediateUIWidgets.cpp
 )
 target_link_libraries(bgl_ui PUBLIC

@@ -1,5 +1,12 @@
 #include "bgl/bgl.hpp"
+#include <array>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <type_traits>
+#include <vector>
+
+static_assert(std::is_same_v<bgl::Camera, bgl::core::Camera>);
+static_assert(std::is_same_v<bgl::CameraMode, bgl::core::CameraMode>);
 
 TEST(GuiPublicApi, CallsOutsideFrameAreSafeNoOps) {
     bool checked = true;
@@ -45,10 +52,17 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
 
     bgl::Entity found = engine.FindEntity("TestChild");
     EXPECT_TRUE(found.IsValid());
+    EXPECT_TRUE(static_cast<bool>(found));
+    EXPECT_EQ(found, child);
+    EXPECT_NE(found, parent);
     EXPECT_EQ(found.Name(), "TestChild");
     EXPECT_FALSE(engine.FindEntity("DoesNotExist").IsValid());
 
     engine.Settings().exposure = 1.5f;
+    const bgl::Engine& constEngine = engine;
+    EXPECT_FLOAT_EQ(constEngine.Settings().exposure, 1.5f);
+    EXPECT_EQ(constEngine.GetCamera().GetMode(), bgl::CameraMode::Orbit);
+
     engine.Update(0.016f);
     engine.BeginGui();
     bgl::gui::Begin("Test");
@@ -57,10 +71,23 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
     engine.EndGui();
     engine.Render();
 
-    // Loading a new model replaces the scene and invalidates handles from the previous scene
-    ASSERT_TRUE(engine.LoadModel("assets/ToyCar.glb").has_value());
+    // Empty byte buffer load returns an explicit Result error without replacing the scene
+    const std::array<uint8_t, 0> emptyBytes{};
+    EXPECT_FALSE(engine.LoadModel(emptyBytes, "empty.glb").has_value());
+    EXPECT_TRUE(parent.IsValid());
+
+    // Loading a new model from memory replaces the scene and invalidates handles from the previous scene
+    std::ifstream file("assets/ToyCar.glb", std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(file.is_open());
+    const auto fileSize = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    std::vector<uint8_t> glbBytes(fileSize);
+    ASSERT_TRUE(file.read(reinterpret_cast<char*>(glbBytes.data()), static_cast<std::streamsize>(fileSize)));
+
+    ASSERT_TRUE(engine.LoadModel(glbBytes, "ToyCar.glb").has_value());
     EXPECT_FALSE(parent.IsValid());
     EXPECT_FALSE(child.IsValid());
+    EXPECT_EQ(parent, bgl::Entity{});
 
     engine.Quit();
     EXPECT_FALSE(engine.IsRunning());

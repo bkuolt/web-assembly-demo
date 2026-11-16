@@ -5,7 +5,7 @@
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-328_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-344_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 ## bgl Engine
@@ -254,6 +254,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── PipelineHelpers.hpp        # Internal FP16/cubemap/material uniform helpers
 │   │   ├── PostProcessPass.hpp/.cpp   # Cinematic post-process pipelines & resize management
 │   │   ├── PostProcessPassRender.cpp  # Depth linearize, GTAO, Bloom, Auto-Exposure, SSR, DoF & FXAA execution
+│   │   ├── PostProcessPassTargets.cpp # Fullscreen post-processing pipeline creation & resize target allocation
 │   │   ├── PostProcessHelpers.hpp     # Shared internal post-processing uniform & fullscreen draw helpers
 │   │   ├── ShaderManager.hpp/.cpp     # Modular .wgsl loader, #include preprocessor, #embed & hot-reload
 │   │   ├── Shaders.hpp                # ShaderManager-backed WGSL entry-point accessors
@@ -266,7 +267,8 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── AssetManager.hpp/.cpp      # 64-bit FNV-1a caching and PMR geometry allocation
 │   │   ├── FastGltfLoader.hpp/.cpp    # Async progress glTF/GLB orchestrator & external buffer resolver
 │   │   ├── FastGltfInternal.hpp       # Shared ProgressReporter and internal parser stage declarations
-│   │   ├── FastGltfParser.cpp         # Parallel texture decode, materials, lights, LODs, hierarchy & anims
+│   │   ├── FastGltfParser.cpp         # Parallel mesh primitive parsing, decimation/LOD & image decode stages
+│   │   ├── FastGltfSceneBuilder.cpp   # Material, light, instancing, hierarchy, camera, skin & animation builders
 │   │   ├── Quadtree.hpp/.cpp          # 4-way XZ spatial partition, Refit(), Hi-Z occlusion & SSE LOD
 │   │   ├── RayPicker.hpp/.cpp         # Hierarchical Möller-Trumbore ray-triangle intersection
 │   │   ├── Scene.hpp/.cpp             # Scene graph, GPU morph/skin helpers, QEM/grid LODs & tangents
@@ -278,13 +280,15 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   └── TextRenderer.hpp/.cpp      # WebGPU 2D batched quad renderer with alpha blending
 │   ├── ui/                            # -> libbgl_ui.so
 │   │   ├── DebugOverlay.hpp/.cpp      # In-engine glassmorphism HUD telemetry overlay
-│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching engine, frosted backdrop & popup overlays
-│   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets (Dropdown, ProgressBar, Banner, HSV)
+│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching engine and window layout state
+│   │   ├── ImmediateUIOverlays.cpp    # Dropdowns, scroll areas, loading banners, popup overlays & UI facade
+│   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets (Buttons, Sliders, HSV ColorEdit3, Sparklines)
 │   │   └── shaders/ui.wgsl            # Analytical 2D SDF, Gaussian shadow & frosted glass UI shader
 │   ├── audio/                         # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp       # 3D spatial audio listener and sound source management
 │   ├── engine/                        # -> libbgl_engine.so
 │   │   ├── EngineCore.hpp/.cpp        # Reusable runtime (window, GPU, scene, render loop)
+│   │   ├── EngineCoreScene.cpp        # Scene activation, ray picking, camera cycling & diurnal sun controls
 │   │   ├── Engine.cpp / EngineImpl.*  # Public bgl::Engine Pimpl facade & RenderSettings diffing
 │   │   ├── App.cpp / Gui.cpp          # bgl::App lifecycle runner & bgl::gui helpers
 │   │   ├── Input*.hpp/.cpp            # bgl::Input polling state & native SDL2 backend
@@ -296,17 +300,19 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── App.hpp / Engine.hpp           # Application lifecycle & engine facade
 │   ├── Entity.hpp / Gui.hpp           # Scene entity handle & immediate-mode debug UI
 │   ├── Input.hpp / Settings.hpp       # Polling input & plain-data RenderSettings
-│   └── Types.hpp                      # Public Result<T> & GLM types
+│   └── Types.hpp                      # Public Result<T>, Camera, CameraMode & GLM types
 ├── apps/viewer/                       # -> libbgl_viewer_lib.so + bgl_viewer (Reference App)
 │   ├── Application.hpp/.cpp           # Viewer-specific shortcuts, HUD, turntable & studio UI
+│   ├── ApplicationInput.cpp           # Desktop SDL2 keyboard shortcuts & camera bookmark hotkeys
 │   ├── ApplicationModelLoader.cpp     # 19-model preset catalog, async worker lifecycle & node picking
 │   ├── ApplicationUI.cpp              # Per-section SDF UI studio builders & selection badge
 │   ├── CommandLine.hpp/.cpp           # CLI argument parsing, help screen, and format inspection
-│   └── main.cpp                       # Native desktop viewer entry point
+│   ├── main.cpp                       # Native desktop viewer entry point
+│   └── WebExports.cpp                 # Emscripten C-ABI bridge exports for full-engine browser builds
 ├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   └── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
-├── tests/                             # C++ GTest (256 tests across 24 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (272 tests across 30 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
@@ -324,10 +330,15 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   ├── test_animation.cpp             # Skeletal skinning, morph targets & TRS keyframe interpolation
 │   ├── test_thread_pool.cpp           # Work-stealing ParallelFor, nested tasks & synchronization
 │   ├── test_audio_engine.cpp          # Spatial 3D audio engine & file safety
+│   ├── test_render_settings.cpp       # RenderSettings defaults parity & equality diff tests
+│   ├── test_input_state.cpp           # Frame-buffered InputState & bgl::Input forwarding tests
+│   ├── test_entity.cpp                # Scene graph reparenting, cycle guard & Entity handle safety
+│   ├── test_engine_api.cpp            # Live Engine API, gui safety & scene reload invalidation
 │   ├── test_web_unit.js               # 72 Node.js web math, shader, glTF, frustum & LOD unit tests
 │   ├── test_webgpu_path.js            # 12-step headless WebGPU pipeline + real bgl_engine.wasm verification
 │   └── test_browsers_e2e.py           # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
+│   ├── check_layering.py              # Module header dependency & public-SDK boundary checker (LayeringCheck)
 │   ├── doxygen_md_filter.py           # Doxygen GFM math & alert preprocessor filter
 │   ├── package_web.py                 # Minimal web app distribution packager
 │   └── run_ci_locally.sh              # Local mirror of CI formatting, build, test & smoke stages
@@ -639,7 +650,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **256 C++ GTests across 24 test suites**, a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites (`5/5` CTest targets):
+The engine includes an extensive, production-grade test suite with **272 C++ GTests across 30 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
@@ -661,6 +672,7 @@ The engine includes an extensive, production-grade test suite with **256 C++ GTe
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & glassmorphic shader features, HSV roundtrips, Slider/CollapsingHeader/Sparkline/ScrollArea/Window drag, `ColorEdit3` popup HSV manipulation, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared primitive instancing verification. |
 | `ShaderManagerTest` | 4 | WGSL `#include` expansion & `#pragma once`, circular/missing include error detection, embedded entry-point verification, and hot-reload change detection. |
+| Public SDK & Engine Suites | 16 | `InputState` (7), `EntityOps` (4), `RenderSettings` (2), `EnginePublicApi` (1), `EntityHandle` (1), `GuiPublicApi` (1), plus `ApplicationModelLoader` presets. |
 | Single-Test Targeted Suites | 6 | `GamepadTest` (1), `ImmediateUITest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), and `TextureDecoderHdrTest` (1). |
 
 ---

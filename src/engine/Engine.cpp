@@ -65,7 +65,15 @@ Result<void> Engine::LoadModel(std::string_view pathOrUrl) {
     return impl_->LoadSceneFromUri(pathOrUrl);
 }
 
-core::Camera& Engine::GetCamera() noexcept {
+Result<void> Engine::LoadModel(std::span<const uint8_t> data, std::string_view name) {
+    return impl_->LoadScene(data, name);
+}
+
+Camera& Engine::GetCamera() noexcept {
+    return impl_->GetCamera();
+}
+
+const Camera& Engine::GetCamera() const noexcept {
     return impl_->GetCamera();
 }
 
@@ -74,6 +82,10 @@ void Engine::FrameAll() noexcept {
 }
 
 RenderSettings& Engine::Settings() noexcept {
+    return impl_->settings_;
+}
+
+const RenderSettings& Engine::Settings() const noexcept {
     return impl_->settings_;
 }
 

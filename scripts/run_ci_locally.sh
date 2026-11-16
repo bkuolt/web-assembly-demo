@@ -94,6 +94,7 @@ cmake --build "${BUILD_DIR}" -j"$(nproc)"
 mkdir -p build-native
 cp -f "${BUILD_DIR}/bgl_viewer" build-native/
 cp -f "${BUILD_DIR}/bgl_unit_tests" build-native/
+cp -f "${BUILD_DIR}"/sample_* build-native/ 2>/dev/null || true
 cp -f "${BUILD_DIR}"/libbgl_*.so build-native/
 if [[ -f "third_party/wgpu-native/lib/libwgpu_native.so" ]]; then
   cp -f third_party/wgpu-native/lib/libwgpu_native.so build-native/
