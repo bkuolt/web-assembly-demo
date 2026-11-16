@@ -340,6 +340,9 @@ add_library(bgl::ui ALIAS bgl_ui)
 add_library(bgl_engine ${BGL_LIB_TYPE}
     src/engine/EngineCore.cpp
 )
+target_include_directories(bgl_engine PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 target_link_libraries(bgl_engine PUBLIC bgl_scene)
 add_library(bgl::engine ALIAS bgl_engine)
 
@@ -392,6 +395,7 @@ if(BGL_BUILD_TESTING)
         tests/test_animation.cpp
         tests/test_thread_pool.cpp
         tests/test_audio_engine.cpp
+        tests/test_render_settings.cpp
     )
 
     if(TARGET GTest::gtest)

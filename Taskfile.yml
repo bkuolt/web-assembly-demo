@@ -48,7 +48,7 @@ tasks:
   format:
     desc: Verify C++23 clang-format compliance across src/ and tests/
     cmds:
-      - find src apps tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
+      - find src apps include tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
   lint:
     desc: Run clang-tidy static analysis on WASM bridge and Clang compile database

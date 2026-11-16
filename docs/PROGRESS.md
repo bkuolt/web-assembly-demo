@@ -14,7 +14,7 @@
 | T02 | DONE | | bgl_viewer_lib, bgl:: Aliase, scripts/check_layering.py + CTest |
 | T03 | DONE | | EngineCore extrahiert; Application erbt von EngineCore (inkl. OnSceneActivated/OnFileDrop) |
 | T04 | DONE | | kEngineName -> "bgl Engine" |
-| T05 | TODO | | |
+| T05 | DONE | | include/bgl/Types.hpp, Settings.hpp, bgl.hpp + test_render_settings |
 | T06 | TODO | | |
 | T07 | TODO | | |
 | T08 | TODO | | |
