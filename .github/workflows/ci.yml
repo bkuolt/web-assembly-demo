@@ -45,7 +45,7 @@ jobs:
 
     - name: Check Clang-Format Compliance
       run: |
-        find src tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
+        find src apps tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
     - name: Run Clang-Tidy Static Analysis (WASM Bridge)
       run: |

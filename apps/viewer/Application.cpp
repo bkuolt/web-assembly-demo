@@ -2,7 +2,7 @@
  * @file Application.cpp
  * @brief Core application loop, SDL2 window management, WebGPU pipeline and scene orchestration.
  */
-#include "app/Application.hpp"
+#include "viewer/Application.hpp"
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "core/NetworkFetcher.hpp"

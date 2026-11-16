@@ -2,7 +2,7 @@
  * @file test_command_line.cpp
  * @brief Unit tests for command-line arguments parsing and default options.
  */
-#include "app/CommandLine.hpp"
+#include "viewer/CommandLine.hpp"
 #include <array>
 #include <gtest/gtest.h>
 #include <span>

@@ -2,10 +2,10 @@
  * @file test_gltf_loader.cpp
  * @brief Unit tests for FastGltfLoader, scene graph hierarchy, and PBR/KHR material extensions.
  */
-#include "app/Application.hpp"
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
+#include "viewer/Application.hpp"
 #include <chrono>
 #include <filesystem>
 #include <gtest/gtest.h>

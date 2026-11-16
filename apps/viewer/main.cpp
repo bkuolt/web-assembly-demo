@@ -2,8 +2,8 @@
  * @file main.cpp
  * @brief Entrypoint for bgl_viewer native desktop application and Emscripten main loop.
  */
-#include "app/Application.hpp"
 #include "core/Log.hpp"
+#include "viewer/Application.hpp"
 
 #if defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -442,8 +442,8 @@ int main() {
 
 #else
 
-#include "app/CommandLine.hpp"
 #include "core/CrashHandler.hpp"
+#include "viewer/CommandLine.hpp"
 #include <chrono>
 
 int main(int argc, char** argv) {

@@ -2,7 +2,7 @@
  * @file ApplicationUI.cpp
  * @brief Native in-engine studio overlay panels, telemetry sparklines, model selector, and loading progress UI.
  */
-#include "app/Application.hpp"
+#include "viewer/Application.hpp"
 #include <algorithm>
 #include <array>
 #include <format>

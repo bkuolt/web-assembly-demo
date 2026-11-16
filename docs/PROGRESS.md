@@ -10,7 +10,7 @@
 ## Aufgaben
 | Task | Status | Commit | Notiz |
 |------|--------|--------|-------|
-| T01 | TODO | | |
+| T01 | DONE | | Viewer nach apps/viewer verschoben (inkl. ApplicationUI.cpp, ApplicationModelLoader.cpp) |
 | T02 | TODO | | |
 | T03 | TODO | | |
 | T04 | TODO | | |

@@ -48,14 +48,14 @@ tasks:
   format:
     desc: Verify C++23 clang-format compliance across src/ and tests/
     cmds:
-      - find src tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
+      - find src apps tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
   lint:
     desc: Run clang-tidy static analysis on WASM bridge and Clang compile database
     cmds:
       - clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc
       - cmake --preset clang
-      - run-clang-tidy -p {{.CLANG_BUILD_DIR}} -config-file=.clang-tidy 'src/(app|audio|core|gpu|scene|text|ui)/.*\.cpp$' src/main.cpp
+      - run-clang-tidy -p {{.CLANG_BUILD_DIR}} -config-file=.clang-tidy '(src/(audio|core|gpu|scene|text|ui)|apps/viewer)/.*\.cpp$'
 
   package-web:
     desc: Build minimal web distribution archive into dist/bgl_web_app_minimal.zip

@@ -2,9 +2,9 @@
  * @file ApplicationModelLoader.cpp
  * @brief Built-in glTF model preset catalog, async/sync scene loading, node selection, and camera framing.
  */
-#include "app/Application.hpp"
 #include "core/Log.hpp"
 #include "core/NetworkFetcher.hpp"
+#include "viewer/Application.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>

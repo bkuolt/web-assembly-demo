@@ -332,10 +332,13 @@ target_link_libraries(bgl_ui PUBLIC
 # 7. libbgl_app
 # ==============================================================================
 add_library(bgl_app ${BGL_LIB_TYPE}
-    src/app/Application.cpp
-    src/app/ApplicationModelLoader.cpp
-    src/app/ApplicationUI.cpp
-    src/app/CommandLine.cpp
+    apps/viewer/Application.cpp
+    apps/viewer/ApplicationModelLoader.cpp
+    apps/viewer/ApplicationUI.cpp
+    apps/viewer/CommandLine.cpp
+)
+target_include_directories(bgl_app PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/apps>
 )
 target_link_libraries(bgl_app PUBLIC
     bgl_scene
@@ -346,7 +349,7 @@ target_link_libraries(bgl_app PUBLIC
 # ==============================================================================
 # 8. Native Viewer Executable
 # ==============================================================================
-add_executable(bgl_viewer src/main.cpp)
+add_executable(bgl_viewer apps/viewer/main.cpp)
 target_link_libraries(bgl_viewer PRIVATE bgl_app)
 
 # ==============================================================================

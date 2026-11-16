@@ -14,7 +14,7 @@ fi
 # Step 1: Code Formatting, Static Analysis & Web Script Validation
 echo "[Step 1/7] Checking C++23 formatting, clang-tidy, and web client scripts..."
 if command -v clang-format >/dev/null 2>&1; then
-  find src tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
+  find src apps tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 fi
 if command -v clang-tidy >/dev/null 2>&1; then
   clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc
