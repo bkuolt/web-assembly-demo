@@ -6,11 +6,19 @@
 
 using namespace bgl;
 
+static_assert(std::to_underlying(ToneMap::KhronosPbrNeutral) ==
+              std::to_underlying(gpu::ToneMapOperator::KhronosPbrNeutral));
 static_assert(std::to_underlying(ToneMap::AgX) == std::to_underlying(gpu::ToneMapOperator::AgX));
 static_assert(std::to_underlying(ToneMap::ACES) == std::to_underlying(gpu::ToneMapOperator::ACES));
+static_assert(std::to_underlying(Weather::Clear) == std::to_underlying(gpu::WeatherMode::None));
+static_assert(std::to_underlying(Weather::Rain) == std::to_underlying(gpu::WeatherMode::Rain));
+static_assert(std::to_underlying(Weather::Snow) == std::to_underlying(gpu::WeatherMode::Snow));
+static_assert(std::to_underlying(Weather::Fog) == std::to_underlying(gpu::WeatherMode::Fog));
 static_assert(std::to_underlying(Weather::Smoke) == std::to_underlying(gpu::WeatherMode::Smoke));
 static_assert(std::to_underlying(DebugView::ToonCel) == std::to_underlying(gpu::DebugViewMode::ToonCel));
 static_assert(std::to_underlying(Environment::NightNeon) == std::to_underlying(gpu::EnvironmentPreset::NightNeon));
+static_assert(std::to_underlying(SkyboxStyle::Sharp) == std::to_underlying(gpu::SkyboxMode::Sharp));
+static_assert(std::to_underlying(SkyboxStyle::Blurred) == std::to_underlying(gpu::SkyboxMode::Blurred));
 static_assert(std::to_underlying(SkyboxStyle::Hidden) == std::to_underlying(gpu::SkyboxMode::Hidden));
 
 TEST(RenderSettings, DefaultsMatchPipelineDefaults) {
@@ -44,4 +52,29 @@ TEST(RenderSettings, DefaultsMatchPipelineDefaults) {
     EXPECT_FLOAT_EQ(s.weatherIntensity, pipeline.GetWeatherIntensity());
     EXPECT_FLOAT_EQ(s.windStrength, pipeline.GetWindStrength());
     EXPECT_EQ(std::to_underlying(s.debugView), std::to_underlying(pipeline.GetDebugViewMode()));
+}
+
+TEST(RenderSettings, EqualityDetectsChanges) {
+    const RenderSettings a{};
+    RenderSettings b{};
+    EXPECT_EQ(a, b);
+
+    b.exposure = 2.0f;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.bloom = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.weather = Weather::Rain;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.debugView = DebugView::Normals;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.skyboxStyle = SkyboxStyle::Blurred;
+    EXPECT_NE(a, b);
 }

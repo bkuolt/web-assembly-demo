@@ -410,6 +410,7 @@ if(BGL_BUILD_TESTING)
         tests/test_render_settings.cpp
         tests/test_input_state.cpp
         tests/test_entity.cpp
+        tests/test_engine_api.cpp
     )
 
     if(TARGET GTest::gtest)
