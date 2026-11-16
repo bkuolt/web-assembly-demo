@@ -8,6 +8,7 @@
 #include "bgl/Entity.hpp"
 #include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"
+#include "bgl/Sprite.hpp"
 #include "bgl/Types.hpp"
 #include <cstdint>
 #include <functional>
@@ -157,6 +158,38 @@ public:
 
     /** @brief Closes the per-frame immediate-mode GUI bracket (called automatically around `App::OnGui()`). */
     void EndGui();
+
+    /**
+     * @brief Loads a 2D texture (PNG, JPEG, WebP, or KTX2) from path/URL into a `SpriteTexture`.
+     * @param pathOrUrl Filesystem path, `file://`, `data:`, or HTTP/HTTPS resource URI.
+     * @param nearestFilter Uses crisp nearest-neighbor pixel filtering instead of bilinear filtering when true.
+     * @return Shared texture handle on success, or a human-readable error string.
+     */
+    [[nodiscard]] Result<std::shared_ptr<SpriteTexture>> LoadSpriteTexture(std::string_view pathOrUrl,
+                                                                           bool nearestFilter = false);
+
+    /**
+     * @brief Decodes raw PNG, JPEG, WebP, or KTX2 image bytes into a `SpriteTexture`.
+     * @param data Contiguous view of raw encoded image bytes.
+     * @param formatHint Optional filename, extension, or MIME type hint for format sniffing.
+     * @param nearestFilter Uses crisp nearest-neighbor pixel filtering instead of bilinear filtering when true.
+     * @return Shared texture handle on success, or a human-readable error string.
+     */
+    [[nodiscard]] Result<std::shared_ptr<SpriteTexture>>
+    LoadSpriteTexture(std::span<const uint8_t> data, std::string_view formatHint = {}, bool nearestFilter = false);
+
+    /**
+     * @brief Enqueues a 2D screen-space `Sprite` (or `AnimatedSprite`) for rendering in the current frame.
+     * @param sprite Sprite descriptor copied into the frame batch.
+     */
+    void DrawSprite(const Sprite& sprite);
+
+    /**
+     * @brief Enqueues a 3D camera-facing `Billboard` (or `AnimatedBillboard`) for rendering in the HDR transparent
+     * pass.
+     * @param billboard Billboard descriptor copied into the frame batch.
+     */
+    void DrawBillboard(const Billboard& billboard);
 
     struct Impl;
 

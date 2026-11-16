@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Sprites, Animated Sprites & 3D Billboards (`include/bgl/Sprite.hpp`, `src/core/Sprite.*`, `src/gpu/SpriteRenderer.*`, `src/gpu/shaders/sprite.wgsl`, `samples/03_sprites_and_billboards/`)
+- **Core Sprite & Billboard Primitives (`src/core/Sprite.*`):**
+  - Added [`Sprite`](src/core/Sprite.hpp), [`AnimatedSprite`](src/core/Sprite.hpp), [`SpriteClip`](src/core/Sprite.hpp), [`SpriteFrame`](src/core/Sprite.hpp), [`SpriteAnimator`](src/core/Sprite.hpp) (`Loop`, `Once`, `PingPong` playback modes, `FromGrid` uniform slicing with bleed guard, and pixel-region frames), [`Billboard`](src/core/Sprite.hpp), [`AnimatedBillboard`](src/core/Sprite.hpp) (`Spherical`, `CylindricalY`, and `ScreenAligned` camera basis math with roll), and [`SpriteTexture`](src/core/Sprite.hpp) (`FromRGBA8`, `CreateSolid`, `CreateRadialGlow`, `CreateRing`, `CreateChecker`).
+- **Batched WebGPU Sprite & HDR Billboard Renderer (`src/gpu/SpriteRenderer.*`, `src/gpu/shaders/sprite.wgsl`):**
+  - Added [`SpriteRenderer`](src/gpu/SpriteRenderer.hpp) with separated 2D swapchain pass pipelines (`Alpha`/`Additive`, layer-sorted, automatic linear/nearest sampler selection and sRGB output normalization) and 3D MSAA `RGBA16Float` HDR transparent-pass pipelines (back-to-front depth-sorted, optional depth testing, linear HDR emission into bloom & tonemap), automatic weak-ref GPU texture cache cleanup, and separate per-pass uniform/geometry buffers.
+  - Integrated into [`EngineCore`](src/engine/EngineCore.cpp) with [`ShaderManager`](src/gpu/ShaderManager.cpp) hot-reload (`sprite.wgsl`) and exposed via [`bgl::Engine`](include/bgl/Engine.hpp) (`LoadSpriteTexture`, `DrawSprite`, `DrawBillboard`), [`include/bgl/Sprite.hpp`](include/bgl/Sprite.hpp), [`samples/03_sprites_and_billboards`](samples/03_sprites_and_billboards/main.cpp), and [`tests/test_sprites.cpp`](tests/test_sprites.cpp).
+
 ### Simplified UI API, Optional Hover Effects, Modals & Cross-Platform Font Discovery (`include/bgl/`, `src/text/`, `src/ui/`, `src/engine/`, `apps/viewer/`)
 - **Cross-Platform Font Discovery & Text Subsystem Upgrade (`src/text/FontLibrary.*`, `FontAtlas.*`, `TextShaper.*`, `TextRenderer.*`):**
   - Added [`FontLibrary`](src/text/FontLibrary.hpp) (`Discover()`, `Find(FontQuery)`, `InspectFile()`, `ReadFontBytes()`) scanning workspace assets and Linux/Windows/macOS/WASM font directories via FreeType 2 without external Fontconfig dependencies, with thread-safe metadata caching, `.ttc`/`.otc` collection index support, weight/style scoring, and generic role aliases (`"sans"`, `"mono"`, `"serif"`, `"embedded"`).

@@ -11,6 +11,7 @@
 #include "bgl/Gui.hpp"
 #include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"
+#include "bgl/Sprite.hpp"
 #include "bgl/Types.hpp"
 
 #endif // BGL_PUBLIC_BGL_HPP

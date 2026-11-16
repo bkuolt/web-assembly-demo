@@ -100,6 +100,9 @@ constexpr char kEmbOutline[] = {
 constexpr char kEmbOutlineComp[] = {
 #embed "shaders/outline_comp.wgsl"
 };
+constexpr char kEmbSprite[] = {
+#embed "shaders/sprite.wgsl"
+};
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -112,7 +115,7 @@ struct EmbeddedEntry {
     std::string_view bytes;
 };
 
-constexpr std::array<EmbeddedEntry, 24> kEmbeddedShaders{{
+constexpr std::array<EmbeddedEntry, 25> kEmbeddedShaders{{
     {"common/uniforms.wgsl", {kEmbCommonUniforms, sizeof(kEmbCommonUniforms)}},
     {"common/ggx_sample.wgsl", {kEmbCommonGgxSample, sizeof(kEmbCommonGgxSample)}},
     {"common/weather.wgsl", {kEmbCommonWeather, sizeof(kEmbCommonWeather)}},
@@ -137,6 +140,7 @@ constexpr std::array<EmbeddedEntry, 24> kEmbeddedShaders{{
     {"fxaa.wgsl", {kEmbFxaa, sizeof(kEmbFxaa)}},
     {"outline.wgsl", {kEmbOutline, sizeof(kEmbOutline)}},
     {"outline_comp.wgsl", {kEmbOutlineComp, sizeof(kEmbOutlineComp)}},
+    {"sprite.wgsl", {kEmbSprite, sizeof(kEmbSprite)}},
 }};
 #endif
 

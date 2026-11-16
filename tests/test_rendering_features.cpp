@@ -2210,7 +2210,7 @@ TEST(ShaderManagerTest, PreprocessorDetectsCircularAndMissingIncludes) {
 }
 
 TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
-    const std::array<std::pair<std::string_view, std::string_view>, 20> checks{{
+    const std::array<std::pair<std::string_view, std::string_view>, 21> checks{{
         {bgl::gpu::kBrdfLutComputeWGSL, "fn cs_brdf_lut"},
         {bgl::gpu::kGgxPrefilterComputeWGSL, "fn cs_ggx_prefilter"},
         {bgl::gpu::kTonemapShaderWGSL, "fn fs_tonemap"},
@@ -2222,6 +2222,7 @@ TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
         {bgl::gpu::kSkyboxShaderWGSL, "fn vs_sky"},
         {bgl::gpu::kGpuCullComputeWGSL, "struct GpuBoundingBox"},
         {bgl::gpu::kGpuRayPickComputeWGSL, "fn cs_pick"},
+        {bgl::gpu::kSpriteShaderWGSL, "fn fs_sprite"},
         {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("depth_linearize.wgsl"), "texture_depth_multisampled_2d"},
         {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("depth_linearize_1x.wgsl"), "texture_depth_2d"},
         {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("gtao.wgsl"), "fn fs_gtao"},

@@ -4,8 +4,10 @@
  */
 #include "bgl/Engine.hpp"
 #include "core/Log.hpp"
+#include "core/NetworkFetcher.hpp"
 #include "engine/EngineImpl.hpp"
 #include "engine/GuiInternal.hpp"
+#include "scene/TextureDecoder.hpp"
 #include <utility>
 
 namespace bgl {
@@ -113,6 +115,49 @@ void Engine::BeginGui() {
 
 void Engine::EndGui() {
     impl_->EndGui();
+}
+
+Result<std::shared_ptr<SpriteTexture>> Engine::LoadSpriteTexture(std::string_view pathOrUrl, bool nearestFilter) {
+    if (pathOrUrl.empty()) {
+        return std::unexpected("Sprite texture path or URL cannot be empty");
+    }
+    auto bytesRes = core::NetworkFetcher::FetchSync(pathOrUrl);
+    if (!bytesRes) {
+        return std::unexpected(bytesRes.error());
+    }
+    return LoadSpriteTexture(*bytesRes, pathOrUrl, nearestFilter);
+}
+
+Result<std::shared_ptr<SpriteTexture>> Engine::LoadSpriteTexture(std::span<const uint8_t> data,
+                                                                 std::string_view formatHint, bool nearestFilter) {
+    if (data.empty()) {
+        return std::unexpected("Sprite texture byte buffer cannot be empty");
+    }
+    auto imgRes = scene::TextureDecoder::DecodeAuto(data, formatHint);
+    if (!imgRes) {
+        return std::unexpected(imgRes.error());
+    }
+    scene::DecodedImage img = std::move(*imgRes);
+    if (img.isCompressed) {
+        auto rgbaRes = scene::TextureDecoder::DecodeKTX2(data, scene::KtxTranscodeTarget::Rgba32);
+        if (!rgbaRes) {
+            return std::unexpected(rgbaRes.error());
+        }
+        img = std::move(*rgbaRes);
+    }
+    auto tex = core::SpriteTexture::FromRGBA8(img.rgbaData, img.width, img.height, nearestFilter, true);
+    if (!tex) {
+        return std::unexpected("Decoded sprite texture has invalid dimensions");
+    }
+    return tex;
+}
+
+void Engine::DrawSprite(const Sprite& sprite) {
+    impl_->SubmitSprite(sprite);
+}
+
+void Engine::DrawBillboard(const Billboard& billboard) {
+    impl_->SubmitBillboard(billboard);
 }
 
 } // namespace bgl

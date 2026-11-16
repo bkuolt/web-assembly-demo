@@ -180,6 +180,7 @@ add_library(bgl_core ${BGL_LIB_TYPE}
     src/core/Camera.cpp
     src/core/CrashHandler.cpp
     src/core/MemoryTracker.cpp
+    src/core/Sprite.cpp
 )
 target_include_directories(bgl_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>
@@ -232,6 +233,7 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/Context.cpp
     src/gpu/ShaderManager.cpp
     src/gpu/Skybox.cpp
+    src/gpu/SpriteRenderer.cpp
     src/gpu/AabbRenderer.cpp
     src/gpu/ShadowPass.cpp
     src/gpu/PostProcessPass.cpp
@@ -425,6 +427,7 @@ if(BGL_BUILD_TESTING)
         tests/test_input_state.cpp
         tests/test_entity.cpp
         tests/test_engine_api.cpp
+        tests/test_sprites.cpp
     )
 
     if(TARGET GTest::gtest)

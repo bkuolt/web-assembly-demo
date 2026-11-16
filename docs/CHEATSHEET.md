@@ -31,5 +31,7 @@ BGL_RUN(MyApp)
 | Debug UI slider & tooltip | `bgl::gui::Begin("Panel"); bgl::gui::Slider("EV", GetEngine().Settings().exposure, 0.2f, 4.0f); bgl::gui::Tooltip("Exposure"); bgl::gui::End();` |
 | Toggle hover & modals | `bgl::gui::SetHoverEffects(true); bgl::gui::ShowMessage("Title", "Hello!"); bgl::gui::ShowLoadingScreen("Loading", 0.5f, "Assets...");` |
 | Load & switch UI fonts | `bgl::gui::SetDefaultFont("sans"); bgl::gui::LoadFont("code", "mono", 20.0f); bgl::gui::PushFont("code"); ... bgl::gui::PopFont();` |
+| Animated 2D sprite | `bgl::AnimatedSprite s; s.texture = *GetEngine().LoadSpriteTexture("sheet.png"); s.AddClip(bgl::SpriteClip::FromGrid("walk", 4, 2)); s.Play("walk"); s.Update(dt); GetEngine().DrawSprite(s);` |
+| Camera-facing 3D billboard | `bgl::Billboard b; b.texture = bgl::SpriteTexture::CreateRadialGlow(); b.mode = bgl::BillboardMode::CylindricalY; b.blend = bgl::SpriteBlend::Additive; GetEngine().DrawBillboard(b);` |
 | Create entity + point light | `auto e = GetEngine().CreateEntity("Lamp"); e.SetPosition({0, 1, 0}); e.AddLight({.intensity = 5.0f});` |
 | Find & reparent glTF node | `if (auto car = GetEngine().FindEntity("ToyCar")) e.SetParent(car);` |

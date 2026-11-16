@@ -77,6 +77,13 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
     }
     skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(), pipelineManager_.GetDefaultSampler());
 
+    if (auto spriteRes = spriteRenderer_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(),
+                                                    gpu::Context::GetHdrFormat(), gpuContext_.GetPreferredFormat(),
+                                                    gpuContext_.GetSampleCount(), WGPUTextureFormat_Depth24Plus);
+        !spriteRes) {
+        BGL_LOG_WARN("Could not initialize SpriteRenderer: {}", spriteRes.error());
+    }
+
     if (auto audioRes = soundEngine_.Initialize(); !audioRes) {
         BGL_LOG_WARN("3D audio engine disabled: {}", audioRes.error());
     }
@@ -133,8 +140,15 @@ void EngineCore::UpdateSimulation(float deltaTime) {
 }
 
 void EngineCore::Render() {
-    if (!running_)
+    if (!running_) {
+        spriteRenderer_.ResetFrame();
         return;
+    }
+
+    struct SpriteResetGuard {
+        gpu::SpriteRenderer& renderer;
+        ~SpriteResetGuard() { renderer.ResetFrame(); }
+    } spriteResetGuard{spriteRenderer_};
 
     SyncCameraAndListener();
 
@@ -200,7 +214,8 @@ void EngineCore::Render() {
         }
     }
 
-    // 5. End HDR MSAA pass so resolved HDR color + depth can be read by Selection Outline & Post-Processing
+    // 5. Render depth-tested / additive HDR 3D billboards, then end HDR MSAA pass for outline & post-process
+    spriteRenderer_.Render3D(transparentPass, vp, camPos, camera_.GetViewMatrix());
     gpuContext_.FinishHdrPass(transparentPass);
 
     if (activeScene_ && selectedNode_) {
@@ -227,6 +242,7 @@ void EngineCore::Render() {
                                        camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,
                                        skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
 
+    spriteRenderer_.Render2D(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
     OnRenderOverlay(swapchainPass);
 
     gpuContext_.EndFrame(swapchainPass);
@@ -240,6 +256,7 @@ void EngineCore::Shutdown() {
     quadtree_.reset();
     gltfLoader_.reset();
     assetManager_.Clear();
+    spriteRenderer_.Shutdown();
     skybox_.Shutdown();
     pipelineManager_.Shutdown();
     soundEngine_.Shutdown();
@@ -280,6 +297,13 @@ void EngineCore::PollShaderHotReload(float deltaTime) {
             BGL_LOG_ERROR("WGSL hot-reload failed for skybox.wgsl: {}", res.error());
         } else {
             BGL_LOG_INFO("WGSL hot-reloaded: skybox.wgsl");
+        }
+    }
+    if (std::ranges::find(modified, std::string{"sprite.wgsl"}) != modified.end()) {
+        if (auto res = spriteRenderer_.ReloadShader(); !res) {
+            BGL_LOG_ERROR("WGSL hot-reload failed for sprite.wgsl: {}", res.error());
+        } else {
+            BGL_LOG_INFO("WGSL hot-reloaded: sprite.wgsl");
         }
     }
     if (auto res = pipelineManager_.ReloadShaders(modified); !res) {

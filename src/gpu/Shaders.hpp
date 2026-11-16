@@ -21,6 +21,7 @@ inline const std::string_view kMipGenShaderWGSL{ShaderManager::GetEmbeddedPrepro
 inline const std::string_view kSkyboxShaderWGSL{ShaderManager::GetEmbeddedPreprocessed("skybox.wgsl")};
 inline const std::string_view kGpuCullComputeWGSL{ShaderManager::GetEmbeddedPreprocessed("gpu_cull.wgsl")};
 inline const std::string_view kGpuRayPickComputeWGSL{ShaderManager::GetEmbeddedPreprocessed("gpu_ray_pick.wgsl")};
+inline const std::string_view kSpriteShaderWGSL{ShaderManager::GetEmbeddedPreprocessed("sprite.wgsl")};
 
 } // namespace bgl::gpu
 

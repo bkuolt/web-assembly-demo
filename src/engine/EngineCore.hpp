@@ -13,6 +13,7 @@
 #include "gpu/Context.hpp"
 #include "gpu/Pipeline.hpp"
 #include "gpu/Skybox.hpp"
+#include "gpu/SpriteRenderer.hpp"
 #include "scene/AssetManager.hpp"
 #include "scene/FastGltfLoader.hpp"
 #include "scene/Quadtree.hpp"
@@ -182,7 +183,13 @@ public:
     [[nodiscard]] gpu::Context& GetContext() noexcept { return gpuContext_; }
     [[nodiscard]] gpu::PipelineManager& GetPipeline() noexcept { return pipelineManager_; }
     [[nodiscard]] gpu::Skybox& GetSkybox() noexcept { return skybox_; }
+    [[nodiscard]] gpu::SpriteRenderer& GetSpriteRenderer() noexcept { return spriteRenderer_; }
     [[nodiscard]] const std::shared_ptr<scene::Scene>& GetScene() const noexcept { return activeScene_; }
+
+    /** @brief Enqueues a 2D sprite into the frame's swapchain sprite batch. */
+    void SubmitSprite(const core::Sprite& sprite) { spriteRenderer_.SubmitSprite(sprite); }
+    /** @brief Enqueues a 3D billboard into the frame's HDR transparent pass batch. */
+    void SubmitBillboard(const core::Billboard& billboard) { spriteRenderer_.SubmitBillboard(billboard); }
 
 protected:
     /** @brief Called inside ActivateScene() after currentModelName_ is set. Override for UI sync hooks. */
@@ -210,6 +217,7 @@ protected:
     gpu::Context gpuContext_{};
     gpu::PipelineManager pipelineManager_{};
     gpu::Skybox skybox_{};
+    gpu::SpriteRenderer spriteRenderer_{};
     audio::SoundEngine soundEngine_{};
     SDL_Window* nativeWindow_{nullptr};
     scene::AssetManager assetManager_{};

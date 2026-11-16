@@ -24,6 +24,7 @@ From the repository root:
 ```bash
 ./build/Release/sample_01_hello_engine
 ./build/Release/sample_02_entities_and_lights
+./build/Release/sample_03_sprites_and_billboards
 ```
 
 Run the full reference viewer:
