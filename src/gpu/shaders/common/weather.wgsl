@@ -30,6 +30,16 @@ fn calculateRainRipples(pos : vec2<f32>, time : f32) -> vec3<f32> {
     return normalize(vec3<f32>(rippleVec, 1.0));
 }
 
+fn calculateRainPuddleMask(worldPos : vec3<f32>, normalY : f32, intensity : f32) -> f32 {
+    let upwardMask = smoothstep(0.55, 0.85, normalY);
+    if (upwardMask <= 0.001 || intensity <= 0.001) {
+        return 0.0;
+    }
+    let puddleNoise = fbm3D(vec3<f32>(worldPos.x * 0.42, 0.25, worldPos.z * 0.42));
+    let threshold = mix(0.76, 0.36, clamp(intensity, 0.0, 1.5) * 0.66);
+    return upwardMask * smoothstep(threshold, threshold + 0.14, puddleNoise);
+}
+
 fn calculateRainStreaks(worldPos : vec3<f32>, cameraPos : vec3<f32>, time : f32, wind : f32, intensity : f32) -> vec3<f32> {
     let rayDist = length(worldPos - cameraPos);
     var streakAccum : f32 = 0.0;

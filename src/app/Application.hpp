@@ -18,6 +18,7 @@
 #include "scene/Scene.hpp"
 #include "ui/DebugOverlay.hpp"
 #include "ui/ImmediateUI.hpp"
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -414,6 +415,13 @@ private:
     core::MemoryTelemetry cachedMemTelemetry_{};
     float memTelemetryTimer_{0.25f};
     float hotReloadPollTimer_{0.0f};
+    float lastDeltaTime_{0.016f};
+    float elapsedTime_{0.0f};
+    float fpsSampleTimer_{0.0f};
+    std::array<float, 48> fpsHistory_{};
+    size_t fpsHistoryCount_{0};
+    bool showSelectionAnchors_{true};
+    glm::vec3 uiAccentColor_{0.24f, 0.62f, 0.96f};
 };
 
 } // namespace bgl::app

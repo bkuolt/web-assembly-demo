@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Custom UI Studio Upgrade, Advanced Post-Processing Suite & Physically Based Shader Extensions
+- **Analytical SDF Custom UI (`src/ui/ImmediateUI.*`, `src/ui/shaders/ui.wgsl`):**
+  - Replaced flat quads with analytical 2D signed-distance rounded boxes (`sdRoundedBox`), soft Gaussian drop shadows, hover rim glows, HSV 2D/1D gradient picker planes, and real-time frosted glassmorphism sampling `PostProcessPass`'s downsampled blurred HDR mip view (`GetUiBackdropView()`).
+  - Added draggable `BeginWindow`, `SliderFloat`, `CollapsingHeader`, shaded area + polyline `Sparkline`, interactive HSV `ColorEdit3`, `Separator`, world-to-screen `DrawFloatingBadge`, and wheel-scrollable scissor-clipped `BeginScrollArea` / `EndScrollArea` without breaking single-draw-call batching for unclipped layouts.
+  - Upgraded `Application::UpdateSettingsUI()` into a collapsible live studio panel with FPS sparkline, scrollable scene node hierarchy selector, live HSV theme accent picker, and sliders for post-processing, DoF, SSR, GTAO, weather, and grading.
+- **Full-Featured Cinematic Post-Processing Pipeline (`src/gpu/Context.*`, `src/gpu/PostProcessPass.*`, `src/gpu/shaders/`):**
+  - Exposed readable `Depth24Plus` (`depthReadView_`) plus dedicated `depth_linearize.wgsl` / `depth_linearize_1x.wgsl` linear view-Z `R32Float` resolve pass.
+  - Replaced luminance approximation SSAO with half-resolution horizon Ground-Truth Ambient Occlusion (`gtao.wgsl`) smoothed via a depth-aware edge-preserving bilateral filter (`gtao_blur.wgsl`).
+  - Added 5-Mip Jimenez 13-tap Karis-averaged downsample + 9-tap tent upsample HDR Bloom (`bloom.wgsl`), GPU compute log-luminance Auto-Exposure (`auto_exposure.wgsl`), Hi-Z ray-marched Screen-Space Reflections (SSR), Vogel bokeh Depth of Field (DoF) with focus distance tied to object picking, depth-gated Volumetric Sun God Rays, edge Chromatic Aberration, 5 Color Grading presets (`Neutral`, `Warm Cinema`, `Cool Sci-Fi`, `Bleach Bypass`, `Noir`), Vignette, Film Grain/Dither, and FXAA 3.11 (`fxaa.wgsl`) cleanly executed prior to UI rendering.
+- **3D Material Shaders, Frosted Glass & Selection Silhouettes (`src/gpu/shaders/`, `src/gpu/Pipeline.*`, `src/scene/FastGltfLoader.cpp`):**
+  - Added 3D mesh selection silhouette rendering (`outline.wgsl` + `outline_comp.wgsl`) compositing a warm anti-aliased HDR rim around `selectedNode_` primitives.
+  - Upgraded `opaqueColorCopyTexture_` to a 5-mip `RGBA16Float` chain downsampled via `GenerateOpaqueCopyMips()` so refractive `KHR_materials_transmission` surfaces sample roughness-appropriate frosted glass mip levels.
+  - Wired `KHR_materials_iridescence` (Airy thin-film spectral interference), `KHR_materials_anisotropy` (anisotropic GGX NDF/visibility + bent IBL), wrapped Subsurface Scattering (SSS), 12-tap rotated Poisson disk shadow PCF, procedural rain puddles (`calculateRainPuddleMask`), Rayleigh/Mie + FBM volumetric cloud sky (`skybox.wgsl`), and two extra inspection views (`ClayWireframe`, `ToonCel`).
+
+---
+
 ## [1.0.0] - 2026-11-16
 
 ### Official 1.0.0 Release — Production Hardening, RAII Uniformity & Architecture Polish

@@ -73,6 +73,33 @@ constexpr char kEmbGpuCull[] = {
 constexpr char kEmbGpuRayPick[] = {
 #embed "shaders/gpu_ray_pick.wgsl"
 };
+constexpr char kEmbDepthLinearize[] = {
+#embed "shaders/depth_linearize.wgsl"
+};
+constexpr char kEmbDepthLinearize1x[] = {
+#embed "shaders/depth_linearize_1x.wgsl"
+};
+constexpr char kEmbGtao[] = {
+#embed "shaders/gtao.wgsl"
+};
+constexpr char kEmbGtaoBlur[] = {
+#embed "shaders/gtao_blur.wgsl"
+};
+constexpr char kEmbBloom[] = {
+#embed "shaders/bloom.wgsl"
+};
+constexpr char kEmbAutoExposure[] = {
+#embed "shaders/auto_exposure.wgsl"
+};
+constexpr char kEmbFxaa[] = {
+#embed "shaders/fxaa.wgsl"
+};
+constexpr char kEmbOutline[] = {
+#embed "shaders/outline.wgsl"
+};
+constexpr char kEmbOutlineComp[] = {
+#embed "shaders/outline_comp.wgsl"
+};
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -85,7 +112,7 @@ struct EmbeddedEntry {
     std::string_view bytes;
 };
 
-constexpr std::array<EmbeddedEntry, 15> kEmbeddedShaders{{
+constexpr std::array<EmbeddedEntry, 24> kEmbeddedShaders{{
     {"common/uniforms.wgsl", {kEmbCommonUniforms, sizeof(kEmbCommonUniforms)}},
     {"common/ggx_sample.wgsl", {kEmbCommonGgxSample, sizeof(kEmbCommonGgxSample)}},
     {"common/weather.wgsl", {kEmbCommonWeather, sizeof(kEmbCommonWeather)}},
@@ -101,6 +128,15 @@ constexpr std::array<EmbeddedEntry, 15> kEmbeddedShaders{{
     {"skybox.wgsl", {kEmbSkybox, sizeof(kEmbSkybox)}},
     {"gpu_cull.wgsl", {kEmbGpuCull, sizeof(kEmbGpuCull)}},
     {"gpu_ray_pick.wgsl", {kEmbGpuRayPick, sizeof(kEmbGpuRayPick)}},
+    {"depth_linearize.wgsl", {kEmbDepthLinearize, sizeof(kEmbDepthLinearize)}},
+    {"depth_linearize_1x.wgsl", {kEmbDepthLinearize1x, sizeof(kEmbDepthLinearize1x)}},
+    {"gtao.wgsl", {kEmbGtao, sizeof(kEmbGtao)}},
+    {"gtao_blur.wgsl", {kEmbGtaoBlur, sizeof(kEmbGtaoBlur)}},
+    {"bloom.wgsl", {kEmbBloom, sizeof(kEmbBloom)}},
+    {"auto_exposure.wgsl", {kEmbAutoExposure, sizeof(kEmbAutoExposure)}},
+    {"fxaa.wgsl", {kEmbFxaa, sizeof(kEmbFxaa)}},
+    {"outline.wgsl", {kEmbOutline, sizeof(kEmbOutline)}},
+    {"outline_comp.wgsl", {kEmbOutlineComp, sizeof(kEmbOutlineComp)}},
 }};
 #endif
 

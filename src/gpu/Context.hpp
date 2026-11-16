@@ -56,6 +56,7 @@ public:
     [[nodiscard]] static constexpr WGPUTextureFormat GetHdrFormat() noexcept { return WGPUTextureFormat_RGBA16Float; }
     [[nodiscard]] WGPUTextureView GetHdrResolveView() const noexcept { return hdrResolveView_.Get(); }
     [[nodiscard]] WGPUTexture GetHdrResolveTexture() const noexcept { return hdrResolveTexture_.Get(); }
+    [[nodiscard]] WGPUTextureView GetDepthReadView() const noexcept { return depthReadView_.Get(); }
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
     [[nodiscard]] bool SupportsBC() const noexcept { return supportsBC_; }
@@ -84,6 +85,17 @@ public:
     WGPURenderPassEncoder BeginFrame();
 
     /**
+     * @brief Resolves and snapshots the opaque+skybox HDR buffer into Mip-0 of `opaqueCopyDst` and closes opaque pass.
+     */
+    void SnapshotOpaqueToCopy(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst, uint32_t copyW,
+                              uint32_t copyH);
+
+    /**
+     * @brief Opens the transparent/transmissive HDR pass loading preserved MSAA color & depth.
+     */
+    WGPURenderPassEncoder OpenTransparentPass();
+
+    /**
      * @brief Resolves and snapshots the opaque+skybox HDR buffer, then opens the transparent/transmissive pass.
      * @param opaquePass Active opaque HDR pass encoder that will be ended.
      * @param opaqueCopyDst Destination single-sampled RGBA16Float texture sampled during refraction.
@@ -93,6 +105,16 @@ public:
      */
     WGPURenderPassEncoder BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
                                                uint32_t copyW, uint32_t copyH);
+
+    /**
+     * @brief Ends the active HDR pass so resolved color & depth views can be sampled by post-processing.
+     */
+    void FinishHdrPass(WGPURenderPassEncoder hdrPass);
+
+    /**
+     * @brief Opens the single-sampled presentation swapchain render pass.
+     */
+    WGPURenderPassEncoder BeginSwapchainPass();
 
     /**
      * @brief Transitions from the HDR pass to the single-sampled swapchain post-processing pass.
@@ -133,6 +155,7 @@ private:
 
     TextureHandle depthTexture_{};
     TextureViewHandle depthView_{};
+    TextureViewHandle depthReadView_{};
 
     WGPUSurfaceTexture surfaceTexture_{};
     TextureViewHandle currentView_{};

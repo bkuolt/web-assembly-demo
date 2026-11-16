@@ -127,6 +127,7 @@ void Context::Shutdown() noexcept {
     hdrResolveTexture_.Reset();
     msaaColorView_.Reset();
     msaaColorTexture_.Reset();
+    depthReadView_.Reset();
     depthView_.Reset();
     depthTexture_.Reset();
     queue_.Reset();
@@ -145,6 +146,7 @@ void Context::CreateRenderBuffers() {
     hdrResolveTexture_.Reset();
     msaaColorView_.Reset();
     msaaColorTexture_.Reset();
+    depthReadView_.Reset();
     depthView_.Reset();
     depthTexture_.Reset();
 
@@ -160,9 +162,22 @@ void Context::CreateRenderBuffers() {
                        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc,
                        1, "HDR_ResolveTexture_RGBA16F", hdrResolveTexture_, hdrResolveView_);
 
-    // 2. Create Depth Buffer (with matching sample count)
-    CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_Depth24Plus, WGPUTextureUsage_RenderAttachment,
-                       sampleCount_, "DepthBuffer", depthTexture_, depthView_);
+    // 2. Create Depth Buffer (with matching sample count + TextureBinding for depth-based post-processing)
+    CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_Depth24Plus,
+                       WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding, sampleCount_, "DepthBuffer",
+                       depthTexture_, depthView_);
+    if (depthTexture_) {
+        WGPUTextureViewDescriptor readViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+        readViewDesc.format = WGPUTextureFormat_Depth24Plus;
+        readViewDesc.dimension = WGPUTextureViewDimension_2D;
+        readViewDesc.baseMipLevel = 0;
+        readViewDesc.mipLevelCount = 1;
+        readViewDesc.baseArrayLayer = 0;
+        readViewDesc.arrayLayerCount = 1;
+        readViewDesc.aspect = WGPUTextureAspect_DepthOnly;
+        readViewDesc.label = ToWgpuStringView("DepthBuffer_ReadOnlyView");
+        depthReadView_ = wgpuTextureCreateView(depthTexture_.Get(), &readViewDesc);
+    }
 
     BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_,
                  height_, sampleCount_);
@@ -465,12 +480,12 @@ WGPURenderPassEncoder Context::BeginFrame() {
 #endif
 }
 
-WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
-                                                    uint32_t copyW, uint32_t copyH) {
+void Context::SnapshotOpaqueToCopy(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst, uint32_t copyW,
+                                   uint32_t copyH) {
 #if defined(BGL_PLATFORM_NATIVE)
     EndAndReleasePass(opaquePass);
     if (!encoder_) {
-        return nullptr;
+        return;
     }
 
     if (hdrResolveTexture_ && opaqueCopyDst && copyW > 0 && copyH > 0) {
@@ -493,6 +508,19 @@ WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaque
             wgpuCommandEncoderCopyTextureToTexture(encoder_, &srcInfo, &dstInfo, &extent);
         }
     }
+#else
+    (void)opaquePass;
+    (void)opaqueCopyDst;
+    (void)copyW;
+    (void)copyH;
+#endif
+}
+
+WGPURenderPassEncoder Context::OpenTransparentPass() {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!encoder_) {
+        return nullptr;
+    }
 
     WGPURenderPassColorAttachment colorAttachment =
         BuildHdrColorAttachment(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), currentView_.Get(),
@@ -514,17 +542,26 @@ WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaque
 
     return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
 #else
-    (void)opaquePass;
-    (void)opaqueCopyDst;
-    (void)copyW;
-    (void)copyH;
     return nullptr;
 #endif
 }
 
-WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPass) {
+WGPURenderPassEncoder Context::BeginTransparentPass(WGPURenderPassEncoder opaquePass, WGPUTexture opaqueCopyDst,
+                                                    uint32_t copyW, uint32_t copyH) {
+    SnapshotOpaqueToCopy(opaquePass, opaqueCopyDst, copyW, copyH);
+    return OpenTransparentPass();
+}
+
+void Context::FinishHdrPass(WGPURenderPassEncoder hdrPass) {
 #if defined(BGL_PLATFORM_NATIVE)
     EndAndReleasePass(hdrPass);
+#else
+    (void)hdrPass;
+#endif
+}
+
+WGPURenderPassEncoder Context::BeginSwapchainPass() {
+#if defined(BGL_PLATFORM_NATIVE)
     if (!encoder_ || !currentView_) {
         return nullptr;
     }
@@ -545,9 +582,13 @@ WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPas
 
     return wgpuCommandEncoderBeginRenderPass(encoder_, &passDesc);
 #else
-    (void)hdrPass;
     return nullptr;
 #endif
+}
+
+WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPass) {
+    FinishHdrPass(hdrPass);
+    return BeginSwapchainPass();
 }
 
 void Context::EndFrame(WGPURenderPassEncoder pass) {

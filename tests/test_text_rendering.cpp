@@ -238,3 +238,136 @@ TEST(TextRenderingTest, CrlfLineEndingsShapeWithoutExtraCrGlyph) {
     EXPECT_FLOAT_EQ(lfLayout.bounds.x, crlfLayout.bounds.x);
     EXPECT_FLOAT_EQ(lfLayout.bounds.y, crlfLayout.bounds.y);
 }
+
+TEST(ImmediateUIAdvancedWidgetsTest, ShaderSourceIncludesSdfAndGlassFeatures) {
+    const std::string_view src = ui::ImmediateUI::GetEmbeddedShaderSource();
+    EXPECT_NE(src.find("sdRoundedBox"), std::string_view::npos);
+    EXPECT_NE(src.find("hsv2rgb"), std::string_view::npos);
+    EXPECT_NE(src.find("backdropTexture"), std::string_view::npos);
+}
+
+TEST(ImmediateUIAdvancedWidgetsTest, HsvConversionRoundtripAccurate) {
+    const glm::vec3 samples[] = {
+        {1.0f, 0.0f, 0.0f},
+        {0.18f, 0.65f, 0.92f},
+        {0.85f, 0.72f, 0.25f},
+        {0.4f, 0.4f, 0.4f},
+    };
+    for (const glm::vec3& rgb : samples) {
+        const glm::vec3 hsv = ui::ImmediateUI::RgbToHsv(rgb);
+        const glm::vec3 back = ui::ImmediateUI::HsvToRgb(hsv);
+        EXPECT_NEAR(back.r, rgb.r, 1e-4f);
+        EXPECT_NEAR(back.g, rgb.g, 1e-4f);
+        EXPECT_NEAR(back.b, rgb.b, 1e-4f);
+    }
+}
+
+TEST(ImmediateUIAdvancedWidgetsTest, SliderHeaderSparklineScrollAndWindowDragWork) {
+    ui::ImmediateUI imgui;
+    float sliderVal = 0.0f;
+    glm::vec3 pickedColor{0.2f, 0.6f, 0.9f};
+    const std::array<float, 6> fpsHistory{58.0f, 60.0f, 61.5f, 59.0f, 62.0f, 60.5f};
+
+    // Frame 1: Initial layout (single unclipped batch when scroll area is unused)
+    imgui.BeginFrame(ui::UiInputState{}, 1280, 720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    // Header at y = 20..48; cursorY starts at 58
+    EXPECT_TRUE(ui::UI::CollapsingHeader("Bloom Settings", true));         // y = 58..82, next cursor = 88
+    EXPECT_FALSE(ui::UI::SliderFloat("Threshold", sliderVal, 0.0f, 2.0f)); // label 88..105, track 105..121
+    ui::UI::Separator();
+    ui::UI::Sparkline("FPS", fpsHistory, 0.0f, 120.0f, 36.0f);
+    EXPECT_FALSE(ui::UI::ColorEdit3("Tint", pickedColor));
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_EQ(imgui.GetDrawCommandCount(), 1u);
+    EXPECT_FLOAT_EQ(imgui.GetLastWindowRect().x, 20.0f);
+    EXPECT_FLOAT_EQ(imgui.GetLastWindowRect().y, 20.0f);
+
+    // Frame 2: Press on slider track around 75% width (x = 30 + 280 * 0.75 = 240, y = 113)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 240.0f, .mouseY = 113.0f, .mouseDown = true, .mousePressed = true},
+                     1280, 720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    EXPECT_TRUE(ui::UI::CollapsingHeader("Bloom Settings", true));
+    EXPECT_TRUE(ui::UI::SliderFloat("Threshold", sliderVal, 0.0f, 2.0f));
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_GT(sliderVal, 1.3f);
+    EXPECT_TRUE(imgui.WantsMouse());
+
+    // Release slider
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 240.0f, .mouseY = 113.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    EXPECT_TRUE(ui::UI::CollapsingHeader("Bloom Settings", true));
+    ui::UI::SliderFloat("Threshold", sliderVal, 0.0f, 2.0f);
+    imgui.EndWindow();
+    imgui.EndFrame();
+
+    // Frame 3: Toggle collapsing header closed by clicking (100, 70)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 70.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    const bool openAfterClick = ui::UI::CollapsingHeader("Bloom Settings", true);
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_FALSE(openAfterClick);
+
+    // Frame 4 & 5: Drag window title bar from (100, 34) to (220, 94) (+120, +60)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 34.0f, .mouseDown = true, .mousePressed = true}, 1280,
+                     720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    imgui.EndWindow();
+    imgui.EndFrame();
+
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 220.0f, .mouseY = 94.0f, .mouseDown = true}, 1280, 720);
+    imgui.BeginWindow("Controls", 20.0f, 20.0f, 300.0f);
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_NEAR(imgui.GetLastWindowRect().x, 140.0f, 0.5f);
+    EXPECT_NEAR(imgui.GetLastWindowRect().y, 80.0f, 0.5f);
+
+    // Release drag and test ScrollArea scissor splitting
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 900.0f, .mouseY = 500.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Scene List", 20.0f, 20.0f, 280.0f);
+    ui::UI::BeginScrollArea("nodes", 80.0f);
+    for (int i = 0; i < 8; ++i) {
+        ui::UI::Label("Node Item");
+    }
+    ui::UI::EndScrollArea();
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_GE(imgui.GetDrawCommandCount(), 2u);
+}
+
+TEST(ImmediateUIAdvancedWidgetsTest, ColorEdit3PopupOpeningAndHsvDragUpdatesRgb) {
+    ui::ImmediateUI imgui;
+    glm::vec3 color{1.0f, 0.0f, 0.0f}; // pure red
+
+    // Frame 1: Render ColorEdit3 at window (20, 20), width 260 -> cursor at (30, 58), contentW = 240.
+    // Swatch rect: x = 30 + 240 - 48 = 222..270, y = 58 + 3 = 61..79 (center 246, 70)
+    imgui.BeginFrame(ui::UiInputState{}, 1280, 720);
+    imgui.BeginWindow("Palette", 20.0f, 20.0f, 260.0f);
+    EXPECT_FALSE(ui::UI::ColorEdit3("Tint", color));
+    imgui.EndWindow();
+    imgui.EndFrame();
+
+    // Click swatch at (246, 70) to open deferred HSV popup overlay
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 246.0f, .mouseY = 70.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Palette", 20.0f, 20.0f, 260.0f);
+    ui::UI::ColorEdit3("Tint", color);
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(imgui.WantsMouse());
+
+    // Popup placed below swatch: popW = 24+132+18 = 174, popH = 16+132+22 = 170, popX = 270-174 = 96, popY = 83
+    // SV box at (104..236, 91..223); Hue bar at (244..262, 91..223)
+    // Click Hue bar midpoint (~0.5 = cyan hue!) at (253, 157)
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 253.0f, .mouseY = 157.0f, .mouseDown = true, .mousePressed = true},
+                     1280, 720);
+    imgui.BeginWindow("Palette", 20.0f, 20.0f, 260.0f);
+    const bool hueChanged = ui::UI::ColorEdit3("Tint", color);
+    imgui.EndWindow();
+    imgui.EndFrame();
+    EXPECT_TRUE(hueChanged);
+    EXPECT_GT(color.g, 0.5f);
+    EXPECT_GT(color.b, 0.5f);
+    EXPECT_LT(color.r, 0.25f);
+}

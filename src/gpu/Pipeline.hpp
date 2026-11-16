@@ -47,7 +47,15 @@ enum class EnvironmentPreset : uint32_t {
 
 enum class WeatherMode : uint32_t { None = 0, Rain = 1, Snow = 2, Fog = 3, Smoke = 4 };
 
-enum class DebugViewMode : uint32_t { LitPbr = 0, LodHeatmap = 1, Normals = 2, MetallicRoughnessAo = 3, UvChecker = 4 };
+enum class DebugViewMode : uint32_t {
+    LitPbr = 0,
+    LodHeatmap = 1,
+    Normals = 2,
+    MetallicRoughnessAo = 3,
+    UvChecker = 4,
+    ClayWireframe = 5,
+    ToonCel = 6
+};
 
 /**
  * @class PipelineManager
@@ -145,20 +153,23 @@ public:
                                 bool wireframe = false);
 
     /**
-     * @brief Executes the fullscreen tonemapping and color space conversion pass onto the swapchain.
-     * @param swapchainPass Render pass encoder targeting the final presentation surface.
-     * @param hdrResolveView Resolved RGBA16Float HDR input texture view.
-     * @param viewProj Optional view-projection matrix for lens flare position calculation.
-     * @param cameraPos Optional world camera position.
-     * @param lightDir Optional directional sun vector.
-     * @param envRotation Optional environment rotation angle.
-     * @param viewportW Viewport width in pixels.
-     * @param viewportH Viewport height in pixels.
+     * @brief Executes pre-swapchain depth linearization, GTAO, 5-Mip Bloom, and GPU auto-exposure.
+     */
+    void PreparePostProcessPass(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView,
+                                WGPUTextureView depthReadView, uint32_t sampleCount, const glm::mat4& viewProj,
+                                const glm::mat4& projMatrix, const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                                float envRotation, uint32_t viewportW, uint32_t viewportH, float deltaTime,
+                                float elapsedTime);
+
+    /**
+     * @brief Executes the fullscreen tonemapping (or FXAA final blit) onto the swapchain.
      */
     void RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
                            const glm::mat4& viewProj = glm::mat4{1.0f}, const glm::vec3& cameraPos = glm::vec3{0.0f},
                            const glm::vec3& lightDir = glm::vec3{0.577f}, float envRotation = 0.0f,
                            uint32_t viewportW = 1280, uint32_t viewportH = 720);
+
+    [[nodiscard]] WGPUTextureView GetUiBackdropView() const noexcept { return postProcessPass_.GetUiBackdropView(); }
 
     /**
      * @brief Renders a single 3D wireframe Axis-Aligned Bounding Box.
@@ -347,6 +358,12 @@ public:
             debugViewMode_ = DebugViewMode::UvChecker;
             break;
         case DebugViewMode::UvChecker:
+            debugViewMode_ = DebugViewMode::ClayWireframe;
+            break;
+        case DebugViewMode::ClayWireframe:
+            debugViewMode_ = DebugViewMode::ToonCel;
+            break;
+        case DebugViewMode::ToonCel:
             debugViewMode_ = DebugViewMode::LitPbr;
             break;
         }
@@ -368,6 +385,10 @@ public:
             return "Metal/Rough/AO";
         case DebugViewMode::UvChecker:
             return "UV Checker";
+        case DebugViewMode::ClayWireframe:
+            return "Clay + Wireframe";
+        case DebugViewMode::ToonCel:
+            return "Toon / Cel";
         }
         return "Lit PBR";
     }
@@ -441,6 +462,10 @@ public:
     [[nodiscard]] float GetSolarElevationFactor() const noexcept { return solarElevation_; }
 
     void EnsureOpaqueCopyTexture(uint32_t width, uint32_t height);
+    void GenerateOpaqueCopyMips(WGPUCommandEncoder encoder);
+    void RenderSelectionOutline(WGPUCommandEncoder encoder, scene::Scene& scene, const scene::SceneNode* selectedNode,
+                                const glm::mat4& viewProj, WGPUTextureView hdrResolveView, uint32_t width,
+                                uint32_t height);
     [[nodiscard]] WGPUTexture GetOpaqueColorCopyTexture() const noexcept { return opaqueColorCopyTexture_.Get(); }
     [[nodiscard]] uint32_t GetOpaqueCopyWidth() const noexcept { return opaqueCopyWidth_; }
     [[nodiscard]] uint32_t GetOpaqueCopyHeight() const noexcept { return opaqueCopyHeight_; }
@@ -587,6 +612,23 @@ private:
     TextureViewHandle opaqueColorCopyView_{};
     uint32_t opaqueCopyWidth_{0};
     uint32_t opaqueCopyHeight_{0};
+    uint32_t opaqueCopyMipCount_{1};
+
+    // Selection silhouette outline resources
+    core::Result<void> CreateSelectionOutlinePipelines(bool validateScope);
+    void EnsureSelectionMaskTexture(uint32_t width, uint32_t height);
+    RenderPipelineHandle outlineMaskPipeline_{};
+    BindGroupLayoutHandle outlineCompBgl_{};
+    PipelineLayoutHandle outlineCompPl_{};
+    RenderPipelineHandle outlineCompPipeline_{};
+    BufferHandle outlineCompUniformBuffer_{};
+    TextureHandle selectionMaskTexture_{};
+    TextureViewHandle selectionMaskView_{};
+    BindGroupHandle outlineCompBindGroup_{};
+    uint32_t selectionMaskWidth_{0};
+    uint32_t selectionMaskHeight_{0};
+    DynamicUniformRing<PerDrawUniforms> outlinePerDrawRing_{};
+    DynamicInstanceBuffer outlineInstanceBuffer_{};
 
     EnvironmentPreset currentEnvPreset_{EnvironmentPreset::MediterraneanCourtyard};
     float envRotation_{0.0f};
@@ -629,6 +671,7 @@ private:
     RenderPipelineHandle mipGenUnormPipeline_{};
     RenderPipelineHandle mipGenSrgbPipeline_{};
     RenderPipelineHandle mipGenNormalPipeline_{};
+    RenderPipelineHandle mipGenHdrPipeline_{};
 
     uint64_t skinFrameId_{1};
     bool skinFrameAdvanced_{false};

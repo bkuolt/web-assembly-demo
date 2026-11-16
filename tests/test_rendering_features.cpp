@@ -28,6 +28,7 @@
 #include "gpu/GpuRayPicker.hpp"
 #include "gpu/Handle.hpp"
 #include "gpu/Pipeline.hpp"
+#include "gpu/PipelineHelpers.hpp"
 #include "gpu/PostProcessPass.hpp"
 #include "gpu/ShaderManager.hpp"
 #include "gpu/Shaders.hpp"
@@ -1804,6 +1805,10 @@ TEST(RenderingFeaturesTest, PipelineManagerLodDebugViewsAndBayerDithering) {
     pm.CycleDebugViewMode();
     EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::UvChecker);
     pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::ClayWireframe);
+    pm.CycleDebugViewMode();
+    EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::ToonCel);
+    pm.CycleDebugViewMode();
     EXPECT_EQ(pm.GetDebugViewMode(), gpu::DebugViewMode::LitPbr);
 
     // 5. Bayer 4x4 dithering and LOD heatmap colors
@@ -2204,7 +2209,7 @@ TEST(ShaderManagerTest, PreprocessorDetectsCircularAndMissingIncludes) {
 }
 
 TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
-    const std::array<std::pair<std::string_view, std::string_view>, 11> checks{{
+    const std::array<std::pair<std::string_view, std::string_view>, 20> checks{{
         {bgl::gpu::kBrdfLutComputeWGSL, "fn cs_brdf_lut"},
         {bgl::gpu::kGgxPrefilterComputeWGSL, "fn cs_ggx_prefilter"},
         {bgl::gpu::kTonemapShaderWGSL, "fn fs_tonemap"},
@@ -2216,6 +2221,15 @@ TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
         {bgl::gpu::kSkyboxShaderWGSL, "fn vs_sky"},
         {bgl::gpu::kGpuCullComputeWGSL, "struct GpuBoundingBox"},
         {bgl::gpu::kGpuRayPickComputeWGSL, "fn cs_pick"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("depth_linearize.wgsl"), "texture_depth_multisampled_2d"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("depth_linearize_1x.wgsl"), "texture_depth_2d"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("gtao.wgsl"), "fn fs_gtao"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("gtao_blur.wgsl"), "fn fs_gtao_blur"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("bloom.wgsl"), "fn fs_bloom_upsample"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("auto_exposure.wgsl"), "fn cs_auto_exposure"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("fxaa.wgsl"), "fn fs_fxaa"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("outline.wgsl"), "fn vs_outline_mask"},
+        {bgl::gpu::ShaderManager::GetEmbeddedPreprocessed("outline_comp.wgsl"), "fn fs_outline_comp"},
     }};
     for (const auto& [code, needle] : checks) {
         EXPECT_FALSE(code.empty());
@@ -2223,6 +2237,65 @@ TEST(ShaderManagerTest, EmbeddedPreprocessedShadersContainExpectedEntryPoints) {
         EXPECT_EQ(code.find("#pragma once"), std::string_view::npos) << "Unstripped #pragma once in embedded shader";
         EXPECT_NE(code.find(needle), std::string_view::npos) << "Missing symbol: " << needle;
     }
+}
+
+TEST(RenderingFeaturesTest, PostProcessSuiteAndKhrMaterialExtensionsPackCleanly) {
+    EXPECT_EQ(sizeof(gpu::PostProcessExtraUniforms), 208u);
+    EXPECT_EQ(alignof(gpu::PostProcessExtraUniforms), 16u);
+    EXPECT_EQ(sizeof(gpu::MaterialUniforms), 256u);
+
+    gpu::PostProcessPass pp;
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::Neutral);
+    pp.CycleColorGradingPreset();
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::WarmCinema);
+    pp.CycleColorGradingPreset();
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::CoolSciFi);
+    pp.CycleColorGradingPreset();
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::BleachBypass);
+    pp.CycleColorGradingPreset();
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::Noir);
+    pp.CycleColorGradingPreset();
+    EXPECT_EQ(pp.GetColorGradingPreset(), gpu::ColorGradingPreset::Neutral);
+
+    pp.SetDoFEnabled(true);
+    pp.SetDoFFocusDistance(10.0f);
+    pp.SetDoFFocusRange(4.0f);
+    pp.SetSsrEnabled(true);
+    pp.SetSsrIntensity(0.8f);
+    pp.SetGodRaysEnabled(true);
+    pp.SetGodRaysIntensity(0.9f);
+    pp.SetAutoExposureEnabled(true);
+    pp.SetFxaaEnabled(true);
+    EXPECT_TRUE(pp.IsDoFEnabled());
+    EXPECT_TRUE(pp.IsSsrEnabled());
+    EXPECT_TRUE(pp.IsGodRaysEnabled());
+    EXPECT_TRUE(pp.IsAutoExposureEnabled());
+    EXPECT_TRUE(pp.IsFxaaEnabled());
+    EXPECT_FLOAT_EQ(gpu::PostProcessPass::ComputeDoFCoc(10.0f, 10.0f, 4.0f), 0.0f);
+    EXPECT_GT(gpu::PostProcessPass::ComputeDoFCoc(25.0f, 10.0f, 4.0f), 0.9f);
+
+    // KHR_materials_iridescence & KHR_materials_anisotropy packing inside MaterialUniforms
+    scene::Material mat{};
+    mat.iridescenceFactor = 0.85f;
+    mat.iridescenceIor = 1.42f;
+    mat.iridescenceThicknessMaximum = 520.0f;
+    mat.anisotropyStrength = 0.72f;
+    mat.anisotropyRotation = 1.05f;
+    gpu::MaterialUniforms ubo{};
+    gpu::detail::FillMaterialUniforms(&mat, ubo);
+    EXPECT_FLOAT_EQ(ubo.specularColorFactor.w, 0.85f);
+    EXPECT_FLOAT_EQ(ubo.attenuationColor.w, 1.42f);
+    EXPECT_FLOAT_EQ(ubo.uvRotations1.y, 520.0f);
+    EXPECT_FLOAT_EQ(ubo.uvRotations1.z, 0.72f);
+    EXPECT_FLOAT_EQ(ubo.uvRotations1.w, 1.05f);
+
+    // Verify new Wave 3 WGSL shader features remain intact
+    EXPECT_NE(bgl::gpu::kPbrShaderWGSL.find("fn evalIridescence"), std::string_view::npos);
+    EXPECT_NE(bgl::gpu::kPbrShaderWGSL.find("fn distributionGGXAniso"), std::string_view::npos);
+    EXPECT_NE(bgl::gpu::kPbrShaderWGSL.find("fn calculateRainPuddleMask"), std::string_view::npos);
+    EXPECT_NE(bgl::gpu::kPbrShaderWGSL.find("sssContrib"), std::string_view::npos);
+    EXPECT_NE(bgl::gpu::kSkyboxShaderWGSL.find("fn skyFbmClouds"), std::string_view::npos);
+    EXPECT_NE(bgl::gpu::kSkyboxShaderWGSL.find("fn henyeyGreenstein"), std::string_view::npos);
 }
 
 TEST(ShaderManagerTest, HotReloadDetectsIncludeAndEntryModifications) {
@@ -2467,11 +2540,52 @@ TEST(RenderingFeaturesTest, OffscreenWebGpuPipelineAndGpuCullerValidation) {
         EXPECT_EQ(culler.GetPrimitiveCount(), 1u);
         EXPECT_NE(culler.GetIndirectArgsBuffer(), nullptr);
 
+        // Create offscreen HDR & Depth24Plus targets to exercise Opaque Mips, Selection Outline, and PostProcess
+        // Prepare
+        WGPUTextureDescriptor hdrTd = WGPU_TEXTURE_DESCRIPTOR_INIT;
+        hdrTd.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
+        hdrTd.dimension = WGPUTextureDimension_2D;
+        hdrTd.size = WGPUExtent3D{64, 64, 1};
+        hdrTd.format = WGPUTextureFormat_RGBA16Float;
+        hdrTd.mipLevelCount = 1;
+        hdrTd.sampleCount = 1;
+        gpu::TextureHandle offHdrTex{wgpuDeviceCreateTexture(device, &hdrTd)};
+        gpu::TextureViewHandle offHdrView{offHdrTex ? wgpuTextureCreateView(offHdrTex.Get(), nullptr) : nullptr};
+
+        WGPUTextureDescriptor depTd = WGPU_TEXTURE_DESCRIPTOR_INIT;
+        depTd.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        depTd.dimension = WGPUTextureDimension_2D;
+        depTd.size = WGPUExtent3D{64, 64, 1};
+        depTd.format = WGPUTextureFormat_Depth24Plus;
+        depTd.mipLevelCount = 1;
+        depTd.sampleCount = 1;
+        gpu::TextureHandle offDepTex{wgpuDeviceCreateTexture(device, &depTd)};
+        gpu::TextureViewHandle offDepView{};
+        if (offDepTex) {
+            WGPUTextureViewDescriptor dv = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            dv.format = WGPUTextureFormat_Depth24Plus;
+            dv.dimension = WGPUTextureViewDimension_2D;
+            dv.mipLevelCount = 1;
+            dv.arrayLayerCount = 1;
+            dv.aspect = WGPUTextureAspect_DepthOnly;
+            offDepView = wgpuTextureCreateView(offDepTex.Get(), &dv);
+        }
+
         if (gpu::CommandEncoderHandle enc{wgpuDeviceCreateCommandEncoder(device, nullptr)}) {
-            const glm::mat4 vp = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 100.0f) *
-                                 glm::lookAt(glm::vec3{0.0f, 0.0f, 5.0f}, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+            const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+            const glm::mat4 vp =
+                proj * glm::lookAt(glm::vec3{0.0f, 0.0f, 5.0f}, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
             culler.Dispatch(enc, core::Frustum::FromViewProjection(vp));
+            pipelineMgr.EnsureOpaqueCopyTexture(64, 64);
             pipelineMgr.RenderShadowPass(enc, *scene, glm::vec3{0.35f, 1.0f, 0.25f});
+            pipelineMgr.GenerateOpaqueCopyMips(enc);
+            if (offHdrView && offDepView) {
+                pipelineMgr.RenderSelectionOutline(enc, *scene, node.get(), vp, offHdrView.Get(), 64, 64);
+                pipelineMgr.PreparePostProcessPass(enc, offHdrView.Get(), offDepView.Get(), 1, vp, proj,
+                                                   glm::vec3{0.0f, 0.0f, 5.0f}, glm::vec3{0.35f, 1.0f, 0.25f}, 0.0f, 64,
+                                                   64, 0.016f, 1.0f);
+                EXPECT_NE(pipelineMgr.GetUiBackdropView(), nullptr);
+            }
             if (gpu::CommandBufferHandle cmd{wgpuCommandEncoderFinish(enc, nullptr)}) {
                 WGPUCommandBuffer rawCmd{cmd.Get()};
                 wgpuQueueSubmit(queue, 1, &rawCmd);

@@ -213,7 +213,7 @@ fn fresnelSchlickRoughness(cosTheta : f32, F0 : vec3<f32>, roughness : f32) -> v
     return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
+fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>, fragCoord : vec2<f32>) -> f32 {
     let shadowBias = sceneLighting.renderParams.y;
     let NdotL = max(dot(N, L), 0.0);
     let normalOffset = N * clamp(shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL);
@@ -229,24 +229,103 @@ fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>) -> f32 {
     let compareDepth = projCoords.z - slopeBias;
     let texelSize = 1.0 / 2048.0;
 
-    // Shader-LOD: distant LOD2/LOD3 primitives use fast 1-tap compare; LOD0/LOD1 use 5-tap Rotated-Grid PCF
+    // Shader-LOD: distant LOD2/LOD3 primitives use fast 1-tap compare; LOD0/LOD1 use 12-tap Rotated Poisson PCF
     let lodLevel = (drawUbo.drawFlags >> 19u) & 3u;
     var shadow = 0.0;
     if (lodLevel >= 2u) {
         shadow = textureSampleCompareLevel(shadowMap, shadowSampler, uv, compareDepth);
     } else {
-        let r = texelSize * 1.15;
-        let s0 = textureSampleCompareLevel(shadowMap, shadowSampler, uv, compareDepth);
-        let s1 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>(-0.866,  0.500) * r, compareDepth);
-        let s2 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>( 0.500,  0.866) * r, compareDepth);
-        let s3 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>( 0.866, -0.500) * r, compareDepth);
-        let s4 = textureSampleCompareLevel(shadowMap, shadowSampler, uv + vec2<f32>(-0.500, -0.866) * r, compareDepth);
-        shadow = s0 * 0.28 + (s1 + s2 + s3 + s4) * 0.18;
+        let ign = fract(52.9829189 * fract(dot(fragCoord, vec2<f32>(0.06711056, 0.00583715))));
+        let rotAng = ign * 6.2831853;
+        let c = cos(rotAng);
+        let s = sin(rotAng);
+        let rotMat = mat2x2<f32>(vec2<f32>(c, -s), vec2<f32>(s, c));
+        let filterRadius = texelSize * 2.15;
+
+        let poisson12 = array<vec2<f32>, 12>(
+            vec2<f32>(-0.326212, -0.405810), vec2<f32>(-0.840144, -0.073580),
+            vec2<f32>(-0.695914,  0.457137), vec2<f32>(-0.203345,  0.620716),
+            vec2<f32>( 0.962340, -0.194983), vec2<f32>( 0.473434, -0.480026),
+            vec2<f32>( 0.519456,  0.767022), vec2<f32>( 0.185461, -0.893124),
+            vec2<f32>( 0.507431,  0.064425), vec2<f32>( 0.896420,  0.412458),
+            vec2<f32>(-0.321940, -0.932615), vec2<f32>(-0.791559, -0.597710)
+        );
+        for (var i = 0; i < 12; i = i + 1) {
+            let offset = (rotMat * poisson12[i]) * filterRadius;
+            shadow += textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, compareDepth);
+        }
+        shadow *= (1.0 / 12.0);
     }
 
     let edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     let borderFade = smoothstep(0.0, 0.04, edgeDist);
     return mix(1.0, shadow, borderFade);
+}
+
+// KHR_materials_iridescence: Airy thin-film spectral interference converted from XYZ to Linear sRGB
+fn evalSensitivity(opd : f32, shift : vec3<f32>) -> vec3<f32> {
+    let phase = 2.0 * 3.14159265 * opd * 1e-9;
+    let val = vec3<f32>(5.4856e-13, 4.4201e-13, 5.2481e-13);
+    let pos = vec3<f32>(1.6810e+06, 1.7953e+06, 2.2084e+06);
+    let varS = vec3<f32>(4.3278e+09, 9.3046e+09, 6.6121e+09);
+    var xyz = val * sqrt(2.0 * 3.14159265 * varS) * cos(pos * phase + shift) * exp(-varS * phase * phase);
+    xyz.x += 9.7470e-14 * sqrt(2.0 * 3.14159265 * 4.5282e+09) * cos(2.2399e+06 * phase + shift.x) * exp(-4.5282e+09 * phase * phase);
+    return xyz / 1.0685e-7;
+}
+
+fn evalIridescence(outsideIor : f32, eta2 : f32, cosTheta1 : f32, thinFilmThickness : f32, baseF0 : vec3<f32>) -> vec3<f32> {
+    let iorMix = mix(outsideIor, eta2, smoothstep(0.0, 0.03, thinFilmThickness));
+    let sinTheta2Sq = pow(outsideIor / iorMix, 2.0) * (1.0 - cosTheta1 * cosTheta1);
+    let cosTheta2Sq = 1.0 - sinTheta2Sq;
+    if (cosTheta2Sq < 0.0) {
+        return vec3<f32>(1.0);
+    }
+    let cosTheta2 = sqrt(cosTheta2Sq);
+    let R0 = pow((iorMix - outsideIor) / (iorMix + outsideIor), 2.0);
+    let R12 = R0 + (1.0 - R0) * pow(clamp(1.0 - cosTheta1, 0.0, 1.0), 5.0);
+    let T121 = 1.0 - R12;
+    let phi12 = select(3.14159265, 0.0, iorMix >= outsideIor);
+    let phi21 = 3.14159265 - phi12;
+
+    let baseF0Sqrt = sqrt(clamp(baseF0, vec3<f32>(0.0), vec3<f32>(0.99)));
+    let R_23 = clamp(baseF0, vec3<f32>(0.0), vec3<f32>(0.99));
+    let fresnel23 = R_23 + (vec3<f32>(1.0) - R_23) * pow(clamp(1.0 - cosTheta2, 0.0, 1.0), 5.0);
+
+    let opd = 2.0 * iorMix * thinFilmThickness * cosTheta2;
+    let phi = vec3<f32>(phi21) + select(vec3<f32>(0.0), vec3<f32>(3.14159265), baseF0Sqrt > vec3<f32>(0.01));
+    let r123 = clamp(R12 * fresnel23, vec3<f32>(1e-5), vec3<f32>(0.9999));
+    let R123 = sqrt(r123);
+    let C0 = vec3<f32>(R12) + fresnel23;
+    let S0 = (T121 * T121 * fresnel23) / (vec3<f32>(1.0) - r123);
+
+    var I = C0 + S0;
+    let xyzToLinearRgb = mat3x3<f32>(
+        vec3<f32>( 3.2404542, -0.9692660,  0.0556434),
+        vec3<f32>(-1.5371385,  1.8760108, -0.2040259),
+        vec3<f32>(-0.4985314,  0.0415560,  1.0572252)
+    );
+    var cm = vec3<f32>(0.0);
+    for (var m = 1; m <= 2; m = m + 1) {
+        let fm = f32(m);
+        let Sm = S0 * pow(R123, vec3<f32>(fm));
+        let xyz = evalSensitivity(fm * opd, fm * phi);
+        cm += Sm * clamp(xyzToLinearRgb * xyz, vec3<f32>(-1.0), vec3<f32>(1.0));
+    }
+    return clamp(I + 2.0 * cm, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn distributionGGXAniso(NdotH : f32, TdotH : f32, BdotH : f32, ax : f32, ay : f32) -> f32 {
+    let a2 = ax * ay;
+    let d = vec3<f32>(ay * TdotH, ax * BdotH, a2 * NdotH);
+    let d2 = dot(d, d);
+    let b2 = a2 / max(d2, 1e-6);
+    return a2 * b2 * b2 / 3.14159265359;
+}
+
+fn visibilitySmithGGXAniso(NdotL : f32, NdotV : f32, TdotL : f32, TdotV : f32, BdotL : f32, BdotV : f32, ax : f32, ay : f32) -> f32 {
+    let ggxV = NdotL * length(vec3<f32>(ax * TdotV, ay * BdotV, NdotV));
+    let ggxL = NdotV * length(vec3<f32>(ax * TdotL, ay * BdotL, NdotL));
+    return 0.5 / max(ggxV + ggxL, 1e-4);
 }
 
 fn bayerDither4x4(fragCoord : vec2<f32>) -> f32 {
@@ -275,6 +354,9 @@ fn evaluateDirectLobe(
     L : vec3<f32>,
     V : vec3<f32>,
     N : vec3<f32>,
+    anisoT : vec3<f32>,
+    anisoB : vec3<f32>,
+    anisoStrength : f32,
     radiance : vec3<f32>,
     F0 : vec3<f32>,
     diffuseColor : vec3<f32>,
@@ -284,26 +366,50 @@ fn evaluateDirectLobe(
     ccFactor : f32,
     ccRoughness : f32,
     sheenColor : vec3<f32>,
-    sheenRoughness : f32
+    sheenRoughness : f32,
+    sssFactor : f32,
+    sssTint : vec3<f32>
 ) -> vec3<f32> {
-    let NdotL = max(dot(N, L), 0.0);
-    if (NdotL <= 0.0) {
-        return vec3<f32>(0.0);
-    }
+    let rawNdotL = dot(N, L);
+    let NdotL = max(rawNdotL, 0.0);
     let NdotV = max(dot(N, V), 0.001);
+
+    // Wrapped Subsurface Scattering (SSS) backlit translucency for foliage, fabric & thin wax shells
+    var sssContrib = vec3<f32>(0.0);
+    if (sssFactor > 0.001) {
+        let wrapDiffuse = max(0.0, (rawNdotL + 0.35) / 1.35);
+        let backH = normalize(L + N * 0.35);
+        let backV = pow(clamp(dot(V, -backH), 0.0, 1.0), 3.0);
+        sssContrib = sssTint * (wrapDiffuse * 0.25 + backV * 0.65) * radiance * sssFactor;
+    }
+
+    if (NdotL <= 0.0) {
+        return sssContrib;
+    }
     let H = normalize(L + V);
     let NdotH = max(dot(N, H), 0.0);
     let VdotH = max(dot(V, H), 0.0);
 
-    let D = distributionGGX(NdotH, roughness);
-    let Vis = visibilitySmithGGX(NdotL, NdotV, roughness);
+    var D : f32;
+    var Vis : f32;
+    if (anisoStrength > 0.001) {
+        let r2 = roughness * roughness;
+        let ax = mix(r2, 1.0, anisoStrength * anisoStrength);
+        let ay = clamp(r2, 0.02, 1.0);
+        D = distributionGGXAniso(NdotH, dot(anisoT, H), dot(anisoB, H), ax, ay);
+        Vis = visibilitySmithGGXAniso(NdotL, NdotV, dot(anisoT, L), dot(anisoT, V), dot(anisoB, L), dot(anisoB, V), ax, ay);
+    } else {
+        D = distributionGGX(NdotH, roughness);
+        Vis = visibilitySmithGGX(NdotL, NdotV, roughness);
+    }
+
     let F = fresnelSchlick(VdotH, F0);
     let specularBRDF = D * Vis * F;
 
     let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
     let diffuseBRDF = kD * (diffuseColor / 3.14159265359) * (1.0 - transFactor);
 
-    var contrib = (diffuseBRDF + specularBRDF) * radiance * NdotL;
+    var contrib = (diffuseBRDF + specularBRDF) * radiance * NdotL + sssContrib;
 
     if (ccFactor > 0.001) {
         let Dcc = distributionGGX(NdotH, ccRoughness);
@@ -571,10 +677,14 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let windStrength = sceneLighting.weatherParams.z;
     let weatherTime = sceneLighting.weatherParams.w;
 
+    var puddleMask = 0.0;
     if (weatherMode == 1.0 && weatherIntensity > 0.001 && geomN.y > 0.15) {
+        puddleMask = calculateRainPuddleMask(in.worldPos, geomN.y, weatherIntensity);
         let rippleTan = calculateRainRipples(uvBase * 5.0 + in.worldPos.xz * 2.5, weatherTime);
-        let rippleWeight = smoothstep(0.15, 0.75, geomN.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
-        N = normalize(mix(N, tbn * rippleTan, rippleWeight));
+        let baseWeight = smoothstep(0.15, 0.75, geomN.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
+        let rippleWeight = max(baseWeight, puddleMask * 0.85);
+        let flatWaterN = normalize(mix(vec3<f32>(0.0, 1.0, 0.0), tbn * rippleTan, 0.45));
+        N = normalize(mix(N, mix(tbn * rippleTan, flatWaterN, puddleMask), rippleWeight));
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomN.y > 0.2) {
         let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
         N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
@@ -591,6 +701,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     if (weatherMode == 1.0 && weatherIntensity > 0.001) {
         roughness = mix(roughness, 0.08, clamp(weatherIntensity * 0.85, 0.0, 0.88));
+        roughness = mix(roughness, 0.035, puddleMask);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001) {
         let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
         if (snowAccum > 0.001) {
@@ -606,8 +717,30 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let ior = max(matUbo.ior, 1.0);
     let f0_dielectric = pow((ior - 1.0) / (ior + 1.0), 2.0);
     let specularColor = matUbo.specularFactor * matUbo.specularColorFactor.rgb;
-    let F0 = mix(vec3<f32>(f0_dielectric) * specularColor, baseColor.rgb, metallic);
+    var F0 = mix(vec3<f32>(f0_dielectric) * specularColor, baseColor.rgb, metallic);
     var diffuseColor = baseColor.rgb * (1.0 - metallic);
+
+    // KHR_materials_anisotropy rotated tangent frame
+    let anisoStrength = clamp(matUbo.uvRotations1.z, 0.0, 1.0);
+    let anisoRot = matUbo.uvRotations1.w;
+    let cosAniso = cos(anisoRot);
+    let sinAniso = sin(anisoRot);
+    let anisoT = normalize(cosAniso * tbn[0] + sinAniso * tbn[1]);
+    let anisoB = normalize(cross(N, anisoT));
+
+    // KHR_materials_iridescence spectral thin-film F0
+    let iridFactor = clamp(matUbo.specularColorFactor.w, 0.0, 1.0);
+    let NdotV_irid = max(dot(N, viewDir), 0.001);
+    if (iridFactor > 0.001) {
+        let iridIor = max(matUbo.attenuationColor.w, 1.0);
+        let iridThick = clamp(matUbo.uvRotations1.y, 100.0, 1200.0);
+        let iridF0 = evalIridescence(1.0, iridIor, NdotV_irid, iridThick, F0);
+        F0 = mix(F0, iridF0, iridFactor);
+    }
+
+    let sssFactor = select(0.0, clamp(matUbo.thicknessFactor * 0.35, 0.0, 0.65),
+                           matUbo.transmissionFactor < 0.05 && matUbo.thicknessFactor > 0.01);
+    let sssTint = clamp(matUbo.attenuationColor.rgb * baseColor.rgb, vec3<f32>(0.02), vec3<f32>(1.0));
 
     if (weatherMode == 1.0 && weatherIntensity > 0.001) {
         let wetWeight = clamp(weatherIntensity * 0.8, 0.0, 0.75);
@@ -663,15 +796,15 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
     var shadowFactor = 1.0;
     if ((flags & 4096u) != 0u) {
-        shadowFactor = computePCFShadow(in.worldPos, geomN, sunL);
+        shadowFactor = computePCFShadow(in.worldPos, geomN, sunL, in.clipPos.xy);
     }
 
     var directLighting = vec3<f32>(0.0);
     if (sceneLighting.envParams.w > 0.5) {
         let sunRadiance = evaluateDiurnalSunRadiance(solarElev);
         directLighting = evaluateDirectLobe(
-            sunL, V, N, sunRadiance, F0, diffuseColor, roughness, metallic,
-            transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
+            sunL, V, N, anisoT, anisoB, anisoStrength, sunRadiance, F0, diffuseColor, roughness, metallic,
+            transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, sssFactor, sssTint
         ) * (shadowFactor * pomShadow);
     }
 
@@ -735,8 +868,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
                     pShadow = shadowFactor;
                 }
                 directLighting = directLighting + evaluateDirectLobe(
-                    L_p, V, N, lightRadiance, F0, diffuseColor, roughness, metallic,
-                    transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness
+                    L_p, V, N, anisoT, anisoB, anisoStrength, lightRadiance, F0, diffuseColor, roughness, metallic,
+                    transFactor, ccFactor, ccRoughness, sheenColor, sheenRoughness, sssFactor, sssTint
                 ) * pShadow;
             }
         }
@@ -744,9 +877,16 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     // 3. True HDR Image-Based Lighting (IBL):
     //    - Diffuse Irradiance via L2 Spherical Harmonics (9 coefficients)
-    //    - Specular IBL via Compute GGX Prefiltered Cubemap + Split-Sum 2D BRDF LUT
+    //    - Specular IBL via Compute GGX Prefiltered Cubemap + Anisotropic Bent Normal
     let rotN = rotateY(N, envRot);
-    let R = rotateY(reflect(-V, N), envRot);
+    var bentN = N;
+    if (anisoStrength > 0.001) {
+        let anisoTangent = cross(anisoB, V);
+        let bentAnisoN = normalize(cross(anisoTangent, anisoB));
+        let bentWeight = anisoStrength * clamp(1.0 - roughness * 0.65, 0.0, 1.0);
+        bentN = normalize(mix(N, bentAnisoN, bentWeight * 0.65));
+    }
+    let R = rotateY(reflect(-V, bentN), envRot);
 
     let shIrradiance = evaluateSHIrradiance(rotN);
     let brdfSample = textureSampleLevel(brdfLutTexture, defaultSampler, vec2<f32>(NdotV, roughness), 0.0).rg;
@@ -780,11 +920,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     var finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 
-    // Hoist screen-space derivatives into uniform control flow before non-uniform transFactor branch.
+    // Hoist screen-space derivatives into uniform control flow before branches.
     let screenDim = max(sceneLighting.gridParams.xy, vec2<f32>(1.0, 1.0));
     let screenUV = in.clipPos.xy / screenDim;
-    let refrDpdx = dpdx(screenUV);
-    let refrDpdy = dpdy(screenUV);
+    let geomEdgeGrad = length(fwidth(geomN));
 
     var outAlpha = baseColor.a;
     if (transFactor > 0.001) {
@@ -798,11 +937,12 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let N_view = normalize((sceneLighting.viewMatrix * vec4<f32>(N, 0.0)).xyz);
         let thickness = max(matUbo.thicknessFactor, 0.05);
 
-        // Chromatic dispersion & refraction UV offset
+        // Chromatic dispersion & roughness-aware frosted glass mip sampling
         let refrOffset = (N_view.xy * (1.0 - eta)) * (thickness / viewZ) * 0.12;
         let refrUV = clamp(screenUV + refrOffset, vec2<f32>(0.001), vec2<f32>(0.999));
-
-        var bgSample = textureSampleGrad(opaqueColorTexture, defaultSampler, refrUV, refrDpdx, refrDpdy).rgb;
+        let maxOpaqueMip = max(sceneLighting.renderParams.w, 0.0);
+        let frostedLod = clamp(roughness * maxOpaqueMip, 0.0, maxOpaqueMip);
+        var bgSample = textureSampleLevel(opaqueColorTexture, defaultSampler, refrUV, frostedLod).rgb;
 
         // Beer-Lambert volume attenuation (KHR_materials_volume)
         if (matUbo.thicknessFactor > 0.0 && matUbo.attenuationDistance < 1e8) {
@@ -848,6 +988,21 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let parity = f32((i32(grid.x) + i32(grid.y)) & 1);
         let uvTint = vec3<f32>(fract(uvBase.x), fract(uvBase.y), 0.55);
         finalColor = mix(uvTint * 0.35, uvTint * 1.15, parity);
+    } else if (debugViewMode == 5u) {
+        // Sculptural Clay + Surface Crease Contour inspection mode
+        let key = max(dot(N, sunL), 0.0);
+        let rim = pow(clamp(1.0 - NdotV, 0.0, 1.0), 3.0) * 0.28;
+        let clayBase = vec3<f32>(0.72, 0.74, 0.77) * (0.24 + 0.78 * key) * ao + vec3<f32>(rim);
+        let edgeMask = smoothstep(0.18, 0.65, geomEdgeGrad);
+        finalColor = mix(clayBase, vec3<f32>(0.10, 0.55, 0.85), edgeMask * 0.55);
+    } else if (debugViewMode == 6u) {
+        // Stylized 3-Band Toon / Cel Shader with crisp ink silhouette rim
+        let ndl = dot(N, sunL);
+        let celBand = smoothstep(-0.04, 0.02, ndl) * 0.45 + smoothstep(0.45, 0.52, ndl) * 0.55;
+        let celSpec = smoothstep(0.86, 0.90, max(dot(N, normalize(sunL + V)), 0.0)) * (1.0 - roughness * 0.6);
+        let inkRim = smoothstep(0.28, 0.16, NdotV);
+        let toonBase = baseColor.rgb * (0.22 + 0.78 * celBand) + vec3<f32>(celSpec * 0.65);
+        finalColor = mix(toonBase, vec3<f32>(0.02, 0.03, 0.05), inkRim);
     }
 
     return vec4<f32>(finalColor, outAlpha);

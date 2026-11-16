@@ -141,6 +141,14 @@ struct Material {
     int thicknessTextureIndex{-1};
     float attenuationDistance{1e9f};
     glm::vec3 attenuationColor{1.0f};
+
+    // 10. Iridescence & Anisotropy (KHR_materials_iridescence / KHR_materials_anisotropy)
+    float iridescenceFactor{0.0f};
+    float iridescenceIor{1.3f};
+    float iridescenceThicknessMinimum{100.0f};
+    float iridescenceThicknessMaximum{400.0f};
+    float anisotropyStrength{0.0f};
+    float anisotropyRotation{0.0f};
 };
 
 /**

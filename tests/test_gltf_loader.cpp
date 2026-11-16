@@ -329,3 +329,57 @@ TEST(GltfLoaderTest, NodeWithEmptyMeshNameFallback) {
         node->worldTransform = glm::mat4(1.0f);
     });
 }
+
+TEST(GltfLoaderTest, ParsesKhrIridescenceAndAnisotropyExtensions) {
+    static constexpr std::string_view kGltfJson = R"({
+        "asset": { "version": "2.0" },
+        "extensionsUsed": ["KHR_materials_iridescence", "KHR_materials_anisotropy"],
+        "buffers": [{
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAIA/AACAPwAAAAAAAIA/AAAAAAAAgD8AAIA/AAABAAIA",
+            "byteLength": 42
+        }],
+        "bufferViews": [
+            { "buffer": 0, "byteOffset": 0, "byteLength": 36 },
+            { "buffer": 0, "byteOffset": 36, "byteLength": 6 }
+        ],
+        "accessors": [
+            { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0,0,0], "max": [1,1,0] },
+            { "bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR" }
+        ],
+        "materials": [{
+            "name": "IridescentBrushedMetal",
+            "pbrMetallicRoughness": { "metallicFactor": 1.0, "roughnessFactor": 0.25 },
+            "extensions": {
+                "KHR_materials_iridescence": {
+                    "iridescenceFactor": 0.9,
+                    "iridescenceIor": 1.45,
+                    "iridescenceThicknessMinimum": 120.0,
+                    "iridescenceThicknessMaximum": 560.0
+                },
+                "KHR_materials_anisotropy": {
+                    "anisotropyStrength": 0.8,
+                    "anisotropyRotation": 0.785398
+                }
+            }
+        }],
+        "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
+        "nodes": [{ "mesh": 0 }],
+        "scenes": [{ "nodes": [0] }],
+        "scene": 0
+    })";
+
+    AssetManager assetMgr;
+    FastGltfLoader loader(assetMgr);
+    const std::vector<uint8_t> bytes(kGltfJson.begin(), kGltfJson.end());
+    auto res = loader.LoadFromMemory(bytes, ".");
+    ASSERT_TRUE(res.has_value()) << res.error();
+    ASSERT_EQ((*res)->materials.size(), 1u);
+
+    const auto& mat = (*res)->materials[0];
+    EXPECT_NEAR(mat.iridescenceFactor, 0.9f, 1e-4f);
+    EXPECT_NEAR(mat.iridescenceIor, 1.45f, 1e-4f);
+    EXPECT_NEAR(mat.iridescenceThicknessMinimum, 120.0f, 1e-4f);
+    EXPECT_NEAR(mat.iridescenceThicknessMaximum, 560.0f, 1e-4f);
+    EXPECT_NEAR(mat.anisotropyStrength, 0.8f, 1e-4f);
+    EXPECT_NEAR(mat.anisotropyRotation, 0.785398f, 1e-4f);
+}

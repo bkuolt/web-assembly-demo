@@ -109,8 +109,8 @@ inline void FillMaterialUniforms(const scene::Material* mat, MaterialUniforms& o
     out.baseColorFactor = mat->baseColorFactor;
     out.emissiveFactor = glm::vec4{mat->emissiveFactor, mat->emissiveStrength};
     out.sheenColorFactor = glm::vec4{mat->sheenColorFactor, mat->sheenRoughnessFactor};
-    out.specularColorFactor = glm::vec4{mat->specularColorFactor, 0.0f};
-    out.attenuationColor = glm::vec4{mat->attenuationColor, 1.0f};
+    out.specularColorFactor = glm::vec4{mat->specularColorFactor, mat->iridescenceFactor};
+    out.attenuationColor = glm::vec4{mat->attenuationColor, mat->iridescenceIor};
     out.metallicFactor = mat->metallicFactor;
     out.roughnessFactor = mat->roughnessFactor;
     out.normalScale = mat->normalScale;
@@ -134,7 +134,8 @@ inline void FillMaterialUniforms(const scene::Material* mat, MaterialUniforms& o
     out.emissiveUvTransform = glm::vec4{mat->emissiveUvTransform.scale, mat->emissiveUvTransform.offset};
     out.uvRotations0 = glm::vec4{mat->baseColorUvTransform.rotation, mat->metallicRoughnessUvTransform.rotation,
                                  mat->normalUvTransform.rotation, mat->occlusionUvTransform.rotation};
-    out.uvRotations1 = glm::vec4{mat->emissiveUvTransform.rotation, 0.0f, 0.0f, 0.0f};
+    out.uvRotations1 = glm::vec4{mat->emissiveUvTransform.rotation, mat->iridescenceThicknessMaximum,
+                                 mat->anisotropyStrength, mat->anisotropyRotation};
 
     uint32_t flags{0};
     if (mat->baseColorTextureIndex >= 0)

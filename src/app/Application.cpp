@@ -375,8 +375,23 @@ void Application::Update(float deltaTime) {
     if (!running_)
         return;
 
+    lastDeltaTime_ = std::clamp(deltaTime, 0.0005f, 0.25f);
+    elapsedTime_ += lastDeltaTime_;
+    fpsSampleTimer_ += lastDeltaTime_;
+    if (fpsSampleTimer_ >= 0.06f) {
+        fpsSampleTimer_ = 0.0f;
+        const float instFps = std::clamp(1.0f / std::max(deltaTime, 1e-4f), 1.0f, 360.0f);
+        if (fpsHistoryCount_ < fpsHistory_.size()) {
+            fpsHistory_[fpsHistoryCount_++] = instFps;
+        } else {
+            std::copy(fpsHistory_.begin() + 1, fpsHistory_.end(), fpsHistory_.begin());
+            fpsHistory_.back() = instFps;
+        }
+    }
+
     uiInput_.mousePressed = false;
     uiInput_.mouseReleased = false;
+    uiInput_.wheelDelta = 0.0f;
     bool pendingPick = false;
     float pickX = 0.0f;
     float pickY = 0.0f;
@@ -584,8 +599,10 @@ void Application::Update(float deltaTime) {
     lastVramBytes_ = vramBytes;
     lastTextureVramBytes_ = textureVramBytes;
 
-    // Immediate Mode Settings UI & Mouse Event Consumption (blocks 3D camera/picking when interacting with UI)
+    // Immediate Mode Settings UI & Mouse/Wheel Event Consumption (blocks 3D camera/picking when interacting with UI)
+    uiInput_.wheelDelta = wheelDelta;
     UpdateSettingsUI();
+    uiInput_.wheelDelta = 0.0f;
     if (!settingsUi_.WantsMouse()) {
         if (pendingPick) {
             PickNodeAt(pickX, pickY, static_cast<float>(gpuContext_.GetWidth()),
@@ -658,10 +675,12 @@ void Application::Render() {
     skybox_.Render(hdrPass, vp, camPos, sunDir, pipelineManager_.GetSolarElevationFactor(),
                    static_cast<uint32_t>(pipelineManager_.GetWeatherMode()), pipelineManager_.GetWeatherIntensity());
 
-    // 3. Snapshot Opaque + Skybox HDR Resolve -> OpaqueColorCopyTexture, then render Transparent/Transmissive Pass
-    WGPURenderPassEncoder transparentPass =
-        gpuContext_.BeginTransparentPass(hdrPass, pipelineManager_.GetOpaqueColorCopyTexture(),
-                                         pipelineManager_.GetOpaqueCopyWidth(), pipelineManager_.GetOpaqueCopyHeight());
+    // 3. Snapshot Opaque + Skybox HDR Resolve -> OpaqueColorCopyTexture, generate roughness-aware frosted mips,
+    //    and render Transparent/Transmissive Pass
+    gpuContext_.SnapshotOpaqueToCopy(hdrPass, pipelineManager_.GetOpaqueColorCopyTexture(),
+                                     pipelineManager_.GetOpaqueCopyWidth(), pipelineManager_.GetOpaqueCopyHeight());
+    pipelineManager_.GenerateOpaqueCopyMips(gpuContext_.GetCommandEncoder());
+    WGPURenderPassEncoder transparentPass = gpuContext_.OpenTransparentPass();
     if (!transparentPass)
         return;
 
@@ -684,20 +703,36 @@ void Application::Render() {
         }
     }
 
-    // 5. Resolve HDR RGBA16F (MSAA -> 1x) and begin Swapchain Post-Processing Pass (Surface format)
-    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginPostProcessPass(transparentPass);
+    // 5. End HDR MSAA pass so resolved HDR color + depth can be read by Selection Outline & Post-Processing
+    gpuContext_.FinishHdrPass(transparentPass);
+
+    if (activeScene_ && selectedNode_) {
+        pipelineManager_.RenderSelectionOutline(gpuContext_.GetCommandEncoder(), *activeScene_, selectedNode_.get(), vp,
+                                                gpuContext_.GetHdrResolveView(), gpuContext_.GetWidth(),
+                                                gpuContext_.GetHeight());
+    }
+
+    // 6. Execute pre-swapchain GPU passes (Depth Linearize, GTAO, 5-Mip Bloom + UI Backdrop, Auto-Exposure,
+    // Tonemap->LDR)
+    pipelineManager_.PreparePostProcessPass(
+        gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), gpuContext_.GetDepthReadView(),
+        gpuContext_.GetSampleCount(), vp, camera_.GetProjectionMatrix(), camPos, sunDir, skybox_.GetRotation(),
+        gpuContext_.GetWidth(), gpuContext_.GetHeight(), lastDeltaTime_, elapsedTime_);
+
+    settingsUi_.SetBackdropTextureView(pipelineManager_.GetUiBackdropView());
+
+    // 7. Open Swapchain pass (1x), finish FXAA / Tonemap, and draw HUD + ImmediateUI crisp on top
+    WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
     if (!swapchainPass)
         return;
 
-    // 5. Fullscreen HDR Tonemapping (Khronos PBR Neutral / AgX / ACES) + Real-time Sun Lens Flares + Exposure
     pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(),
                                        camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,
                                        skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
 
-    // 6. In-Engine 2D Debug Overlay & Immediate Mode Settings UI onto swapchain
     debugOverlay_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
     if (showSettingsUi_) {
-        settingsUi_.Render(swapchainPass);
+        settingsUi_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
     }
 
     gpuContext_.EndFrame(swapchainPass);
@@ -870,6 +905,10 @@ void Application::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) 
         }
     }
     if (selectedNode_) {
+        if (selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
+            const float distToNode = glm::length(camera_.GetPosition() - selectedNode_->worldAABB.Center());
+            pipelineManager_.GetPostProcessPass().SetDoFFocusDistance(distToNode);
+        }
         BGL_LOG_INFO("Selected Node #{} '{}' (AABB min=[{:.2f}, {:.2f}, {:.2f}], max=[{:.2f}, {:.2f}, {:.2f}])",
                      selectedNodeIndex_, selectedNode_->name, selectedNode_->worldAABB.minBound.x,
                      selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
@@ -992,67 +1031,248 @@ void Application::UpdateSettingsUI() {
         return;
     }
 
-    settingsUi_.BeginWindow("Engine & VRAM Settings", std::max(16.0f, static_cast<float>(vpW) - 346.0f), 16.0f, 330.0f);
+    // Apply live UI accent theme before building widgets
+    settingsUi_.Style().accent = glm::vec4{uiAccentColor_, 1.0f};
+    settingsUi_.Style().sparklineFill = glm::vec4{uiAccentColor_, 0.24f};
+
+    // World-to-screen floating badge anchored on selected 3D node
+    if (showSelectionAnchors_ && selectedNode_ &&
+        selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
+        const glm::vec3 center = selectedNode_->worldAABB.Center();
+        const glm::vec4 clip = camera_.GetViewProjectionMatrix() * glm::vec4{center, 1.0f};
+        if (clip.w > 0.001f) {
+            const glm::vec3 ndc = glm::vec3{clip} / clip.w;
+            if (ndc.z >= 0.0f && ndc.z <= 1.0f && ndc.x >= -0.95f && ndc.x <= 0.95f && ndc.y >= -0.95f &&
+                ndc.y <= 0.95f) {
+                const float sx = (ndc.x * 0.5f + 0.5f) * static_cast<float>(vpW);
+                const float sy = (0.5f - ndc.y * 0.5f) * static_cast<float>(vpH);
+                const float dist = glm::length(camera_.GetPosition() - center);
+                const std::string nodeTitle = selectedNode_->name.empty() ? "Selected" : selectedNode_->name;
+                settingsUi_.DrawFloatingBadge(sx + 8.0f, sy - 24.0f, std::format("{} ({:.1f}m)", nodeTitle, dist),
+                                              glm::vec4{1.0f, 0.72f, 0.12f, 0.95f});
+            }
+        }
+    }
+
+    settingsUi_.BeginWindow("bgl-Engine Studio", std::max(16.0f, static_cast<float>(vpW) - 356.0f), 14.0f, 340.0f);
 
     const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
     const double texMb = static_cast<double>(lastTextureVramBytes_) / (1024.0 * 1024.0);
-    bgl::ui::UI::Label(std::format("Total VRAM: {:.2f} MB", totalMb));
-    bgl::ui::UI::Label(std::format("Textures VRAM: {:.2f} MB", texMb), glm::vec4{0.72f, 0.86f, 0.98f, 1.0f});
-    bgl::ui::UI::Label(std::format("GPU Caps: BC7={} ASTC={} ETC2={}", gpuContext_.SupportsBC() ? "yes" : "no",
-                                   gpuContext_.SupportsASTC() ? "yes" : "no",
-                                   gpuContext_.SupportsETC2() ? "yes" : "no"),
-                       glm::vec4{0.68f, 0.72f, 0.78f, 1.0f});
+    bgl::ui::UI::Label(std::format("VRAM: {:.1f} MB (Tex: {:.1f} MB)", totalMb, texMb),
+                       glm::vec4{0.72f, 0.86f, 0.98f, 1.0f});
+    if (fpsHistoryCount_ >= 2) {
+        bgl::ui::UI::Sparkline("Frame Rate (FPS)", std::span<const float>{fpsHistory_.data(), fpsHistoryCount_}, 0.0f,
+                               0.0f, 34.0f, glm::vec4{uiAccentColor_, 1.0f});
+    }
 
-    static constexpr const char* kKtxOptions[] = {
-        "Auto (Hardware)", "BC7 (Desktop)", "ASTC 4x4 (Mobile)", "ETC2 RGBA", "RGBA32 (Uncompressed)",
-    };
+    bgl::ui::UI::Separator();
 
-    if (bgl::ui::UI::Dropdown("KTX2 Compression", kKtxOptions, selectedKtxOption_)) {
-        scene::KtxTranscodeTarget target = scene::KtxTranscodeTarget::Rgba32;
-        switch (selectedKtxOption_) {
-        case 0:
-            if (gpuContext_.SupportsBC()) {
-                target = scene::KtxTranscodeTarget::Bc7;
-            } else if (gpuContext_.SupportsASTC()) {
-                target = scene::KtxTranscodeTarget::Astc4x4;
-            } else if (gpuContext_.SupportsETC2()) {
-                target = scene::KtxTranscodeTarget::Etc2Rgba;
-            }
-            break;
-        case 1:
-            target = scene::KtxTranscodeTarget::Bc7;
-            break;
-        case 2:
-            target = scene::KtxTranscodeTarget::Astc4x4;
-            break;
-        case 3:
-            target = scene::KtxTranscodeTarget::Etc2Rgba;
-            break;
-        case 4:
-        default:
-            target = scene::KtxTranscodeTarget::Rgba32;
-            break;
+    // 1. Scene & Camera Section
+    if (bgl::ui::UI::CollapsingHeader("Camera & Scene", true)) {
+        static constexpr const char* kViewModeNames[] = {
+            "Lit PBR", "LOD Heatmap", "Normals", "Metal/Rough/AO", "UV Checker", "Clay + Wireframe", "Toon / Cel",
+        };
+        size_t viewIdx = static_cast<size_t>(std::to_underlying(pipelineManager_.GetDebugViewMode()));
+        if (bgl::ui::UI::Dropdown("Shading View", kViewModeNames, viewIdx)) {
+            pipelineManager_.SetDebugViewMode(static_cast<gpu::DebugViewMode>(viewIdx));
         }
-        SetKtxCompressionTarget(target);
+
+        if (bgl::ui::UI::Button("Frame All / Reset View")) {
+            FrameAll();
+        }
+        bool turntable = turntableActive_;
+        if (bgl::ui::UI::Checkbox("Auto Turntable", turntable)) {
+            turntableActive_ = turntable;
+        }
+        bool wf = wireframeMode_;
+        if (bgl::ui::UI::Checkbox("Wireframe Overlay [F1]", wf)) {
+            wireframeMode_ = wf;
+        }
+        bool aabbs = showBoundingBoxes_;
+        if (bgl::ui::UI::Checkbox("Bounding Boxes [B]", aabbs)) {
+            showBoundingBoxes_ = aabbs;
+        }
+        bool anchors = showSelectionAnchors_;
+        if (bgl::ui::UI::Checkbox("3D Selection Badge", anchors)) {
+            showSelectionAnchors_ = anchors;
+        }
+
+        if (activeScene_ && !activeScene_->allNodes.empty()) {
+            bgl::ui::UI::Label("Scene Nodes (Scroll):", settingsUi_.Style().textMuted);
+            bgl::ui::UI::BeginScrollArea("scene_hierarchy_scroll", 104.0f);
+            size_t shownCount = 0;
+            for (size_t ni = 0; ni < activeScene_->allNodes.size() && shownCount < 48; ++ni) {
+                const auto& node = activeScene_->allNodes[ni];
+                if (!node || node->GetPrimitives().empty()) {
+                    continue;
+                }
+                ++shownCount;
+                const bool isSel = (selectedNodeIndex_ == static_cast<int>(ni));
+                const std::string btnText =
+                    std::format("{}{} [{}]", isSel ? "* " : "", node->name.empty() ? "MeshNode" : node->name, ni);
+                if (bgl::ui::UI::Button(btnText)) {
+                    SelectNodeByIndex(static_cast<int>(ni));
+                }
+            }
+            bgl::ui::UI::EndScrollArea();
+        }
     }
 
-    bool mipmaps = pipelineManager_.IsMipmappingEnabled();
-    if (bgl::ui::UI::Checkbox("Mipmapping", mipmaps)) {
-        ToggleMipmapping();
+    // 2. Post-Processing & Cinema Lens Section
+    if (bgl::ui::UI::CollapsingHeader("Post-Processing & Lens", true)) {
+        auto& pp = pipelineManager_.GetPostProcessPass();
+
+        static constexpr const char* kTonemapNames[] = {"Khronos PBR Neutral", "AgX Cinema", "ACES Filmic"};
+        size_t tmIdx = static_cast<size_t>(std::to_underlying(pp.GetToneMapOperator()));
+        if (bgl::ui::UI::Dropdown("Tone Mapper", kTonemapNames, tmIdx)) {
+            pp.SetToneMapOperator(static_cast<gpu::ToneMapOperator>(tmIdx));
+        }
+
+        static constexpr const char* kGradingNames[] = {"Neutral", "Warm Cinema", "Cool Sci-Fi", "Bleach Bypass",
+                                                        "Noir"};
+        size_t gradeIdx = static_cast<size_t>(std::to_underlying(pp.GetColorGradingPreset()));
+        if (bgl::ui::UI::Dropdown("Color Grading", kGradingNames, gradeIdx)) {
+            pp.SetColorGradingPreset(static_cast<gpu::ColorGradingPreset>(gradeIdx));
+        }
+
+        float exposure = pp.GetExposure();
+        if (bgl::ui::UI::SliderFloat("Exposure (EV)", exposure, 0.2f, 4.0f, "{:.2f}")) {
+            pp.SetExposure(exposure);
+        }
+        bool autoExp = pp.IsAutoExposureEnabled();
+        if (bgl::ui::UI::Checkbox("GPU Auto-Exposure", autoExp)) {
+            pp.SetAutoExposureEnabled(autoExp);
+        }
+        bool fxaa = pp.IsFxaaEnabled();
+        if (bgl::ui::UI::Checkbox("FXAA Edge AA", fxaa)) {
+            pp.SetFxaaEnabled(fxaa);
+        }
+
+        bool bloom = pp.IsBloomEnabled();
+        if (bgl::ui::UI::Checkbox("5-Mip HDR Bloom [Z]", bloom)) {
+            pp.SetBloomEnabled(bloom);
+        }
+        if (bloom) {
+            float bloomInt = pp.GetBloomIntensity();
+            if (bgl::ui::UI::SliderFloat("Bloom Intensity", bloomInt, 0.0f, 2.5f, "{:.2f}")) {
+                pp.SetBloomIntensity(bloomInt);
+            }
+        }
+
+        bool gtao = pp.IsSsaoEnabled();
+        if (bgl::ui::UI::Checkbox("Depth GTAO Occlusion [G]", gtao)) {
+            pp.SetSsaoEnabled(gtao);
+        }
+        if (gtao) {
+            float gtaoInt = pp.GetSsaoIntensity();
+            if (bgl::ui::UI::SliderFloat("GTAO Strength", gtaoInt, 0.0f, 1.5f, "{:.2f}")) {
+                pp.SetSsaoIntensity(gtaoInt);
+            }
+        }
+
+        bool ssr = pp.IsSsrEnabled();
+        if (bgl::ui::UI::Checkbox("Screen-Space Reflections", ssr)) {
+            pp.SetSsrEnabled(ssr);
+        }
+        bool rays = pp.IsGodRaysEnabled();
+        if (bgl::ui::UI::Checkbox("Volumetric Sun God Rays", rays)) {
+            pp.SetGodRaysEnabled(rays);
+        }
+        bool dof = pp.IsDoFEnabled();
+        if (bgl::ui::UI::Checkbox("Bokeh Depth of Field", dof)) {
+            pp.SetDoFEnabled(dof);
+        }
+        if (dof) {
+            float fDist = pp.GetDoFFocusDistance();
+            if (bgl::ui::UI::SliderFloat("DoF Focus Dist", fDist, 0.5f, 40.0f, "{:.1f}m")) {
+                pp.SetDoFFocusDistance(fDist);
+            }
+            float fRange = pp.GetDoFFocusRange();
+            if (bgl::ui::UI::SliderFloat("DoF Range", fRange, 1.0f, 20.0f, "{:.1f}m")) {
+                pp.SetDoFFocusRange(fRange);
+            }
+        }
+
+        float vign = pp.GetVignetteIntensity();
+        if (bgl::ui::UI::SliderFloat("Vignette", vign, 0.0f, 1.0f, "{:.2f}")) {
+            pp.SetVignetteIntensity(vign);
+        }
     }
 
-    bool shadows = pipelineManager_.IsShadowsEnabled();
-    if (bgl::ui::UI::Checkbox("Shadows", shadows)) {
-        ToggleShadows();
+    // 3. Environment & Weather Section
+    if (bgl::ui::UI::CollapsingHeader("Atmosphere & Weather", false)) {
+        static constexpr const char* kEnvNames[] = {"Mediterranean Courtyard", "Sunset Studio", "Overcast Atelier",
+                                                    "Night Neon"};
+        size_t envIdx =
+            std::min(static_cast<size_t>(std::to_underlying(pipelineManager_.GetEnvironmentPreset())), size_t{3});
+        if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNames, envIdx)) {
+            pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
+        }
+
+        float tod = timeOfDay_;
+        if (bgl::ui::UI::SliderFloat("Time of Day", tod, 0.0f, 24.0f, "{:.1f}h")) {
+            SetTimeOfDay(tod);
+        }
+        bool dn = dayNightCycleActive_;
+        if (bgl::ui::UI::Checkbox("Animate Sun Cycle", dn)) {
+            dayNightCycleActive_ = dn;
+        }
+
+        static constexpr const char* kWeatherNames[] = {"Clear Sky", "Rain + Puddles", "Snowfall", "Dense Fog",
+                                                        "Volumetric Smoke"};
+        size_t wIdx = static_cast<size_t>(std::to_underlying(pipelineManager_.GetWeatherMode()));
+        if (bgl::ui::UI::Dropdown("Weather Mode", kWeatherNames, wIdx)) {
+            pipelineManager_.SetWeatherMode(static_cast<gpu::WeatherMode>(wIdx));
+        }
+        float wInt = pipelineManager_.GetWeatherIntensity();
+        if (bgl::ui::UI::SliderFloat("Weather Intensity", wInt, 0.0f, 1.5f, "{:.2f}")) {
+            pipelineManager_.SetWeatherIntensity(wInt);
+        }
     }
 
-    bool wf = wireframeMode_;
-    if (bgl::ui::UI::Checkbox("Wireframe [F1]", wf)) {
-        wireframeMode_ = wf;
-    }
+    // 4. Engine, Texture Compression & Theme
+    if (bgl::ui::UI::CollapsingHeader("Engine & UI Theme", false)) {
+        static constexpr const char* kKtxOptions[] = {
+            "Auto (Hardware)", "BC7 (Desktop)", "ASTC 4x4 (Mobile)", "ETC2 RGBA", "RGBA32 (Uncompressed)",
+        };
+        if (bgl::ui::UI::Dropdown("KTX2 Compression", kKtxOptions, selectedKtxOption_)) {
+            scene::KtxTranscodeTarget target = scene::KtxTranscodeTarget::Rgba32;
+            switch (selectedKtxOption_) {
+            case 0:
+                if (gpuContext_.SupportsBC()) {
+                    target = scene::KtxTranscodeTarget::Bc7;
+                } else if (gpuContext_.SupportsASTC()) {
+                    target = scene::KtxTranscodeTarget::Astc4x4;
+                } else if (gpuContext_.SupportsETC2()) {
+                    target = scene::KtxTranscodeTarget::Etc2Rgba;
+                }
+                break;
+            case 1:
+                target = scene::KtxTranscodeTarget::Bc7;
+                break;
+            case 2:
+                target = scene::KtxTranscodeTarget::Astc4x4;
+                break;
+            case 3:
+                target = scene::KtxTranscodeTarget::Etc2Rgba;
+                break;
+            case 4:
+            default:
+                target = scene::KtxTranscodeTarget::Rgba32;
+                break;
+            }
+            SetKtxCompressionTarget(target);
+        }
 
-    if (bgl::ui::UI::Button("Frame All")) {
-        FrameAll();
+        bool mipmaps = pipelineManager_.IsMipmappingEnabled();
+        if (bgl::ui::UI::Checkbox("Anisotropic Mipmapping", mipmaps)) {
+            ToggleMipmapping();
+        }
+        bool shadows = pipelineManager_.IsShadowsEnabled();
+        if (bgl::ui::UI::Checkbox("Soft Poisson Shadows", shadows)) {
+            ToggleShadows();
+        }
+        bgl::ui::UI::ColorEdit3("UI Accent Color", uiAccentColor_);
     }
 
     settingsUi_.EndWindow();

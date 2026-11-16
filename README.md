@@ -4,7 +4,7 @@
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-318_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-324_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
@@ -26,7 +26,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
-| **Multi-Level LOD & Debug Views** | 4-stage Mesh & Shader LOD (`LOD0`–`LOD3`), Screen-Space Error (SSE) Quadtree selection, Shadow-Pass `LOD1`, $4\times 4$ Bayer dithered cross-fade, Adaptive 60 FPS Auto-LOD, and 5 Diagnostic Views (`Lit`, `LOD Heatmap`, `Normals`, `PBR`, `UV`) | `[F9]`–`[F12]` / `[;]`/`[']` / `--lod-bias` / `--lod-heatmap` / `--debug-view` |
+| **Multi-Level LOD & Debug Views** | 4-stage Mesh & Shader LOD (`LOD0`–`LOD3`), Screen-Space Error (SSE) Quadtree selection, Shadow-Pass `LOD1`, $4\times 4$ Bayer dithered cross-fade, Adaptive 60 FPS Auto-LOD, and 7 Diagnostic Views (`Lit`, `LOD Heatmap`, `Normals`, `PBR`, `UV`, `Clay + Wireframe`, `Toon / Cel`) | `[F9]`–`[F12]` / `[;]`/`[']` / `--lod-bias` / `--lod-heatmap` / `--debug-view` |
+| **SDF Glassmorphic Studio UI** | Single-batch 2D SDF UI (`sdRoundedBox`, drop shadows, frosted HDR glass backdrop blur), draggable panels, sliders, collapsible headers, FPS sparkline, interactive HSV color picker (`ColorEdit3`), and scissor scroll areas | `[Tab]` / Live Studio Panel |
+| **Cinematic Post-Processing Suite** | `Depth24Plus` -> `R32Float` linear depth resolve, half-res Depth GTAO + bilateral blur, 5-mip Jimenez Bloom pyramid, GPU Auto-Exposure, Hi-Z SSR reflections, Vogel bokeh DoF, depth-gated Sun God Rays, edge chromatic aberration, 5 Color Grading presets, Film Grain, and FXAA 3.11 | Studio UI / `[X]` / `[Z]` / `[G]` / `[J]` |
+| **Extended KHR PBR & Shaders** | `KHR_materials_iridescence` thin-film interference, `KHR_materials_anisotropy`, wrapped SSS backlight, roughness-aware 5-mip frosted refraction glass, 3D selection silhouette rim (`outline.wgsl`), procedural rain puddles, and Rayleigh/Mie + FBM volumetric cloud skybox | Automatic / Studio UI |
 | **glTF 2.0 Animations & Skinning** | Full skeletal animation (128 joints with inverse bind matrices), morph target delta blending, decoupled TRS local transforms, and keyframe interpolation (`LINEAR`, `STEP`, `CUBICSPLINE` Hermite) | Automatic / glTF Animations |
 | **Native WebGPU PBR Engine** | Hardware-accelerated native WebGPU browser engine (`BglWebGpuRenderer`, Cook-Torrance GGX PBR, 7-slot multi-texture bind groups, WGSL shaders, Khronos PBR Neutral tonemapping) | Automatic / Native WebGPU |
 | **GPU Compute Offloading** | Parallel view-frustum culling (`GpuCuller`) and parallel ray-bounding picking (`GpuRayPicker`) using WebGPU compute shaders and atomic operations | Automatic / Live GPU compute |

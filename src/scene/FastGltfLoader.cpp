@@ -386,6 +386,16 @@ void ParseMaterialsAndLogStructure(const fastgltf::Asset& asset, Scene& scene) {
                 sceneMat.thicknessTextureIndex = static_cast<int>(mat.volume->thicknessTexture->textureIndex);
             }
         }
+        if (mat.iridescence) {
+            sceneMat.iridescenceFactor = mat.iridescence->iridescenceFactor;
+            sceneMat.iridescenceIor = mat.iridescence->iridescenceIor;
+            sceneMat.iridescenceThicknessMinimum = mat.iridescence->iridescenceThicknessMinimum;
+            sceneMat.iridescenceThicknessMaximum = mat.iridescence->iridescenceThicknessMaximum;
+        }
+        if (mat.anisotropy) {
+            sceneMat.anisotropyStrength = mat.anisotropy->anisotropyStrength;
+            sceneMat.anisotropyRotation = mat.anisotropy->anisotropyRotation;
+        }
 
         std::string extDesc{};
         if (sceneMat.clearcoatFactor > 0.0f)
@@ -394,6 +404,10 @@ void ParseMaterialsAndLogStructure(const fastgltf::Asset& asset, Scene& scene) {
             extDesc += " Transmission(" + std::to_string(sceneMat.transmissionFactor) + ")";
         if (sceneMat.thicknessFactor > 0.0f)
             extDesc += " Volume(thick=" + std::to_string(sceneMat.thicknessFactor) + ")";
+        if (sceneMat.iridescenceFactor > 0.0f)
+            extDesc += " Iridescence(" + std::to_string(sceneMat.iridescenceFactor) + ")";
+        if (sceneMat.anisotropyStrength > 0.0f)
+            extDesc += " Anisotropy(" + std::to_string(sceneMat.anisotropyStrength) + ")";
         if (glm::length(sceneMat.sheenColorFactor) > 0.0f)
             extDesc += " Sheen";
         if (sceneMat.unlit)
@@ -1026,8 +1040,9 @@ FastGltfLoader::FastGltfLoader(AssetManager& assetManager)
               fastgltf::Extensions::KHR_materials_clearcoat | fastgltf::Extensions::KHR_materials_transmission |
               fastgltf::Extensions::KHR_materials_sheen | fastgltf::Extensions::KHR_materials_specular |
               fastgltf::Extensions::KHR_materials_ior | fastgltf::Extensions::KHR_materials_iridescence |
-              fastgltf::Extensions::KHR_materials_volume | fastgltf::Extensions::KHR_materials_emissive_strength |
-              fastgltf::Extensions::KHR_materials_unlit | fastgltf::Extensions::EXT_mesh_gpu_instancing) {}
+              fastgltf::Extensions::KHR_materials_anisotropy | fastgltf::Extensions::KHR_materials_volume |
+              fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_materials_unlit |
+              fastgltf::Extensions::EXT_mesh_gpu_instancing) {}
 
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromMemory(std::span<const uint8_t> data,
                                                                     std::string_view baseUri) {
