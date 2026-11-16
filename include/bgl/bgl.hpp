@@ -4,5 +4,6 @@
  */
 #pragma once
 
+#include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"
 #include "bgl/Types.hpp"

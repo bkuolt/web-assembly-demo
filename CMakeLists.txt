@@ -339,6 +339,8 @@ add_library(bgl::ui ALIAS bgl_ui)
 # ==============================================================================
 add_library(bgl_engine ${BGL_LIB_TYPE}
     src/engine/EngineCore.cpp
+    src/engine/Input.cpp
+    src/engine/InputBackendSdl.cpp
 )
 target_include_directories(bgl_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -396,6 +398,7 @@ if(BGL_BUILD_TESTING)
         tests/test_thread_pool.cpp
         tests/test_audio_engine.cpp
         tests/test_render_settings.cpp
+        tests/test_input_state.cpp
     )
 
     if(TARGET GTest::gtest)

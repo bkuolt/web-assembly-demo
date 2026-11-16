@@ -15,7 +15,7 @@
 | T03 | DONE | | EngineCore extrahiert; Application erbt von EngineCore (inkl. OnSceneActivated/OnFileDrop) |
 | T04 | DONE | | kEngineName -> "bgl Engine" |
 | T05 | DONE | | include/bgl/Types.hpp, Settings.hpp, bgl.hpp + test_render_settings |
-| T06 | TODO | | |
+| T06 | DONE | | include/bgl/Input.hpp, InputState, InputBackendSdl, test_input_state |
 | T07 | TODO | | |
 | T08 | TODO | | |
 | T09 | TODO | | |
