@@ -17,6 +17,12 @@ public:
         }
         GetEngine().GetCamera().Orbit(0.3f * deltaTime, 0.0f);
     }
+
+    void OnGui() override {
+        bgl::gui::Begin("Hello bgl");
+        bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
+        bgl::gui::End();
+    }
 };
 
 BGL_RUN(HelloEngine)

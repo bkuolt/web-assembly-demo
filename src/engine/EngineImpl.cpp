@@ -5,6 +5,7 @@
 #include "engine/EngineImpl.hpp"
 #include "core/Log.hpp"
 #include "core/NetworkFetcher.hpp"
+#include "engine/GuiInternal.hpp"
 #include "engine/InputBackend.hpp"
 #include <algorithm>
 #include <string>
@@ -211,6 +212,8 @@ void Engine::Impl::BeginGui() {
     guiInput_.mousePressed = false;
     guiInput_.mouseReleased = false;
     guiInput_.wheelDelta = 0.0f;
+    engine::g_currentGui = &gui_;
+    engine::g_currentViewportWidth = w;
     guiFrameOpen_ = true;
 }
 
@@ -218,6 +221,7 @@ void Engine::Impl::EndGui() {
     if (!guiFrameOpen_) {
         return;
     }
+    engine::g_currentGui = nullptr;
     gui_.EndFrame();
     guiWantsMouse_ = gui_.WantsMouse();
     guiFrameOpen_ = false;

@@ -342,6 +342,7 @@ add_library(bgl_engine ${BGL_LIB_TYPE}
     src/engine/Engine.cpp
     src/engine/EngineCore.cpp
     src/engine/EngineImpl.cpp
+    src/engine/Gui.cpp
     src/engine/Input.cpp
     src/engine/InputBackendSdl.cpp
 )
