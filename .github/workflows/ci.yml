@@ -47,6 +47,10 @@ jobs:
       run: |
         find src apps tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 | xargs -0 clang-format --dry-run -Werror
 
+    - name: Check Module Layering
+      run: |
+        python3 scripts/check_layering.py
+
     - name: Run Clang-Tidy Static Analysis (WASM Bridge)
       run: |
         clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc

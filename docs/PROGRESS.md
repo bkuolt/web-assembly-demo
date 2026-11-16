@@ -11,7 +11,7 @@
 | Task | Status | Commit | Notiz |
 |------|--------|--------|-------|
 | T01 | DONE | | Viewer nach apps/viewer verschoben (inkl. ApplicationUI.cpp, ApplicationModelLoader.cpp) |
-| T02 | TODO | | |
+| T02 | DONE | | bgl_viewer_lib, bgl:: Aliase, scripts/check_layering.py + CTest |
 | T03 | TODO | | |
 | T04 | TODO | | |
 | T05 | TODO | | |

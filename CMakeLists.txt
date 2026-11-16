@@ -248,6 +248,8 @@ target_link_libraries(bgl_gpu PUBLIC bgl_core)
 if(NOT EMSCRIPTEN)
     target_link_libraries(bgl_gpu PUBLIC wgpu_native)
 endif()
+add_library(bgl::core ALIAS bgl_core)
+add_library(bgl::gpu ALIAS bgl_gpu)
 
 # ==============================================================================
 # 3. libbgl_audio
@@ -256,6 +258,7 @@ add_library(bgl_audio ${BGL_LIB_TYPE}
     src/audio/SoundEngine.cpp
 )
 target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
+add_library(bgl::audio ALIAS bgl_audio)
 
 # ==============================================================================
 # 4. libbgl_scene
@@ -297,6 +300,7 @@ if(BGL_ENABLE_KTX)
     target_compile_definitions(bgl_scene PUBLIC BGL_ENABLE_KTX)
     target_link_libraries(bgl_scene PUBLIC KTX::ktx)
 endif()
+add_library(bgl::scene ALIAS bgl_scene)
 
 # ==============================================================================
 # 5. libbgl_text (FreeType 2 & HarfBuzz)
@@ -313,6 +317,7 @@ target_link_libraries(bgl_text PUBLIC
     Freetype::Freetype
     harfbuzz::harfbuzz
 )
+add_library(bgl::text ALIAS bgl_text)
 
 # ==============================================================================
 # 6. libbgl_ui (Debug Overlay & In-Engine HUD)
@@ -327,20 +332,21 @@ target_link_libraries(bgl_ui PUBLIC
     bgl_gpu
     bgl_text
 )
+add_library(bgl::ui ALIAS bgl_ui)
 
 # ==============================================================================
-# 7. libbgl_app
+# 7. libbgl_viewer_lib
 # ==============================================================================
-add_library(bgl_app ${BGL_LIB_TYPE}
+add_library(bgl_viewer_lib ${BGL_LIB_TYPE}
     apps/viewer/Application.cpp
     apps/viewer/ApplicationModelLoader.cpp
     apps/viewer/ApplicationUI.cpp
     apps/viewer/CommandLine.cpp
 )
-target_include_directories(bgl_app PUBLIC
+target_include_directories(bgl_viewer_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/apps>
 )
-target_link_libraries(bgl_app PUBLIC
+target_link_libraries(bgl_viewer_lib PUBLIC
     bgl_scene
     bgl_text
     bgl_ui
@@ -350,7 +356,7 @@ target_link_libraries(bgl_app PUBLIC
 # 8. Native Viewer Executable
 # ==============================================================================
 add_executable(bgl_viewer apps/viewer/main.cpp)
-target_link_libraries(bgl_viewer PRIVATE bgl_app)
+target_link_libraries(bgl_viewer PRIVATE bgl_viewer_lib)
 
 # ==============================================================================
 # 9. Unit Testing Suite (GTest)
@@ -379,9 +385,9 @@ if(BGL_BUILD_TESTING)
     )
 
     if(TARGET GTest::gtest)
-        target_link_libraries(bgl_unit_tests PRIVATE bgl_app GTest::gtest GTest::gtest_main)
+        target_link_libraries(bgl_unit_tests PRIVATE bgl_viewer_lib GTest::gtest GTest::gtest_main)
     else()
-        target_link_libraries(bgl_unit_tests PRIVATE bgl_app gtest::gtest gtest::gtest_main)
+        target_link_libraries(bgl_unit_tests PRIVATE bgl_viewer_lib gtest::gtest gtest::gtest_main)
     endif()
 
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
@@ -389,6 +395,11 @@ if(BGL_BUILD_TESTING)
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp"
     )
+
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        add_test(NAME LayeringCheck COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layering.py")
+    endif()
 
     add_test(NAME NativeHeadlessSmokeTest COMMAND bgl_viewer --headless assets/ToyCar.glb)
     set_tests_properties(NativeHeadlessSmokeTest PROPERTIES
@@ -464,7 +475,7 @@ include(GNUInstallDirs)
 
 install(TARGETS
     bgl_viewer
-    bgl_app
+    bgl_viewer_lib
     bgl_ui
     bgl_text
     bgl_scene
