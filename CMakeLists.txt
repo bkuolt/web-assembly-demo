@@ -331,6 +331,7 @@ add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
     src/ui/ImmediateUI.cpp
     src/ui/ImmediateUIGpu.cpp
+    src/ui/ImmediateUILayout.cpp
     src/ui/ImmediateUIModals.cpp
     src/ui/ImmediateUIOverlays.cpp
     src/ui/ImmediateUIWidgets.cpp

@@ -686,3 +686,146 @@ TEST(ImmediateUIModalAndLoadingTest, LoadingScreenImmediateCancelAndPersistentSt
     EXPECT_TRUE(ui.DrawLoadingScreen("Downloading Asset", 0.5f, "Mesh data...", false, true));
     ui.EndFrame();
 }
+
+TEST(ImmediateUILayoutAndControlsTest, ContainerPanelGroupToggleBoxAndOptionsWorkWithHover) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+    ui.Style().enableHoverEffects = true;
+
+    bool toggleState = false;
+    int radioMode = 0;
+    size_t qualityIdx = 0;
+    size_t segIdx = 1;
+    const std::array<std::string_view, 3> qualityOpts{"Low", "Medium", "High"};
+    const std::array<const char*, 3> segOpts{"Lit", "Wire", "Norm"};
+
+    // Frame 1: Standalone panel + horizontal container + group + toggle box + options
+    bgl::ui::UiInputState idleIn{};
+    ui.BeginFrame(idleIn, 1024, 768, 0.016f);
+
+    // Standalone panel at (20, 20)
+    EXPECT_TRUE(bgl::ui::UI::BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector"));
+
+    // Horizontal 2-column container
+    bgl::ui::ContainerOptions hOpts{};
+    hOpts.layout = bgl::ui::ContainerLayout::Horizontal;
+    hOpts.columns = 2;
+    hOpts.showBackground = true;
+    hOpts.showBorder = true;
+    hOpts.hoverable = true;
+    bgl::ui::UI::BeginContainer("BtnRow", hOpts);
+    bgl::ui::UI::Button("LeftBtn");
+    const bgl::ui::UiRect leftRect = ui.GetLastItemRect();
+    bgl::ui::UI::Button("RightBtn");
+    const bgl::ui::UiRect rightRect = ui.GetLastItemRect();
+    EXPECT_GT(rightRect.x, leftRect.x);
+    EXPECT_NEAR(rightRect.y, leftRect.y, 0.1f);
+    bgl::ui::UI::EndContainer();
+
+    // Group + ToggleBox + Options
+    bgl::ui::UI::BeginGroup("Display", true);
+    EXPECT_FALSE(bgl::ui::UI::ToggleBox("Bloom", toggleState, "Enable HDR post-processing bloom"));
+    const bgl::ui::UiRect toggleRect = ui.GetLastItemRect();
+    EXPECT_FALSE(ui.Option("Perspective", radioMode, 0));
+    EXPECT_FALSE(ui.Option("Orthographic", radioMode, 1));
+    const bgl::ui::UiRect orthoRect = ui.GetLastItemRect();
+    bgl::ui::UI::EndGroup();
+
+    EXPECT_FALSE(bgl::ui::UI::OptionGroup("Quality", qualityOpts, qualityIdx, false));
+    const bgl::ui::UiRect qualGroupRect = ui.GetLastItemRect();
+    EXPECT_FALSE(bgl::ui::UI::OptionGroup("Shading", std::span<const char* const>{segOpts}, segIdx, true));
+    const bgl::ui::UiRect segRect = ui.GetLastItemRect();
+
+    bgl::ui::UI::EndPanel();
+    const bgl::ui::UiRect panelRect = ui.GetLastItemRect();
+    ui.EndFrame();
+
+    EXPECT_GT(ui.GetVertexCount(), 0u);
+    EXPECT_GT(panelRect.h, 120.0f);
+    EXPECT_FALSE(ui.WantsMouse());
+
+    // Frame 2: Click ToggleBox -> flips toggleState and sets IsItemHovered / WantsMouse
+    bgl::ui::UiInputState clickToggle{};
+    clickToggle.mouseX = toggleRect.x + toggleRect.w * 0.5f;
+    clickToggle.mouseY = toggleRect.y + toggleRect.h * 0.5f;
+    clickToggle.mouseReleased = true;
+    ui.BeginFrame(clickToggle, 1024, 768, 0.05f);
+    ui.BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector");
+    ui.BeginContainer("BtnRow", hOpts);
+    ui.Button("LeftBtn");
+    ui.Button("RightBtn");
+    ui.EndContainer();
+    ui.BeginGroup("Display", true);
+    EXPECT_TRUE(ui.ToggleBox("Bloom", toggleState, "Enable HDR post-processing bloom"));
+    EXPECT_TRUE(ui.IsItemHovered());
+    ui.Tooltip("Toggles bloom pass");
+    EXPECT_TRUE(toggleState);
+    ui.EndGroup();
+    ui.EndPanel();
+    ui.EndFrame();
+    EXPECT_TRUE(ui.WantsMouse());
+
+    // Frame 3: Click Orthographic Option -> updates radioMode to 1
+    bgl::ui::UiInputState clickOpt{};
+    clickOpt.mouseX = orthoRect.x + 20.0f;
+    clickOpt.mouseY = orthoRect.y + orthoRect.h * 0.5f;
+    clickOpt.mouseReleased = true;
+    ui.BeginFrame(clickOpt, 1024, 768, 0.05f);
+    ui.BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector");
+    ui.BeginContainer("BtnRow", hOpts);
+    ui.Button("LeftBtn");
+    ui.Button("RightBtn");
+    ui.EndContainer();
+    ui.BeginGroup("Display", true);
+    ui.ToggleBox("Bloom", toggleState, "Enable HDR post-processing bloom");
+    ui.Option("Perspective", radioMode, 0);
+    EXPECT_TRUE(ui.Option("Orthographic", radioMode, 1));
+    EXPECT_EQ(radioMode, 1);
+    ui.EndGroup();
+    ui.EndPanel();
+    ui.EndFrame();
+
+    // Frame 4: Click first segment in horizontal OptionGroup ("Lit") -> segIdx becomes 0
+    bgl::ui::UiInputState clickSeg{};
+    clickSeg.mouseX = segRect.x + 15.0f;
+    clickSeg.mouseY = segRect.y + segRect.h * 0.5f;
+    clickSeg.mouseReleased = true;
+    ui.BeginFrame(clickSeg, 1024, 768, 0.05f);
+    ui.BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector");
+    ui.BeginContainer("BtnRow", hOpts);
+    ui.Button("LeftBtn");
+    ui.Button("RightBtn");
+    ui.EndContainer();
+    ui.BeginGroup("Display", true);
+    ui.ToggleBox("Bloom", toggleState, "Enable HDR post-processing bloom");
+    ui.Option("Perspective", radioMode, 0);
+    ui.Option("Orthographic", radioMode, 1);
+    ui.EndGroup();
+    ui.OptionGroup("Quality", qualityOpts, qualityIdx, false);
+    EXPECT_TRUE(ui.OptionGroup("Shading", std::span<const char* const>{segOpts}, segIdx, true));
+    EXPECT_EQ(segIdx, 0u);
+    EXPECT_TRUE(ui.IsItemHovered());
+    ui.EndPanel();
+    ui.EndFrame();
+
+    // Verify vertical OptionGroup bounding rect is non-trivial and hover suppression works cleanly
+    EXPECT_GT(qualGroupRect.h, 50.0f);
+    bgl::ui::ImmediateUI uiNoHover;
+    uiNoHover.Style().enableHoverEffects = false;
+    uiNoHover.BeginFrame(bgl::ui::UiInputState{}, 1024, 768, 0.05f);
+    uiNoHover.BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector");
+    uiNoHover.OptionGroup("Shading", std::span<const char* const>{segOpts}, segIdx, true);
+    const bgl::ui::UiRect noHoverSegRect = uiNoHover.GetLastItemRect();
+    uiNoHover.EndPanel();
+    uiNoHover.EndFrame();
+
+    bgl::ui::UiInputState hoverNoFx{};
+    hoverNoFx.mouseX = noHoverSegRect.x + 15.0f;
+    hoverNoFx.mouseY = noHoverSegRect.y + noHoverSegRect.h * 0.5f;
+    uiNoHover.BeginFrame(hoverNoFx, 1024, 768, 0.05f);
+    uiNoHover.BeginPanel("SidePanel", 20.0f, 20.0f, 280.0f, 0.0f, "Inspector");
+    uiNoHover.OptionGroup("Shading", std::span<const char* const>{segOpts}, segIdx, true);
+    EXPECT_TRUE(uiNoHover.IsItemHovered());
+    uiNoHover.EndPanel();
+    uiNoHover.EndFrame();
+}

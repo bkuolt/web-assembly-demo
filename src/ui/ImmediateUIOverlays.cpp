@@ -182,7 +182,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
 
     lastItemRect_ = anchorRect;
     lastItemHovered_ = anchorHover.hovered;
-    cursorY_ += style_.rowHeight + style_.itemSpacing;
+    AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return selectionChanged;
 }
 
@@ -210,7 +210,7 @@ void ImmediateUI::ProgressBar(float fraction, std::string_view statusText, float
                  trackRect.y + (barH - 14.0f) * 0.5f, style_.textPrimary, pctScale);
     }
 
-    cursorY_ += barH + style_.itemSpacing;
+    AdvanceCursor(barH + style_.itemSpacing);
 }
 
 void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
@@ -424,6 +424,62 @@ bool Button(std::string_view label) {
 
 bool Checkbox(std::string_view label, bool& state) {
     return g_activeUiContext ? g_activeUiContext->Checkbox(label, state) : false;
+}
+
+bool ToggleBox(std::string_view label, bool& state, std::string_view description) {
+    return g_activeUiContext ? g_activeUiContext->ToggleBox(label, state, description) : false;
+}
+
+bool Option(std::string_view label, bool selected) {
+    return g_activeUiContext ? g_activeUiContext->Option(label, selected) : false;
+}
+
+bool OptionGroup(std::string_view label, std::span<const std::string_view> options, size_t& selectedIndex,
+                 bool horizontal) {
+    return g_activeUiContext ? g_activeUiContext->OptionGroup(label, options, selectedIndex, horizontal) : false;
+}
+
+bool OptionGroup(std::string_view label, std::span<const char* const> options, size_t& selectedIndex, bool horizontal) {
+    return g_activeUiContext ? g_activeUiContext->OptionGroup(label, options, selectedIndex, horizontal) : false;
+}
+
+void BeginContainer(std::string_view id, const ContainerOptions& options) {
+    if (g_activeUiContext) {
+        g_activeUiContext->BeginContainer(id, options);
+    }
+}
+
+void EndContainer() {
+    if (g_activeUiContext) {
+        g_activeUiContext->EndContainer();
+    }
+}
+
+bool BeginPanel(std::string_view title, const PanelOptions& options) {
+    return g_activeUiContext ? g_activeUiContext->BeginPanel(title, options) : false;
+}
+
+bool BeginPanel(std::string_view id, float x, float y, float width, float height, std::string_view title,
+                const PanelOptions& options) {
+    return g_activeUiContext ? g_activeUiContext->BeginPanel(id, x, y, width, height, title, options) : false;
+}
+
+void EndPanel() {
+    if (g_activeUiContext) {
+        g_activeUiContext->EndPanel();
+    }
+}
+
+void BeginGroup(std::string_view label, bool border) {
+    if (g_activeUiContext) {
+        g_activeUiContext->BeginGroup(label, border);
+    }
+}
+
+void EndGroup() {
+    if (g_activeUiContext) {
+        g_activeUiContext->EndGroup();
+    }
 }
 
 bool SliderFloat(std::string_view label, float& value, float minVal, float maxVal, std::string_view valueFormat) {

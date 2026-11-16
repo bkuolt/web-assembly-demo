@@ -118,11 +118,12 @@ ImmediateUI::HoverEval ImmediateUI::EvalHover(uint64_t id, const UiRect& rect, b
 
 void ImmediateUI::EmitHoverHighlight(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs,
                                      const UiRect& rect, float hoverMix, float radius) const {
-    if (hoverMix <= 0.01f) {
+    if (hoverMix <= 0.01f || style_.hoverGlowStrength <= 0.001f) {
         return;
     }
-    const glm::vec4 tint = WithAlpha(style_.hoverHighlight, style_.hoverHighlight.a * hoverMix);
-    const glm::vec4 rim = WithAlpha(style_.accent, 0.45f * hoverMix);
+    const float glow = std::clamp(hoverMix * style_.hoverGlowStrength, 0.0f, 1.5f);
+    const glm::vec4 tint = WithAlpha(style_.hoverHighlight, style_.hoverHighlight.a * glow);
+    const glm::vec4 rim = WithAlpha(style_.hoverBorder, style_.hoverBorder.a * 0.60f * glow);
     EmitRoundedBox(verts, idxs, rect.x, rect.y, rect.w, rect.h, radius, tint, rim, 1.0f, false);
 }
 
@@ -328,6 +329,9 @@ void ImmediateUI::BeginFrame(const UiInputState& input, uint32_t viewportWidth, 
 
     inWindow_ = false;
     inScrollArea_ = false;
+    containerStack_.clear();
+    panelStack_.clear();
+    groupStack_.clear();
     hasPendingOverlay_ = false;
     hasPendingColorOverlay_ = false;
     dropdownToggledThisFrame_ = false;
@@ -366,6 +370,15 @@ void ImmediateUI::FlushDrawCommand(bool hasScissor, const UiRect& scissorRect) {
 }
 
 void ImmediateUI::EndFrame() {
+    while (!groupStack_.empty()) {
+        EndGroup();
+    }
+    while (!containerStack_.empty()) {
+        EndContainer();
+    }
+    while (!panelStack_.empty()) {
+        EndPanel();
+    }
     if (inWindow_) {
         EndWindow();
     }

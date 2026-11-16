@@ -165,7 +165,7 @@ void ImmediateUI::Label(std::string_view text, const glm::vec4& color) {
                        hv.mix * 0.35f)
             : color;
     EmitText(vertices_, indices_, text, cursorX_, cursorY_ + 2.0f, effectiveColor, style_.textScale);
-    cursorY_ += h + style_.itemSpacing;
+    AdvanceCursor(h + style_.itemSpacing);
 }
 
 void ImmediateUI::Separator() {
@@ -174,7 +174,7 @@ void ImmediateUI::Separator() {
     const glm::vec4 baseLine{style_.windowBorder.r, style_.windowBorder.g, style_.windowBorder.b, 0.45f};
     const glm::vec4 lineCol = (hv.mix > 0.01f) ? glm::mix(baseLine, WithAlpha(style_.accent, 0.85f), hv.mix) : baseLine;
     EmitRect(vertices_, indices_, cursorX_, cursorY_ + 3.0f, contentWidth_, (hv.mix > 0.25f) ? 1.5f : 1.0f, lineCol);
-    cursorY_ += 7.0f + style_.itemSpacing * 0.5f;
+    AdvanceCursor(7.0f + style_.itemSpacing * 0.5f);
 }
 
 bool ImmediateUI::CollapsingHeader(std::string_view label, bool defaultOpen) {
@@ -204,7 +204,7 @@ bool ImmediateUI::CollapsingHeader(std::string_view label, bool defaultOpen) {
              style_.textScale * 0.9f);
     EmitText(vertices_, indices_, label, rect.x + 22.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
 
-    cursorY_ += style_.rowHeight + style_.itemSpacing;
+    AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return isOpen;
 }
 
@@ -246,7 +246,7 @@ bool ImmediateUI::Button(std::string_view label) {
     }
     EmitText(vertices_, indices_, label, rect.x + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
 
-    cursorY_ += style_.rowHeight + style_.itemSpacing;
+    AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return clicked;
 }
 
@@ -276,7 +276,7 @@ bool ImmediateUI::Checkbox(std::string_view label, bool& state) {
     }
     EmitText(vertices_, indices_, label, rect.x + boxSize + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
 
-    cursorY_ += style_.rowHeight + style_.itemSpacing;
+    AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return clicked;
 }
 
@@ -340,7 +340,7 @@ bool ImmediateUI::SliderFloat(std::string_view label, float& value, float minVal
     EmitRoundedBox(vertices_, indices_, thumbX, thumbY, thumbSize, thumbSize, thumbSize * 0.5f, style_.textPrimary,
                    style_.accent, 1.0f + 0.75f * effectMix, false);
 
-    cursorY_ += trackH + style_.itemSpacing;
+    AdvanceCursor(trackH + style_.itemSpacing);
     return changed;
 }
 
@@ -452,7 +452,7 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
 
     lastItemRect_ = rowRect;
     lastItemHovered_ = rowHover.hovered || swatchHover.hovered;
-    cursorY_ += style_.rowHeight + style_.itemSpacing;
+    AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return colorChanged;
 }
 
@@ -548,7 +548,7 @@ void ImmediateUI::Sparkline(std::string_view label, std::span<const float> value
     EmitText(vertices_, indices_, valBuf, cursorX_ + std::max(0.0f, contentWidth_ - valW), labelY, lineColor,
              style_.textScale * 0.9f);
 
-    cursorY_ += box.h + style_.itemSpacing;
+    AdvanceCursor(box.h + style_.itemSpacing);
 }
 
 } // namespace bgl::ui

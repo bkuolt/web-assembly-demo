@@ -80,11 +80,58 @@ enum class MessageBoxType : uint8_t {
 };
 
 /**
+ * @enum ContainerLayout
+ * @brief Flow direction for widgets placed inside a `BeginContainer`/`EndContainer` block.
+ */
+enum class ContainerLayout : uint8_t {
+    Vertical = 0,
+    Horizontal = 1,
+};
+
+/**
+ * @struct ContainerOptions
+ * @brief Layout and visual styling options for `ImmediateUI::BeginContainer()`.
+ */
+struct ContainerOptions {
+    ContainerLayout layout{ContainerLayout::Vertical};
+    float padding{6.0f};
+    float spacing{6.0f};
+    float width{0.0f};       ///< 0 = fill available content width
+    float height{0.0f};      ///< Minimum container height in pixels
+    uint32_t columns{0};     ///< Horizontal wrap column count (0 = single row / auto 2-col)
+    float itemWidth{0.0f};   ///< Explicit item width for horizontal layout (0 = auto-divide)
+    bool showBackground{false};
+    bool showBorder{false};
+    bool hoverable{false};
+    glm::vec4 backgroundColor{0.0f};
+    glm::vec4 borderColor{0.0f};
+    float cornerRadius{-1.0f}; ///< < 0 uses UiStyle::widgetRadius
+};
+
+/**
+ * @struct PanelOptions
+ * @brief Styling and behavior options for `ImmediateUI::BeginPanel()`.
+ */
+struct PanelOptions {
+    bool frosted{true};
+    bool showShadow{true};
+    bool hoverable{true};
+    bool collapsible{false};
+    bool defaultOpen{true};
+    float padding{10.0f};
+    float cornerRadius{-1.0f};     ///< < 0 uses UiStyle::cornerRadius
+    glm::vec4 backgroundColor{0.0f}; ///< alpha <= 0 uses UiStyle::panelBg
+    glm::vec4 borderColor{0.0f};     ///< alpha <= 0 uses UiStyle::windowBorder
+};
+
+/**
  * @struct UiStyle
  * @brief Sleek glassmorphic dark UI theme styling and optional hover animation parameters.
  */
 struct UiStyle {
     glm::vec4 windowBg{0.075f, 0.085f, 0.110f, 0.88f};
+    glm::vec4 panelBg{0.095f, 0.110f, 0.145f, 0.90f};
+    glm::vec4 groupBg{0.065f, 0.075f, 0.100f, 0.72f};
     glm::vec4 windowBorder{0.28f, 0.34f, 0.44f, 0.85f};
     glm::vec4 headerBg{0.115f, 0.140f, 0.190f, 0.96f};
     glm::vec4 widgetBg{0.145f, 0.165f, 0.215f, 1.0f};
@@ -98,6 +145,7 @@ struct UiStyle {
     glm::vec4 sliderTrack{0.11f, 0.13f, 0.17f, 1.0f};
     glm::vec4 sparklineFill{0.24f, 0.62f, 0.96f, 0.24f};
     glm::vec4 hoverHighlight{0.24f, 0.62f, 0.96f, 0.14f};
+    glm::vec4 hoverBorder{0.24f, 0.62f, 0.96f, 0.75f};
     glm::vec4 modalBackdrop{0.025f, 0.035f, 0.060f, 0.72f};
 
     float padding{10.0f};
@@ -111,6 +159,7 @@ struct UiStyle {
 
     bool enableHoverEffects{true};     ///< Master toggle for optional hover highlights/animations on all widgets
     float hoverTransitionSpeed{14.0f}; ///< Smoothing rate (1/s) for hover visual transitions
+    float hoverGlowStrength{1.0f};     ///< Intensity multiplier for hover highlights and rim borders
 };
 
 /**
@@ -183,6 +232,73 @@ public:
      * @brief Renders a toggleable checkbox; flips state and returns true on click.
      */
     bool Checkbox(std::string_view label, bool& state);
+
+    /**
+     * @brief Renders an animated pill-switch toggle box with optional description and hover glow.
+     * @return True on click when `state` is toggled.
+     */
+    bool ToggleBox(std::string_view label, bool& state, std::string_view description = {});
+
+    /**
+     * @brief Renders a single radio-style option row; returns true on click.
+     */
+    bool Option(std::string_view label, bool selected);
+
+    /**
+     * @brief Convenience radio option bound to a typed value; assigns `optionValue` and returns true on click.
+     */
+    template <typename T> bool Option(std::string_view label, T& currentValue, const T& optionValue) {
+        if (Option(label, currentValue == optionValue)) {
+            currentValue = optionValue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @brief Renders a vertical radio group or horizontal segmented option bar; returns true when selection changes.
+     */
+    bool OptionGroup(std::string_view label, std::span<const std::string_view> options, size_t& selectedIndex,
+                     bool horizontal = false);
+    bool OptionGroup(std::string_view label, std::span<const char* const> options, size_t& selectedIndex,
+                     bool horizontal = false);
+
+    /**
+     * @brief Opens a nestable layout container (vertical or horizontal/grid) with optional card/hover styling.
+     */
+    void BeginContainer(std::string_view id, const ContainerOptions& options = {});
+
+    /**
+     * @brief Closes the active layout container and restores the parent cursor/width.
+     */
+    void EndContainer();
+
+    /**
+     * @brief Opens an in-flow glassmorphic panel card at the current layout cursor. Always pair with `EndPanel()`.
+     * @return True when the panel body is open (always true unless `options.collapsible` is set and collapsed).
+     */
+    bool BeginPanel(std::string_view title, const PanelOptions& options = {});
+
+    /**
+     * @brief Opens a standalone fixed/docked glassmorphic panel at explicit screen coordinates. Always pair with `EndPanel()`.
+     */
+    bool BeginPanel(std::string_view id, float x, float y, float width, float height = 0.0f,
+                    std::string_view title = {}, const PanelOptions& options = {});
+
+    /**
+     * @brief Finalizes the active panel's shadow, background, border, and hover state.
+     */
+    void EndPanel();
+
+    /**
+     * @brief Opens a visually grouped section card with optional header label and hover-reactive border.
+     */
+    void BeginGroup(std::string_view label = {}, bool border = true);
+
+    /**
+     * @brief Closes the active group card and advances the parent layout cursor.
+     */
+    void EndGroup();
 
     /**
      * @brief Renders an interactive continuous horizontal slider; returns true when value changes.
@@ -459,6 +575,10 @@ private:
     void EmitText(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, std::string_view text, float x,
                   float y, const glm::vec4& color, float scale);
 
+    void AdvanceCursor(float itemHeight);
+    void PatchBoxGeometry(size_t vOff, float rx, float ry, float rw, float rh, float pad, float radius, float param4,
+                          const glm::vec4* fillOverride = nullptr, const glm::vec4* borderOverride = nullptr);
+
     void EnsureGpuBuffers(size_t vertexCount, size_t indexCount);
     void ReleaseDynamicBuffers() noexcept;
     void SyncFontBindGroup(FontSlot& slot);
@@ -529,13 +649,58 @@ private:
     size_t windowShadowVertexOffset_{0};
     size_t windowBgVertexOffset_{0};
 
+    struct ActiveContainer {
+        uint64_t id{0};
+        ContainerOptions options{};
+        UiRect boxRect{};
+        float savedCursorX{0.0f};
+        float savedCursorY{0.0f};
+        float savedContentWidth{0.0f};
+        float startContentY{0.0f};
+        float contentStartX{0.0f};
+        float contentStartY{0.0f};
+        float maxExtentY{0.0f};
+        uint32_t itemCount{0};
+        size_t bgVertexOffset{0};
+        bool hasBackground{false};
+    };
+
+    struct ActivePanel {
+        uint64_t id{0};
+        PanelOptions options{};
+        UiRect boxRect{};
+        float savedCursorX{0.0f};
+        float savedCursorY{0.0f};
+        float savedContentWidth{0.0f};
+        float minHeight{0.0f};
+        size_t shadowVertexOffset{0};
+        size_t bgVertexOffset{0};
+        bool standalone{false};
+        bool open{true};
+    };
+
+    struct ActiveGroup {
+        uint64_t id{0};
+        UiRect boxRect{};
+        float savedCursorX{0.0f};
+        float savedCursorY{0.0f};
+        float savedContentWidth{0.0f};
+        size_t bgVertexOffset{0};
+        bool hasBorder{true};
+    };
+
     // Persistent widget & hover animation states
     std::unordered_map<uint64_t, float> hoverAmounts_{};
+    std::unordered_map<uint64_t, float> toggleAmounts_{};
     std::unordered_map<uint64_t, glm::vec2> windowOffsets_{};
     std::unordered_map<uint64_t, bool> collapsingHeaders_{};
     std::unordered_map<uint64_t, float> scrollOffsets_{};
     std::unordered_map<uint64_t, float> scrollContentHeights_{};
     std::unordered_map<uint64_t, glm::vec3> colorPickerHsv_{};
+
+    std::vector<ActiveContainer> containerStack_{};
+    std::vector<ActivePanel> panelStack_{};
+    std::vector<ActiveGroup> groupStack_{};
 
     uint64_t activeDragWindowId_{0};
     glm::vec2 dragStartMouse_{0.0f};
@@ -589,6 +754,20 @@ void Separator();
 bool CollapsingHeader(std::string_view label, bool defaultOpen = true);
 bool Button(std::string_view label);
 bool Checkbox(std::string_view label, bool& state);
+bool ToggleBox(std::string_view label, bool& state, std::string_view description = {});
+bool Option(std::string_view label, bool selected);
+bool OptionGroup(std::string_view label, std::span<const std::string_view> options, size_t& selectedIndex,
+                 bool horizontal = false);
+bool OptionGroup(std::string_view label, std::span<const char* const> options, size_t& selectedIndex,
+                 bool horizontal = false);
+void BeginContainer(std::string_view id, const ContainerOptions& options = {});
+void EndContainer();
+bool BeginPanel(std::string_view title, const PanelOptions& options = {});
+bool BeginPanel(std::string_view id, float x, float y, float width, float height = 0.0f, std::string_view title = {},
+                const PanelOptions& options = {});
+void EndPanel();
+void BeginGroup(std::string_view label = {}, bool border = true);
+void EndGroup();
 bool SliderFloat(std::string_view label, float& value, float minVal, float maxVal,
                  std::string_view valueFormat = "{:.2f}");
 bool ColorEdit3(std::string_view label, glm::vec3& color);
