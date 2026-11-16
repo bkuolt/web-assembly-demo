@@ -88,6 +88,60 @@ void BeginScroll(std::string_view id, float maxHeight);
  */
 void EndScroll();
 
+/**
+ * @brief Opens an in-flow frosted-glass panel card inside the active window. Pair with `EndPanel()`.
+ * @param title Panel header caption (empty for headerless card).
+ * @param collapsible Enables click-to-collapse header toggle when true.
+ * @param defaultOpen Initial expanded state when collapsible.
+ * @return `true` while panel content is expanded.
+ */
+bool BeginPanel(std::string_view title, bool collapsible = false, bool defaultOpen = true);
+
+/**
+ * @brief Opens a standalone frosted-glass panel card at explicit screen coordinates. Pair with `EndPanel()`.
+ * @param id Unique identifier string for panel state.
+ * @param x Top-left viewport X position in pixels.
+ * @param y Top-left viewport Y position in pixels.
+ * @param width Panel width in pixels.
+ * @param height Minimum panel height in pixels (`0` auto-fits content).
+ * @param title Optional panel header caption.
+ * @return `true` while panel content is expanded.
+ */
+bool BeginPanel(std::string_view id, float x, float y, float width, float height = 0.0f, std::string_view title = {});
+
+/**
+ * @brief Closes the active panel opened with `BeginPanel()`.
+ */
+void EndPanel();
+
+/**
+ * @brief Opens a nestable vertical or multi-column horizontal container. Pair with `EndContainer()`.
+ * @param id Unique container identifier string.
+ * @param horizontal Arranges child widgets side-by-side when true; stacks vertically when false.
+ * @param columns Column count for horizontal grid wrapping (`0` = automatic wrapping).
+ * @param spacing Inter-widget spacing in logical pixels.
+ * @param showBackground Draws a subtle container card behind child widgets when true.
+ */
+void BeginContainer(std::string_view id, bool horizontal = false, uint32_t columns = 2, float spacing = 6.0f,
+                    bool showBackground = false);
+
+/**
+ * @brief Closes the active container opened with `BeginContainer()`.
+ */
+void EndContainer();
+
+/**
+ * @brief Opens a compact framed visual section card with an optional title. Pair with `EndGroup()`.
+ * @param label Optional section heading rendered inside the card border.
+ * @param border Draws a hover-reactive rounded border around the group when true.
+ */
+void BeginGroup(std::string_view label = {}, bool border = true);
+
+/**
+ * @brief Closes the active visual group started with `BeginGroup()`.
+ */
+void EndGroup();
+
 // --- Core Widgets ---
 
 /**
@@ -117,6 +171,45 @@ bool Button(std::string_view label);
  * @return `true` on the frame the value changed.
  */
 bool Checkbox(std::string_view label, bool& value);
+
+/**
+ * @brief Renders an animated sliding pill-switch toggle card with optional subtitle description.
+ * @param label Primary switch title.
+ * @param value Mutable boolean toggled in-place on click.
+ * @param description Optional muted description line underneath the title.
+ * @return `true` on the frame `value` was toggled.
+ */
+bool Toggle(std::string_view label, bool& value, std::string_view description = {});
+
+/**
+ * @brief Renders a single clickable radio option row.
+ * @param label Option caption.
+ * @param selected Highlights the radio dot as active when true.
+ * @return `true` on the frame the user clicks the option.
+ */
+bool Option(std::string_view label, bool selected);
+
+/**
+ * @brief Renders a vertical radio list or horizontal segmented option bar.
+ * @param label Group header caption.
+ * @param options Option labels.
+ * @param selectedIndex Mutable zero-based selection index updated on click.
+ * @param horizontal Uses a horizontal segmented bar when true; vertical radio rows when false.
+ * @return `true` on frames where `selectedIndex` changed.
+ */
+bool OptionGroup(std::string_view label, std::span<const std::string_view> options, size_t& selectedIndex,
+                 bool horizontal = false);
+
+/**
+ * @brief Renders an option group from null-terminated C-string labels.
+ * @param label Group header caption.
+ * @param options Array of option C-strings.
+ * @param selectedIndex Mutable zero-based selection index updated on click.
+ * @param horizontal Uses a horizontal segmented bar when true; vertical radio rows when false.
+ * @return `true` on frames where `selectedIndex` changed.
+ */
+bool OptionGroup(std::string_view label, std::span<const char* const> options, size_t& selectedIndex,
+                 bool horizontal = false);
 
 /**
  * @brief Renders a continuous horizontal float slider.

@@ -122,29 +122,9 @@ void ImmediateUI::EndWindow() {
     const float w = currentWindowRect_.w;
     const float h = currentWindowRect_.h;
 
-    auto patchSdfBox = [&](size_t vOff, float rx, float ry, float rw, float rh, float pad, float radius, float param4) {
-        if (vOff + 4 > vertices_.size()) {
-            return;
-        }
-        const float hw = rw * 0.5f;
-        const float hh = rh * 0.5f;
-        const glm::vec4 sdfVec{hw, hh, radius, param4};
-        vertices_[vOff + 0].pos = {rx - pad, ry - pad};
-        vertices_[vOff + 1].pos = {rx + rw + pad, ry - pad};
-        vertices_[vOff + 2].pos = {rx + rw + pad, ry + rh + pad};
-        vertices_[vOff + 3].pos = {rx - pad, ry + rh + pad};
-        vertices_[vOff + 0].uv = {-hw - pad, -hh - pad};
-        vertices_[vOff + 1].uv = {hw + pad, -hh - pad};
-        vertices_[vOff + 2].uv = {hw + pad, hh + pad};
-        vertices_[vOff + 3].uv = {-hw - pad, hh + pad};
-        for (size_t i = 0; i < 4; ++i) {
-            vertices_[vOff + i].sdfRect = sdfVec;
-        }
-    };
-
-    patchSdfBox(windowShadowVertexOffset_, x, y + 3.0f, w, h, style_.shadowBlur, style_.cornerRadius,
-                style_.shadowBlur);
-    patchSdfBox(windowBgVertexOffset_, x, y, w, h, 1.5f, style_.cornerRadius, 1.0f);
+    PatchBoxGeometry(windowShadowVertexOffset_, x, y + 3.0f, w, h, style_.shadowBlur, style_.cornerRadius,
+                     style_.shadowBlur);
+    PatchBoxGeometry(windowBgVertexOffset_, x, y, w, h, 1.5f, style_.cornerRadius, 1.0f);
 
     lastCompletedWindowRect_ = currentWindowRect_;
     hitRects_.push_back(currentWindowRect_);

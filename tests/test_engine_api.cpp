@@ -24,6 +24,10 @@ TEST(GuiPublicApi, CallsOutsideFrameAreSafeNoOps) {
 
     bgl::gui::Begin("NoContext");
     bgl::gui::Begin("NoContextPos", 10.0f, 10.0f, 250.0f);
+    EXPECT_FALSE(bgl::gui::BeginPanel("Panel"));
+    EXPECT_FALSE(bgl::gui::BeginPanel("Standalone", 10.0f, 10.0f, 240.0f, 100.0f, "PanelTitle"));
+    bgl::gui::BeginContainer("Row", true, 2, 6.0f, true);
+    bgl::gui::BeginGroup("Group", true);
     EXPECT_FALSE(bgl::gui::Section("Section"));
     bgl::gui::BeginScroll("Scroll", 100.0f);
     bgl::gui::Label("Hello");
@@ -35,6 +39,11 @@ TEST(GuiPublicApi, CallsOutsideFrameAreSafeNoOps) {
     bgl::gui::Tooltip("Tip");
     bgl::gui::PopHover();
     EXPECT_FALSE(bgl::gui::Checkbox("Toggle", checked));
+    EXPECT_FALSE(bgl::gui::Toggle("PillToggle", checked, "Desc"));
+    EXPECT_FALSE(bgl::gui::Option("OptionA", checked));
+    constexpr std::array<std::string_view, 2> kSvOpts{"A", "B"};
+    EXPECT_FALSE(bgl::gui::OptionGroup("OptSv", kSvOpts, dropdownIdx, false));
+    EXPECT_FALSE(bgl::gui::OptionGroup("OptC", kOpts, dropdownIdx, true));
     EXPECT_FALSE(bgl::gui::Slider("Slider", value, 0.0f, 2.0f));
     EXPECT_FALSE(bgl::gui::Dropdown("Drop", kOpts, dropdownIdx));
     EXPECT_FALSE(bgl::gui::ColorPicker("Accent", pickerColor));
@@ -42,6 +51,9 @@ TEST(GuiPublicApi, CallsOutsideFrameAreSafeNoOps) {
     bgl::gui::Sparkline("Metrics", kSamples);
     bgl::gui::Badge(12.0f, 12.0f, "Tag");
     bgl::gui::EndScroll();
+    bgl::gui::EndGroup();
+    bgl::gui::EndContainer();
+    bgl::gui::EndPanel();
     bgl::gui::End();
 
     EXPECT_EQ(bgl::gui::MessageBox("id", "Title", "Body", kBtns, bgl::gui::MessageType::Info), -1);
@@ -133,7 +145,21 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
     bgl::gui::CloseMessageBox("EngineNotice");
 
     engine.BeginGui();
+    bool toggleVal = true;
+    size_t optionIdx = 0;
+    constexpr std::array<std::string_view, 2> kModeOpts{"Orbit", "Fly"};
     bgl::gui::Begin("Test");
+    if (bgl::gui::BeginPanel("PanelCard", true, true)) {
+        bgl::gui::BeginContainer("RowContainer", true, 2, 6.0f, false);
+        bgl::gui::Button("A");
+        bgl::gui::Button("B");
+        bgl::gui::EndContainer();
+        bgl::gui::BeginGroup("Display", true);
+        bgl::gui::Toggle("EnableFX", toggleVal, "Public toggle switch");
+        bgl::gui::OptionGroup("NavMode", kModeOpts, optionIdx, true);
+        bgl::gui::EndGroup();
+    }
+    bgl::gui::EndPanel();
     if (bgl::gui::Section("Controls", true)) {
         bgl::gui::Label("OK");
         bgl::gui::PushFont("mono_file");

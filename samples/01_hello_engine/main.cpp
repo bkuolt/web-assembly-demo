@@ -25,7 +25,7 @@ public:
         if (bgl::gui::Section("Scene Controls", true)) {
             bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
             bgl::gui::Tooltip("Adjust HDR camera exposure");
-            bgl::gui::Checkbox("Auto Orbit", autoOrbit_);
+            bgl::gui::Toggle("Auto Orbit", autoOrbit_, "Continuously orbit the active camera");
             if (bgl::gui::Button("About bgl GUI")) {
                 bgl::gui::ShowMessage("bgl Engine GUI",
                                       "Frosted-glass SDF widgets with hover highlights and OS font discovery.");
@@ -39,4 +39,3 @@ private:
 };
 
 BGL_RUN(HelloEngine)
-

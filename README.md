@@ -5,7 +5,7 @@
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-357_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-358_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 ## bgl Engine
@@ -42,7 +42,7 @@ public:
         if (bgl::gui::Section("Scene Controls", true)) {
             bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
             bgl::gui::Tooltip("Adjust HDR camera exposure");
-            bgl::gui::Checkbox("Auto Orbit", autoOrbit_);
+            bgl::gui::Toggle("Auto Orbit", autoOrbit_, "Continuously orbit the active camera");
             if (bgl::gui::Button("About bgl GUI")) {
                 bgl::gui::ShowMessage("bgl Engine GUI",
                                       "Frosted-glass SDF widgets with hover highlights and OS font discovery.");
@@ -297,6 +297,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── DebugOverlay.hpp/.cpp      # In-engine glassmorphism HUD telemetry overlay
 │   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching, PMR arena, multi-font slots & hover animation
 │   │   ├── ImmediateUIGpu.cpp         # WebGPU shader/pipeline/bind-group switching & batched submission
+│   │   ├── ImmediateUILayout.cpp      # Containers, panels, visual groups, ToggleBox & Option/OptionGroup widgets
 │   │   ├── ImmediateUIModals.cpp      # Frosted-glass MessageBox, LoadingScreen, LoadingBanner & FloatingBadge
 │   │   ├── ImmediateUIOverlays.cpp    # Dropdowns, scroll areas, progress bars, popups & UI facade
 │   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets with optional animated hover effects
@@ -329,7 +330,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   └── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
-├── tests/                             # C++ GTest (284 tests across 38 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (285 tests across 39 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
@@ -667,7 +668,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **284 C++ GTests across 38 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
+The engine includes an extensive, production-grade test suite with **285 C++ GTests across 39 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
@@ -690,7 +691,7 @@ The engine includes an extensive, production-grade test suite with **284 C++ GTe
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared primitive instancing verification. |
 | `ShaderManagerTest` | 4 | WGSL `#include` expansion & `#pragma once`, circular/missing include error detection, embedded entry-point verification, and hot-reload change detection. |
 | Public SDK & Engine Suites | 18 | `InputState` (7), `EntityOps` (5), `RenderSettings` (2), `GuiPublicApi` (2), `EnginePublicApi` (1), `EntityHandle` (1), plus `ApplicationModelLoader` presets. |
-| UI Modal, Hover & Font Suites | 7 | `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, and `ImmediateUIModalAndLoadingTest` (2). |
+| UI Modal, Hover & Font Suites | 8 | `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, `ImmediateUIModalAndLoadingTest` (2), and `ImmediateUILayoutAndControlsTest`. |
 | Single-Test Targeted Suites | 8 | `GamepadTest` (1), `ImmediateUITest` (1), `ImmediateUiSafetyTest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), `ShaderManagerSecurityTest` (1), and `TextureDecoderHdrTest` (1). |
 
 ---

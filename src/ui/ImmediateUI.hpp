@@ -96,10 +96,10 @@ struct ContainerOptions {
     ContainerLayout layout{ContainerLayout::Vertical};
     float padding{6.0f};
     float spacing{6.0f};
-    float width{0.0f};       ///< 0 = fill available content width
-    float height{0.0f};      ///< Minimum container height in pixels
-    uint32_t columns{0};     ///< Horizontal wrap column count (0 = single row / auto 2-col)
-    float itemWidth{0.0f};   ///< Explicit item width for horizontal layout (0 = auto-divide)
+    float width{0.0f};     ///< 0 = fill available content width
+    float height{0.0f};    ///< Minimum container height in pixels
+    uint32_t columns{0};   ///< Horizontal wrap column count (0 = single row / auto 2-col)
+    float itemWidth{0.0f}; ///< Explicit item width for horizontal layout (0 = auto-divide)
     bool showBackground{false};
     bool showBorder{false};
     bool hoverable{false};
@@ -119,7 +119,7 @@ struct PanelOptions {
     bool collapsible{false};
     bool defaultOpen{true};
     float padding{10.0f};
-    float cornerRadius{-1.0f};     ///< < 0 uses UiStyle::cornerRadius
+    float cornerRadius{-1.0f};       ///< < 0 uses UiStyle::cornerRadius
     glm::vec4 backgroundColor{0.0f}; ///< alpha <= 0 uses UiStyle::panelBg
     glm::vec4 borderColor{0.0f};     ///< alpha <= 0 uses UiStyle::windowBorder
 };
@@ -247,7 +247,8 @@ public:
     /**
      * @brief Convenience radio option bound to a typed value; assigns `optionValue` and returns true on click.
      */
-    template <typename T> bool Option(std::string_view label, T& currentValue, const T& optionValue) {
+    template <typename T>
+    bool Option(std::string_view label, T& currentValue, const T& optionValue) {
         if (Option(label, currentValue == optionValue)) {
             currentValue = optionValue;
             return true;
@@ -280,7 +281,8 @@ public:
     bool BeginPanel(std::string_view title, const PanelOptions& options = {});
 
     /**
-     * @brief Opens a standalone fixed/docked glassmorphic panel at explicit screen coordinates. Always pair with `EndPanel()`.
+     * @brief Opens a standalone fixed/docked glassmorphic panel at explicit screen coordinates. Always pair with
+     * `EndPanel()`.
      */
     bool BeginPanel(std::string_view id, float x, float y, float width, float height = 0.0f,
                     std::string_view title = {}, const PanelOptions& options = {});
@@ -578,6 +580,9 @@ private:
     void AdvanceCursor(float itemHeight);
     void PatchBoxGeometry(size_t vOff, float rx, float ry, float rw, float rh, float pad, float radius, float param4,
                           const glm::vec4* fillOverride = nullptr, const glm::vec4* borderOverride = nullptr);
+    bool PushPanelInternal(std::string_view idKey, float x, float y, float width, float height, std::string_view title,
+                           const PanelOptions& options, bool standalone);
+    bool EmitRadioRow(uint64_t id, const UiRect& rect, std::string_view label, bool selected);
 
     void EnsureGpuBuffers(size_t vertexCount, size_t indexCount);
     void ReleaseDynamicBuffers() noexcept;

@@ -73,6 +73,57 @@ void EndScroll() {
     }
 }
 
+bool BeginPanel(std::string_view title, bool collapsible, bool defaultOpen) {
+    if (!engine::g_currentGui) {
+        return false;
+    }
+    return engine::g_currentGui->BeginPanel(title,
+                                            ui::PanelOptions{.collapsible = collapsible, .defaultOpen = defaultOpen});
+}
+
+bool BeginPanel(std::string_view id, float x, float y, float width, float height, std::string_view title) {
+    if (!engine::g_currentGui) {
+        return false;
+    }
+    return engine::g_currentGui->BeginPanel(id, x, y, width, height, title);
+}
+
+void EndPanel() {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->EndPanel();
+    }
+}
+
+void BeginContainer(std::string_view id, bool horizontal, uint32_t columns, float spacing, bool showBackground) {
+    if (!engine::g_currentGui) {
+        return;
+    }
+    engine::g_currentGui->BeginContainer(
+        id, ui::ContainerOptions{.layout = horizontal ? ui::ContainerLayout::Horizontal : ui::ContainerLayout::Vertical,
+                                 .spacing = spacing,
+                                 .columns = columns,
+                                 .showBackground = showBackground,
+                                 .showBorder = showBackground});
+}
+
+void EndContainer() {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->EndContainer();
+    }
+}
+
+void BeginGroup(std::string_view label, bool border) {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->BeginGroup(label, border);
+    }
+}
+
+void EndGroup() {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->EndGroup();
+    }
+}
+
 void Label(std::string_view text) {
     if (engine::g_currentGui) {
         engine::g_currentGui->Label(text);
@@ -91,6 +142,23 @@ bool Button(std::string_view label) {
 
 bool Checkbox(std::string_view label, bool& value) {
     return engine::g_currentGui ? engine::g_currentGui->Checkbox(label, value) : false;
+}
+
+bool Toggle(std::string_view label, bool& value, std::string_view description) {
+    return engine::g_currentGui ? engine::g_currentGui->ToggleBox(label, value, description) : false;
+}
+
+bool Option(std::string_view label, bool selected) {
+    return engine::g_currentGui ? engine::g_currentGui->Option(label, selected) : false;
+}
+
+bool OptionGroup(std::string_view label, std::span<const std::string_view> options, size_t& selectedIndex,
+                 bool horizontal) {
+    return engine::g_currentGui ? engine::g_currentGui->OptionGroup(label, options, selectedIndex, horizontal) : false;
+}
+
+bool OptionGroup(std::string_view label, std::span<const char* const> options, size_t& selectedIndex, bool horizontal) {
+    return engine::g_currentGui ? engine::g_currentGui->OptionGroup(label, options, selectedIndex, horizontal) : false;
 }
 
 bool Slider(std::string_view label, float& value, float minValue, float maxValue, std::string_view valueFormat) {
