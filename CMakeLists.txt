@@ -338,14 +338,20 @@ add_library(bgl::ui ALIAS bgl_ui)
 # 6b. libbgl_engine (reusable runtime core)
 # ==============================================================================
 add_library(bgl_engine ${BGL_LIB_TYPE}
+    src/engine/Engine.cpp
     src/engine/EngineCore.cpp
+    src/engine/EngineImpl.cpp
     src/engine/Input.cpp
     src/engine/InputBackendSdl.cpp
 )
 target_include_directories(bgl_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_link_libraries(bgl_engine PUBLIC bgl_scene)
+target_link_libraries(bgl_engine PUBLIC
+    bgl_scene
+    bgl_text
+    bgl_ui
+)
 add_library(bgl::engine ALIAS bgl_engine)
 
 # ==============================================================================

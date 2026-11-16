@@ -16,7 +16,7 @@
 | T04 | DONE | | kEngineName -> "bgl Engine" |
 | T05 | DONE | | include/bgl/Types.hpp, Settings.hpp, bgl.hpp + test_render_settings |
 | T06 | DONE | | include/bgl/Input.hpp, InputState, InputBackendSdl, test_input_state |
-| T07 | TODO | | |
+| T07 | DONE | | bgl::Engine (Pimpl) + EngineImpl + ApplySettings |
 | T08 | TODO | | |
 | T09 | TODO | | |
 | T10 | TODO | | |
