@@ -1,5 +1,13 @@
 # Umbau zur klar erkennbaren Grafik-Engine
 
+> **Umsetzung:** Die ausführbare, schrittweise Anleitung (für die Umsetzung mit niedrigem Thinking-Effort) steht in [ENGINE_IMPLEMENTATION_GUIDE.md](ENGINE_IMPLEMENTATION_GUIDE.md).
+> Dieses Dokument bleibt die **Begründung und das Zielbild**. Abweichungen der Anleitung davon (bewusst, um das Risiko zu senken):
+> 1. **Fassade zuerst:** `bgl::App`/`bgl::Engine` entstehen vor der tiefen Entflechtung (Phase A/B dieses Plans = Tier 3 der Anleitung).
+> 2. **`Entity` ohne Komponenten-Templates und ohne EnTT** (dünner Wrapper um `SceneNode`); die Komponenten-API (`Add<T>/Get<T>`) ist zurückgestellt.
+> 3. **Kein `install(EXPORT)`/`find_package`**, Nutzung per `add_subdirectory` + `bgl::engine`.
+> 4. **Web/WASM bleibt unverändert** (CI baut dort nur `wasm_bridge.cpp`; eine einheitliche C++-Web-Engine ist ein eigenes Projekt).
+> 5. Das Zielbild „Hello Engine“ in Abschnitt 2a ist in der Anleitung als `samples/01_hello_engine` (ohne Komponenten-Syntax) umgesetzt.
+
 Ziel: Das Repo soll nicht mehr wie eine glTF-Viewer-Demo wirken, sondern wie eine **wiederverwendbare Grafik-Engine** (Library + SDK), mit dem Viewer nur als eine von mehreren Beispiel-Apps.
 
 ---
