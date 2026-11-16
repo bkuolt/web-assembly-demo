@@ -175,6 +175,7 @@ void Engine::Impl::Update(float deltaTime) {
     ApplySettings();
 
     const float safeDt = std::clamp(deltaTime, 0.0f, 0.25f);
+    lastDeltaTime_ = safeDt;
     if (config_.defaultCameraControls) {
         const float dist = camera_.GetDistance();
         if (!guiWantsMouse_) {
@@ -213,7 +214,7 @@ void Engine::Impl::BeginGui() {
     }
     const uint32_t w = std::max<uint32_t>(1u, gpuContext_.GetWidth());
     const uint32_t h = std::max<uint32_t>(1u, gpuContext_.GetHeight());
-    gui_.BeginFrame(guiInput_, w, h);
+    gui_.BeginFrame(guiInput_, w, h, lastDeltaTime_);
     guiInput_.mousePressed = false;
     guiInput_.mouseReleased = false;
     guiInput_.wheelDelta = 0.0f;
@@ -249,6 +250,9 @@ void Engine::Impl::Shutdown() {
     if (guiFrameOpen_) {
         engine::g_currentGui = nullptr;
         guiFrameOpen_ = false;
+    }
+    if (engine::g_registeredEngineGui == &gui_) {
+        engine::g_registeredEngineGui = nullptr;
     }
     gui_.Shutdown();
     EngineCore::Shutdown();

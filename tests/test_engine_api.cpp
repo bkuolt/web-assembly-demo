@@ -12,14 +12,65 @@ static_assert(std::is_same_v<bgl::CameraMode, bgl::core::CameraMode>);
 TEST(GuiPublicApi, CallsOutsideFrameAreSafeNoOps) {
     bool checked = true;
     float value = 1.0f;
+    size_t dropdownIdx = 0;
+    glm::vec3 pickerColor{0.3f, 0.6f, 0.9f};
+    constexpr std::array<const char*, 2> kOpts{"One", "Two"};
+    constexpr std::array<float, 3> kSamples{1.0f, 2.0f, 3.0f};
+    constexpr std::array<std::string_view, 2> kBtns{"Cancel", "OK"};
+
+    bgl::gui::SetHoverEffects(true);
+    EXPECT_TRUE(bgl::gui::AreHoverEffectsEnabled());
+    bgl::gui::SetAccentColor({0.2f, 0.7f, 0.9f});
+
     bgl::gui::Begin("NoContext");
+    bgl::gui::Begin("NoContextPos", 10.0f, 10.0f, 250.0f);
+    EXPECT_FALSE(bgl::gui::Section("Section"));
+    bgl::gui::BeginScroll("Scroll", 100.0f);
     bgl::gui::Label("Hello");
+    bgl::gui::Label("Tinted", glm::vec4{1.0f, 0.5f, 0.25f, 1.0f});
+    bgl::gui::Separator();
+    bgl::gui::PushHover(false);
     EXPECT_FALSE(bgl::gui::Button("Click"));
+    EXPECT_FALSE(bgl::gui::IsHovered());
+    bgl::gui::Tooltip("Tip");
+    bgl::gui::PopHover();
     EXPECT_FALSE(bgl::gui::Checkbox("Toggle", checked));
     EXPECT_FALSE(bgl::gui::Slider("Slider", value, 0.0f, 2.0f));
+    EXPECT_FALSE(bgl::gui::Dropdown("Drop", kOpts, dropdownIdx));
+    EXPECT_FALSE(bgl::gui::ColorPicker("Accent", pickerColor));
+    bgl::gui::Progress(0.5f, "Half");
+    bgl::gui::Sparkline("Metrics", kSamples);
+    bgl::gui::Badge(12.0f, 12.0f, "Tag");
+    bgl::gui::EndScroll();
     bgl::gui::End();
+
+    EXPECT_EQ(bgl::gui::MessageBox("id", "Title", "Body", kBtns, bgl::gui::MessageType::Info), -1);
+    bgl::gui::ShowMessage("Title", "Message");
+    bgl::gui::ShowConfirm("Confirm", "Sure?", {});
+    bgl::gui::CloseMessageBox("id");
+    EXPECT_FALSE(bgl::gui::LoadingScreen("Loading", -1.0f, "Working...", false, true));
+    bgl::gui::ShowLoadingScreen("Loading");
+    bgl::gui::HideLoadingScreen();
+    EXPECT_FALSE(bgl::gui::LoadFont("mono", "embedded"));
+    EXPECT_FALSE(bgl::gui::SetDefaultFont("embedded"));
+    EXPECT_FALSE(bgl::gui::PushFont("mono"));
+    bgl::gui::PopFont();
+
     EXPECT_TRUE(checked);
     EXPECT_FLOAT_EQ(value, 1.0f);
+}
+
+TEST(GuiPublicApi, DiscoverFontsReturnsAtLeastOneValidDescriptor) {
+    const auto fonts = bgl::gui::DiscoverFonts();
+    EXPECT_FALSE(fonts.empty());
+    bool foundNonEmpty = false;
+    for (const auto& f : fonts) {
+        if (!f.family.empty()) {
+            foundNonEmpty = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(foundNonEmpty);
 }
 
 TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
@@ -73,9 +124,24 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
     EXPECT_EQ(constEngine.GetCamera().GetMode(), bgl::CameraMode::Orbit);
 
     engine.Update(0.016f);
+    EXPECT_TRUE(bgl::gui::SetDefaultFont("embedded", 24.0f));
+    EXPECT_TRUE(bgl::gui::LoadFont("mono_file", "assets/fonts/LiberationMono-Regular.ttf", 20.0f));
+    bgl::gui::SetHoverEffects(true);
+    EXPECT_TRUE(bgl::gui::AreHoverEffectsEnabled());
+    bgl::gui::SetAccentColor({0.24f, 0.62f, 0.96f});
+    bgl::gui::ShowMessage("EngineNotice", "Public modal queued before BeginGui", bgl::gui::MessageType::Info);
+    bgl::gui::CloseMessageBox("EngineNotice");
+
     engine.BeginGui();
     bgl::gui::Begin("Test");
-    bgl::gui::Label("OK");
+    if (bgl::gui::Section("Controls", true)) {
+        bgl::gui::Label("OK");
+        bgl::gui::PushFont("mono_file");
+        bgl::gui::Progress(0.75f, "Ready");
+        bgl::gui::PopFont();
+        bgl::gui::Tooltip("Public tooltip");
+    }
+    bgl::gui::Badge(20.0f, 20.0f, "Active");
     bgl::gui::End();
     engine.EndGui();
     engine.Render();

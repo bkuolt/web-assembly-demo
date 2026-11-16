@@ -316,6 +316,7 @@ private:
     size_t fpsHistoryCount_{0};
     bool showSelectionAnchors_{true};
     glm::vec3 uiAccentColor_{0.24f, 0.62f, 0.96f};
+    size_t selectedUiFontIdx_{0};
 
     size_t selectedModelOption_{0};
     size_t lastCommittedModelOption_{0};

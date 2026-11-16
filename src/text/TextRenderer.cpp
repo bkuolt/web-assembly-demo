@@ -197,8 +197,18 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    RebuildBindGroup();
 
-    // 8. Create Bind Group
+    BGL_LOG_INFO("TextRenderer initialized: format={}, sampleCount={}", static_cast<int>(surfaceFormat_), sampleCount_);
+    return {};
+}
+
+void TextRenderer::RebuildBindGroup() {
+    if (!device_ || !bindGroupLayout_ || !uniformBuffer_ || !fontAtlas_ || !fontAtlas_->GetGPUSampler() ||
+        !fontAtlas_->GetGPUTextureView()) {
+        return;
+    }
+
     std::array<WGPUBindGroupEntry, 3> bgEntries{};
     bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
     bgEntries[0].binding = 0;
@@ -219,9 +229,32 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     bgDesc.entryCount = bgEntries.size();
     bgDesc.entries = bgEntries.data();
     bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+    boundAtlasGeneration_ = fontAtlas_->GetGpuTextureGeneration();
+}
 
-    BGL_LOG_INFO("TextRenderer initialized: format={}, sampleCount={}", static_cast<int>(surfaceFormat_), sampleCount_);
-    return {};
+void TextRenderer::SetFontAtlas(FontAtlas& fontAtlas) {
+    fontAtlas_ = &fontAtlas;
+    boundAtlasGeneration_ = 0;
+    if (device_ && queue_) {
+        fontAtlas_->SyncGPU(device_, queue_);
+        RebuildBindGroup();
+    }
+}
+
+glm::vec2 TextRenderer::MeasureText(std::string_view text, float scale) const {
+    if (!fontAtlas_ || text.empty()) {
+        return glm::vec2{0.0f};
+    }
+    return TextShaper::Measure(*fontAtlas_, text, scale);
+}
+
+void TextRenderer::DrawTextAligned(std::string_view text, float x, float y, float alignX, const glm::vec4& color,
+                                   float scale) {
+    if (!fontAtlas_ || text.empty()) {
+        return;
+    }
+    const glm::vec2 dims = TextShaper::Measure(*fontAtlas_, text, scale);
+    DrawText(text, x - dims.x * alignX, y, color, scale);
 }
 
 void TextRenderer::EnsureBuffers(size_t vertexCount, size_t indexCount) {
@@ -319,14 +352,22 @@ void TextRenderer::DrawText(std::string_view text, float x, float y, const glm::
 }
 
 void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight) {
-    if (!pass || !pipeline_ || indexBatch_.empty() || viewportWidth == 0 || viewportHeight == 0) {
+    if (!pass || !pipeline_ || !fontAtlas_ || indexBatch_.empty() || viewportWidth == 0 || viewportHeight == 0) {
         vertexBatch_.clear();
         indexBatch_.clear();
         return;
     }
 
-    // 1. Sync atlas texture if any new glyphs were packed
+    // 1. Sync atlas texture if any new glyphs were packed or atlas reinitialized
     fontAtlas_->SyncGPU(device_, queue_);
+    if (fontAtlas_->GetGpuTextureGeneration() != boundAtlasGeneration_ || !bindGroup_) {
+        RebuildBindGroup();
+    }
+    if (!bindGroup_) {
+        vertexBatch_.clear();
+        indexBatch_.clear();
+        return;
+    }
 
     // 2. Upload orthographic projection matrix (top-left 0,0 to bottom-right W,H)
     glm::mat4 ortho =
@@ -335,7 +376,8 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     // 3. Ensure GPU vertex and index buffers are sized appropriately and upload
     EnsureBuffers(vertexBatch_.size(), indexBatch_.size());
-    if (!vertexBuffer_ || !indexBuffer_) {
+    if (!vertexBuffer_ || !indexBuffer_ || vertexBatch_.size() > vertexBufferCapacity_ ||
+        indexBatch_.size() > indexBufferCapacity_) {
         vertexBatch_.clear();
         indexBatch_.clear();
         return;

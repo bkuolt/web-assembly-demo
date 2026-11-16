@@ -5,9 +5,8 @@
 #include "ui/DebugOverlay.hpp"
 #include "core/Log.hpp"
 #include "core/Version.hpp"
-#include "text/EmbeddedFont.hpp"
 #include <algorithm>
-#include <filesystem>
+#include <cmath>
 #include <format>
 
 namespace bgl::ui {
@@ -18,34 +17,12 @@ DebugOverlay::~DebugOverlay() = default;
 
 core::Result<void> DebugOverlay::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                             uint32_t sampleCount) {
-    // 1. Try to load LiberationMono from disk, or fallback to zero-dependency embedded font
-    std::string fontPath;
-    const std::vector<std::string> searchPaths = {"assets/fonts/LiberationMono-Regular.ttf",
-                                                  "../assets/fonts/LiberationMono-Regular.ttf",
-                                                  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"};
-
-    for (const auto& path : searchPaths) {
-        if (std::filesystem::exists(path)) {
-            fontPath = path;
-            break;
-        }
-    }
-
-    core::Result<void> initRes;
-    if (!fontPath.empty()) {
-        BGL_LOG_INFO("Loading debug overlay font from '{}'...", fontPath);
-        initRes = fontAtlas_.InitializeFromFile(fontPath, 16, 1024);
-    } else {
-        BGL_LOG_INFO("Loading debug overlay font from built-in embedded font data...");
-        auto embeddedData = text::GetEmbeddedFontData();
-        initRes = fontAtlas_.InitializeFromMemory(embeddedData, 16, 1024);
-    }
-
-    if (!initRes) {
+    if (auto initRes = fontAtlas_.InitializeWithQuery(text::FontQuery{.nameOrPath = "mono"}, 16, 1024, false, true);
+        !initRes) {
         return initRes;
     }
 
-    // 2. Initialize TextRenderer WebGPU pipeline
+    // Initialize TextRenderer WebGPU pipeline
     return textRenderer_.Initialize(device, queue, surfaceFormat, sampleCount, fontAtlas_);
 }
 

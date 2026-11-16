@@ -1,7 +1,8 @@
 /**
  * @file ImmediateUI.hpp
  * @brief C++23 Immediate Mode GUI (IMGUI) with std::pmr per-frame arena allocation,
- *        FreeType SDF font rendering, single-draw-call batching, and embedded WGSL shader.
+ *        multi-font FreeType SDF rendering, optional hover animations across all widgets,
+ *        modals (MessageBox, LoadingScreen, Tooltips), and single-batch WebGPU rendering.
  */
 #ifndef BGL_UI_IMMEDIATEUI_HPP
 #define BGL_UI_IMMEDIATEUI_HPP
@@ -9,10 +10,13 @@
 #include "core/Types.hpp"
 #include "gpu/Handle.hpp"
 #include "text/FontAtlas.hpp"
+#include "text/FontLibrary.hpp"
 #include "text/TextShaper.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <glm/glm.hpp>
+#include <memory>
 #include <memory_resource>
 #include <span>
 #include <string>
@@ -25,7 +29,7 @@ namespace bgl::ui {
 
 /**
  * @struct UiVertex
- * @brief 68-byte vertex layout for single-batch SDF UI boxes, drop shadows, glass panels, HSV pickers, and text.
+ * @brief Vertex layout for batched SDF UI boxes, drop shadows, frosted glass panels, HSV pickers, and text.
  */
 struct UiVertex {
     glm::vec2 pos{0.0f};
@@ -65,8 +69,19 @@ struct UiInputState {
 };
 
 /**
+ * @enum MessageBoxType
+ * @brief Semantic severity and accent style for frosted-glass modal message boxes.
+ */
+enum class MessageBoxType : uint8_t {
+    Info = 0,
+    Warning = 1,
+    Error = 2,
+    Confirm = 3,
+};
+
+/**
  * @struct UiStyle
- * @brief Sleek glassmorphic dark UI theme styling constants.
+ * @brief Sleek glassmorphic dark UI theme styling and optional hover animation parameters.
  */
 struct UiStyle {
     glm::vec4 windowBg{0.075f, 0.085f, 0.110f, 0.88f};
@@ -82,6 +97,8 @@ struct UiStyle {
     glm::vec4 shadowColor{0.0f, 0.0f, 0.0f, 0.50f};
     glm::vec4 sliderTrack{0.11f, 0.13f, 0.17f, 1.0f};
     glm::vec4 sparklineFill{0.24f, 0.62f, 0.96f, 0.24f};
+    glm::vec4 hoverHighlight{0.24f, 0.62f, 0.96f, 0.14f};
+    glm::vec4 modalBackdrop{0.025f, 0.035f, 0.060f, 0.72f};
 
     float padding{10.0f};
     float itemSpacing{6.0f};
@@ -91,11 +108,16 @@ struct UiStyle {
     float cornerRadius{6.0f};
     float widgetRadius{4.0f};
     float shadowBlur{14.0f};
+
+    bool enableHoverEffects{true};     ///< Master toggle for optional hover highlights/animations on all widgets
+    float hoverTransitionSpeed{14.0f}; ///< Smoothing rate (1/s) for hover visual transitions
 };
 
 /**
  * @class ImmediateUI
- * @brief Stateless Immediate Mode GUI with PMR monotonic frame arena and single-draw-call WebGPU batching.
+ * @brief Stateless Immediate Mode GUI with PMR monotonic frame arena, multi-font FreeType SDF atlases,
+ *        optional animated hover highlights across every widget, frosted-glass modals/loading screens,
+ *        and WebGPU draw-call batching.
  */
 class ImmediateUI {
 public:
@@ -106,7 +128,7 @@ public:
     ImmediateUI& operator=(const ImmediateUI&) = delete;
 
     /**
-     * @brief Initializes WebGPU pipeline (from `#embed` WGSL shader) and FreeType SDF font atlas.
+     * @brief Initializes WebGPU pipeline (from `#embed` WGSL shader) and default FreeType SDF font atlas.
      */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount = 1);
@@ -117,14 +139,15 @@ public:
     void SetBackdropTextureView(WGPUTextureView view) noexcept;
 
     /**
-     * @brief Releases WebGPU pipeline, buffers, and font atlas resources.
+     * @brief Releases WebGPU pipeline, buffers, and all loaded font atlas resources.
      */
     void Shutdown() noexcept;
 
     /**
      * @brief Resets the std::pmr::monotonic_buffer_resource arena and begins a new UI frame.
      */
-    void BeginFrame(const UiInputState& input, uint32_t viewportWidth, uint32_t viewportHeight);
+    void BeginFrame(const UiInputState& input, uint32_t viewportWidth, uint32_t viewportHeight,
+                    float deltaTime = 0.016f);
 
     /**
      * @brief Opens a draggable glassmorphic UI panel with auto-layout vertical cursor.
@@ -137,12 +160,12 @@ public:
     void EndWindow();
 
     /**
-     * @brief Renders a text label at the current vertical layout cursor.
+     * @brief Renders a text label at the current vertical layout cursor with optional hover feedback.
      */
     void Label(std::string_view text, const glm::vec4& color = glm::vec4{0.93f, 0.95f, 0.98f, 1.0f});
 
     /**
-     * @brief Renders a subtle horizontal divider rule between sections.
+     * @brief Renders a subtle horizontal divider rule between sections with optional hover feedback.
      */
     void Separator();
 
@@ -173,7 +196,7 @@ public:
     bool ColorEdit3(std::string_view label, glm::vec3& color);
 
     /**
-     * @brief Renders a rounded mini-chart with shaded area fill and crisp polyline segments.
+     * @brief Renders a rounded mini-chart with shaded area fill, polyline segments, and hover sample indicator.
      */
     void Sparkline(std::string_view label, std::span<const float> values, float minVal = 0.0f, float maxVal = 0.0f,
                    float height = 40.0f, const glm::vec4& lineColor = glm::vec4{0.24f, 0.78f, 0.96f, 1.0f});
@@ -206,35 +229,122 @@ public:
                            float alphaMultiplier = 1.0f);
 
     /**
+     * @brief Draws a fullscreen frosted-glass loading screen overlay with optional Cancel button.
+     * @param title Main loading headline.
+     * @param fraction Progress in `[0..1]`, or `< 0` for smooth animated indeterminate mode.
+     * @param statusText Optional detail/status subtitle.
+     * @param isError Applies error accent styling when true.
+     * @param cancellable Shows a frosted interactive Cancel button when true.
+     * @param alphaMultiplier Smooth fade multiplier `[0..1]`.
+     * @return `true` when the user clicks the Cancel button in this frame.
+     */
+    bool DrawLoadingScreen(std::string_view title, float fraction = -1.0f, std::string_view statusText = {},
+                           bool isError = false, bool cancellable = false, float alphaMultiplier = 1.0f);
+
+    /**
+     * @brief Shows or updates a persistent stateful fullscreen loading screen rendered automatically in `EndFrame()`.
+     */
+    void ShowLoadingScreen(std::string_view title, float fraction = -1.0f, std::string_view statusText = {},
+                           bool isError = false);
+
+    /**
+     * @brief Hides the persistent stateful loading screen immediately.
+     */
+    void HideLoadingScreen() noexcept;
+
+    /**
+     * @brief Renders an immediate frosted-glass modal message box with wrapped body text and action buttons.
+     * @return Clicked button index `[0..buttons.size()-1]`, or `-1` while open with no click.
+     */
+    int MessageBox(std::string_view id, std::string_view title, std::string_view message,
+                   std::span<const std::string_view> buttons = {}, MessageBoxType type = MessageBoxType::Info,
+                   bool dimBackground = true);
+
+    /**
+     * @brief Queues a persistent modal message box dismissed automatically when a button is clicked.
+     */
+    void ShowMessageBox(std::string_view id, std::string_view title, std::string_view message,
+                        MessageBoxType type = MessageBoxType::Info, std::span<const std::string_view> buttons = {},
+                        std::function<void(int)> onResult = {}, bool dimBackground = true);
+
+    /**
+     * @brief Dismisses the queued modal matching `id` (or the active top modal if `id` is empty).
+     */
+    void CloseMessageBox(std::string_view id = {});
+
+    /** @brief Returns true when any modal MessageBox or fullscreen LoadingScreen is currently active. */
+    [[nodiscard]] bool HasOpenModal() const noexcept;
+
+    /**
      * @brief Draws a compact rounded pill badge at arbitrary screen coordinates (e.g. 3D anchor label).
      */
     void DrawFloatingBadge(float x, float y, std::string_view text, const glm::vec4& accentColor);
 
     /**
-     * @brief Merges deferred overlay batches (open dropdowns / color pickers) and finalizes draw commands.
+     * @brief Enables or disables hover visual highlights cleanly for subsequent items within a Push/Pop scope.
+     */
+    void PushHoverEnabled(bool enabled);
+    void PopHoverEnabled();
+    [[nodiscard]] bool AreHoverEffectsEnabled() const noexcept;
+
+    /** @brief Returns true if the most recently emitted widget/element is hovered this frame. */
+    [[nodiscard]] bool IsItemHovered() const noexcept { return lastItemHovered_; }
+
+    /** @brief Queues a floating frosted-glass tooltip near the cursor if the previous UI item is hovered. */
+    void Tooltip(std::string_view text);
+
+    /**
+     * @brief Discovers installed system and asset fonts on demand via FontLibrary.
+     */
+    [[nodiscard]] std::vector<text::FontDescriptor> GetAvailableFonts() const;
+
+    /**
+     * @brief Loads (or replaces) a named font slot using FontLibrary::Find (`path`, `family`, `"sans"`, `"mono"`,
+     *        or `"serif"`). Falls back cleanly to the embedded font when `allowEmbeddedFallback` is true.
+     */
+    core::Result<void> LoadFont(std::string_view slotName, const text::FontQuery& query, float pixelSize = 24.0f,
+                                bool allowEmbeddedFallback = false);
+    core::Result<void> LoadFont(std::string_view slotName, std::string_view nameOrPath, float pixelSize = 24.0f);
+    core::Result<void> LoadFontFromMemory(std::string_view slotName, std::span<const uint8_t> fontData,
+                                          float pixelSize = 24.0f);
+
+    /**
+     * @brief Replaces the `"default"` font slot used by panels and widgets when no font is pushed.
+     */
+    bool SetDefaultFont(std::string_view nameOrPath, float pixelSize = 24.0f);
+
+    /**
+     * @brief Activates a previously loaded font slot until the matching `PopFont()`.
+     */
+    bool PushFont(std::string_view slotName);
+    void PopFont();
+    [[nodiscard]] std::string_view GetActiveFontName() const noexcept;
+
+    /**
+     * @brief Merges deferred overlay batches (popups, queued modals, loading screens, tooltips) and finalizes draw
+     * calls.
      */
     void EndFrame();
 
     /**
-     * @brief Uploads batched vertices/indices and dispatches single-batch or scissor-split UI draw calls.
+     * @brief Uploads batched vertices/indices and dispatches single-batch or scissor/font-split UI draw calls.
      */
     void Render(WGPURenderPassEncoder pass, uint32_t framebufferWidth = 0, uint32_t framebufferHeight = 0);
 
     /**
-     * @brief Returns true if the mouse cursor is hovering over any UI window or open popup overlay,
+     * @brief Returns true if the mouse cursor is hovering over any UI window, modal overlay, or popup,
      *        so 3D camera/world picking events can be blocked cleanly.
      */
     [[nodiscard]] bool WantsMouse() const noexcept { return wantsMouse_; }
 
-    /**
-     * @brief Returns the active vertex/index/draw-command counts generated in the current frame.
-     */
+    /** @brief Active frame geometry & batch inspection accessors. */
     [[nodiscard]] size_t GetVertexCount() const noexcept { return vertices_.size(); }
     [[nodiscard]] size_t GetIndexCount() const noexcept { return indices_.size(); }
     [[nodiscard]] size_t GetDrawCommandCount() const noexcept { return drawCmds_.size(); }
     [[nodiscard]] const UiRect& GetLastWindowRect() const noexcept { return lastCompletedWindowRect_; }
+    [[nodiscard]] const UiRect& GetLastItemRect() const noexcept { return lastItemRect_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return gpuInitialized_; }
-    [[nodiscard]] bool IsSdfFontReady() const noexcept { return fontReady_; }
+    [[nodiscard]] bool IsSdfFontReady() const noexcept;
     [[nodiscard]] static std::string_view GetEmbeddedShaderSource() noexcept;
 
     [[nodiscard]] static glm::vec3 RgbToHsv(const glm::vec3& rgb) noexcept;
@@ -244,6 +354,38 @@ public:
     [[nodiscard]] const UiStyle& Style() const noexcept { return style_; }
 
 private:
+    struct FontSlot {
+        std::string name{};
+        std::unique_ptr<text::FontAtlas> atlas{};
+        float basePixelSize{24.0f};
+        gpu::BindGroupHandle bindGroup{};
+        uint64_t boundGeneration{0};
+        bool ready{false};
+    };
+
+    struct HoverEval {
+        bool hovered{false};
+        float mix{0.0f};
+    };
+
+    struct QueuedMessageBox {
+        std::string idKey{};
+        std::string title{};
+        std::string message{};
+        MessageBoxType type{MessageBoxType::Info};
+        std::vector<std::string> buttons{};
+        std::function<void(int)> callback{};
+        bool dimBackground{true};
+    };
+
+    struct PersistentLoadingState {
+        bool active{false};
+        std::string title{};
+        float fraction{-1.0f};
+        std::string status{};
+        bool isError{false};
+    };
+
     struct PendingDropdownOverlay {
         uint64_t id{0};
         UiRect anchorRect{};
@@ -268,13 +410,37 @@ private:
     struct DrawCommand {
         uint32_t firstIndex{0};
         uint32_t indexCount{0};
+        uint32_t fontSlot{0};
         bool hasScissor{false};
         UiRect scissorRect{};
     };
 
+    void EnsureDefaultFontSlot();
+    [[nodiscard]] FontSlot& ActiveFontSlot() noexcept;
+    [[nodiscard]] const FontSlot& ActiveFontSlot() const noexcept;
+    [[nodiscard]] float EffectiveTextScale(float relativeScale) const noexcept;
+    [[nodiscard]] glm::vec4 GetMessageAccentColor(MessageBoxType type) const noexcept;
+
+    [[nodiscard]] HoverEval EvalHover(uint64_t id, const UiRect& rect, bool allowInteraction = true,
+                                      bool trackHit = true, bool ignoreModalBlock = false);
+    void EmitHoverHighlight(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, const UiRect& rect,
+                            float hoverMix, float radius) const;
+    void EmitPanelCard(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, const UiRect& rect,
+                       float radius, const glm::vec4& bg, const glm::vec4& border, bool frosted = true,
+                       float borderWidth = 1.0f) const;
+    void EmitProgressTrack(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, const UiRect& trackRect,
+                           float fraction, const glm::vec4& accentColor, float alpha = 1.0f,
+                           float hoverMix = 0.0f) const;
+
     void FlushDrawCommand(bool hasScissor, const UiRect& scissorRect);
     void EmitColorPickerOverlay();
     void EmitDropdownOverlay();
+    void EmitTooltipOverlay();
+    bool DrawLoadingScreenInternal(std::string_view title, float fraction, std::string_view statusText, bool isError,
+                                   bool cancellable, float alphaMultiplier);
+    int DrawMessageBoxInternal(std::string_view id, std::string_view title, std::string_view message,
+                               std::span<const std::string_view> buttons, MessageBoxType type, bool dimBackground);
+
     void EmitQuad(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, float x, float y, float w,
                   float h, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& color, float isSdf,
                   const glm::vec4& sdfRect = glm::vec4{0.0f}, const glm::vec4& auxColor = glm::vec4{0.0f}) const;
@@ -295,7 +461,8 @@ private:
 
     void EnsureGpuBuffers(size_t vertexCount, size_t indexCount);
     void ReleaseDynamicBuffers() noexcept;
-    void RebuildBindGroup();
+    void SyncFontBindGroup(FontSlot& slot);
+    void RebuildAllFontBindGroups();
     [[nodiscard]] float MeasureTextWidth(std::string_view text, float scale);
     [[nodiscard]] std::string EllipsizeText(std::string_view text, float maxWidth, float scale);
     [[nodiscard]] bool IsBlockedByPopup() const noexcept;
@@ -307,9 +474,11 @@ private:
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
     uint32_t sampleCount_{1};
     bool gpuInitialized_{false};
-    bool fontReady_{false};
 
-    text::FontAtlas fontAtlas_{};
+    std::vector<FontSlot> fontSlots_{};
+    std::vector<uint32_t> fontStack_{};
+    uint32_t activeFontSlot_{0};
+
     gpu::BindGroupLayoutHandle bindGroupLayout_{};
     gpu::RenderPipelineHandle pipeline_{};
     gpu::BufferHandle uniformBuffer_{};
@@ -317,7 +486,6 @@ private:
     gpu::TextureHandle fallbackBackdropTexture_{};
     gpu::TextureViewHandle fallbackBackdropView_{};
     WGPUTextureView currentBackdropView_{nullptr};
-    gpu::BindGroupHandle bindGroup_{};
     gpu::BufferHandle vertexBuffer_{};
     gpu::BufferHandle indexBuffer_{};
     size_t vertexCapacity_{0};
@@ -336,25 +504,33 @@ private:
     std::pmr::vector<UiRect> hitRects_{&frameArena_};
     std::pmr::vector<DrawCommand> drawCmds_{&frameArena_};
     uint32_t batchStartIndex_{0};
+    uint32_t batchFontSlot_{0};
 
     UiInputState input_{};
     UiStyle style_{};
     uint32_t viewportWidth_{1280};
     uint32_t viewportHeight_{720};
+    float frameDeltaTime_{0.016f};
+    float timeSec_{0.0f};
     bool wantsMouse_{false};
 
-    // Active window layout cursor state
+    // Active window & item interaction state
     bool inWindow_{false};
     uint64_t currentWindowId_{0};
     UiRect currentWindowRect_{};
     UiRect lastCompletedWindowRect_{};
+    UiRect lastItemRect_{};
+    bool lastItemHovered_{false};
+    std::vector<bool> hoverOverrideStack_{};
+    std::string pendingTooltip_{};
     float cursorX_{0.0f};
     float cursorY_{0.0f};
     float contentWidth_{0.0f};
     size_t windowShadowVertexOffset_{0};
     size_t windowBgVertexOffset_{0};
 
-    // Persistent widget interaction states
+    // Persistent widget & hover animation states
+    std::unordered_map<uint64_t, float> hoverAmounts_{};
     std::unordered_map<uint64_t, glm::vec2> windowOffsets_{};
     std::unordered_map<uint64_t, bool> collapsingHeaders_{};
     std::unordered_map<uint64_t, float> scrollOffsets_{};
@@ -379,7 +555,7 @@ private:
     float scrollContentStartY_{0.0f};
     float scrollAppliedOffset_{0.0f};
 
-    // Persistent popup states (dropdown / color picker)
+    // Persistent popup states (dropdown / color picker / modals / loading screen)
     uint64_t openDropdownId_{0};
     bool dropdownToggledThisFrame_{false};
     bool popupConsumedInputThisFrame_{false};
@@ -394,6 +570,11 @@ private:
     bool colorToggledThisFrame_{false};
     PendingColorOverlay pendingColorOverlay_{};
     bool hasPendingColorOverlay_{false};
+
+    bool modalDrawnThisFrame_{false};
+    bool immediateModalDrawnThisFrame_{false};
+    std::vector<QueuedMessageBox> modalQueue_{};
+    PersistentLoadingState loadingState_{};
 };
 
 /**
@@ -418,6 +599,16 @@ void ProgressBar(float fraction, std::string_view statusText = {}, float height 
                  const glm::vec4& fillColor = glm::vec4{0.0f});
 void BeginScrollArea(std::string_view id, float maxHeight);
 void EndScrollArea();
+void PushHover(bool enabled);
+void PopHover();
+[[nodiscard]] bool IsHovered() noexcept;
+void Tooltip(std::string_view text);
+bool PushFont(std::string_view slotName);
+void PopFont();
+int MessageBox(std::string_view id, std::string_view title, std::string_view message,
+               std::span<const std::string_view> buttons = {}, MessageBoxType type = MessageBoxType::Info);
+bool LoadingScreen(std::string_view title, float fraction = -1.0f, std::string_view statusText = {},
+                   bool isError = false, bool cancellable = false);
 } // namespace UI
 
 } // namespace bgl::ui

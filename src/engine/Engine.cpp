@@ -5,6 +5,7 @@
 #include "bgl/Engine.hpp"
 #include "core/Log.hpp"
 #include "engine/EngineImpl.hpp"
+#include "engine/GuiInternal.hpp"
 #include <utility>
 
 namespace bgl {
@@ -38,6 +39,7 @@ Result<std::unique_ptr<Engine>> Engine::Create(const EngineConfig& config) {
     }
 
     engine->impl_->ApplySettings();
+    engine::g_registeredEngineGui = &engine->impl_->gui_;
     return engine;
 }
 

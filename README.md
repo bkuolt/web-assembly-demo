@@ -5,7 +5,7 @@
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-344_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-357_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 ## bgl Engine
@@ -15,16 +15,16 @@
 ### Quickstart (`samples/01_hello_engine/main.cpp`)
 
 ```cpp
-// Minimal bgl Engine app: load a glTF model and slowly orbit around it.
+// Minimal bgl Engine app: load a glTF model, orbit cleanly, and drive the sleek SDF GUI.
 // Run from the repository root:  ./build/Release/sample_01_hello_engine
 #include <bgl/bgl.hpp>
 
 class HelloEngine : public bgl::App {
 public:
     void OnStart() override {
+        bgl::gui::SetDefaultFont("sans");
         if (auto result = GetEngine().LoadModel("assets/ToyCar.glb"); !result) {
-            BGL_LOG_ERROR("Could not load model: {}", result.error());
-            Quit();
+            bgl::gui::ShowMessage("Load Failed", result.error(), bgl::gui::MessageType::Error);
         }
     }
 
@@ -32,14 +32,27 @@ public:
         if (bgl::Input::IsKeyPressed(bgl::Key::Escape)) {
             Quit();
         }
-        GetEngine().GetCamera().Orbit(0.3f * deltaTime, 0.0f);
+        if (autoOrbit_) {
+            GetEngine().GetCamera().Orbit(0.3f * deltaTime, 0.0f);
+        }
     }
 
     void OnGui() override {
         bgl::gui::Begin("Hello bgl");
-        bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
+        if (bgl::gui::Section("Scene Controls", true)) {
+            bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
+            bgl::gui::Tooltip("Adjust HDR camera exposure");
+            bgl::gui::Checkbox("Auto Orbit", autoOrbit_);
+            if (bgl::gui::Button("About bgl GUI")) {
+                bgl::gui::ShowMessage("bgl Engine GUI",
+                                      "Frosted-glass SDF widgets with hover highlights and OS font discovery.");
+            }
+        }
         bgl::gui::End();
     }
+
+private:
+    bool autoOrbit_{true};
 };
 
 BGL_RUN(HelloEngine)
@@ -58,7 +71,7 @@ task build
 | **`bgl::Engine`** | Facade owning window, GPU device, renderer, camera, and active scene | [`include/bgl/Engine.hpp`](include/bgl/Engine.hpp) |
 | **`bgl::Input`** | Frame-buffered polling for keyboard & mouse (`IsKeyDown/Pressed/Released`, `MouseDelta`) | [`include/bgl/Input.hpp`](include/bgl/Input.hpp) |
 | **`bgl::RenderSettings`** | Plain-data rendering & post-processing options applied automatically every frame | [`include/bgl/Settings.hpp`](include/bgl/Settings.hpp) |
-| **`bgl::gui`** | Immediate-mode debug UI helpers (`Begin`, `End`, `Label`, `Button`, `Checkbox`, `Slider`) | [`include/bgl/Gui.hpp`](include/bgl/Gui.hpp) |
+| **`bgl::gui`** | Immediate-mode frosted-glass UI (`Begin`, `End`, `Section`, widgets, `Tooltip`, optional hover, `MessageBox`, `LoadingScreen`, `DiscoverFonts`/`LoadFont`/`SetDefaultFont`/`PushFont`) | [`include/bgl/Gui.hpp`](include/bgl/Gui.hpp) |
 | **`bgl::Entity`** | Lightweight handle to a scene node (transform, parent/child hierarchy, punctual lights) | [`include/bgl/Entity.hpp`](include/bgl/Entity.hpp) |
 
 ### Using bgl Engine as a Library
@@ -175,10 +188,11 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - Automatic on-the-fly transcoding of Basis Universal compressed textures (UASTC and ETC1S) to 32-bit RGBA (`KTX_TTF_RGBA32`).
   - Content-based magic-byte sniffing (`\xABKTX 11\xBB` and `\xABKTX 20\xBB`), MIME type detection, and path extension routing.
 - **HarfBuzz & FreeType 2 Text Rendering Pipeline**:
-  - Precise Unicode text shaping via HarfBuzz (`hb_buffer_t`, `hb_shape`).
-  - High-fidelity glyph rasterization via FreeType 2 into a dynamic 1024x1024 RGBA8 font atlas.
+  - Cross-platform OS and workspace font discovery (`FontLibrary::Discover`/`Find`) supporting `.ttf`/`.otf`/`.ttc` collections and generic aliases (`"sans"`, `"mono"`, `"serif"`, `"embedded"`).
+  - Precise Unicode text shaping (`TextShaper::Shape`, `Measure`, word-aware `WrapText`) via HarfBuzz (`hb_buffer_t`, `hb_shape`).
+  - High-fidelity alpha & SDF glyph rasterization via FreeType 2 into dynamic 1024x1024 RGBA8 atlases with up to 4 Unicode fallback faces (`AddFallbackFromFile` / `AddFallbackFromMemory`).
   - Zero-dependency embedded fallback font (Liberation Mono Regular) allowing standalone execution anywhere.
-  - Batched 2D WebGPU render pipeline with alpha blending (`SrcAlpha / OneMinusSrcAlpha`), 4x MSAA render-pass compatibility, and orthographic projection.
+  - Multi-font batched 2D WebGPU rendering (`TextRenderer` with `SetFontAtlas`/`MeasureText`/`DrawTextAligned`, 4x MSAA compatibility, and automatic atlas generation tracking).
 - **AAAA Visual Fidelity & Real-Time Rendering Features (Toggleable On/Off)**:
   - **Bump & Normal Mapping (`[V]` / `--no-bump`)**: Lengyel/MikkTSpace-style automatic tangent & bitangent basis generation (`MeshPrimitive::ComputeTangents()`), Gram-Schmidt orthogonalization in WGSL, tangent-space normal mapping, and screen-space derivative height bump perturbation (`dHdX`, `dHdY`).
   - **Mipmapping Support (`[L]` / `--no-mipmaps`)**: GPU render-pass mip-chain generation (`mipgen.wgsl`) down to $1\times 1$ texels with 3D vector renormalization for normal maps, CPU mip helpers, and live runtime switching between 16x Anisotropic Trilinear Mipmapping and Base-Mip-0-Only sampling.
@@ -275,15 +289,17 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   └── TextureDecoder.hpp/.cpp    # PNG, JPEG, WebP, KTX2, HDR & EXR decoding
 │   ├── text/                          # -> libbgl_text.so
 │   │   ├── EmbeddedFont.hpp/.cpp      # Zero-dependency embedded TrueType font data
-│   │   ├── FontAtlas.hpp/.cpp         # FreeType 2 alpha & SDF rasterizer (1024x1024 RGBA8 atlas)
-│   │   ├── TextShaper.hpp/.cpp        # HarfBuzz Unicode text shaper & multi-line layout engine
-│   │   └── TextRenderer.hpp/.cpp      # WebGPU 2D batched quad renderer with alpha blending
+│   │   ├── FontAtlas.hpp/.cpp         # FreeType 2 alpha/SDF rasterizer & Unicode fallback face atlas
+│   │   ├── FontLibrary.hpp/.cpp       # Cross-platform OS/asset font discovery & smart query resolver
+│   │   ├── TextShaper.hpp/.cpp        # HarfBuzz Unicode shaper, layout measurement & word wrapping
+│   │   └── TextRenderer.hpp/.cpp      # WebGPU 2D batched quad/aligned text renderer with atlas sync
 │   ├── ui/                            # -> libbgl_ui.so
 │   │   ├── DebugOverlay.hpp/.cpp      # In-engine glassmorphism HUD telemetry overlay
-│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching, PMR arena & window layout state
-│   │   ├── ImmediateUIGpu.cpp         # WebGPU shader/pipeline/buffer management & single-batch submission
-│   │   ├── ImmediateUIOverlays.cpp    # Dropdowns, scroll areas, loading banners, popup overlays & UI facade
-│   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets (Buttons, Sliders, HSV ColorEdit3, Sparklines)
+│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching, PMR arena, multi-font slots & hover animation
+│   │   ├── ImmediateUIGpu.cpp         # WebGPU shader/pipeline/bind-group switching & batched submission
+│   │   ├── ImmediateUIModals.cpp      # Frosted-glass MessageBox, LoadingScreen, LoadingBanner & FloatingBadge
+│   │   ├── ImmediateUIOverlays.cpp    # Dropdowns, scroll areas, progress bars, popups & UI facade
+│   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets with optional animated hover effects
 │   │   └── shaders/ui.wgsl            # Analytical 2D SDF, Gaussian shadow & frosted glass UI shader
 │   ├── audio/                         # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp       # 3D spatial audio listener and sound source management
@@ -313,7 +329,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   └── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
-├── tests/                             # C++ GTest (276 tests across 32 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (284 tests across 38 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
@@ -651,7 +667,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **276 C++ GTests across 32 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
+The engine includes an extensive, production-grade test suite with **284 C++ GTests across 38 test suites**, a static module layering check (`LayeringCheck`), a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **73 Web unit tests** and headless WebGPU/browser E2E suites (`6/6` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
@@ -673,7 +689,8 @@ The engine includes an extensive, production-grade test suite with **276 C++ GTe
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & glassmorphic shader features, HSV roundtrips, Slider/CollapsingHeader/Sparkline/ScrollArea/Window drag, `ColorEdit3` popup HSV manipulation, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared primitive instancing verification. |
 | `ShaderManagerTest` | 4 | WGSL `#include` expansion & `#pragma once`, circular/missing include error detection, embedded entry-point verification, and hot-reload change detection. |
-| Public SDK & Engine Suites | 17 | `InputState` (7), `EntityOps` (5), `RenderSettings` (2), `EnginePublicApi` (1), `EntityHandle` (1), `GuiPublicApi` (1), plus `ApplicationModelLoader` presets. |
+| Public SDK & Engine Suites | 18 | `InputState` (7), `EntityOps` (5), `RenderSettings` (2), `GuiPublicApi` (2), `EnginePublicApi` (1), `EntityHandle` (1), plus `ApplicationModelLoader` presets. |
+| UI Modal, Hover & Font Suites | 7 | `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, and `ImmediateUIModalAndLoadingTest` (2). |
 | Single-Test Targeted Suites | 8 | `GamepadTest` (1), `ImmediateUITest` (1), `ImmediateUiSafetyTest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), `ShaderManagerSecurityTest` (1), and `TextureDecoderHdrTest` (1). |
 
 ---
@@ -682,7 +699,7 @@ The engine includes an extensive, production-grade test suite with **276 C++ GTe
 
 See [**CHANGELOG.md**](CHANGELOG.md) for the complete version history from `v0.6.0` through **`v1.0.0`** and ongoing `Unreleased` developments:
 
-- **[Unreleased](CHANGELOG.md#unreleased)**: SDF Custom UI Studio, scrollable 19-model glTF dropdown with async background loading & frosted progress banner, half-res GTAO + bilateral blur, 5-mip Jimenez Bloom, GPU Auto-Exposure, Hi-Z SSR, Bokeh DoF, Sun God Rays, Chromatic Aberration, 5 Color Grading presets, FXAA 3.11, 3D selection outlines, extended KHR PBR (`iridescence`, `anisotropy`, SSS, 5-mip frosted refraction), modular source split (`CMakeLists.txt`), and online GitHub Pages Doxygen API documentation (`Doxyfile`).
+- **[Unreleased](CHANGELOG.md#unreleased)**: Simplified & expanded `bgl::gui` API (`Section`, `Dropdown`, `ColorPicker`, `Progress`, `Sparkline`, `Badge`), optional animated hover effects & frosted-glass `Tooltip` across all widgets, queued/immediate frosted-glass `MessageBox` & `LoadingScreen`, cross-platform `FontLibrary` OS font discovery & multi-font slots, SDF Custom UI Studio, scrollable 19-model glTF dropdown with async background loading & frosted progress banner, half-res GTAO + bilateral blur, 5-mip Jimenez Bloom, GPU Auto-Exposure, Hi-Z SSR, Bokeh DoF, Sun God Rays, Chromatic Aberration, 5 Color Grading presets, FXAA 3.11, 3D selection outlines, extended KHR PBR (`iridescence`, `anisotropy`, SSS, 5-mip frosted refraction), modular source split (`CMakeLists.txt`), and online GitHub Pages Doxygen API documentation (`Doxyfile`).
 - **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Official 1.0 production release — complete RAII `Handle<>` WebGPU resource lifecycle across all GPU passes, decomposed `FastGltfLoader` / `PipelineManager` / `Application` subsystems, consolidated swapchain and attachment helpers, zero compiler or `clang-tidy` warnings, and verified cross-compiler/sanitizer/browser E2E parity.
 - **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular external `.wgsl` shader pipeline with `#include`/`#pragma once` and live hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and upgraded Conan 2 dependencies.
 - **[0.7.0](CHANGELOG.md#070---2026-10-22)**: Bump & Normal Mapping (`[V]`), Vector-Renormalized Mipmapping (`[L]`), 2048×2048 3×3 PCF Directional Shadow Mapping (`[M]`), 6-Face Roughness Environment Cubemap Reflections (`[R]`), C++23 `{}` uniform initialization, `std::span` APIs, and multithreaded CPU mip/cubemap/tangent generation.

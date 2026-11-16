@@ -95,6 +95,22 @@ public:
                   float scale = 1.0f);
 
     /**
+     * @brief Enqueues horizontally aligned text (`alignX`: 0.0 = left, 0.5 = center, 1.0 = right).
+     */
+    void DrawTextAligned(std::string_view text, float x, float y, float alignX = 0.0f,
+                         const glm::vec4& color = glm::vec4{1.0f}, float scale = 1.0f);
+
+    /**
+     * @brief Measures rendered pixel dimensions (`width`, `height`) of `text` using the bound FontAtlas.
+     */
+    [[nodiscard]] glm::vec2 MeasureText(std::string_view text, float scale = 1.0f) const;
+
+    /**
+     * @brief Switches the bound FontAtlas and refreshes GPU bind group state when initialized.
+     */
+    void SetFontAtlas(FontAtlas& fontAtlas);
+
+    /**
      * @brief Flushes batched quads and renders them in the current render pass encoder.
      * @param pass Active render pass encoder targeting the presentation surface.
      * @param viewportWidth Target surface width in pixels.
@@ -103,8 +119,10 @@ public:
     void Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, uint32_t viewportHeight);
 
     [[nodiscard]] FontAtlas& GetFontAtlas() noexcept { return *fontAtlas_; }
+    [[nodiscard]] size_t GetQueuedVertexCount() const noexcept { return vertexBatch_.size(); }
 
 private:
+    void RebuildBindGroup();
     void EnsureBuffers(size_t vertexCount, size_t indexCount);
 
     WGPUDevice device_{nullptr};
@@ -112,6 +130,7 @@ private:
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
     uint32_t sampleCount_{4};
     FontAtlas* fontAtlas_{nullptr};
+    uint64_t boundAtlasGeneration_{0};
 
     gpu::BindGroupLayoutHandle bindGroupLayout_{};
     gpu::RenderPipelineHandle pipeline_{};

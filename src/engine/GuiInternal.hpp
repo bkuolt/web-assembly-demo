@@ -14,7 +14,12 @@ class ImmediateUI;
 namespace bgl::engine {
 
 inline thread_local ui::ImmediateUI* g_currentGui{nullptr};
+inline thread_local ui::ImmediateUI* g_registeredEngineGui{nullptr};
 inline thread_local uint32_t g_currentViewportWidth{1280};
+
+[[nodiscard]] inline ui::ImmediateUI* ActiveOrRegisteredGui() noexcept {
+    return g_currentGui ? g_currentGui : g_registeredEngineGui;
+}
 
 } // namespace bgl::engine
 

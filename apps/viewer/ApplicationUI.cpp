@@ -24,7 +24,7 @@ void Application::UpdateSettingsUI() {
 #endif
     const uint32_t vpW = static_cast<uint32_t>(std::max(1, winW));
     const uint32_t vpH = static_cast<uint32_t>(std::max(1, winH));
-    settingsUi_.BeginFrame(uiInput_, vpW, vpH);
+    settingsUi_.BeginFrame(uiInput_, vpW, vpH, lastDeltaTime_);
 
     const bool showLoadingUi = IsLoadingScene() || (loadingBannerTimer_ > 0.0f);
     if (showLoadingUi) {
@@ -322,11 +322,36 @@ void Application::DrawEngineThemeSection() {
     if (bgl::ui::UI::Checkbox("Anisotropic Mipmapping", mipmaps)) {
         ToggleMipmapping();
     }
+    bgl::ui::UI::Tooltip("Filter distant textures with trilinear + anisotropic mipmaps");
     bool shadows = pipelineManager_.IsShadowsEnabled();
     if (bgl::ui::UI::Checkbox("Soft Poisson Shadows", shadows)) {
         ToggleShadows();
     }
+    bgl::ui::UI::Tooltip("Smooth cascaded directional shadows with Poisson disk sampling");
+    bool hoverEffects = settingsUi_.Style().enableHoverEffects;
+    if (bgl::ui::UI::Checkbox("UI Hover Effects", hoverEffects)) {
+        settingsUi_.Style().enableHoverEffects = hoverEffects;
+    }
+    bgl::ui::UI::Tooltip("Toggle animated hover highlights across all UI widgets");
+    static constexpr const char* kFontLabels[]{"Embedded (Mono)", "System Sans", "System Mono", "System Serif"};
+    static constexpr const char* kFontQueries[]{"embedded", "sans", "mono", "serif"};
+    if (bgl::ui::UI::Dropdown("UI Font", kFontLabels, selectedUiFontIdx_)) {
+        settingsUi_.SetDefaultFont(kFontQueries[selectedUiFontIdx_], 24.0f);
+    }
+    bgl::ui::UI::Tooltip("Discover and apply installed OS fonts via FontLibrary");
     bgl::ui::UI::ColorEdit3("UI Accent Color", uiAccentColor_);
+    if (bgl::ui::UI::Button("UI Modal Demo")) {
+        constexpr const std::string_view kModalButtons[]{"Close", "Toggle Hover"};
+        settingsUi_.ShowMessageBox(
+            "viewer_ui_info", "Frosted-Glass Modal",
+            "ImmediateUI supports animated hover highlights, cross-platform font discovery, and frosted-glass modals.",
+            bgl::ui::MessageBoxType::Info, kModalButtons, [this](int btn) {
+                if (btn == 1) {
+                    settingsUi_.Style().enableHoverEffects = !settingsUi_.Style().enableHoverEffects;
+                }
+            });
+    }
+    bgl::ui::UI::Tooltip("Open a sample frosted-glass modal dialog");
 }
 
 } // namespace bgl::app

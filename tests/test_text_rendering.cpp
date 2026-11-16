@@ -427,3 +427,262 @@ TEST(ImmediateUIAdvancedWidgetsTest, ScrollableDropdownAndProgressBarAndLoadingB
     imgui.EndFrame();
     EXPECT_EQ(imgui.GetDrawCommandCount(), 1u);
 }
+
+#include "text/TextRenderer.hpp"
+
+TEST(FontLibraryTest, DiscoverInspectFindAndEmbeddedAliasWork) {
+    bgl::text::FontLibrary::ClearCache();
+    const std::array<std::filesystem::path, 1> extraDirs{"assets/fonts"};
+    const auto catalog = bgl::text::FontLibrary::Discover(extraDirs);
+    ASSERT_FALSE(catalog.empty());
+
+    const auto inspectRes = bgl::text::FontLibrary::InspectFile("assets/fonts/LiberationMono-Regular.ttf");
+    ASSERT_TRUE(inspectRes.has_value()) << inspectRes.error();
+    ASSERT_FALSE(inspectRes->empty());
+    EXPECT_EQ(inspectRes->front().family, "Liberation Mono");
+    EXPECT_TRUE(inspectRes->front().isMonospace);
+    EXPECT_FALSE(inspectRes->front().isEmbedded);
+
+    const auto byPath = bgl::text::FontLibrary::Find("assets/fonts/LiberationMono-Regular.ttf");
+    ASSERT_TRUE(byPath.has_value()) << byPath.error();
+    EXPECT_EQ(byPath->family, "Liberation Mono");
+
+    const auto byFamily = bgl::text::FontLibrary::Find("Liberation Mono");
+    ASSERT_TRUE(byFamily.has_value()) << byFamily.error();
+
+    const auto embedded = bgl::text::FontLibrary::Find("embedded");
+    ASSERT_TRUE(embedded.has_value()) << embedded.error();
+    EXPECT_TRUE(embedded->isEmbedded);
+
+    const auto missing = bgl::text::FontLibrary::Find("NonExistentFontFamily_XYZ_9999");
+    EXPECT_FALSE(missing.has_value());
+
+    bgl::text::FontAtlas queryAtlas;
+    EXPECT_FALSE(
+        queryAtlas.InitializeWithQuery(bgl::text::FontQuery{.nameOrPath = "NonExistentFont_XYZ"}, 20, 512, false, false)
+            .has_value());
+    EXPECT_TRUE(
+        queryAtlas.InitializeWithQuery(bgl::text::FontQuery{.nameOrPath = "NonExistentFont_XYZ"}, 20, 512, false, true)
+            .has_value());
+    EXPECT_FALSE(queryAtlas.GetFamilyName().empty());
+}
+
+TEST(TextShaperTest, MeasureAndWordWrappingProduceValidBounds) {
+    bgl::text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromFile("assets/fonts/LiberationMono-Regular.ttf", 24, 1024, true).has_value());
+
+    EXPECT_FLOAT_EQ(bgl::text::TextShaper::Measure(atlas, "").x, 0.0f);
+    EXPECT_FLOAT_EQ(bgl::text::TextShaper::Measure(atlas, "").y, 0.0f);
+
+    const glm::vec2 singleMeasure = bgl::text::TextShaper::Measure(atlas, "Hello World", 0.75f);
+    const bgl::text::TextLayout shaped =
+        bgl::text::TextShaper::Shape(atlas, "Hello World", 0.0f, 0.0f, glm::vec4{1.0f}, 0.75f);
+    EXPECT_NEAR(singleMeasure.x, shaped.bounds.x, 0.05f);
+    EXPECT_NEAR(singleMeasure.y, shaped.bounds.y, 0.05f);
+
+    const glm::vec2 twoLineMeasure = bgl::text::TextShaper::Measure(atlas, "Line One\nLine Two", 0.75f);
+    EXPECT_GT(twoLineMeasure.y, singleMeasure.y * 1.5f);
+
+    const auto wrapped = bgl::text::TextShaper::WrapText(
+        atlas, "The quick brown fox jumps over the lazy dog\n\nSecond paragraph here.", 110.0f, 0.65f);
+    EXPECT_GE(wrapped.size(), 4u);
+
+    const auto embeddedBytes = bgl::text::GetEmbeddedFontData();
+    EXPECT_TRUE(atlas.AddFallbackFromMemory(embeddedBytes).has_value());
+    EXPECT_TRUE(atlas.AddFallbackFromMemory(embeddedBytes).has_value());
+    EXPECT_TRUE(atlas.AddFallbackFromMemory(embeddedBytes).has_value());
+    EXPECT_TRUE(atlas.AddFallbackFromMemory(embeddedBytes).has_value());
+    EXPECT_FALSE(atlas.AddFallbackFromMemory(embeddedBytes).has_value());
+}
+
+TEST(TextRendererTest, MeasureTextAndAlignedDrawWithoutGpu) {
+    bgl::text::TextRenderer renderer;
+    EXPECT_FLOAT_EQ(renderer.MeasureText("Hello").x, 0.0f);
+    renderer.DrawTextAligned("SafeNoAtlas", 50.0f, 25.0f, 0.5f);
+    EXPECT_EQ(renderer.GetQueuedVertexCount(), 0u);
+
+    bgl::text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(bgl::text::GetEmbeddedFontData(), 24, 512, false).has_value());
+    renderer.SetFontAtlas(atlas);
+    const glm::vec2 sz = renderer.MeasureText("Hello Engine");
+    EXPECT_GT(sz.x, 10.0f);
+    EXPECT_GT(sz.y, 10.0f);
+
+    renderer.DrawTextAligned("Centered", 100.0f, 50.0f, 0.5f);
+    EXPECT_GT(renderer.GetQueuedVertexCount(), 0u);
+    renderer.Shutdown();
+    EXPECT_EQ(renderer.GetQueuedVertexCount(), 0u);
+}
+
+TEST(ImmediateUIHoverAndTooltipTest, OptionalHoverEffectsTooltipsAndSparklineCrosshair) {
+    bgl::ui::ImmediateUI ui;
+    ui.Style().enableHoverEffects = true;
+
+    const std::array<float, 5> samples{10.0f, 20.0f, 15.0f, 30.0f, 25.0f};
+
+    // Frame 1: hovered button with hover effects enabled & tooltip queued
+    bgl::ui::UiInputState hoverInput{};
+    hoverInput.mouseX = 100.0f;
+    hoverInput.mouseY = 82.0f;
+    ui.BeginFrame(hoverInput, 800, 600, 0.05f);
+    ui.BeginWindow("HoverWin", 10.0f, 10.0f, 260.0f);
+    ui.Label("Static Info");
+    ui.Separator();
+    EXPECT_FALSE(ui.Button("ActionBtn"));
+    EXPECT_TRUE(ui.IsItemHovered());
+    ui.Tooltip("Helpful button description");
+    ui.ProgressBar(0.45f, "Progress");
+    ui.Sparkline("FPS", samples, 0.0f, 40.0f, 40.0f);
+    ui.EndWindow();
+    ui.EndFrame();
+    const size_t hoveredVerts = ui.GetVertexCount();
+
+    // Hovering over the sparkline directly activates crosshair indicator vertices
+    bgl::ui::ImmediateUI uiSparkHover;
+    uiSparkHover.Style().enableHoverEffects = true;
+    const size_t sparkNoHoverVerts = [&]() {
+        bgl::ui::UiInputState in{};
+        uiSparkHover.BeginFrame(in, 800, 600, 0.1f);
+        uiSparkHover.BeginWindow("SparkWin", 10.0f, 10.0f, 260.0f);
+        uiSparkHover.Sparkline("FPS", samples, 0.0f, 40.0f, 40.0f);
+        uiSparkHover.EndWindow();
+        uiSparkHover.EndFrame();
+        return uiSparkHover.GetVertexCount();
+    }();
+    bgl::ui::UiInputState sparkIn{};
+    sparkIn.mouseX = 120.0f;
+    sparkIn.mouseY = 72.0f;
+    uiSparkHover.BeginFrame(sparkIn, 800, 600, 0.1f);
+    uiSparkHover.BeginWindow("SparkWin", 10.0f, 10.0f, 260.0f);
+    uiSparkHover.Sparkline("FPS", samples, 0.0f, 40.0f, 40.0f);
+    EXPECT_TRUE(uiSparkHover.IsItemHovered());
+    uiSparkHover.EndWindow();
+    uiSparkHover.EndFrame();
+    EXPECT_GT(uiSparkHover.GetVertexCount(), sparkNoHoverVerts);
+
+    // PushHoverEnabled(false) suppresses hover glow without suppressing hover detection
+    bgl::ui::ImmediateUI uiSuppressed;
+    uiSuppressed.Style().enableHoverEffects = true;
+    uiSuppressed.BeginFrame(hoverInput, 800, 600, 0.05f);
+    uiSuppressed.BeginWindow("HoverWin", 10.0f, 10.0f, 260.0f);
+    uiSuppressed.PushHoverEnabled(false);
+    EXPECT_FALSE(uiSuppressed.AreHoverEffectsEnabled());
+    uiSuppressed.Label("Static Info");
+    uiSuppressed.Separator();
+    EXPECT_FALSE(uiSuppressed.Button("ActionBtn"));
+    EXPECT_TRUE(uiSuppressed.IsItemHovered());
+    uiSuppressed.ProgressBar(0.45f, "Progress");
+    uiSuppressed.Sparkline("FPS", samples, 0.0f, 40.0f, 40.0f);
+    uiSuppressed.PopHoverEnabled();
+    EXPECT_TRUE(uiSuppressed.AreHoverEffectsEnabled());
+    uiSuppressed.EndWindow();
+    uiSuppressed.EndFrame();
+    EXPECT_LT(uiSuppressed.GetVertexCount(), hoveredVerts);
+}
+
+TEST(ImmediateUIMultiFontTest, LoadAndSwitchFontsSplitsDrawBatches) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+    EXPECT_TRUE(ui.LoadFont("mono18", "assets/fonts/LiberationMono-Regular.ttf", 18.0f).has_value());
+    EXPECT_FALSE(ui.LoadFont("missing", "NonExistentFont_XYZ_404", 20.0f).has_value());
+
+    bgl::ui::UiInputState in{};
+    ui.BeginFrame(in, 800, 600, 0.016f);
+    ui.BeginWindow("FontTest", 10.0f, 10.0f, 260.0f);
+    EXPECT_EQ(ui.GetActiveFontName(), "default");
+    ui.Label("Default Line");
+    EXPECT_TRUE(ui.PushFont("mono18"));
+    EXPECT_EQ(ui.GetActiveFontName(), "mono18");
+    ui.Label("Secondary Font Line");
+    ui.PopFont();
+    EXPECT_EQ(ui.GetActiveFontName(), "default");
+    EXPECT_FALSE(ui.PushFont("unknown_slot"));
+    ui.Label("Back To Default");
+    ui.EndWindow();
+    ui.EndFrame();
+
+    EXPECT_GE(ui.GetDrawCommandCount(), 3u);
+    EXPECT_GT(ui.GetVertexCount(), 0u);
+}
+
+TEST(ImmediateUIModalAndLoadingTest, QueuedModalBlocksBackgroundAndInvokesCallback) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+
+    int resultBtn = -1;
+    constexpr std::array<std::string_view, 2> kButtons{"Cancel", "OK"};
+    ui.ShowMessageBox("confirm_modal", "Confirm Action", "Apply setting changes?", bgl::ui::MessageBoxType::Confirm,
+                      kButtons, [&resultBtn](int idx) { resultBtn = idx; });
+    EXPECT_TRUE(ui.HasOpenModal());
+
+    // Frame 1: click directly on background button behind modal -> blocked
+    bgl::ui::UiInputState bgClick{};
+    bgClick.mouseX = 100.0f;
+    bgClick.mouseY = 54.0f;
+    bgClick.mouseReleased = true;
+    bool bgPressed = false;
+    ui.BeginFrame(bgClick, 800, 600, 0.016f);
+    ui.BeginWindow("BackgroundWin", 10.0f, 10.0f, 260.0f);
+    if (ui.Button("BgButton")) {
+        bgPressed = true;
+    }
+    ui.EndWindow();
+    ui.EndFrame();
+    EXPECT_FALSE(bgPressed);
+    EXPECT_TRUE(ui.WantsMouse());
+    EXPECT_TRUE(ui.HasOpenModal());
+
+    // Compute exact "OK" button location from lastItemRect_ (cardRect)
+    const bgl::ui::UiRect card = ui.GetLastItemRect();
+    const float okX = card.x + card.w - 18.0f - 64.0f;
+    const float okY = card.y + card.h - 18.0f - 13.0f + 2.0f;
+
+    bgl::ui::UiInputState modalPress{};
+    modalPress.mouseX = okX;
+    modalPress.mouseY = okY;
+    modalPress.mouseDown = true;
+    ui.BeginFrame(modalPress, 800, 600, 0.016f);
+    ui.EndFrame();
+
+    bgl::ui::UiInputState modalRelease{};
+    modalRelease.mouseX = okX;
+    modalRelease.mouseY = okY;
+    modalRelease.mouseReleased = true;
+    ui.BeginFrame(modalRelease, 800, 600, 0.016f);
+    ui.EndFrame();
+
+    EXPECT_EQ(resultBtn, 1);
+    EXPECT_FALSE(ui.HasOpenModal());
+}
+
+TEST(ImmediateUIModalAndLoadingTest, LoadingScreenImmediateCancelAndPersistentStateWork) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+
+    ui.ShowLoadingScreen("Loading World", -1.0f, "Streaming shaders...");
+    EXPECT_TRUE(ui.HasOpenModal());
+    ui.BeginFrame(bgl::ui::UiInputState{}, 800, 600, 0.1f);
+    ui.EndFrame();
+    EXPECT_TRUE(ui.WantsMouse());
+    EXPECT_GT(ui.GetVertexCount(), 0u);
+    ui.HideLoadingScreen();
+    EXPECT_FALSE(ui.HasOpenModal());
+
+    // Immediate cancellable loading screen: click Cancel button
+    // Viewport 800x600 with 1 status line -> cardH=142, cardY=229, Cancel center (400, 343)
+    bgl::ui::UiInputState pressIn{};
+    pressIn.mouseX = 400.0f;
+    pressIn.mouseY = 343.0f;
+    pressIn.mouseDown = true;
+    ui.BeginFrame(pressIn, 800, 600, 0.016f);
+    EXPECT_FALSE(ui.DrawLoadingScreen("Downloading Asset", 0.5f, "Mesh data...", false, true));
+    ui.EndFrame();
+
+    bgl::ui::UiInputState releaseIn{};
+    releaseIn.mouseX = 400.0f;
+    releaseIn.mouseY = 343.0f;
+    releaseIn.mouseReleased = true;
+    ui.BeginFrame(releaseIn, 800, 600, 0.016f);
+    EXPECT_TRUE(ui.DrawLoadingScreen("Downloading Asset", 0.5f, "Mesh data...", false, true));
+    ui.EndFrame();
+}

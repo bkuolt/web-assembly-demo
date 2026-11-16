@@ -312,6 +312,7 @@ add_library(bgl::scene ALIAS bgl_scene)
 add_library(bgl_text ${BGL_LIB_TYPE}
     src/text/EmbeddedFont.cpp
     src/text/FontAtlas.cpp
+    src/text/FontLibrary.cpp
     src/text/TextShaper.cpp
     src/text/TextRenderer.cpp
 )
@@ -330,6 +331,7 @@ add_library(bgl_ui ${BGL_LIB_TYPE}
     src/ui/DebugOverlay.cpp
     src/ui/ImmediateUI.cpp
     src/ui/ImmediateUIGpu.cpp
+    src/ui/ImmediateUIModals.cpp
     src/ui/ImmediateUIOverlays.cpp
     src/ui/ImmediateUIWidgets.cpp
 )

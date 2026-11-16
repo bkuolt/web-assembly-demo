@@ -1,10 +1,11 @@
 /**
  * @file ImmediateUIOverlays.cpp
- * @brief Dropdowns, scroll areas, progress/loading banners, deferred popups, and bgl::ui::UI facade.
+ * @brief Dropdowns, scroll areas, progress bars, deferred popups, and bgl::ui::UI facade.
  */
 #include "ui/ImmediateUI.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace bgl::ui {
 
@@ -17,6 +18,40 @@ thread_local ImmediateUI* g_activeUiContext = nullptr;
 }
 
 } // namespace
+
+void ImmediateUI::EmitProgressTrack(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs,
+                                    const UiRect& trackRect, float fraction, const glm::vec4& accentColor, float alpha,
+                                    float hoverMix) const {
+    const float radius = std::min(style_.widgetRadius, trackRect.h * 0.5f);
+    const glm::vec4 trackFill = WithAlpha(style_.sliderTrack, style_.sliderTrack.a * alpha);
+    const glm::vec4 trackBorder =
+        WithAlpha(glm::mix(style_.windowBorder, style_.accent, hoverMix), (0.68f + 0.25f * hoverMix) * alpha);
+    EmitRoundedBox(verts, idxs, trackRect.x, trackRect.y, trackRect.w, trackRect.h, radius, trackFill, trackBorder,
+                   1.0f + 0.35f * hoverMix, false);
+
+    if (fraction < 0.0f) {
+        // Animated smooth indeterminate pill sweeping cleanly across track
+        const float cycle = std::fmod(timeSec_ * 0.85f, 1.0f);
+        const float travel = 0.5f - 0.5f * std::cos(cycle * 6.2831853f);
+        const float segW = std::max(trackRect.h * 1.4f, trackRect.w * 0.28f);
+        const float segX = trackRect.x + travel * std::max(0.0f, trackRect.w - segW);
+        EmitRoundedBox(verts, idxs, segX, trackRect.y, segW, trackRect.h, radius, accentColor, glm::vec4{0.0f}, 0.0f,
+                       false);
+        return;
+    }
+
+    const float clamped = std::clamp(fraction, 0.0f, 1.0f);
+    if (clamped > 0.002f) {
+        const float fillW = std::max(std::min(trackRect.w, trackRect.h * 0.7f), trackRect.w * clamped);
+        EmitRoundedBox(verts, idxs, trackRect.x, trackRect.y, fillW, trackRect.h, radius, accentColor, glm::vec4{0.0f},
+                       0.0f, false);
+        if (fillW > 10.0f && trackRect.h >= 10.0f) {
+            EmitRoundedBox(verts, idxs, trackRect.x + 2.0f, trackRect.y + 1.5f, fillW - 4.0f, 3.0f, 1.5f,
+                           glm::vec4{1.0f, 1.0f, 1.0f, (0.22f + 0.14f * hoverMix) * alpha}, glm::vec4{0.0f}, 0.0f,
+                           false);
+        }
+    }
+}
 
 bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> options, size_t& selectedIndex) {
     if (options.empty()) {
@@ -34,7 +69,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
 
     const UiRect anchorRect{cursorX_, cursorY_, contentWidth_, style_.rowHeight};
     const bool isOpen = (openDropdownId_ == id);
-    const bool hoveredAnchor = IsMouseInClipArea() && anchorRect.Contains(input_.mouseX, input_.mouseY);
+    const HoverEval anchorHover = EvalHover(id, anchorRect);
 
     bool selectionChanged = false;
 
@@ -61,7 +96,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
     const float maxScroll = std::max(0.0f, rawPopupH - popupH);
 
     bool interactedScrollbar = false;
-    if (isOpen) {
+    if (isOpen && !HasOpenModal()) {
         hitRects_.push_back(popupRect);
         if (scrollable && popupRect.Contains(input_.mouseX, input_.mouseY) && std::abs(input_.wheelDelta) > 1e-4f) {
             scrollOffset -= input_.wheelDelta * (itemH * 2.2f);
@@ -98,7 +133,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
                 openDropdownId_ = 0;
                 dropdownToggledThisFrame_ = true;
                 popupConsumedInputThisFrame_ = true;
-            } else if (!hoveredAnchor && !popupRect.Contains(input_.mouseX, input_.mouseY)) {
+            } else if (!anchorHover.hovered && !popupRect.Contains(input_.mouseX, input_.mouseY)) {
                 openDropdownId_ = 0;
                 dropdownToggledThisFrame_ = true;
                 popupConsumedInputThisFrame_ = true;
@@ -106,7 +141,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
         }
     }
 
-    if (hoveredAnchor && input_.mouseReleased && !dropdownToggledThisFrame_ && activeDragWindowId_ == 0) {
+    if (anchorHover.hovered && input_.mouseReleased && !dropdownToggledThisFrame_ && activeDragWindowId_ == 0) {
         openDropdownId_ = isOpen ? 0 : id;
         openColorId_ = 0;
         dropdownToggledThisFrame_ = true;
@@ -117,17 +152,17 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
     }
 
     const bool nowOpen = (openDropdownId_ == id);
-    const glm::vec4 fill = (hoveredAnchor || nowOpen) ? style_.widgetHover : style_.widgetBg;
-    const glm::vec4 border = nowOpen ? style_.accent : style_.windowBorder;
+    const glm::vec4 fill = glm::mix(style_.widgetBg, style_.widgetHover, nowOpen ? 1.0f : anchorHover.mix);
+    const glm::vec4 border = glm::mix(style_.windowBorder, style_.accent, nowOpen ? 1.0f : anchorHover.mix);
     EmitRoundedBox(vertices_, indices_, anchorRect.x, anchorRect.y, anchorRect.w, anchorRect.h, style_.widgetRadius,
-                   fill, border, 1.0f, false);
+                   fill, border, 1.0f + 0.25f * (nowOpen ? 1.0f : anchorHover.mix), false);
 
     const std::string_view currentRaw = options[selectedIndex] ? std::string_view{options[selectedIndex]} : "";
     const std::string currentText = EllipsizeText(currentRaw, std::max(24.0f, anchorRect.w - 30.0f), style_.textScale);
     EmitText(vertices_, indices_, currentText, anchorRect.x + 8.0f, anchorRect.y + 4.0f, style_.textPrimary,
              style_.textScale);
     EmitText(vertices_, indices_, nowOpen ? "^" : "v", anchorRect.x + anchorRect.w - 18.0f, anchorRect.y + 4.0f,
-             style_.textMuted, style_.textScale * 0.85f);
+             glm::mix(style_.textMuted, style_.accent, nowOpen ? 1.0f : anchorHover.mix), style_.textScale * 0.85f);
 
     if (nowOpen) {
         hasPendingOverlay_ = true;
@@ -145,7 +180,8 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
         hasActivePopupRect_ = false;
     }
 
-    hitRects_.push_back(anchorRect);
+    lastItemRect_ = anchorRect;
+    lastItemHovered_ = anchorHover.hovered;
     cursorY_ += style_.rowHeight + style_.itemSpacing;
     return selectionChanged;
 }
@@ -158,101 +194,23 @@ void ImmediateUI::ProgressBar(float fraction, std::string_view statusText, float
     }
 
     const float barH = std::max(14.0f, height);
-    const float radius = std::min(style_.widgetRadius, barH * 0.5f);
     const UiRect trackRect{cursorX_, cursorY_, contentWidth_, barH};
-    EmitRoundedBox(vertices_, indices_, trackRect.x, trackRect.y, trackRect.w, trackRect.h, radius, style_.sliderTrack,
-                   WithAlpha(style_.windowBorder, 0.72f), 1.0f, false);
-
-    const float clamped = std::clamp(fraction, 0.0f, 1.0f);
+    const HoverEval hv = EvalHover(HashId(statusText.empty() ? "ProgressBar" : statusText), trackRect);
     const glm::vec4 barColor = (fillColor.a > 0.001f) ? fillColor : style_.accent;
-    if (clamped > 0.002f) {
-        const float fillW = std::max(std::min(trackRect.w, barH * 0.7f), trackRect.w * clamped);
-        EmitRoundedBox(vertices_, indices_, trackRect.x, trackRect.y, fillW, trackRect.h, radius, barColor,
-                       glm::vec4{0.0f}, 0.0f, false);
-        if (fillW > 10.0f && barH >= 12.0f) {
-            EmitRoundedBox(vertices_, indices_, trackRect.x + 2.0f, trackRect.y + 1.5f, fillW - 4.0f, 3.0f, 1.5f,
-                           glm::vec4{1.0f, 1.0f, 1.0f, 0.22f}, glm::vec4{0.0f}, 0.0f, false);
-        }
+
+    EmitProgressTrack(vertices_, indices_, trackRect, fraction, barColor, 1.0f, hv.mix);
+
+    if (fraction >= 0.0f) {
+        char pctBuf[16]{};
+        const int pct = static_cast<int>(std::lround(std::clamp(fraction, 0.0f, 1.0f) * 100.0f));
+        std::snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
+        const float pctScale = style_.textScale * 0.82f;
+        const float pctW = MeasureTextWidth(pctBuf, pctScale);
+        EmitText(vertices_, indices_, pctBuf, trackRect.x + (trackRect.w - pctW) * 0.5f,
+                 trackRect.y + (barH - 14.0f) * 0.5f, style_.textPrimary, pctScale);
     }
 
-    char pctBuf[16]{};
-    const int pct = static_cast<int>(std::lround(clamped * 100.0f));
-    std::snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
-    const float pctScale = style_.textScale * 0.82f;
-    const float pctW = MeasureTextWidth(pctBuf, pctScale);
-    EmitText(vertices_, indices_, pctBuf, trackRect.x + (trackRect.w - pctW) * 0.5f,
-             trackRect.y + (barH - 14.0f) * 0.5f, style_.textPrimary, pctScale);
-
-    hitRects_.push_back(trackRect);
     cursorY_ += barH + style_.itemSpacing;
-}
-
-void ImmediateUI::DrawLoadingBanner(std::string_view title, float fraction, std::string_view detailText, bool isError,
-                                    float alphaMultiplier) {
-    const float alpha = std::clamp(alphaMultiplier, 0.0f, 1.0f);
-    if (alpha <= 0.01f) {
-        return;
-    }
-
-    const float vpW = static_cast<float>(viewportWidth_);
-    const float vpH = static_cast<float>(viewportHeight_);
-    const float cardW = std::clamp(vpW - 36.0f, 240.0f, 440.0f);
-    const float cardH = 68.0f;
-    const float cardX = (vpW - cardW) * 0.5f;
-    const float cardY = std::max(12.0f, vpH - cardH - 22.0f);
-
-    const float clamped = std::clamp(fraction, 0.0f, 1.0f);
-    glm::vec4 barAccent = style_.accent;
-    if (isError) {
-        barAccent = glm::vec4{0.92f, 0.28f, 0.34f, 1.0f};
-    } else if (clamped >= 0.999f) {
-        barAccent = glm::vec4{0.22f, 0.82f, 0.52f, 1.0f};
-    }
-    barAccent.a *= alpha;
-
-    const glm::vec4 bg = WithAlpha(style_.popupBg, style_.popupBg.a * alpha);
-    const glm::vec4 shadow = WithAlpha(style_.shadowColor, style_.shadowColor.a * alpha);
-    const glm::vec4 primaryText = WithAlpha(style_.textPrimary, style_.textPrimary.a * alpha);
-    const glm::vec4 mutedText = WithAlpha(style_.textMuted, style_.textMuted.a * alpha);
-    const glm::vec4 trackFill = WithAlpha(style_.sliderTrack, style_.sliderTrack.a * alpha);
-
-    EmitShadowBox(overlayVertices_, overlayIndices_, cardX, cardY + 3.0f, cardW, cardH, style_.cornerRadius, 12.0f,
-                  shadow);
-    EmitRoundedBox(overlayVertices_, overlayIndices_, cardX, cardY, cardW, cardH, style_.cornerRadius, bg, barAccent,
-                   1.15f, true);
-
-    const std::string titleClipped = EllipsizeText(title, cardW - 76.0f, style_.textScale);
-    EmitText(overlayVertices_, overlayIndices_, titleClipped, cardX + 14.0f, cardY + 9.0f, primaryText,
-             style_.textScale);
-
-    char rightBuf[24]{};
-    if (isError) {
-        std::snprintf(rightBuf, sizeof(rightBuf), "Error");
-    } else {
-        std::snprintf(rightBuf, sizeof(rightBuf), "%d%%", static_cast<int>(std::lround(clamped * 100.0f)));
-    }
-    const float rightScale = style_.textScale * 0.92f;
-    const float rightW = MeasureTextWidth(rightBuf, rightScale);
-    EmitText(overlayVertices_, overlayIndices_, rightBuf, cardX + cardW - 14.0f - rightW, cardY + 9.0f, barAccent,
-             rightScale);
-
-    const float barX = cardX + 14.0f;
-    const float barY = cardY + 31.0f;
-    const float barW = cardW - 28.0f;
-    const float barH = 10.0f;
-    EmitRoundedBox(overlayVertices_, overlayIndices_, barX, barY, barW, barH, 5.0f, trackFill,
-                   WithAlpha(style_.windowBorder, 0.55f * alpha), 1.0f, false);
-    if (clamped > 0.002f) {
-        const float fillW = std::max(std::min(barW, 10.0f), barW * clamped);
-        EmitRoundedBox(overlayVertices_, overlayIndices_, barX, barY, fillW, barH, 5.0f, barAccent, glm::vec4{0.0f},
-                       0.0f, false);
-    }
-
-    if (!detailText.empty()) {
-        const float detailScale = style_.textScale * 0.84f;
-        const std::string detailClipped = EllipsizeText(detailText, barW, detailScale);
-        EmitText(overlayVertices_, overlayIndices_, detailClipped, barX, cardY + 46.0f, mutedText, detailScale);
-    }
 }
 
 void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
@@ -262,6 +220,8 @@ void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
     const uint64_t hash = HashId(id);
     const float clampedH = std::max(40.0f, maxHeight);
     scrollRect_ = UiRect{cursorX_, cursorY_, contentWidth_, clampedH};
+
+    const HoverEval areaHover = EvalHover(hash ^ 0x534352ULL, scrollRect_, true, false);
 
     float& scrollOffset = scrollOffsets_[hash];
     const float prevContentH = scrollContentHeights_[hash];
@@ -274,8 +234,8 @@ void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
 
     const UiRect trackRect{scrollRect_.x + scrollRect_.w - 8.0f, scrollRect_.y + 2.0f, 6.0f,
                            std::max(12.0f, clampedH - 4.0f)};
-    if (maxScroll > 1.0f && activeScrollbarId_ == 0 && activeDragWindowId_ == 0 && input_.mousePressed &&
-        trackRect.Contains(input_.mouseX, input_.mouseY)) {
+    if (maxScroll > 1.0f && activeScrollbarId_ == 0 && activeDragWindowId_ == 0 && !IsBlockedByPopup() &&
+        input_.mousePressed && trackRect.Contains(input_.mouseX, input_.mouseY)) {
         activeScrollbarId_ = hash;
     }
     if (activeScrollbarId_ == hash) {
@@ -289,8 +249,9 @@ void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
     }
     scrollOffset = std::clamp(scrollOffset, 0.0f, maxScroll);
 
+    const glm::vec4 boxBorder = glm::mix(WithAlpha(style_.windowBorder, 0.55f), style_.accent, areaHover.mix * 0.7f);
     EmitRoundedBox(vertices_, indices_, scrollRect_.x, scrollRect_.y, scrollRect_.w, scrollRect_.h, style_.widgetRadius,
-                   glm::vec4{0.055f, 0.065f, 0.088f, 0.85f}, WithAlpha(style_.windowBorder, 0.55f), 1.0f, false);
+                   glm::vec4{0.055f, 0.065f, 0.088f, 0.85f}, boxBorder, 1.0f, false);
 
     FlushDrawCommand(false, UiRect{});
 
@@ -333,28 +294,15 @@ void ImmediateUI::EndScrollArea() {
         const float thumbH = std::max(14.0f, trackH * visibleRatio);
         const float scrollFrac = std::clamp(scrollAppliedOffset_ / maxScroll, 0.0f, 1.0f);
         const float thumbY = trackY + scrollFrac * std::max(0.0f, trackH - thumbH);
-        const bool thumbActive = (activeScrollbarId_ == activeScrollId_);
+        const UiRect thumbRect{trackX - 2.0f, thumbY, 8.0f, thumbH};
+        const HoverEval thumbHover = EvalHover(activeScrollId_ ^ 0x54484DULL, thumbRect, true, false);
+        const float thumbMix = (activeScrollbarId_ == activeScrollId_) ? 1.0f : thumbHover.mix;
         EmitRoundedBox(vertices_, indices_, trackX, thumbY, 4.0f, thumbH, 2.0f,
-                       thumbActive ? style_.accent : style_.windowBorder, glm::vec4{0.0f}, 0.0f, false);
+                       glm::mix(style_.windowBorder, style_.accent, thumbMix), glm::vec4{0.0f}, 0.0f, false);
     }
 
     hitRects_.push_back(scrollRect_);
-}
-
-void ImmediateUI::DrawFloatingBadge(float x, float y, std::string_view text, const glm::vec4& accentColor) {
-    if (text.empty()) {
-        return;
-    }
-    const float scale = style_.textScale * 0.85f;
-    const float textW = MeasureTextWidth(text, scale);
-    const float badgeW = std::max(36.0f, textW + 18.0f);
-    const float badgeH = 20.0f;
-    EmitShadowBox(overlayVertices_, overlayIndices_, x, y + 1.5f, badgeW, badgeH, 5.0f, 6.0f, style_.shadowColor);
-    EmitRoundedBox(overlayVertices_, overlayIndices_, x, y, badgeW, badgeH, 5.0f, style_.popupBg, accentColor, 1.25f,
-                   false);
-    EmitRoundedBox(overlayVertices_, overlayIndices_, x + 5.0f, y + 6.0f, 6.0f, 8.0f, 3.0f, accentColor,
-                   glm::vec4{0.0f}, 0.0f, false);
-    EmitText(overlayVertices_, overlayIndices_, text, x + 14.0f, y + 3.0f, style_.textPrimary, scale);
+    lastItemRect_ = scrollRect_;
 }
 
 void ImmediateUI::EmitColorPickerOverlay() {
@@ -362,10 +310,7 @@ void ImmediateUI::EmitColorPickerOverlay() {
         return;
     }
     const auto& cp = pendingColorOverlay_;
-    EmitShadowBox(vertices_, indices_, cp.popupRect.x, cp.popupRect.y + 3.0f, cp.popupRect.w, cp.popupRect.h,
-                  style_.cornerRadius, 12.0f, style_.shadowColor);
-    EmitRoundedBox(vertices_, indices_, cp.popupRect.x, cp.popupRect.y, cp.popupRect.w, cp.popupRect.h,
-                   style_.cornerRadius, style_.popupBg, style_.accent, 1.0f, false);
+    EmitPanelCard(vertices_, indices_, cp.popupRect, style_.cornerRadius, style_.popupBg, style_.accent, false, 1.0f);
 
     EmitQuad(vertices_, indices_, cp.svRect.x, cp.svRect.y, cp.svRect.w, cp.svRect.h, {0.0f, 0.0f}, {1.0f, 1.0f},
              glm::vec4{1.0f}, 5.0f, glm::vec4{cp.hsv.x, 0.0f, 0.0f, 0.0f});
@@ -391,10 +336,7 @@ void ImmediateUI::EmitDropdownOverlay() {
         return;
     }
     const auto& ov = pendingOverlay_;
-    EmitShadowBox(vertices_, indices_, ov.popupRect.x, ov.popupRect.y + 3.0f, ov.popupRect.w, ov.popupRect.h,
-                  style_.widgetRadius, 10.0f, style_.shadowColor);
-    EmitRoundedBox(vertices_, indices_, ov.popupRect.x, ov.popupRect.y, ov.popupRect.w, ov.popupRect.h,
-                   style_.widgetRadius, style_.popupBg, style_.accent, 1.0f, false);
+    EmitPanelCard(vertices_, indices_, ov.popupRect, style_.widgetRadius, style_.popupBg, style_.accent, false, 1.0f);
 
     if (ov.scrollable) {
         FlushDrawCommand(false, UiRect{});
@@ -411,13 +353,17 @@ void ImmediateUI::EmitDropdownOverlay() {
         const UiRect itemRect{ov.popupRect.x + 2.0f, itemY, ov.popupRect.w - itemRightPad,
                               std::max(4.0f, itemH - 2.0f)};
         const bool mouseInsideClip = !ov.scrollable || ov.popupRect.Contains(input_.mouseX, input_.mouseY);
-        const bool itemHovered = mouseInsideClip && itemRect.Contains(input_.mouseX, input_.mouseY);
+        const HoverEval itemHover =
+            EvalHover(ov.id ^ (0x4F5054ULL + static_cast<uint64_t>(i)), itemRect, mouseInsideClip, false, true);
         const bool isSelected = (i == ov.selectedIndex);
 
-        if (itemHovered || isSelected) {
-            const glm::vec4 itemColor = itemHovered ? style_.widgetHover : style_.widgetActive;
+        if (itemHover.mix > 0.01f || isSelected) {
+            const glm::vec4 itemColor = isSelected
+                                            ? glm::mix(style_.widgetActive, style_.widgetHover, itemHover.mix * 0.5f)
+                                            : WithAlpha(style_.widgetHover, style_.widgetHover.a * itemHover.mix);
             EmitRoundedBox(vertices_, indices_, itemRect.x, itemRect.y, itemRect.w, itemRect.h, 3.0f, itemColor,
-                           glm::vec4{0.0f}, 0.0f, false);
+                           itemHover.mix > 0.25f ? WithAlpha(style_.accent, 0.5f * itemHover.mix) : glm::vec4{0.0f},
+                           itemHover.mix > 0.25f ? 1.0f : 0.0f, false);
         }
         const std::string_view rawOpt = ov.options[i] ? std::string_view{ov.options[i]} : "";
         const std::string optText = EllipsizeText(rawOpt, textMaxW, style_.textScale);
@@ -515,6 +461,49 @@ void EndScrollArea() {
     if (g_activeUiContext) {
         g_activeUiContext->EndScrollArea();
     }
+}
+
+void PushHover(bool enabled) {
+    if (g_activeUiContext) {
+        g_activeUiContext->PushHoverEnabled(enabled);
+    }
+}
+
+void PopHover() {
+    if (g_activeUiContext) {
+        g_activeUiContext->PopHoverEnabled();
+    }
+}
+
+bool IsHovered() noexcept {
+    return g_activeUiContext ? g_activeUiContext->IsItemHovered() : false;
+}
+
+void Tooltip(std::string_view text) {
+    if (g_activeUiContext) {
+        g_activeUiContext->Tooltip(text);
+    }
+}
+
+bool PushFont(std::string_view slotName) {
+    return g_activeUiContext ? g_activeUiContext->PushFont(slotName) : false;
+}
+
+void PopFont() {
+    if (g_activeUiContext) {
+        g_activeUiContext->PopFont();
+    }
+}
+
+int MessageBox(std::string_view id, std::string_view title, std::string_view message,
+               std::span<const std::string_view> buttons, MessageBoxType type) {
+    return g_activeUiContext ? g_activeUiContext->MessageBox(id, title, message, buttons, type) : -1;
+}
+
+bool LoadingScreen(std::string_view title, float fraction, std::string_view statusText, bool isError,
+                   bool cancellable) {
+    return g_activeUiContext ? g_activeUiContext->DrawLoadingScreen(title, fraction, statusText, isError, cancellable)
+                             : false;
 }
 
 } // namespace UI

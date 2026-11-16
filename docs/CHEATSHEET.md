@@ -28,6 +28,8 @@ BGL_RUN(MyApp)
 | Change render settings | `GetEngine().Settings().exposure = 1.4f;` / `.bloom = false;` / `.weather = bgl::Weather::Rain;` |
 | Poll keyboard | `if (bgl::Input::IsKeyPressed(bgl::Key::Escape)) Quit();` |
 | Poll mouse | `glm::vec2 delta = bgl::Input::MouseDelta();` |
-| Debug UI slider | `bgl::gui::Begin("Panel"); bgl::gui::Slider("EV", GetEngine().Settings().exposure, 0.2f, 4.0f); bgl::gui::End();` |
+| Debug UI slider & tooltip | `bgl::gui::Begin("Panel"); bgl::gui::Slider("EV", GetEngine().Settings().exposure, 0.2f, 4.0f); bgl::gui::Tooltip("Exposure"); bgl::gui::End();` |
+| Toggle hover & modals | `bgl::gui::SetHoverEffects(true); bgl::gui::ShowMessage("Title", "Hello!"); bgl::gui::ShowLoadingScreen("Loading", 0.5f, "Assets...");` |
+| Load & switch UI fonts | `bgl::gui::SetDefaultFont("sans"); bgl::gui::LoadFont("code", "mono", 20.0f); bgl::gui::PushFont("code"); ... bgl::gui::PopFont();` |
 | Create entity + point light | `auto e = GetEngine().CreateEntity("Lamp"); e.SetPosition({0, 1, 0}); e.AddLight({.intensity = 5.0f});` |
 | Find & reparent glTF node | `if (auto car = GetEngine().FindEntity("ToyCar")) e.SetParent(car);` |

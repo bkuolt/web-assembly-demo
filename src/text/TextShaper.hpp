@@ -1,12 +1,13 @@
 /**
  * @file TextShaper.hpp
- * @brief Unicode text shaping via HarfBuzz and FontAtlas glyph mapping.
+ * @brief Unicode text shaping, measurement, and word wrapping via HarfBuzz and FontAtlas.
  */
 #ifndef BGL_TEXT_TEXTSHAPER_HPP
 #define BGL_TEXT_TEXTSHAPER_HPP
 
 #include "text/FontAtlas.hpp"
 #include <glm/glm.hpp>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -35,7 +36,7 @@ struct TextLayout {
 
 /**
  * @class TextShaper
- * @brief High-level Unicode text shaper orchestrating HarfBuzz font shaping and multi-line layouts.
+ * @brief High-level Unicode text shaper orchestrating HarfBuzz shaping, measurement, and word wrapping.
  */
 class TextShaper {
 public:
@@ -54,6 +55,17 @@ public:
      */
     [[nodiscard]] static TextLayout Shape(FontAtlas& fontAtlas, std::string_view text, float startX, float startY,
                                           const glm::vec4& color = glm::vec4(1.0f), float scale = 1.0f);
+
+    /**
+     * @brief Computes layout width and height in pixels without allocating glyph quads.
+     */
+    [[nodiscard]] static glm::vec2 Measure(FontAtlas& fontAtlas, std::string_view text, float scale = 1.0f);
+
+    /**
+     * @brief Wraps multi-line UTF-8 text cleanly to fit within `maxWidth` pixels.
+     */
+    [[nodiscard]] static std::vector<std::string> WrapText(FontAtlas& fontAtlas, std::string_view text, float maxWidth,
+                                                           float scale = 1.0f);
 };
 
 } // namespace bgl::text

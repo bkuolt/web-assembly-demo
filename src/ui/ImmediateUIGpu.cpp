@@ -1,15 +1,13 @@
 /**
  * @file ImmediateUIGpu.cpp
- * @brief WebGPU shader/pipeline/buffer setup, backdrop bind-group management, and single-batch submission for
- * ImmediateUI.
+ * @brief WebGPU shader/pipeline/buffer setup, multi-font bind-group management,
+ *        and batched submission for ImmediateUI.
  */
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
-#include "text/EmbeddedFont.hpp"
 #include "ui/ImmediateUI.hpp"
 #include <algorithm>
 #include <array>
-#include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace bgl::ui {
@@ -163,32 +161,14 @@ core::Result<void> ImmediateUI::Initialize(WGPUDevice device, WGPUQueue queue, W
         return std::unexpected("Cannot initialize ImmediateUI without valid WGPUDevice and WGPUQueue");
     }
 
-    // 1. Initialize FreeType SDF Font Atlas (24px base SDF glyphs for resolution-independent scaling)
-    std::string fontPath;
-    const std::array<std::string_view, 3> searchPaths = {
-        "assets/fonts/LiberationMono-Regular.ttf",
-        "../assets/fonts/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-    };
-    for (const auto path : searchPaths) {
-        if (std::filesystem::exists(path)) {
-            fontPath = std::string(path);
-            break;
+    // 1. Ensure default SDF font atlas is loaded (prefers workspace/system mono, falls back to embedded)
+    EnsureDefaultFontSlot();
+    if (!fontSlots_[0].ready) {
+        if (auto fontRes = LoadFont("default", text::FontQuery{.nameOrPath = "mono"}, 24.0f, true); !fontRes) {
+            Shutdown();
+            return fontRes;
         }
     }
-
-    core::Result<void> fontRes;
-    if (!fontPath.empty()) {
-        fontRes = fontAtlas_.InitializeFromFile(fontPath, 24, 1024, true);
-    } else {
-        fontRes = fontAtlas_.InitializeFromMemory(text::GetEmbeddedFontData(), 24, 1024, true);
-    }
-    if (!fontRes) {
-        Shutdown();
-        return fontRes;
-    }
-    fontAtlas_.SyncGPU(device_, queue_);
-    fontReady_ = true;
 
     // 2. Compile embedded WGSL shader module
     WGPUShaderSourceWGSL wgslDesc = WGPU_SHADER_SOURCE_WGSL_INIT;
@@ -259,7 +239,7 @@ core::Result<void> ImmediateUI::Initialize(WGPUDevice device, WGPUQueue queue, W
         return std::unexpected("Failed to create ImmediateUI pipeline layout");
     }
 
-    // 5. Vertex Layout (pos, uv, color, isSdf, sdfRect, auxColor)
+    // 5. Vertex Layout
     std::array<WGPUVertexAttribute, 6> vertAttrs{};
     vertAttrs[0].format = WGPUVertexFormat_Float32x2;
     vertAttrs[0].offset = offsetof(UiVertex, pos);
@@ -331,7 +311,7 @@ core::Result<void> ImmediateUI::Initialize(WGPUDevice device, WGPUQueue queue, W
         return std::unexpected("Failed to create ImmediateUI WebGPU RenderPipeline");
     }
 
-    // 7. Fallback 1x1 Backdrop Texture, Linear Sampler & Bind Group
+    // 7. Fallback 1x1 Backdrop Texture, Linear Sampler & Bind Groups
     WGPUSamplerDescriptor bsDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     bsDesc.addressModeU = WGPUAddressMode_ClampToEdge;
     bsDesc.addressModeV = WGPUAddressMode_ClampToEdge;
@@ -369,23 +349,36 @@ core::Result<void> ImmediateUI::Initialize(WGPUDevice device, WGPUQueue queue, W
         return std::unexpected("Failed to create ImmediateUI backdrop fallback resources");
     }
 
-    RebuildBindGroup();
-    if (!bindGroup_) {
+    RebuildAllFontBindGroups();
+    if (fontSlots_.empty() || !fontSlots_[0].bindGroup) {
         Shutdown();
         return std::unexpected("Failed to create ImmediateUI bind group");
     }
 
     gpuInitialized_ = true;
-    BGL_LOG_INFO("ImmediateUI initialized (SDF Font Atlas={}x{}, #embed WGSL shader={:.1f} KB)",
-                 fontAtlas_.GetAtlasDimension(), fontAtlas_.GetAtlasDimension(),
+    BGL_LOG_INFO("ImmediateUI initialized (Font='{}', Atlas={}x{}, #embed WGSL shader={:.1f} KB)",
+                 fontSlots_[0].atlas ? fontSlots_[0].atlas->GetFamilyName() : std::string_view{"None"},
+                 fontSlots_[0].atlas ? fontSlots_[0].atlas->GetAtlasDimension() : 0u,
+                 fontSlots_[0].atlas ? fontSlots_[0].atlas->GetAtlasDimension() : 0u,
                  static_cast<double>(kUiShaderWGSL.size()) / 1024.0);
     return {};
 }
 
-void ImmediateUI::RebuildBindGroup() {
-    if (!device_ || !bindGroupLayout_ || !uniformBuffer_ || !backdropSampler_ || !fallbackBackdropView_) {
+void ImmediateUI::SyncFontBindGroup(FontSlot& slot) {
+    if (!device_ || !queue_ || !bindGroupLayout_ || !uniformBuffer_ || !backdropSampler_ || !fallbackBackdropView_ ||
+        !slot.ready || !slot.atlas) {
         return;
     }
+
+    slot.atlas->SyncGPU(device_, queue_);
+    const uint64_t gen = slot.atlas->GetGpuTextureGeneration();
+    if (slot.bindGroup && slot.boundGeneration == gen) {
+        return;
+    }
+    if (!slot.atlas->GetGPUSampler() || !slot.atlas->GetGPUTextureView()) {
+        return;
+    }
+
     WGPUTextureView activeBackdrop = currentBackdropView_ ? currentBackdropView_ : fallbackBackdropView_.Get();
 
     std::array<WGPUBindGroupEntry, 5> bgEntries{};
@@ -397,11 +390,11 @@ void ImmediateUI::RebuildBindGroup() {
 
     bgEntries[1] = WGPU_BIND_GROUP_ENTRY_INIT;
     bgEntries[1].binding = 1;
-    bgEntries[1].sampler = fontAtlas_.GetGPUSampler();
+    bgEntries[1].sampler = slot.atlas->GetGPUSampler();
 
     bgEntries[2] = WGPU_BIND_GROUP_ENTRY_INIT;
     bgEntries[2].binding = 2;
-    bgEntries[2].textureView = fontAtlas_.GetGPUTextureView();
+    bgEntries[2].textureView = slot.atlas->GetGPUTextureView();
 
     bgEntries[3] = WGPU_BIND_GROUP_ENTRY_INIT;
     bgEntries[3].binding = 3;
@@ -415,7 +408,15 @@ void ImmediateUI::RebuildBindGroup() {
     bgDesc.layout = bindGroupLayout_;
     bgDesc.entryCount = bgEntries.size();
     bgDesc.entries = bgEntries.data();
-    bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+    slot.bindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+    slot.boundGeneration = gen;
+}
+
+void ImmediateUI::RebuildAllFontBindGroups() {
+    for (auto& slot : fontSlots_) {
+        slot.boundGeneration = 0;
+        SyncFontBindGroup(slot);
+    }
 }
 
 void ImmediateUI::SetBackdropTextureView(WGPUTextureView view) noexcept {
@@ -424,7 +425,7 @@ void ImmediateUI::SetBackdropTextureView(WGPUTextureView view) noexcept {
     }
     currentBackdropView_ = view;
     if (gpuInitialized_) {
-        RebuildBindGroup();
+        RebuildAllFontBindGroups();
     }
 }
 
@@ -448,7 +449,14 @@ void ImmediateUI::Shutdown() noexcept {
         UI::SetContext(nullptr);
     }
     ReleaseDynamicBuffers();
-    bindGroup_.Reset();
+    for (auto& slot : fontSlots_) {
+        slot.bindGroup.Reset();
+        slot.boundGeneration = 0;
+        if (slot.atlas) {
+            slot.atlas->Shutdown();
+        }
+        slot.ready = false;
+    }
     currentBackdropView_ = nullptr;
     fallbackBackdropView_.Reset();
     fallbackBackdropTexture_.Reset();
@@ -459,9 +467,7 @@ void ImmediateUI::Shutdown() noexcept {
         uniformBuffer_.Reset();
     }
     bindGroupLayout_.Reset();
-    fontAtlas_.Shutdown();
     gpuInitialized_ = false;
-    fontReady_ = false;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -471,25 +477,26 @@ void ImmediateUI::Render(WGPURenderPassEncoder pass, uint32_t framebufferWidth, 
         return;
     }
 
-    if (fontReady_) {
-        fontAtlas_.SyncGPU(device_, queue_);
+    for (auto& slot : fontSlots_) {
+        if (slot.ready) {
+            SyncFontBindGroup(slot);
+        }
     }
 
     EnsureGpuBuffers(vertices_.size(), indices_.size());
     const size_t vBytes = vertices_.size() * sizeof(UiVertex);
     const size_t iBytes = indices_.size() * sizeof(uint32_t);
     const size_t alignedIBytes = (iBytes + 3u) & ~size_t{3u};
-    if (!vertexBuffer_ || !indexBuffer_ || !uniformBuffer_ || !bindGroup_ || !pipeline_ ||
-        vertices_.size() > vertexCapacity_ || indices_.size() > indexCapacity_ || vBytes > vertexBufferBytes_ ||
-        alignedIBytes > indexBufferBytes_) {
+    if (!vertexBuffer_ || !indexBuffer_ || !uniformBuffer_ || !pipeline_ || fontSlots_.empty() ||
+        !fontSlots_[0].bindGroup || vertices_.size() > vertexCapacity_ || indices_.size() > indexCapacity_ ||
+        vBytes > vertexBufferBytes_ || alignedIBytes > indexBufferBytes_) {
         return;
     }
 
-    // Upload uniform projection & SDF parameters
     UiUniformData ubo{};
     ubo.proj =
         glm::ortho(0.0f, static_cast<float>(viewportWidth_), static_cast<float>(viewportHeight_), 0.0f, -1.0f, 1.0f);
-    ubo.sdfParams = glm::vec4{1.25f, 0.5f, currentBackdropView_ ? 1.0f : 0.0f, 0.0f};
+    ubo.sdfParams = glm::vec4{1.25f, 0.5f, currentBackdropView_ ? 1.0f : 0.0f, timeSec_};
     wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
     wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, vertices_.data(), vBytes);
     wgpuQueueWriteBuffer(queue_, indexBuffer_, 0, indices_.data(), alignedIBytes);
@@ -500,16 +507,24 @@ void ImmediateUI::Render(WGPURenderPassEncoder pass, uint32_t framebufferWidth, 
     const float scaleY = static_cast<float>(fbH) / static_cast<float>(std::max(1u, viewportHeight_));
 
     wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
     wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, vBytes);
     wgpuRenderPassEncoderSetIndexBuffer(pass, indexBuffer_, WGPUIndexFormat_Uint32, 0, alignedIBytes);
 
     const bool hasAnyScissor = drawCmds_.size() > 1 || (drawCmds_.size() == 1 && drawCmds_.front().hasScissor);
+    WGPUBindGroup boundBg = nullptr;
 
     for (const auto& cmd : drawCmds_) {
         if (cmd.indexCount == 0) {
             continue;
         }
+        const uint32_t slotIdx =
+            (cmd.fontSlot < fontSlots_.size() && fontSlots_[cmd.fontSlot].bindGroup) ? cmd.fontSlot : 0u;
+        WGPUBindGroup desiredBg = fontSlots_[slotIdx].bindGroup.Get();
+        if (desiredBg != boundBg) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, desiredBg, 0, nullptr);
+            boundBg = desiredBg;
+        }
+
         if (hasAnyScissor) {
             if (cmd.hasScissor) {
                 const uint32_t sx =
