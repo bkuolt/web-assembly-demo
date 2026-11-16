@@ -1,7 +1,7 @@
 /**
  * @file ImmediateUI.cpp
  * @brief Implementation of C++23 Immediate Mode GUI with std::pmr arena, SDF font rendering,
- *        single-draw-call WebGPU batching, and #embed WGSL shader.
+ *        single-draw-call WebGPU batching, and `#embed` WGSL shader.
  */
 #include "ui/ImmediateUI.hpp"
 #include "core/Log.hpp"

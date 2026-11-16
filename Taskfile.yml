@@ -62,6 +62,13 @@ tasks:
     cmds:
       - python3 scripts/package_web.py
 
+  docs:
+    desc: Generate Doxygen + Graphviz HTML API documentation into build/docs/html/
+    cmds:
+      - mkdir -p build/docs
+      - doxygen Doxyfile
+      - echo "Doxygen HTML documentation generated at build/docs/html/index.html"
+
   ci:
     desc: Run complete CI pipeline locally
     cmds:

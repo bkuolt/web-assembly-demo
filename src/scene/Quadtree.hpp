@@ -159,6 +159,7 @@ public:
      * @param cameraPos World-space camera eye position for front-to-back distance sorting.
      * @param viewProj Camera view-projection matrix used to project AABB bounds into NDC screen tiles.
      * @param enableOcclusionCulling Whether conservative Hi-Z tile occlusion testing is active.
+     * @param lodBias Screen-space error multiplier scaling LOD selection distances.
      * @return Vector of visible QuadtreeItems sorted front-to-back.
      */
     [[nodiscard]] std::vector<QuadtreeItem> QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,

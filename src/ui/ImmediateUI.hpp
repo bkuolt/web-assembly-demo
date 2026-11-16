@@ -105,7 +105,7 @@ public:
     ImmediateUI& operator=(const ImmediateUI&) = delete;
 
     /**
-     * @brief Initializes WebGPU pipeline (from #embed WGSL shader) and FreeType SDF font atlas.
+     * @brief Initializes WebGPU pipeline (from `#embed` WGSL shader) and FreeType SDF font atlas.
      */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount = 1);

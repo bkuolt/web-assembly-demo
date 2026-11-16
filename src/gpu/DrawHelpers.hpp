@@ -110,7 +110,7 @@ struct VertexAndInstanceLayoutStorage {
 };
 
 /**
- * @brief Populates Slot 0 (per-vertex core::Vertex, @location 0..5) and Slot 1 (per-instance mat4, @location 6..9).
+ * @brief Populates Slot 0 (per-vertex core::Vertex, `@location` 0..5) and Slot 1 (per-instance mat4, `@location` 6..9).
  */
 inline void FillVertexAndInstanceLayouts(VertexAndInstanceLayoutStorage& storage) noexcept {
     const auto makeAttr = [](WGPUVertexFormat fmt, uint64_t offset, uint32_t location) noexcept {

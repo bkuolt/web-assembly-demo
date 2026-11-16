@@ -131,6 +131,12 @@ public:
      * @param cameraPos World-space camera eye position.
      * @param wireframe Render in wireframe mode if true.
      * @param spatialIndex Optional spatial Quadtree for view frustum and occlusion culling.
+     * @param viewMatrix Camera view matrix used by clustered depth slicing and screen-space effects.
+     * @param projMatrix Camera projection matrix.
+     * @param viewportW Render target width in pixels.
+     * @param viewportH Render target height in pixels.
+     * @param zNear Near clip plane distance.
+     * @param zFar Far clip plane distance.
      */
     void RenderScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
                      const glm::vec3& cameraPos, bool wireframe = false, const scene::Quadtree* spatialIndex = nullptr,

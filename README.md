@@ -1,8 +1,9 @@
 # WebAssembly and WebGPU Demo (bgl-Engine v1.0.0)
 
-# 🎮 **[👉 RUN LIVE DEMO IN BROWSER (Instant GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
+# 🎮 **[👉 RUN LIVE DEMO IN BROWSER (GitHub Pages / GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+[![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-328_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
@@ -12,8 +13,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](assets/sponza_screenshot.png)
 *Crytek Sponza Atrium (`assets/Sponza.glb`, 103 primitives, 69 PBR textures, 262,267 triangles) rendered in real time by **bgl-Engine v1.0.0** with Cook-Torrance GGX PBR, 16× Anisotropic Mipmapping, MikkTSpace Normal & Bump Mapping, Parallax Occlusion Mapping (POM), and Multi-Level Mesh & Shader LOD (`LOD0`–`LOD3`).*
 
-> **🚀 Live Web Application (Run Directly in Browser):**
+> **🚀 Live Web Application & Online Documentation (GitHub):**
+> - **GitHub Pages Web App:** [https://bkuolt.github.io/web-assembly-demo/](https://bkuolt.github.io/web-assembly-demo/)
 > - **Direct Live Preview (GitHack, Instant):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+> - **Online Doxygen API Reference (GitHub Pages):** [https://bkuolt.github.io/web-assembly-demo/docs/](https://bkuolt.github.io/web-assembly-demo/docs/) *(automatically built & deployed via CI from `Doxyfile`)*
 > - **Web Architecture & Client Documentation:** [📖 Read `web/README.md`](web/README.md) for complete native WebGPU Cook-Torrance PBR specifications, zero-allocation rendering, and gesture guides.
 
 ---
@@ -27,7 +30,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
 | **Multi-Level LOD & Debug Views** | 4-stage Mesh & Shader LOD (`LOD0`–`LOD3`), Screen-Space Error (SSE) Quadtree selection, Shadow-Pass `LOD1`, $4\times 4$ Bayer dithered cross-fade, Adaptive 60 FPS Auto-LOD, and 7 Diagnostic Views (`Lit`, `LOD Heatmap`, `Normals`, `PBR`, `UV`, `Clay + Wireframe`, `Toon / Cel`) | `[F9]`–`[F12]` / `[;]`/`[']` / `--lod-bias` / `--lod-heatmap` / `--debug-view` |
-| **SDF Glassmorphic Studio UI** | Single-batch 2D SDF UI (`sdRoundedBox`, drop shadows, frosted HDR glass backdrop blur), draggable panels, sliders, collapsible headers, FPS sparkline, interactive HSV color picker (`ColorEdit3`), and scissor scroll areas | `[Tab]` / Live Studio Panel |
+| **SDF Glassmorphic Studio UI & Async Model Switcher** | Single-batch 2D SDF UI (`sdRoundedBox`, drop shadows, frosted HDR glass backdrop blur), draggable studio panels, scrollable 19-model glTF Dropdown (`assets/`, `web/assets/`, Khronos samples), non-blocking `std::jthread` loader with `ProgressBar` + frosted `DrawLoadingBanner`, FPS sparkline, interactive HSV `ColorEdit3`, and scissor scroll areas | `[F2]` / Studio UI Panel |
 | **Cinematic Post-Processing Suite** | `Depth24Plus` -> `R32Float` linear depth resolve, half-res Depth GTAO + bilateral blur, 5-mip Jimenez Bloom pyramid, GPU Auto-Exposure, Hi-Z SSR reflections, Vogel bokeh DoF, depth-gated Sun God Rays, edge chromatic aberration, 5 Color Grading presets, Film Grain, and FXAA 3.11 | Studio UI / `[X]` / `[Z]` / `[G]` / `[J]` |
 | **Extended KHR PBR & Shaders** | `KHR_materials_iridescence` thin-film interference, `KHR_materials_anisotropy`, wrapped SSS backlight, roughness-aware 5-mip frosted refraction glass, 3D selection silhouette rim (`outline.wgsl`), procedural rain puddles, and Rayleigh/Mie + FBM volumetric cloud skybox | Automatic / Studio UI |
 | **glTF 2.0 Animations & Skinning** | Full skeletal animation (128 joints with inverse bind matrices), morph target delta blending, decoupled TRS local transforms, and keyframe interpolation (`LINEAR`, `STEP`, `CUBICSPLINE` Hermite) | Automatic / glTF Animations |
@@ -99,7 +102,7 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
   - Parallel scene node extraction, transform hierarchy evaluation, and mesh primitive parsing (vertex attributes, bounding boxes, indices).
   - Sub-second loading of large scenes like Sponza (69 multi-megabyte textures decoded concurrently).
 - **KTX & KTX2 Texture Support with Basis Universal Transcoding**:
-  - Full KTX1 and KTX2 container ingestion via `libktx` (`ktx/4.3.2`).
+  - Full KTX1 and KTX2 container ingestion via `libktx` (`ktx/4.4.2`).
   - Automatic on-the-fly transcoding of Basis Universal compressed textures (UASTC and ETC1S) to 32-bit RGBA (`KTX_TTF_RGBA32`).
   - Content-based magic-byte sniffing (`\xABKTX 11\xBB` and `\xABKTX 20\xBB`), MIME type detection, and path extension routing.
 - **HarfBuzz & FreeType 2 Text Rendering Pipeline**:
@@ -139,129 +142,157 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 
 ```text
 .
-├── CMakeLists.txt                 # Modern target-based CMake configuration (C++23)
-├── CMakePresets.json              # Release, Clang, ASan, UBSan & TSan build/test presets
-├── CHANGELOG.md                   # Complete release history (v0.6.0 -> v1.0.0)
-├── Taskfile.yml                   # Developer workflow tasks (format, lint, build, test, web)
-├── conanfile.py                   # Conan 2.x package recipe
-├── conan.lock                     # Deterministic dependency lockfile
+├── CMakeLists.txt                     # Modern target-based CMake configuration (C++23 + optional Doxygen target)
+├── CMakePresets.json                  # Release, Clang, ASan, UBSan & TSan build/test presets
+├── CHANGELOG.md                       # Complete release history (v0.6.0 -> v1.0.0+)
+├── Doxyfile                           # Online-ready Doxygen + Graphviz SVG API documentation config
+├── Taskfile.yml                       # Developer workflow tasks (format, lint, build, test, docs, web)
+├── conanfile.py                       # Conan 2.x package recipe
+├── conan.lock                         # Deterministic dependency lockfile
 ├── docs/
-│   └── FEATURE_AND_PHYSICS_REPORT.md # Architecture roadmap & Jolt physics integration blueprint
+│   ├── modules.dox                    # Doxygen @defgroup & namespace overview across all bgl subsystems
+│   └── FEATURE_AND_PHYSICS_REPORT.md  # Architecture roadmap & Jolt physics integration blueprint
 ├── assets/
-│   ├── Sponza.glb                 # High-detail Sponza architectural benchmark scene
-│   ├── ToyCar.glb                 # Benchmark glTF model (Clearcoat, Sheen, Transmission, AO)
+│   ├── Sponza.glb                     # High-detail Sponza architectural benchmark scene
+│   ├── ToyCar.glb                     # Benchmark glTF model (Clearcoat, Sheen, Transmission, AO)
+│   ├── env/                           # Optional local environment presets
 │   └── fonts/
 │       └── LiberationMono-Regular.ttf # High-legibility monospace font
 ├── src/
-│   ├── core/                      # -> libbgl_core.so
-│   │   ├── Camera.hpp/.cpp        # Orbit, Pan, Zoom, Fly camera with WebGPU projection
-│   │   ├── CrashHandler.hpp/.cpp  # POSIX crash interception, signal handling & C++23 stacktrace
-│   │   ├── Gamepad.hpp/.cpp       # Controller support with 0.12f deadzone calibration
-│   │   ├── Log.hpp/.cpp           # spdlog integration and RAII ScopedTimer profiling
-│   │   ├── MemoryPool.hpp/.cpp    # Block memory pool & PMR scratch arena
-│   │   ├── NetworkFetcher.hpp/.cpp# Asynchronous network ingestion
-│   │   ├── ThreadPool.hpp/.cpp    # Work-stealing centralized thread pool
-│   │   └── Types.hpp              # AABB, Ray, Frustum, 64-byte Vertex, Result<T>
-│   ├── gpu/                       # -> libbgl_gpu.so
-│   │   ├── AabbRenderer.hpp/.cpp  # Batched 3D wireframe bounding box renderer
-│   │   ├── Context.hpp/.cpp       # Hardware WebGPU device, MSAA & Opaque/Transparent/PostProcess passes
-│   │   ├── DrawHelpers.hpp        # Shared per-draw UBO/skin/morph helpers & DynamicInstanceBuffer
-│   │   ├── GpuCuller.hpp/.cpp     # Parallel WebGPU compute frustum culling
-│   │   ├── GpuRayPicker.hpp/.cpp  # Two-pass WebGPU compute ray-AABB picker
-│   │   ├── Pipeline.hpp/.cpp      # 4-group PBR pipelines, state caching & GPU mipmaps
-│   │   ├── PipelineIBL.cpp        # Compute BRDF LUT, GGX prefiltering & SH irradiance
-│   │   ├── PipelineScene.cpp      # Scene staging, morph SSBO upload & split opaque/transparent draw
-│   │   ├── PipelineHelpers.hpp    # Inline FP16/cubemap/material uniform helpers
-│   │   ├── PostProcessPass.hpp/.cpp # HDR tonemapping, bloom, SSAO & sun lens flare
-│   │   ├── ShaderManager.hpp/.cpp # Modular .wgsl loader, #include preprocessor, #embed & hot-reload
-│   │   ├── Shaders.hpp            # ShaderManager-backed WGSL entry-point accessors
-│   │   ├── ShadowPass.hpp/.cpp    # Directional depth pre-pass with Quadtree light-frustum culling
-│   │   ├── Skybox.hpp/.cpp        # Procedural Atmospheric Skybox with solar corona
-│   │   ├── Uniforms.hpp           # PerDrawUniforms DynamicUniformRing, MaterialUniforms, SceneLightingUniforms
-│   │   └── shaders/               # External .wgsl compute, PBR, shadow, skybox & post-process modules
-│   ├── scene/                     # -> libbgl_scene.so
-│   │   ├── AssetManager.hpp/.cpp  # 64-bit FNV-1a caching and PMR geometry allocation
-│   │   ├── FastGltfLoader.hpp/.cpp# SIMD glTF/GLB parser (KHR extensions, EXT_mesh_gpu_instancing)
-│   │   ├── Quadtree.hpp/.cpp      # 4-way XZ spatial partition, Refit(), Hi-Z occlusion & SSE LOD
-│   │   ├── RayPicker.hpp/.cpp     # Hierarchical Möller-Trumbore ray-triangle intersection
-│   │   ├── Scene.hpp/.cpp         # Scene graph, GPU morph/skin helpers, QEM/grid LODs & tangents
-│   │   └── TextureDecoder.hpp/.cpp# PNG, JPEG, WebP, KTX2, HDR & EXR decoding
-│   ├── text/                      # -> libbgl_text.so
-│   │   ├── EmbeddedFont.hpp/.cpp  # Zero-dependency embedded TrueType font data
-│   │   ├── FontAtlas.hpp/.cpp     # FreeType 2 rasterizer & dynamic 1024x1024 RGBA8 GPU texture atlas
-│   │   ├── TextShaper.hpp/.cpp    # HarfBuzz Unicode text shaper & multi-line layout engine
-│   │   └── TextRenderer.hpp/.cpp  # WebGPU 2D batched quad renderer with alpha blending
-│   ├── ui/                        # -> libbgl_ui.so
-│   │   ├── DebugOverlay.hpp/.cpp  # In-engine glassmorphism HUD telemetry overlay
-│   │   └── ImmediateUI.hpp/.cpp   # Immediate-mode SDF settings UI (#embed ui.wgsl)
-│   ├── audio/                     # -> libbgl_audio.so
-│   │   └── SoundEngine.hpp/.cpp   # 3D spatial audio listener and sound source management
-│   ├── app/                       # -> libbgl_app.so
-│   │   ├── Application.hpp/.cpp   # Main application lifecycle, hot-reload polling & runtime loop
-│   │   └── CommandLine.hpp/.cpp   # CLI argument parsing, help screen, and format inspection
+│   ├── core/                          # -> libbgl_core.so
+│   │   ├── Camera.hpp/.cpp            # Orbit, Pan, Zoom, Fly camera with WebGPU projection
+│   │   ├── CrashHandler.hpp/.cpp      # POSIX crash interception, signal handling & C++23 stacktrace
+│   │   ├── Gamepad.hpp/.cpp           # Controller support with 0.12f deadzone calibration & PS5 curve
+│   │   ├── Log.hpp/.cpp               # spdlog integration and RAII ScopedTimer profiling
+│   │   ├── MemoryPool.hpp/.cpp        # Block memory pool & PMR scratch arena
+│   │   ├── MemoryTracker.hpp/.cpp     # Process RSS RAM & atomic WebGPU VRAM accounting
+│   │   ├── NetworkFetcher.hpp/.cpp    # libcurl / local chunked streaming with progress & cancellation
+│   │   ├── ThreadPool.hpp/.cpp        # Work-stealing centralized thread pool
+│   │   ├── Types.hpp                  # AABB, Ray, Frustum, 96-byte (16-aligned) Vertex, Result<T>
+│   │   └── Version.hpp(.in)           # Engine version constants generated from CMake project version
+│   ├── gpu/                           # -> libbgl_gpu.so
+│   │   ├── AabbRenderer.hpp/.cpp      # Batched 3D wireframe bounding box renderer
+│   │   ├── Context.hpp/.cpp           # Hardware WebGPU device, MSAA, readable depth & swapchain surface
+│   │   ├── DrawHelpers.hpp            # Shared per-draw UBO/skin/morph helpers & DynamicInstanceBuffer
+│   │   ├── GpuCuller.hpp/.cpp         # Parallel WebGPU compute frustum culling
+│   │   ├── GpuRayPicker.hpp/.cpp      # Two-pass WebGPU compute ray-AABB picker
+│   │   ├── Handle.hpp                 # Zero-overhead RAII WebGPU Handle<> wrappers
+│   │   ├── Pipeline.hpp/.cpp          # 4-group PBR pipelines, state caching & shader reload
+│   │   ├── PipelineRender.cpp         # Frame staging, clustered Forward+, shadows & Opaque/Transparent passes
+│   │   ├── PipelineEffects.cpp        # Compute/render GPU mip chains, opaque copy mips & selection outlines
+│   │   ├── PipelineIBL.cpp            # Compute BRDF LUT, GGX prefiltering & L2 SH irradiance
+│   │   ├── PipelineScene.cpp          # Scene upload, morph SSBO, skinning & draw emission
+│   │   ├── PipelineHelpers.hpp        # Internal FP16/cubemap/material uniform helpers
+│   │   ├── PostProcessPass.hpp/.cpp   # Cinematic post-process pipelines & resize management
+│   │   ├── PostProcessPassRender.cpp  # Depth linearize, GTAO, Bloom, Auto-Exposure, SSR, DoF & FXAA execution
+│   │   ├── PostProcessHelpers.hpp     # Shared internal post-processing uniform & fullscreen draw helpers
+│   │   ├── ShaderManager.hpp/.cpp     # Modular .wgsl loader, #include preprocessor, #embed & hot-reload
+│   │   ├── Shaders.hpp                # ShaderManager-backed WGSL entry-point accessors
+│   │   ├── ShadowPass.hpp/.cpp        # Directional depth pre-pass with Quadtree light-frustum culling
+│   │   ├── Skybox.hpp/.cpp            # Procedural Rayleigh/Mie + FBM volumetric cloud skybox
+│   │   ├── Uniforms.hpp               # DynamicUniformRing<PerDrawUniforms>, MaterialUniforms, SceneLightingUniforms
+│   │   └── shaders/                   # Modular .wgsl PBR, compute, outline, weather, skybox & post shaders
+│   ├── scene/                         # -> libbgl_scene.so
+│   │   ├── Animation.hpp/.cpp         # Keyframe sampler (STEP, LINEAR, CUBICSPLINE), skinning & morphs
+│   │   ├── AssetManager.hpp/.cpp      # 64-bit FNV-1a caching and PMR geometry allocation
+│   │   ├── FastGltfLoader.hpp/.cpp    # Async progress glTF/GLB orchestrator & external buffer resolver
+│   │   ├── FastGltfInternal.hpp       # Shared ProgressReporter and internal parser stage declarations
+│   │   ├── FastGltfParser.cpp         # Parallel texture decode, materials, lights, LODs, hierarchy & anims
+│   │   ├── Quadtree.hpp/.cpp          # 4-way XZ spatial partition, Refit(), Hi-Z occlusion & SSE LOD
+│   │   ├── RayPicker.hpp/.cpp         # Hierarchical Möller-Trumbore ray-triangle intersection
+│   │   ├── Scene.hpp/.cpp             # Scene graph, GPU morph/skin helpers, QEM/grid LODs & tangents
+│   │   └── TextureDecoder.hpp/.cpp    # PNG, JPEG, WebP, KTX2, HDR & EXR decoding
+│   ├── text/                          # -> libbgl_text.so
+│   │   ├── EmbeddedFont.hpp/.cpp      # Zero-dependency embedded TrueType font data
+│   │   ├── FontAtlas.hpp/.cpp         # FreeType 2 alpha & SDF rasterizer (1024x1024 RGBA8 atlas)
+│   │   ├── TextShaper.hpp/.cpp        # HarfBuzz Unicode text shaper & multi-line layout engine
+│   │   └── TextRenderer.hpp/.cpp      # WebGPU 2D batched quad renderer with alpha blending
+│   ├── ui/                            # -> libbgl_ui.so
+│   │   ├── DebugOverlay.hpp/.cpp      # In-engine glassmorphism HUD telemetry overlay
+│   │   ├── ImmediateUI.hpp/.cpp       # Core SDF/text batching engine, frosted backdrop & popup overlays
+│   │   ├── ImmediateUIWidgets.cpp     # Immediate-mode studio widgets (Dropdown, ProgressBar, Banner, HSV)
+│   │   └── shaders/ui.wgsl            # Analytical 2D SDF, Gaussian shadow & frosted glass UI shader
+│   ├── audio/                         # -> libbgl_audio.so
+│   │   └── SoundEngine.hpp/.cpp       # 3D spatial audio listener and sound source management
+│   ├── app/                           # -> libbgl_app.so
+│   │   ├── Application.hpp/.cpp       # Lifecycle, SDL input/events, diurnal sun & shader hot-reload
+│   │   ├── ApplicationModelLoader.cpp # 19-model preset catalog, async worker lifecycle & node picking
+│   │   ├── ApplicationUI.cpp          # Per-section SDF UI studio builders & selection badge
+│   │   └── CommandLine.hpp/.cpp       # CLI argument parsing, help screen, and format inspection
 │   ├── wasm/
-│   │   └── wasm_bridge.cpp        # Freestanding C++23 Emscripten C-ABI bridge (`bgl_engine.wasm`)
-│   └── main.cpp                   # Native desktop viewer entry point
-├── tests/                         # C++ GTest (241 tests across 23 suites) + Web Unit/E2E suites
+│   │   └── wasm_bridge.cpp            # Freestanding C++23 Emscripten C-ABI bridge (`bgl_engine.wasm`)
+│   └── main.cpp                       # Native desktop viewer entry point
+├── tests/                             # C++ GTest (256 tests across 24 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
-│   ├── test_types_math.cpp        # AABB, Ray, Plane, Frustum culling math, Vertex layout
-│   ├── test_camera.cpp            # Orbit, Pan, Zoom, ScreenPointToRay unprojection
-│   ├── test_memory_pool.cpp       # MemoryPool, multi-block chaining, free-list reuse, ScratchArena
-│   ├── test_asset_manager.cpp     # FNV-1a 64-bit hashing, caching, texture deduplication
-│   ├── test_quadtree_lod.cpp      # Quadtree subdivision, Refit(), loose bounds, SSE LOD, culling
-│   ├── test_ray_picker.cpp        # Möller-Trumbore ray-triangle hit/miss, hierarchical picking
-│   ├── test_gltf_loader.cpp       # ToyCar glTF parsing, KHR materials, transform hierarchy
-│   ├── test_texture_decoders.cpp  # PNG, JPEG, WebP, KTX2, HDR, EXR, magic-byte sniffing
-│   ├── test_text_rendering.cpp    # FreeType rasterization, HarfBuzz shaping, multiline text
-│   ├── test_crash_handler.cpp     # POSIX signal handler installation & stacktrace generation
-│   ├── test_command_line.cpp      # CLI argument parsing and feature toggles
-│   ├── test_rendering_features.cpp# ShaderManager, DynamicUniformRing, Blending, PBR, Shadows, IBL
-│   ├── test_golden_image.cpp      # Deterministic golden checksum & instanced asset checks
-│   ├── test_animation.cpp         # Skeletal skinning, morph targets & TRS keyframe interpolation
-│   ├── test_thread_pool.cpp       # Work-stealing ParallelFor, nested tasks & synchronization
-│   ├── test_audio_engine.cpp      # Spatial 3D audio engine & file safety
-│   ├── test_web_unit.js           # 72 Node.js web math, shader, glTF, frustum & LOD unit tests
-│   ├── test_webgpu_path.js        # 12-step headless WebGPU pipeline + real bgl_engine.wasm verification
-│   └── test_browsers_e2e.py       # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
+│   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout
+│   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay unprojection, bookmarks
+│   ├── test_memory_pool.cpp           # MemoryPool, multi-block chaining, free-list reuse, ScratchArena
+│   ├── test_asset_manager.cpp         # FNV-1a 64-bit hashing, caching, texture deduplication
+│   ├── test_quadtree_lod.cpp          # Quadtree subdivision, Refit(), loose bounds, SSE LOD, culling
+│   ├── test_ray_picker.cpp            # Möller-Trumbore ray-triangle hit/miss, hierarchical picking
+│   ├── test_gltf_loader.cpp           # ToyCar glTF, KHR extensions, async progress, cancel & presets
+│   ├── test_texture_decoders.cpp      # PNG, JPEG, WebP, KTX2, HDR, EXR, magic-byte sniffing
+│   ├── test_text_rendering.cpp        # FreeType rasterization, HarfBuzz shaping, SDF & Advanced Widgets
+│   ├── test_crash_handler.cpp         # POSIX signal handler installation & stacktrace generation
+│   ├── test_command_line.cpp          # CLI argument parsing and feature toggles
+│   ├── test_rendering_features.cpp    # ShaderManager, DynamicUniformRing, Blending, PBR, Shadows, IBL
+│   ├── test_golden_image.cpp          # Deterministic golden checksum & instanced asset checks
+│   ├── test_animation.cpp             # Skeletal skinning, morph targets & TRS keyframe interpolation
+│   ├── test_thread_pool.cpp           # Work-stealing ParallelFor, nested tasks & synchronization
+│   ├── test_audio_engine.cpp          # Spatial 3D audio engine & file safety
+│   ├── test_web_unit.js               # 72 Node.js web math, shader, glTF, frustum & LOD unit tests
+│   ├── test_webgpu_path.js            # 12-step headless WebGPU pipeline + real bgl_engine.wasm verification
+│   └── test_browsers_e2e.py           # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
-│   ├── package_web.py             # Minimal web app distribution packager
-│   └── run_ci_locally.sh          # Local mirror of CI formatting, build, test & smoke stages
-└── web/                           # Web viewer client
-    ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
-    ├── style.css                  # Modern dark-mode responsive glassmorphism styles
-    ├── app.js                     # UI coordinator, frame scheduler & startup bootstrap
-    ├── gltf_worker.js             # Dedicated Web Worker for glTF/GLB parsing & base64 decoding
+│   ├── doxygen_md_filter.py           # Doxygen GFM math & alert preprocessor filter
+│   ├── package_web.py                 # Minimal web app distribution packager
+│   └── run_ci_locally.sh              # Local mirror of CI formatting, build, test & smoke stages
+└── web/                               # Web viewer client & local WebGPU sample models
+    ├── README.md                      # WebGPU client technical & shader pipeline guide
+    ├── index.html                     # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
+    ├── style.css                      # Modern dark-mode responsive glassmorphism styles
+    ├── app.js                         # UI coordinator, frame scheduler & startup bootstrap
+    ├── gltf_worker.js                 # Dedicated Web Worker for glTF/GLB parsing & base64 decoding
+    ├── assets/                        # Web-served GLB models (ToyCar, Sponza, RobotExpressive, Soldier)
     ├── js/
-    │   ├── core.js                # Logging, notifications, state, UI cache & WASM bridge
-    │   ├── gltf.js                # glTF/GLB parser, scene graph builder & telemetry
-    │   └── renderer.js            # Modular WebGPU Cook-Torrance PBR renderer
-    └── dist/                      # Precompiled WebAssembly binary (`bgl_engine.wasm`)
+    │   ├── core.js                    # Logging, notifications, state, UI cache & WASM bridge
+    │   ├── gltf.js                    # glTF/GLB parser, scene graph builder & telemetry
+    │   └── renderer.js                # Modular WebGPU Cook-Torrance PBR renderer
+    └── dist/                          # Precompiled WebAssembly binary (`bgl_engine.wasm`)
 ```
 
 ---
 
-## Advanced Real-Time Rendering Pipeline (Bump Mapping, Mipmapping, PCF Shadows & Cubemap IBL)
+## Advanced Real-Time Rendering Pipeline (Clustered Forward+ PBR & Cinematic Post-Processing)
 
-Every frame executes a two-pass WebGPU rendering pipeline on the active `WGPUCommandEncoder`: a **Directional Shadow Depth Pre-Pass** (`2048×2048 Depth32Float`) followed by the **4× MSAA Main PBR Forward Pass** with 13-slot resource bindings.
+Every frame records a multi-pass WebGPU command stream into the active `WGPUCommandEncoder`: a **Directional Shadow Depth Pre-Pass** (`2048×2048 Depth32Float`), a **4× MSAA Split HDR Forward+ PBR Pass** (`Opaque` -> `Opaque Copy 5-Mip Chain` -> `Atmospheric Skybox` -> `Transparent & Transmission` + `Selection Outline`), the **`PostProcessPass` Suite** (`Depth Linearize` -> `Half-Res GTAO + Bilateral Blur` -> `5-Mip Bloom` -> `GPU Auto-Exposure` -> `Hi-Z SSR / Bokeh DoF / God Rays / Color Grading / Tonemapping` -> `FXAA 3.11`), and the final **2D SDF Studio UI & HarfBuzz Overlay**.
 
 ```mermaid
 flowchart LR
     subgraph Pass1["1. Shadow Depth Pre-Pass (2048×2048 Depth32Float)"]
         LightMat["ComputeDirectionalLightMatrix()\nOrthoRH_ZO fitted to Scene AABB"]
         QuadShadow["Quadtree Frustum Culling\n(Light Space)"]
-        ShadowVS["vs_shadow (WGSL)\nlightViewProj * model * pos"]
+        ShadowVS["shadow.wgsl (LOD1 / Mask Discard)"]
         ShadowTex["shadowDepthTexture_\n(Hardware Depth Bias)"]
         LightMat --> QuadShadow --> ShadowVS --> ShadowTex
     end
 
-    subgraph Pass2["2. Main 4× MSAA PBR Pass (13 Bindings)"]
-        Skybox["Atmospheric Skybox\n(Depth Clamped)"]
-        PBR["fs_main Cook-Torrance PBR\n+ Bump/Normal Mapping [V]\n+ 16x Aniso Mipmapping [L]\n+ 3×3 PCF Soft Shadows [M]\n+ Cubemap Specular IBL [R]"]
-        Debug["Batched 3D AABB Wireframes\n+ 2D HarfBuzz Debug HUD"]
-        Skybox --> PBR --> Debug
+    subgraph Pass2["2. 4× MSAA Split HDR PBR Pass (RGBA16Float)"]
+        Opaque["Opaque PBR Pass\n1024-Cluster Forward+ & IBL"]
+        OpaqueMip["5-Mip Opaque Copy\n(Rough Frosted Transmission)"]
+        Skybox["Rayleigh/Mie + FBM Skybox"]
+        Trans["Transparent & Volume Refraction\n+ 3D Selection Outline"]
+        Opaque --> OpaqueMip --> Skybox --> Trans
     end
 
-    ShadowTex -->|"@binding(11) texture_depth_2d\n@binding(12) sampler_comparison"| PBR
+    subgraph Pass3["3. Cinematic Post-Process & SDF UI"]
+        Post["Depth Linearize + Half-Res GTAO\n5-Mip Bloom + Auto-Exposure\nHi-Z SSR + DoF + God Rays + FXAA"]
+        UI["ImmediateUI SDF Studio\n(Frosted Glass Backdrop)\n+ HarfBuzz Debug Overlay"]
+        Post --> UI
+    end
+
+    ShadowTex -->|"Group 0 Depth + Comparison Sampler"| Opaque
+    Trans --> Post
 ```
 
 ### 1. Bump Mapping & Tangent-Space Normal Mapping (`[V]` / `--no-bump`)
@@ -428,33 +459,55 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 | `-l`, `--log-level` | `<level>` | Logging level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
 | `--no-skybox` | — | Start with procedural atmospheric skybox disabled | `Enabled` |
 | `--no-hud` | — | Start with in-engine Debug Overlay HUD hidden | `Visible` |
-| `--no-bounds` | — | Start with 3D wireframe bounding boxes hidden | `Visible` |
+| `--no-bounds` / `--bounds` | — | Hide / show 3D wireframe bounding boxes | `Visible` |
 | `--quadtree` | — | Start with 3D Quadtree ground boundaries enabled | `Disabled` |
 | `--no-bump` / `--bump` | — | Toggle Tangent-Space Normal & Height Bump Mapping | `Enabled` |
 | `--no-mipmaps` / `--mipmaps` | — | Toggle 16x Anisotropic Trilinear Mipmapping vs Mip-0 | `Enabled` |
 | `--no-shadows` / `--shadows` | — | Toggle Directional Shadow Mapping (2048x2048 3x3 PCF) | `Enabled` |
 | `--no-reflections` / `--reflections` | — | Toggle Environment Cubemap Specular Reflections (IBL) | `Enabled` |
+| `--no-ao` / `--ao` | — | Toggle glTF Ambient Occlusion & Micro-Cavities | `Enabled` |
 | `--no-occlusion` / `--occlusion` | — | Toggle Quadtree Hierarchical Occlusion Culling (Hi-Z + Sub-Pixel) | `Enabled` |
+| `--no-lod` / `--lod` | — | Toggle Multi-Level Mesh & Shader LOD System (`LOD0`–`LOD3`) | `Enabled` |
+| `--auto-lod` / `--no-auto-lod` | — | Enable / disable Adaptive 60 FPS Auto-LOD scaling | `Disabled` |
+| `--lod-bias` | `<0.25-4.0>` | Screen-Space Error LOD distance bias multiplier | `1.0` |
+| `--lod-heatmap` | — | Start in LOD Heatmap diagnostic visualization mode | `Disabled` |
+| `--debug-view` | `<lit\|lod\|normals\|pbr\|uv>` | Select initial diagnostic shading mode | `lit` |
+| `--rain` / `--snow` / `--fog` / `--smoke` | — | Start with Rain, Snow, Fog, or Smoke shader active | `Clear` |
+| `--weather` | `<clear\|rain\|snow\|fog\|smoke>` | Select initial atmospheric weather mode | `clear` |
+| `--weather-intensity` | `<0.0-2.0>` | Precipitation, fog, and smoke density intensity | `1.0` |
+| `--wind` | `<-1.0-1.0>` | Lateral wind direction and speed | `0.3` |
+| `--time` | `<0.0-24.0>` | Initial diurnal time of day in hours | `14.0` |
+| `--day-night-cycle` | — | Enable automatic continuous day/night progression | `Disabled` |
+| `--day-night-speed` | `<hrs/sec>` | Automatic day/night cycle speed multiplier | `1.0` |
 | `--test-crash` | `[segv\|abrt\|fpe]` | Trigger intentional crash to verify signal handler and stacktrace | `segv` |
+| `--headless` | — | Run in headless CI smoke-test mode (renders 10 frames and exits) | `Disabled` |
 
 #### Interactive Desktop Controls:
-- **Left Mouse Button Drag**: Orbit camera around target.
-- **Right Mouse Button / Shift + Drag**: Pan camera laterally and vertically.
-- **Mouse Wheel**: Smooth zoom.
-- **V Key**: Toggle Bump & Normal Mapping (`ON` / `OFF`).
-- **L Key**: Toggle Texture Mipmapping (`16x Anisotropic Trilinear` vs `Base Mip 0`).
-- **M Key**: Toggle Directional Shadow Mapping (`2048x2048 3x3 PCF Soft Shadows`).
-- **R Key**: Toggle Environment Cubemap Reflections (`Pre-filtered Roughness Cubemap IBL`).
-- **H Key**: Toggle Quadtree Hierarchical Occlusion Culling (`Front-to-Back Hi-Z + Sub-Pixel`).
-- **C Key**: Toggle Camera Mode (`Orbit` / `First-Person Fly`).
-- **T Key**: Toggle Turntable Autorotation.
-- **X Key**: Cycle HDR Tonemapper (`Khronos PBR Neutral` / `AgX` / `ACES`).
-- **B Key**: Toggle 3D Wireframe Bounding Boxes & AABBs (Gold for scene root, Cyan for mesh primitives).
-- **Q Key**: Toggle 3D Quadtree spatial ground partition boundaries (Emerald green).
-- **K Key**: Cycle Procedural Atmospheric Skybox mode (`Sharp` / `Blurred` / `Hidden`).
-- **O / F3 Key**: Toggle In-Engine FreeType 2 & HarfBuzz Debug Overlay HUD.
-- **File & URL Drag-and-Drop**: Drop any local `.glb`/`.gltf` file or HTTP/HTTPS URL link directly onto the window.
-- **ESC**: Exit viewer.
+- **Mouse / Picking**: `LMB + Drag` to Orbit, `RMB / Shift + Drag` to Pan, `Scroll Wheel` to Zoom, `Double-Click / MMB` to pick node with `RayPicker` & display 3D Selection Outline.
+- **Studio UI & Overlays**: `F1` Wireframe Overlay, `F2` SDF Studio Settings UI (with scrollable 19-model glTF Selector Dropdown, live Loading Progress Bar, Scene Tree & Theme Customizer), `O` / `F3` FreeType 2 + HarfBuzz Debug Overlay HUD.
+- **PBR & Lighting**: `V` Bump/Normal Mapping, `L` 16x Aniso Mipmapping, `M` PCF Shadows, `R` Specular IBL Reflections, `U` Ambient Occlusion, `P` Parallax Occlusion Mapping, `E` Environment Preset, `[` / `]` Rotate Environment (-5° / +5°), `K` Skybox Mode (`Sharp` / `Blurred` / `Hidden`).
+- **Post-Processing & Exposure**: `X` Cycle Tonemapper (`Khronos PBR Neutral` / `AgX` / `ACES`), `Z` Emissive HDR Bloom, `G` GTAO/SSAO, `J` Sun Lens Flare, `Shift + (+ / -)` Exposure.
+- **Weather & Day/Night Cycle**: `Y` Cycle Weather (`Clear` / `Rain` / `Snow` / `Fog` / `Smoke`), `F4`–`F7` Direct Weather Toggles, `I` / `F8` Auto Day/Night Cycle, `,` / `.` Step Time of Day (-30m / +30m).
+- **Spatial Culling, LOD & Views**: `B` AABB Wireframes, `Q` Quadtree Ground Partitions, `H` Hi-Z Occlusion Culling, `N` / `F9` Cycle Diagnostic View, `F10` LOD Heatmap, `F11` Multi-Level LOD, `F12` Auto-LOD, `;` / `'` LOD Bias (-0.15 / +0.15).
+- **Camera & Streaming**: `W`/`A`/`S`/`D` + Arrows Move, `+` / `-` Zoom, `F` Focus Selection/Bounds, `C` Orbit / Fly Mode, `T` Turntable, `Ctrl+1..9` / `1..9` Camera Bookmarks, Drag & Drop `.glb`/`.gltf` or HTTP/HTTPS URL, `ESC` Exit.
+
+---
+
+## Generating & Browsing Doxygen API Documentation
+
+Complete HTML API documentation (with namespace modules, collaborative UML diagrams via Graphviz SVGs, Interactive Treeview, Dark/Light toggle, and MathJax equations) is generated from [`Doxyfile`](https://github.com/bkuolt/web-assembly-demo/blob/main/Doxyfile) and published automatically to GitHub Pages on every release/push via [`.github/workflows/ci.yml`](https://github.com/bkuolt/web-assembly-demo/blob/main/.github/workflows/ci.yml):
+
+- **Online (GitHub Pages):** **[https://bkuolt.github.io/web-assembly-demo/docs/](https://bkuolt.github.io/web-assembly-demo/docs/)**
+- **Generate Locally:**
+  ```bash
+  # Direct via Doxygen
+  doxygen Doxyfile
+
+  # Or via Taskfile / CMake target
+  task docs
+  cmake --build build/Release --target docs
+  ```
+  Open `build/docs/html/index.html` in any browser to inspect the generated documentation offline.
 
 ---
 
@@ -463,6 +516,7 @@ The executable automatically resolves relative RPATHs to its shared libraries an
 ### Live Demo on GitHub
 
 You can launch the WebAssembly & WebGPU viewer directly in your browser without installing any local tools:
+- **GitHub Pages (Live App):** [https://bkuolt.github.io/web-assembly-demo/](https://bkuolt.github.io/web-assembly-demo/)
 - **Instant Preview (raw.githack):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 
 ### Launching the Web Viewer Locally
@@ -481,7 +535,7 @@ Navigate to `http://localhost:8080` to access the full-featured browser viewer:
 - **Interactive Scene Graph Tree**: Inspect the live hierarchy of nodes, meshes, vertices, and triangle counts.
 - **Collapsible glTF JSON Inspector**: Browse the underlying glTF 2.0 JSON structure in a syntax-highlighted, expandable tree view.
 - **Live Spatial Telemetry Card**: Real-time display of Scene AABB dimensions (width, height, depth), min/max bounding coordinates, scene center, and geometry metrics.
-- **Pills & Quick Toggles**: One-click toggles for Bounding Boxes `[B]`, Quadtree Bounds `[Q]`, Atmospheric Skybox `[K]`, In-Engine HUD `[O]`, and instant model switching between ToyCar (`5 MB`) and Sponza (`52 MB`).
+- **Pills & Quick Toggles**: One-click toggles for Bounding Boxes `[B]`, Quadtree Bounds `[Q]`, Atmospheric Skybox `[K]`, In-Engine HUD `[O]`, and instant switching across `19` built-in local and Khronos sample models (`ToyCar`, `Sponza`, `RobotExpressive`, `Soldier`, etc.).
 
 ### Packaging the Minimal Web App (Zip)
 
@@ -501,35 +555,40 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **246 C++ GTests across 23 test suites**, a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites:
+The engine includes an extensive, production-grade test suite with **256 C++ GTests across 24 test suites**, a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites (`5/5` CTest targets):
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |
-| `RenderingFeaturesTest` | 41 | Dedicated tests for Bump Mapping (tangents across all 6 cube faces, mirrored UV handedness flip, degenerate UV orthonormal fallback, scaled model matrix TBN invariance), Mipmapping (POT/NPOT level counts, full pyramid color conservation, normal-map unit vector preservation), Shadow Mapping (8-corner clip containment, depth ordering along light ray, vertical sun & empty AABB safety, 8-corner bounding box clip space mapping), Environment Cubemap Reflections (sky vs. ground luminance, 352-byte UBO layout, runtime toggle states), NetworkFetcher URI resolution and error handling, RAII GPU handle lifecycle, ray picker primitive hits, clustered forward bounds validation, logarithmic Z-slice cluster distribution, 352-byte struct and std140 layout alignment, spherical harmonics reconstruction with firefly clamping, Parallax Occlusion Mapping, Multi-Bounce AO, Sun Lens Flares, tonemapping operators, alpha-tested shadow discards, KTX2 target selection, Beer-Lambert transmission, emissive bloom, SSAO horizon factors, diurnal sun trajectory, PS5 DualSense curve, GPU culler planes, GPU ray picker slabs, and DebugOverlay cycling. |
-| `TypesMathTest` | 18 | AABB expansion, ray-box hits/misses, plane normalization, Hesse form, WebGPU perspective frustum plane extraction, AABB-frustum intersection boundary cases, 64-byte vertex alignment, MikkTSpace-style tangent generation, normal-map vector-renormalized mipmap downsampling, directional shadow light matrix, 6-face cubemap mip generation, Arvo box transform, copy semantics handle safety, ray segment parametric evaluator, scene destructor sampler nulling, AABB-AABB intersection and containment, ray-box grazing edge intersections, analytical frustum plane symmetry, and affine transformation matrix inversion. |
-| `CameraTest` | 18 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection matrix composition, screen-point-to-ray unprojection, extreme pitch angle clamping (-89° to +89° gimbal lock prevention), ultrawide (32:9) and portrait (9:16) aspect ratios, frustum corner ray unprojection divergence, camera target frustum containment, near/far clipping plane invariants, WASD/arrow navigation, keyboard zoom, diagonal invariance, extreme distance clipping planes, fly mode free navigation, bounds framing focus, camera bookmarks, and glTF camera transform ingestion. |
-| `MemoryPoolTest` | 11 | Fixed-size block allocation, multi-block chaining, free-list slot reuse, destructor invocation tracking, move constructor and move assignment semantics, nullptr deallocation safety, `Clear()` block release, large-scale stress test with interleaved deallocations (2000 items), 64-byte aligned type allocation, and repeated O(1) resets under PMR monotonic vectors. |
-| `QuadtreeTest` | 10 | 4-way XZ subdivision, distance-based LOD calculation, loose bounds expansion, containment filtering, Sponza courtyard culling benchmark, hierarchical occlusion culling, front-to-back ordering, occlusion buffer direct tile operations, deep subdivision and maximum depth safety, out-of-bounds object insertion, and occlusion buffer screen-edge NDC clipping. |
-| `CommandLineTest` | 10 | Default configuration, `--help`, `--version`, `--formats`, resolution flags, feature toggles (`--no-bump`, `--no-mipmaps`, `--no-shadows`, `--no-reflections`), test crash signal selection, `--headless` automated smoke testing, missing flag value bounds safety, invalid numeric string fallback handling, and full feature toggle roundtrips. |
-| `AnimationTest` | 9 | Animation sampler interpolation (Step, Linear vectors and spherical linear rotation slerp, CubicSpline Hermite splines), SceneNode TRS decoupling, hierarchical matrix recalculation, morph target delta blending, timeline playback and loop wrapping, and skeletal skinning joint matrix computation. |
-| `RayPickerTest` | 9 | Möller-Trumbore ray-triangle direct hits, misses, edge hits, degenerate triangles, scene hierarchy picking, ray pointing away (negative distance rejection), ray hits on vertices and hypotenuse edges, triangle hit normal orthogonality to triangle edges, hierarchical child node transform picking, and empty scene picking safety. |
-| `TextRenderingTest` | 9 | Embedded Liberation Mono font integrity, FreeType 2 atlas initialization, glyph rasterization, HarfBuzz text shaping, multi-line layout, empty string safety, whitespace-only cursor advancement, Unicode UTF-8 special symbols shaping, and custom quad tint color preservation. |
-| `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion and deduplication, KTX2 validation, cache clearing, FNV-1a span vs string view equivalence, empty string FNV basis verification and bit-avalanche effect, non-existent file error handling, and texture cache instance replacement. |
-| `TextureDecoderTest` | 8 | Supported formats query, empty/invalid buffer handling, magic-byte sniffing (PNG, JPEG, WebP, KTX2), Radiance HDR/OpenEXR signatures, KTX transcode target names, NPOT and odd aspect ratio mip level calculations, uncompressed Radiance HDR RGBE multi-pixel decoding, and invalid extension handling. |
-| `GltfLoaderTest` | 7 | ToyCar.glb loading, KHR material extensions (clearcoat, sheen), corrupted buffer rejection, scene transform hierarchy evaluation, optional 1 GB megacity stress-test ingestion, non-existent file graceful failure, deep hierarchy transform composition (4 levels), and scene-wide AABB union expansion. |
-| `CrashHandlerTest` | 6 | POSIX signal handler installation/removal, multiple lifecycle cycles, `std::stacktrace` callstack printing, non-null-terminated string slice safety, 1024-character stress header safety, and consecutive installation call idempotence. |
-| `GoldenImageTest` | 4 | Headless GLB asset golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared mesh primitive instancing verification. |
+| `RenderingFeaturesTest` | 58 | Bump Mapping tangents & handedness, mipmaps & normal renormalization, shadow matrices, cubemap IBL, uniform std140 packing, clustered Forward+ Z-slices, POM, Multi-Bounce AO, lens flare, tonemappers, KTX2 targets, transmission Volume attenuation, bloom, weather (`rain`/`snow`/`fog`/`smoke`), diurnal sun, DualSense response curves, `GpuCuller`/`GpuRayPicker`, `DebugOverlay`, per-channel `KHR_texture_transform`, split passes & offscreen WebGPU validation. |
+| `TypesMathTest` | 24 | AABB expansion/overlap/grazing rays, Hesse planes, WebGPU perspective frustum planes, 96-byte Vertex alignment, MikkTSpace tangents, normal-map mipmaps, shadow matrices, cubemap mip generation, Arvo box transform, slerp/affine inversion, and degenerate geometry safety. |
+| `CameraTest` | 18 | Orbit rotation, lateral/vertical pan, zoom clamping, view/projection composition, screen-point-to-ray unprojection, pitch clamping, ultrawide/portrait aspect ratios, WASD/fly navigation, bounds framing, bookmarks, and glTF camera ingestion. |
+| `CommandLineTest` | 18 | Default config, `--help`, `--version`, `--formats`, resolution, feature toggles, weather/time-of-day flags, LOD bias & debug views, crash signal options, `--headless`, and invalid argument fallbacks. |
+| `GltfLoaderTest` | 15 | `ToyCar.glb` parsing, KHR material/iridescence/anisotropy extensions, corrupted GLB rejection, deep hierarchy transforms, monotonic async load progress callbacks & cancellation, builtin 19-model preset resolution, async worker teardown safety, and optional 1 GB stress test. |
+| `MemoryPoolTest` | 15 | Fixed-size block allocation, multi-block chaining, free-list reuse, destructor tracking, move semantics, nullptr/rapid-LIFO safety, 64-byte alignment, and PMR monotonic `ScratchArena` stress tests. |
+| `RayPickerTest` | 14 | Möller-Trumbore ray-triangle direct/edge/vertex hits, backface/negative-distance rejection, hit normal orthogonality, hierarchical child transforms, and empty/multi-root picking. |
+| `AnimationTest` | 13 | Step / Linear / Slerp / CubicSpline samplers, single/zero-duration/empty keyframes, SceneNode TRS decoupling, hierarchical propagation, morph target blending, playback loop wrapping, and skeletal skin joint matrices. |
+| `QuadtreeTest` | 13 | 4-way XZ subdivision, loose bounds, `Refit()` node relocation across quadrants, `ContainsXZ`, Sponza courtyard culling ratios, front-to-back Hi-Z occlusion buffer tile tests, and `LOD0`–`LOD3` bias scaling. |
+| `TextRenderingTest` | 11 | Embedded Liberation Mono integrity, FreeType 2 alpha & SDF atlas initialization, glyph rasterization, HarfBuzz shaping, CRLF/empty/whitespace/UTF-8 handling, multi-line layout, and custom tint preservation. |
+| `TextureDecoderTest` | 9 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` signatures, PMR decoding, `KtxTarget` names, and NPOT mip level calculations. |
+| `ThreadPoolTest` | 9 | Worker initialization, singleton identity, concurrent async futures, `ParallelFor` partitioning & atomic accumulation, empty/inverted bounds, nested starvation guard, and exception propagation. |
+| `AssetManagerTest` | 8 | 64-bit FNV-1a hashing (`std::span` / `std::string_view`), texture cache insertion/deduplication/replacement, KTX2 validation, scratch arena clear, bit-avalanche, and missing path error handling. |
+| `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall cycles, `std::stacktrace` callstack printing, subslice/empty safety, 1024-char header bounds, and idempotent re-installation. |
+| `SoundEngineTest` | 6 | Audio lifecycle & initialization, uninitialized/missing-file error handling, multiple stops safety, and idempotent shutdown/double-init. |
+| `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & glassmorphic shader features, HSV roundtrips, Slider/CollapsingHeader/Sparkline/ScrollArea/Window drag, `ColorEdit3` popup HSV manipulation, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
+| `GoldenImageTest` | 4 | Headless GLB golden geometry validation, offscreen buffer determinism, FNV-1a deterministic content hashing, and shared primitive instancing verification. |
+| `ShaderManagerTest` | 4 | WGSL `#include` expansion & `#pragma once`, circular/missing include error detection, embedded entry-point verification, and hot-reload change detection. |
+| Single-Test Targeted Suites | 6 | `GamepadTest` (1), `ImmediateUITest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), and `TextureDecoderHdrTest` (1). |
 
 ---
 
 ## Changelog & Release History
 
-See [**CHANGELOG.md**](CHANGELOG.md) for the complete version history from `v0.6.0` through **`v1.0.0`**:
+See [**CHANGELOG.md**](CHANGELOG.md) for the complete version history from `v0.6.0` through **`v1.0.0`** and ongoing `Unreleased` developments:
 
+- **[Unreleased](CHANGELOG.md#unreleased)**: SDF Custom UI Studio, scrollable 19-model glTF dropdown with async background loading & frosted progress banner, half-res GTAO + bilateral blur, 5-mip Jimenez Bloom, GPU Auto-Exposure, Hi-Z SSR, Bokeh DoF, Sun God Rays, Chromatic Aberration, 5 Color Grading presets, FXAA 3.11, 3D selection outlines, extended KHR PBR (`iridescence`, `anisotropy`, SSS, 5-mip frosted refraction), modular source split (`CMakeLists.txt`), and online GitHub Pages Doxygen API documentation (`Doxyfile`).
 - **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Official 1.0 production release — complete RAII `Handle<>` WebGPU resource lifecycle across all GPU passes, decomposed `FastGltfLoader` / `PipelineManager` / `Application` subsystems, consolidated swapchain and attachment helpers, zero compiler or `clang-tidy` warnings, and verified cross-compiler/sanitizer/browser E2E parity.
 - **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular external `.wgsl` shader pipeline with `#include`/`#pragma once` and live hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and upgraded Conan 2 dependencies.
-
-- **[Unreleased / 0.7.0](CHANGELOG.md#unreleased--070---2026-10-22)**: Bump & Normal Mapping (`[V]`), Vector-Renormalized Mipmapping (`[L]`), 2048×2048 3×3 PCF Directional Shadow Mapping (`[M]`), 6-Face Roughness Environment Cubemap Reflections (`[R]`), C++23 `{}` uniform initialization, `std::span` APIs, and multithreaded CPU mip/cubemap/tangent generation.
+- **[0.7.0](CHANGELOG.md#070---2026-10-22)**: Bump & Normal Mapping (`[V]`), Vector-Renormalized Mipmapping (`[L]`), 2048×2048 3×3 PCF Directional Shadow Mapping (`[M]`), 6-Face Roughness Environment Cubemap Reflections (`[R]`), C++23 `{}` uniform initialization, `std::span` APIs, and multithreaded CPU mip/cubemap/tangent generation.
 - **[0.6.8](CHANGELOG.md#068---2026-10-22)**: Per-format CMake options, POSIX crash signal handler with C++23 `std::stacktrace`, desktop CLI parser, batched single-draw AABB wireframes, Quadtree loose-bounds culling fix, minimal web zip packager, and 1 GB megacity stress test.
 - **[0.6.7](CHANGELOG.md#067---2026-10-22)**: KTX1/KTX2 texture support with Basis Universal transcoding (`libktx`) and multithreaded glTF asset ingestion.
 - **[0.6.6](CHANGELOG.md#066---2026-10-22)**: FreeType 2 & HarfBuzz Unicode text rendering pipeline and In-Engine Debug Overlay HUD.

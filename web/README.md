@@ -3,9 +3,10 @@
 A high-performance, zero-allocation native WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (PBR) runtime. Designed for seamless, photorealistic execution across modern WebGPU-enabled browsers (including Google Chrome, Microsoft Edge, and Mozilla Firefox).
 
 [![Live GitHack Demo](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+[![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-10b981?style=for-the-badge&logo=webgpu)](web/app.js)
 [![PBR](https://img.shields.io/badge/Shading-Cook--Torrance_GGX-blue?style=for-the-badge)](web/app.js)
-[![Tests Passing](https://img.shields.io/badge/E2E_Tests-100%25_Passing-22c55e?style=for-the-badge)](tests/test_browsers_e2e.py)
+[![Tests Passing](https://img.shields.io/badge/Unit_Tests-72_Passing-22c55e?style=for-the-badge)](tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
 
@@ -174,7 +175,7 @@ To prevent garbage collection (GC) micro-stutters and guarantee steady 60 FPS / 
 
 ## Memory Lifecycle & VRAM Safety
 
-To ensure long-running stability when switching between complex 3D models (e.g. ToyCar, Sponza, BrainStem, Duck, FlightHelmet, and user-provided drag & drop files):
+To ensure long-running stability when switching between the `19` built-in preset models (`ToyCar`, `Sponza`, `RobotExpressive`, `Soldier`, plus 15 Khronos sample assets) and user-provided drag-and-drop files:
 
 - **WebGPU Resource Cleanup**:
   Prior to loading a new scene, existing GPU buffers and textures are explicitly destroyed via the WebGPU API:
@@ -237,13 +238,15 @@ Camera parameters are dynamically configured:
 | Control | Desktop Interaction | Mobile Touch Gesture |
 | :--- | :--- | :--- |
 | **Orbit (Yaw / Pitch)** | Left-click + drag | 1-finger drag |
-| **Zoom (Distance)** | Mouse scroll wheel | 2-finger pinch in / out |
-| **Pan (Target XY)** | Right-click + drag | 2-finger mid-point drag |
-| **Turntable Mode** | Keyboard `T` / HUD button | HUD button |
-| **Wireframe Mode** | Keyboard `W` / HUD button | HUD button |
-| **Bounding Box** | Keyboard `B` / HUD button | HUD button |
-| **Reset View** | Keyboard `R` / HUD button | HUD button |
-| **Collapse HUD** | Keyboard `O` / HUD button | HUD button |
+| **Zoom (Distance)** | Mouse scroll wheel / `+` `-` keys | 2-finger pinch in / out |
+| **Pan / Fly Move** | Right-click + drag / `WASD` + Arrows | 2-finger mid-point drag |
+| **Focus Selection / Frame All** | Keyboard `F` / `Home` | HUD button |
+| **Camera Bookmarks (9 Slots)** | `Ctrl+1..9` Save / `1..9` Recall | HUD bookmark slots |
+| **Camera Mode & Turntable** | Keyboard `C` (Orbit/Fly) / `T` (Turntable) | HUD button |
+| **PBR Toggles & Lighting** | `V` Bump, `P` POM, `L` Mipmaps, `M` Shadows, `R` Reflections, `U` AO, `G` SSAO, `Z` Bloom, `J` Lens Flare | Studio toggles |
+| **Weather & Day/Night Cycle** | `X` Rain, `Y` Snow, `F6` Fog, `F7` Smoke, `I`/`F8` Day/Night Cycle | Studio toggles |
+| **Debug Views, Bounds & LOD** | `B` AABB, `Q` Quadtree, `H` Occlusion, `K` Skybox, `F9`–`F12` LOD & Views, `;`/`'` LOD Bias | HUD buttons |
+| **HUD & Scene Tree** | `O` / `F3` Debug HUD, `N` Scene Graph Panel | HUD button |
 
 ---
 
@@ -263,7 +266,7 @@ Camera parameters are dynamically configured:
 The web runtime is verified by three complementary automated test suites:
 
 ### 1. Web Runtime Unit Tests (`tests/test_web_unit.js`)
-Dedicated, high-speed unit test suite executing 44 isolated unit tests covering all algorithmic, mathematical, and parser components:
+Dedicated, high-speed unit test suite executing **72 isolated unit tests** covering all algorithmic, mathematical, and parser components:
 ```bash
 node tests/test_web_unit.js
 ```

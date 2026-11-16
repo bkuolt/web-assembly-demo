@@ -444,6 +444,16 @@ if(Python3_FOUND)
     )
 endif()
 
+find_package(Doxygen QUIET OPTIONAL_COMPONENTS dot)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating online-ready Doxygen HTML documentation in build/docs/html/"
+        VERBATIM
+    )
+endif()
+
 # ==============================================================================
 # 12. Standard Installation Rules (GNUInstallDirs)
 # ==============================================================================

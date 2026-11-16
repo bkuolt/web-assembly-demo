@@ -205,7 +205,7 @@ struct Frustum {
 };
 
 /**
- * @struct alignas(16) Vertex
+ * @struct Vertex
  * @brief 3D PBR standard vertex layout aligned to 96 bytes (including JOINTS_0 and WEIGHTS_0 for glTF 2.0 skinning).
  */
 struct alignas(16) Vertex {
@@ -222,7 +222,7 @@ struct alignas(16) Vertex {
 static_assert(sizeof(Vertex) == 96, "Vertex struct must be exactly 96 bytes (16-byte aligned)");
 
 /**
- * @struct alignas(16) GlobalUniforms
+ * @struct GlobalUniforms
  * @brief WebGPU uniform buffer matching 16-byte alignment requirements.
  */
 struct alignas(16) GlobalUniforms {

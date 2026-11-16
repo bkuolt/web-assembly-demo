@@ -208,9 +208,33 @@ jobs:
         name: bgl_viewer-linux-amd64
         path: dist-native/
 
+  doxygen-docs:
+    name: Build Doxygen API Documentation
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Doxygen & Graphviz
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y doxygen graphviz python3
+
+    - name: Generate Doxygen HTML Documentation
+      run: |
+        doxygen --version
+        mkdir -p build/docs
+        doxygen Doxyfile
+
+    - name: Upload Doxygen HTML Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bgl_doxygen-docs
+        path: build/docs/html/
+
   deploy-pages:
-    name: Deploy GitHub Pages Web App
-    needs: [web-validation, wasm-emscripten, native-linux]
+    name: Deploy GitHub Pages Web App & Doxygen Docs
+    needs: [web-validation, wasm-emscripten, native-linux, doxygen-docs]
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     permissions:
@@ -230,12 +254,18 @@ jobs:
         name: bgl_web_app-wasm
         path: _wasm_artifact/
 
+    - name: Download Doxygen Documentation Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: bgl_doxygen-docs
+        path: _doxygen_html/
+
     - name: Setup Pages
       uses: actions/configure-pages@v5
 
     - name: Stage GitHub Pages Site
       run: |
-        mkdir -p _site/dist _site/assets _site/js _site/web/dist _site/web/assets _site/web/js web/dist
+        mkdir -p _site/dist _site/assets _site/js _site/docs _site/web/dist _site/web/assets _site/web/js _site/web/docs web/dist
         if [ -d _wasm_artifact/web/dist ] && [ "$(ls -A _wasm_artifact/web/dist 2>/dev/null)" ]; then
           cp -rf _wasm_artifact/web/dist/* web/dist/
         fi
@@ -247,6 +277,7 @@ jobs:
         cp -rf web/js/* _site/js/
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/dist/; fi
         cp -rf web/assets/* _site/assets/
+        if [ -d _doxygen_html ] && [ "$(ls -A _doxygen_html 2>/dev/null)" ]; then cp -rf _doxygen_html/* _site/docs/; fi
         # 2. Subdirectory assets for subpath access (https://<user>.github.io/<repo>/web/index.html)
         cp -f web/index.html _site/web/index.html
         cp -f web/style.css _site/web/style.css
@@ -255,6 +286,7 @@ jobs:
         cp -rf web/js/* _site/web/js/
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/web/dist/; fi
         cp -rf web/assets/* _site/web/assets/
+        if [ -d _doxygen_html ] && [ "$(ls -A _doxygen_html 2>/dev/null)" ]; then cp -rf _doxygen_html/* _site/web/docs/; fi
         # 3. Add .nojekyll to prevent Jekyll from skipping underscore files or assets
         touch _site/.nojekyll
 

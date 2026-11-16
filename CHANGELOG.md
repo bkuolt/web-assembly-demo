@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Split [`Application.cpp`](src/app/Application.cpp) into lifecycle/input (`Application.cpp`), asynchronous glTF model loading & selection ([`ApplicationModelLoader.cpp`](src/app/ApplicationModelLoader.cpp)), and per-section UI studio builders ([`ApplicationUI.cpp`](src/app/ApplicationUI.cpp)), deduplicating banner/error updates and KTX target lookups.
   - Split [`PostProcessPass.cpp`](src/gpu/PostProcessPass.cpp) and [`Pipeline.cpp`](src/gpu/Pipeline.cpp) by responsibility ([`PostProcessHelpers.hpp`](src/gpu/PostProcessHelpers.hpp), [`PostProcessPassRender.cpp`](src/gpu/PostProcessPassRender.cpp), [`PipelineRender.cpp`](src/gpu/PipelineRender.cpp), [`PipelineEffects.cpp`](src/gpu/PipelineEffects.cpp)), extracting shared Bloom bind-group and spotlight cone helpers.
   - Split [`FastGltfLoader.cpp`](src/scene/FastGltfLoader.cpp) into orchestrator + stage parsers ([`FastGltfInternal.hpp`](src/scene/FastGltfInternal.hpp), [`FastGltfParser.cpp`](src/scene/FastGltfParser.cpp)) and separated [`ImmediateUI.cpp`](src/ui/ImmediateUI.cpp) core batching from widget implementations & `UI::` facade ([`ImmediateUIWidgets.cpp`](src/ui/ImmediateUIWidgets.cpp)).
+- **Online Doxygen API Reference & Documentation Sync (`Doxyfile`, `.github/workflows/ci.yml`, `README.md`):**
+  - Added [`Doxyfile`](Doxyfile), [`docs/modules.dox`](docs/modules.dox), [`scripts/doxygen_md_filter.py`](scripts/doxygen_md_filter.py), `Taskfile.yml` `docs` task, and an optional CMake `docs` target generating SVG Graphviz UML diagrams, MathJax equations, and Dark/Light HTML output.
+  - Added a `doxygen-docs` CI validation job and staged compiled HTML documentation into `_site/docs/` and `_site/web/docs/` inside `deploy-pages` so API docs are published online alongside the WebGPU app on GitHub Pages.
+  - Synchronized [`README.md`](README.md), [`web/README.md`](web/README.md), and [`AGENT_INSTRUCTIONS.md`](AGENT_INSTRUCTIONS.md) with the refactored source structure, full CLI/hotkey tables, exact `256` C++ / `72` Web test counts, and corrected Changelog anchors.
 
 ---
 

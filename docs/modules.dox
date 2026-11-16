@@ -1,0 +1,91 @@
+/**
+ * @file modules.dox
+ * @brief Top-level Doxygen module hierarchy and C++23 namespace overview for bgl-Engine.
+ */
+
+/**
+ * @defgroup bgl_core Core Engine Utilities (`libbgl_core`)
+ * @brief Camera math, spatial geometry primitives, lock-free thread pool, PMR arenas, libcurl fetcher, logging, and POSIX crash diagnostics.
+ */
+
+/**
+ * @defgroup bgl_gpu WebGPU Backend & Post-Processing (`libbgl_gpu`)
+ * @brief Hardware WebGPU context, 4x MSAA split render passes, clustered Forward+ PBR pipelines, IBL compute generation, shadows, and HDR post-processing suite.
+ */
+
+/**
+ * @defgroup bgl_scene Scene Graph, glTF 2.1 & Spatial Indexing (`libbgl_scene`)
+ * @brief Parallel fastgltf ingestion, multi-format texture decoders, QEM/grid LOD generation, XZ Quadtree culling, and ray picking.
+ */
+
+/**
+ * @defgroup bgl_text Unicode Text Shaping & Atlas (`libbgl_text`)
+ * @brief HarfBuzz Unicode shaping, FreeType 2 glyph rasterization, embedded Liberation Mono fallback, and batched 2D GPU text rendering.
+ */
+
+/**
+ * @defgroup bgl_ui SDF Custom UI Studio & HUD (`libbgl_ui`)
+ * @brief Single-batch 2D analytical SDF immediate-mode UI studio with frosted glassmorphic backdrop sampling and telemetry overlay.
+ */
+
+/**
+ * @defgroup bgl_audio 3D Spatial Audio (`libbgl_audio`)
+ * @brief Miniaudio-backed listener/source spatial sound engine.
+ */
+
+/**
+ * @defgroup bgl_app Desktop Application & CLI (`libbgl_app`)
+ * @brief SDL2 windowing, asynchronous glTF preset downloader/loader, live shader hot-reload, studio panels, and CLI parser.
+ */
+
+/**
+ * @defgroup bgl_wasm Emscripten WebAssembly C-ABI Bridge
+ * @brief Freestanding C++23 exports compiled into `web/dist/bgl_engine.wasm` for browser WebGPU orchestration.
+ */
+
+/**
+ * @namespace bgl
+ * @brief Root namespace containing all bgl-Engine version constants and modular subsystems.
+ */
+
+/**
+ * @namespace bgl::core
+ * @ingroup bgl_core
+ * @brief Math types, AABB/Frustum/Ray primitives, camera controller, memory pools, thread pool, network fetcher, logging, and crash diagnostics.
+ */
+
+/**
+ * @namespace bgl::gpu
+ * @ingroup bgl_gpu
+ * @brief Hardware WebGPU abstractions, RAII handles, PBR/IBL/Shadow/PostProcess pipelines, shader preprocessing, and GPU compute culling/picking.
+ */
+
+/**
+ * @namespace bgl::scene
+ * @ingroup bgl_scene
+ * @brief glTF 2.0/2.1 loader, CPU/GPU scene graph nodes, animation/skinning/morph evaluators, Quadtree LOD/occlusion culling, and texture decoders.
+ */
+
+/**
+ * @namespace bgl::text
+ * @ingroup bgl_text
+ * @brief FreeType 2 rasterizer, Dynamic RGBA8 font atlas, HarfBuzz shaper, embedded fallback font, and 2D text renderer.
+ */
+
+/**
+ * @namespace bgl::ui
+ * @ingroup bgl_ui
+ * @brief Immediate-mode SDF studio widgets, scroll areas, interactive HSV picker, frosted loading banner, and overlay telemetry HUD.
+ */
+
+/**
+ * @namespace bgl::audio
+ * @ingroup bgl_audio
+ * @brief 3D audio playback and listener management built atop miniaudio.
+ */
+
+/**
+ * @namespace bgl::app
+ * @ingroup bgl_app
+ * @brief Native SDL2 viewer application, async background asset loader, UI controller, and CLI parser.
+ */

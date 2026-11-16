@@ -10,19 +10,20 @@
 1. **Unified Root Namespace:**
    - All C++ code must reside within the root namespace `bgl`.
    - Modules are strictly organized as:
-     - `bgl::core`: Math, types, AABB (Arvo algorithm), Ray (Möller-Trumbore), Plane, Frustum, Camera, block-based memory pools, PMR staging arenas, POSIX signal handling, C++23 `std::stacktrace` crash diagnosis, NetworkFetcher (HTTP/HTTPS/data/file), logging.
-     - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, split Opaque/Skybox/Transparent+Transmission HDR passes, modular `.wgsl` shader pipeline (`ShaderManager` with `#include`/`#pragma once`, `#embed`, and hot-reload), procedural atmospheric skybox, HDR post-processing tonemapping (`PostProcessPass`: Khronos PBR Neutral, AgX, ACES), Directional PCF Shadow Mapping (`ShadowPass`), True HDR IBL (Split-Sum BRDF LUT, GGX prefiltered cubemap, L2 Spherical Harmonics), `DynamicUniformRing<PerDrawUniforms>`, `DynamicInstanceBuffer` (`EXT_mesh_gpu_instancing`), GPU compute culling (`GpuCuller`) and picking (`GpuRayPicker`), batched 3D wireframe bounding box pipelines (`AabbRenderer`).
-     - `bgl::scene`: High-speed multithreaded glTF ingestion (`fastgltf`), modular texture decoders (PNG, JPEG, WebP, KTX2 Basis Universal, Radiance HDR, OpenEXR), 16x anisotropic filtering, GPU mip-map generation (`mipgen.wgsl`), dynamic spatial Quadtree partitioning (`Quadtree::Refit()`, loose bounds, Hi-Z `OcclusionBuffer`), Möller-Trumbore ray picking.
-     - `bgl::text`: Dynamic RGBA8 font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
-     - `bgl::ui`: In-engine glassmorphism Debug Overlay HUD with smoothed FPS, camera metrics, scene info, and spatial telemetry.
+     - `bgl::core`: Math, types, AABB (Arvo algorithm), Ray (Möller-Trumbore), Plane, Frustum, Camera, block-based memory pools, PMR staging arenas, MemoryTracker (RSS RAM / atomic VRAM), POSIX signal handling, C++23 `std::stacktrace` crash diagnosis, NetworkFetcher (HTTP/HTTPS/data/file with progress & cancellation), logging.
+     - `bgl::gpu`: WebGPU device context (`Context`), RAII `Handle<>` wrappers, split Opaque/Skybox/Transparent+Transmission HDR passes, modular `.wgsl` shader pipeline (`ShaderManager` with `#include`/`#pragma once`, `#embed`, and hot-reload), procedural atmospheric skybox (`Skybox`), HDR post-processing pipeline (`PostProcessPass` / `PostProcessPassRender`: depth linearization, half-res GTAO + bilateral blur, 5-mip Bloom, GPU auto-exposure, Hi-Z SSR, DoF, God Rays, chromatic aberration, 5 color grading presets, Khronos PBR Neutral/AgX/ACES tonemapping, FXAA 3.11), Directional PCF Shadow Mapping (`ShadowPass`), True HDR IBL (`PipelineIBL`), `PipelineRender` / `PipelineEffects` / `PipelineScene`, `DynamicUniformRing<PerDrawUniforms>`, `DynamicInstanceBuffer` (`EXT_mesh_gpu_instancing`), selection outline passes, GPU compute culling (`GpuCuller`) and picking (`GpuRayPicker`), batched 3D wireframe bounding box pipelines (`AabbRenderer`).
+     - `bgl::scene`: High-speed multithreaded glTF ingestion (`FastGltfLoader` + `FastGltfParser` with multi-stage progress & cooperative cancellation), modular texture decoders (PNG, JPEG, WebP, KTX2 Basis Universal, Radiance HDR, OpenEXR), 16x anisotropic filtering, GPU mip-map generation (`mipgen.wgsl`), dynamic spatial Quadtree partitioning (`Quadtree::Refit()`, loose bounds, Hi-Z `OcclusionBuffer`), Möller-Trumbore ray picking.
+     - `bgl::text`: Dynamic RGBA8 alpha & SDF font atlas, FreeType 2 glyph rasterization, HarfBuzz Unicode text shaping, 2D batched quad renderer.
+     - `bgl::ui`: Single-batch 2D analytical SDF immediate-mode UI studio (`ImmediateUI` + `ImmediateUIWidgets`) with frosted glassmorphic backdrop blur, scrollable dropdown/progress/loading banner widgets, HSV `ColorEdit3`, plus `DebugOverlay` HUD telemetry.
      - `bgl::audio`: 3D spatial sound engine via `miniaudio`.
-     - `bgl::app`: Multiplatform application lifecycle, CLI argument parsing (`--help`, `--version`, `--formats`, `--asset`, etc.), and runtime event loop.
+     - `bgl::app`: Multiplatform application lifecycle (`Application`), asynchronous glTF preset downloader/loader & node picking (`ApplicationModelLoader`), per-section SDF UI studio builders (`ApplicationUI`), CLI argument parser (`CommandLine`), and runtime event loop.
 2. **Modern C++23 Standard:**
    - Strict 100% C++23 (`-std=c++23`).
    - No exceptions across module or C-ABI boundaries: use `bgl::core::Result<T>` (`std::expected<T, std::string>`).
    - Use `std::span` for zero-copy memory buffers, `std::string_view` for string parameters, `constexpr` for static computations, `std::format` for type-safe formatting, and strict RAII for all WebGPU and OS handles.
 3. **Documentation:**
    - Clean, concise, and exclusively in **English**. All public types, functions, and structs include Doxygen comments (`/** ... */` or `///`).
+   - Online HTML documentation is configured in `Doxyfile` (with `docs/modules.dox` & `scripts/doxygen_md_filter.py`) and deployed to GitHub Pages via `.github/workflows/ci.yml`; keep `doxygen Doxyfile` 100% warning-free.
 4. **Zero-GLFW Architecture:**
    - GLFW is strictly prohibited.
    - **WebAssembly:** Native Emscripten HTML5 API (`<emscripten/html5.h>`).
@@ -30,7 +31,7 @@
 5. **Memory Architecture:**
    - No uncontrolled `new`/`delete`.
    - Utilize block-based `bgl::core::MemoryPool<T>` and `std::pmr` resources (`std::pmr::monotonic_buffer_resource`, `std::pmr::vector`) for geometry staging and glTF ingestion.
-   - Cache-line friendly 64-byte aligned vertex structures (`bgl::core::Vertex`).
+   - Cache-line friendly 96-byte (16-byte aligned) vertex structures (`bgl::core::Vertex`).
    - Std140/dynamic 16-byte/256-byte aligned uniform buffers (`PerDrawUniforms`, `MaterialUniforms`, `SceneLightingUniforms`, `AabbUniforms`).
 6. **Modular Shared Libraries (`.so`):**
    - Built with `-fPIC` into distinct dynamic shared libraries:
