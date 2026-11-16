@@ -6,6 +6,7 @@
 
 #include "bgl/App.hpp"
 #include "bgl/Engine.hpp"
+#include "bgl/Entity.hpp"
 #include "bgl/Gui.hpp"
 #include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"

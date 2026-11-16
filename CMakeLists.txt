@@ -342,6 +342,8 @@ add_library(bgl_engine ${BGL_LIB_TYPE}
     src/engine/Engine.cpp
     src/engine/EngineCore.cpp
     src/engine/EngineImpl.cpp
+    src/engine/Entity.cpp
+    src/engine/EntityOps.cpp
     src/engine/Gui.cpp
     src/engine/Input.cpp
     src/engine/InputBackendSdl.cpp
@@ -407,6 +409,7 @@ if(BGL_BUILD_TESTING)
         tests/test_audio_engine.cpp
         tests/test_render_settings.cpp
         tests/test_input_state.cpp
+        tests/test_entity.cpp
     )
 
     if(TARGET GTest::gtest)

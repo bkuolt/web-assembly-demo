@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "bgl/Entity.hpp"
 #include "bgl/Input.hpp"
 #include "bgl/Settings.hpp"
 #include "bgl/Types.hpp"
@@ -50,6 +51,11 @@ public:
 
     /** @brief Loads a glTF/GLB from a path, file:// URI or http(s):// URL and makes it the active scene. */
     Result<void> LoadModel(std::string_view pathOrUrl);
+
+    /** @brief Creates an empty entity in the active scene (an empty scene is created if none is loaded). */
+    Entity CreateEntity(std::string_view name);
+    /** @brief Finds an entity (e.g. a glTF node) by name; returns an invalid Entity if not found. */
+    Entity FindEntity(std::string_view name);
 
     /** @brief The orbit/fly camera. */
     [[nodiscard]] core::Camera& GetCamera() noexcept;

@@ -20,7 +20,7 @@
 | T08 | DONE | | bgl::App + BGL_RUN + RunApp |
 | T09 | DONE | | samples/01_hello_engine + BGL_BUILD_SAMPLES + Layering-Regel |
 | T10 | DONE | | bgl::gui (Begin/End/Label/Button/Checkbox/Slider) + 01_hello_engine OnGui |
-| T11 | TODO | | |
+| T11 | DONE | | bgl::Entity + EntityOps + test_entity + 02_entities_and_lights |
 | T12 | TODO | | |
 | T13 | TODO | | |
 

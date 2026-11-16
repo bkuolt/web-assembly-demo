@@ -12,6 +12,7 @@
 namespace bgl {
 
 struct Engine::Impl final : engine::EngineCore {
+    friend class Engine;
     EngineConfig config_{};
     RenderSettings settings_{};
     RenderSettings applied_{};

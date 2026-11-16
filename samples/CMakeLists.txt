@@ -6,3 +6,4 @@ function(bgl_add_sample name)
 endfunction()
 
 bgl_add_sample(sample_01_hello_engine 01_hello_engine/main.cpp)
+bgl_add_sample(sample_02_entities_and_lights 02_entities_and_lights/main.cpp)
