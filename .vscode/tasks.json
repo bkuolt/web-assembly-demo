@@ -2,6 +2,100 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Conan Install (Release)",
+      "type": "shell",
+      "command": "conan install . -s build_type=Release --build=missing --lockfile=conan.lock",
+      "problemMatcher": [],
+      "detail": "Install dependencies via Conan 2.x lockfile and generate build/Release/generators/conan_toolchain.cmake"
+    },
+    {
+      "label": "Configure CMake (Debug)",
+      "type": "shell",
+      "command": "cmake --preset debug",
+      "problemMatcher": [],
+      "detail": "Configure CMake Debug preset into build/Debug"
+    },
+    {
+      "label": "Configure CMake (Release)",
+      "type": "shell",
+      "command": "cmake --preset default",
+      "problemMatcher": [],
+      "detail": "Configure CMake Release preset into build/Release"
+    },
+    {
+      "label": "Configure CMake (ASan)",
+      "type": "shell",
+      "command": "cmake --preset asan",
+      "problemMatcher": [],
+      "detail": "Configure CMake AddressSanitizer preset into build/asan"
+    },
+    {
+      "label": "Build bgl-Engine (Debug)",
+      "type": "shell",
+      "command": "cmake --preset debug && cmake --build --preset debug -j$(nproc)",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "Configure (if needed) and compile Debug binaries with debug symbols into build/Debug"
+    },
+    {
+      "label": "Build bgl-Engine (Release)",
+      "type": "shell",
+      "command": "cmake --preset default && cmake --build --preset default -j$(nproc)",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "Compiles all shared libraries, viewer executable, and unit tests in Release mode"
+    },
+    {
+      "label": "Build bgl-Engine (ASan)",
+      "type": "shell",
+      "command": "cmake --preset asan && cmake --build --preset asan -j$(nproc)",
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "Compiles Debug binaries with AddressSanitizer into build/asan"
+    },
+    {
+      "label": "Run Unit Tests (Debug)",
+      "type": "shell",
+      "command": "ctest --test-dir build/Debug --output-on-failure -E BrowserE2ETest",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "detail": "Executes CTest suite (GTest + layering + smoke + WebGPU JS tests) using build/Debug"
+    },
+    {
+      "label": "Run Unit Tests (Release)",
+      "type": "shell",
+      "command": "ctest --test-dir build/Release --output-on-failure -E BrowserE2ETest",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "problemMatcher": [],
+      "detail": "Executes CTest suite using build/Release"
+    },
+    {
+      "label": "Run Unit Tests (ASan)",
+      "type": "shell",
+      "command": "ctest --preset asan --output-on-failure -E BrowserE2ETest",
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "problemMatcher": [],
+      "detail": "Executes CTest suite with AddressSanitizer and LeakSanitizer suppressions"
+    },
+    {
       "label": "Package Minimal Web App (Zip)",
       "type": "shell",
       "command": "python3 scripts/package_web.py",
@@ -11,29 +105,6 @@
       },
       "problemMatcher": [],
       "detail": "Packages a minimal self-contained web app distribution into dist/bgl_web_app_minimal.zip without heavy benchmark scenes"
-    },
-    {
-      "label": "Build bgl-Engine (Release)",
-      "type": "shell",
-      "command": "cmake --build build/Release -j$(nproc)",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": ["$gcc"],
-      "detail": "Compiles all shared libraries, viewer executable, and unit tests"
-    },
-    {
-      "label": "Run Unit Tests",
-      "type": "shell",
-      "command": "ctest --test-dir build/Release --output-on-failure",
-      "group": {
-        "kind": "test",
-        "isDefault": true
-      },
-      "problemMatcher": [],
-      "detail": "Executes GTest unit test suite across core, scene, text, and crash handling modules"
     }
   ]
 }
-

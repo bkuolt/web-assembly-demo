@@ -15,6 +15,20 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "description": "Standard Debug Build (with symbols, no sanitizers)",
+            "binaryDir": "${sourceDir}/build/Debug",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
         },
@@ -80,6 +94,10 @@
             "configurePreset": "default"
         },
         {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
             "name": "asan",
             "configurePreset": "asan"
         },
@@ -100,6 +118,13 @@
         {
             "name": "default",
             "configurePreset": "default",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "debug",
+            "configurePreset": "debug",
             "output": {
                 "outputOnFailure": true
             }
