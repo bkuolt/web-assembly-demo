@@ -55,6 +55,11 @@ class MockGPUDevice {
     assert(desc.code.includes('distributionGGX') && desc.code.includes('visibilitySmithGGX'), 'Shader must include Cook-Torrance GGX functions');
     assert(desc.code.includes('parallaxOcclusionMapping') && desc.code.includes('computeParallaxShadow'), 'Shader must include POM and parallax self-shadowing');
     assert(desc.code.includes('getSurfaceHeight'), 'Shader must include getSurfaceHeight for height-based bump mapping');
+    const fsStart = desc.code.indexOf('fn fs_main(');
+    assert(fsStart >= 0, 'Shader must declare fs_main');
+    const fsBody = desc.code.slice(fsStart);
+    assert(!/(?<![.\w])uv(?![.\w])/.test(fsBody), 'fs_main must not reference undeclared bare identifier uv');
+    assert(!fsBody.includes('baseColor.a < 0.01'), 'fs_main must not discard opaque materials below alpha 0.01');
     return { id: Math.random(), code: desc.code };
   }
 
@@ -219,23 +224,10 @@ global.BglState = { timeOfDay: 14.0 };
 global.Blob = class { constructor(data, opts) {} };
 global.createImageBitmap = async () => ({ width: 64, height: 64 });
 
-// Load app.js and isolate BglWebGpuRenderer definition
-const appCode = fs.readFileSync('web/app.js', 'utf8');
-
-// Isolate BglGltf definition
-const gltfStart = appCode.indexOf('const BglGltf = {');
-const gltfEnd = appCode.indexOf('  // ============================================================================\n  // Native WebGPU 3D Renderer');
-eval(appCode.slice(gltfStart, gltfEnd).replace('const BglGltf =', 'global.BglGltf ='));
-
-const startIdx = appCode.indexOf('const BglWebGpuRenderer = {');
-const endIdx = appCode.indexOf('  // ============================================================================\n  // Model Ingestion Coordinator');
-assert(startIdx !== -1, 'BglWebGpuRenderer must be defined in app.js');
-assert(endIdx !== -1, 'BglWebGpuRenderer delimiter must be present');
-const rendererCode = appCode.slice(startIdx, endIdx);
-
-// Execute renderer in current scope
+// Load modular BglGltf and BglWebGpuRenderer definitions directly
+eval(fs.readFileSync('web/js/gltf.js', 'utf8'));
 global.BglState = { isBumpActive: true, isPomActive: true, bumpScale: 1.5, pomScale: 0.035 };
-eval(rendererCode.replace('const BglWebGpuRenderer =', 'global.BglWebGpuRenderer ='));
+eval(fs.readFileSync('web/js/renderer.js', 'utf8'));
 
 (async () => {
   console.log('--- Step 1: Initializing BglWebGpuRenderer ---');

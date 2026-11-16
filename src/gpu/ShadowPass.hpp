@@ -6,6 +6,7 @@
 
 #include "core/Types.hpp"
 #include "gpu/DrawHelpers.hpp"
+#include "gpu/Handle.hpp"
 #include "gpu/Uniforms.hpp"
 #include "scene/Quadtree.hpp"
 #include "scene/Scene.hpp"
@@ -61,8 +62,8 @@ public:
     void Render(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::vec3& lightDir,
                 const scene::Quadtree* spatialIndex = nullptr, uint64_t skinFrameId = 0);
 
-    [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_; }
-    [[nodiscard]] WGPUSampler GetShadowSampler() const noexcept { return shadowSampler_; }
+    [[nodiscard]] WGPUTextureView GetShadowMapView() const noexcept { return shadowTextureView_.Get(); }
+    [[nodiscard]] WGPUSampler GetShadowSampler() const noexcept { return shadowSampler_.Get(); }
     [[nodiscard]] glm::mat4 GetLightViewProjMatrix() const noexcept { return lightViewProj_; }
     [[nodiscard]] bool IsInitialized() const noexcept {
         return shadowPipeline_ != nullptr && instanceBuffer_.GetBuffer() != nullptr;
@@ -83,11 +84,11 @@ private:
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
 
-    WGPURenderPipeline shadowPipeline_{nullptr};
-    WGPUPipelineLayout pipelineLayout_{nullptr};
-    WGPUTexture shadowTexture_{nullptr};
-    WGPUTextureView shadowTextureView_{nullptr};
-    WGPUSampler shadowSampler_{nullptr};
+    RenderPipelineHandle shadowPipeline_{};
+    PipelineLayoutHandle pipelineLayout_{};
+    TextureHandle shadowTexture_{};
+    TextureViewHandle shadowTextureView_{};
+    SamplerHandle shadowSampler_{};
     WGPUBindGroup dummySkinBindGroup_{nullptr};
 
     DynamicUniformRing<PerDrawUniforms> perDrawRing_{};

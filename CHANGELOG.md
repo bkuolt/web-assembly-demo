@@ -18,8 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hardware `EXT_mesh_gpu_instancing` & Dynamic `Quadtree::Refit()` (`src/scene/FastGltfLoader.cpp`, `src/gpu/DrawHelpers.hpp`, `src/scene/Quadtree.cpp`):**
   - Parsed glTF `EXT_mesh_gpu_instancing` (`TRANSLATION`, `ROTATION`, `SCALE`) into `SceneNode::instanceTransforms` rendered via 2-slot vertex/instance buffers (`DynamicInstanceBuffer`).
   - Added `Quadtree::Refit()` keyed on `Scene::transformVersion_` to dynamically recompute loose bounds and relocate animated/translated nodes across spatial quadrants.
+- **Modular Code & Client Architecture (`src/gpu/Pipeline*.cpp`, `web/js/*`, `CMakeLists.txt`):**
+  - Split `PipelineManager` cleanly across `Pipeline.cpp`, `PipelineIBL.cpp`, `PipelineScene.cpp`, and `PipelineHelpers.hpp`.
+  - Modularized the web viewer runtime from a single script into `web/js/core.js`, `web/js/gltf.js`, `web/js/renderer.js`, and coordinator `web/app.js`, updated packaging/CI/E2E pipelines (`package_web.py`, `ci.yml`, `Taskfile.yml`, `run_ci_locally.sh`), and added `NativeHeadlessSmokeTest` (`246` C++ GTests + `72` Web unit tests).
 - **Static Analysis, Documentation & Dependency Maintenance (`src/`, `docs/`, `scripts/`, `conanfile.py`, `Taskfile.yml`):**
-  - Resolved all `clang-tidy` findings across all 34 C++23 source units (e.g., checked hot-reload `Result<void>` handling, `std::from_chars` numeric CLI parsing without empty catch blocks, explicit base64 LUT widening casts, `emplace_back`, automatic NRVO/move returns) and enforced `clang-format` compliance across `src/` and `tests/`.
+  - Resolved all `clang-tidy` findings across all 36 C++23 source units (`ZERO_USER_WARNINGS`) and `src/wasm/wasm_bridge.cpp`, checked hot-reload `Result<void>` handling, replaced empty catch blocks in `CommandLine.cpp` with `std::from_chars`, and enforced `clang-format` compliance across `src/` and `tests/`.
   - Standardized all documentation in English (including `docs/FEATURE_AND_PHYSICS_REPORT.md`, `README.md`, `AGENT_INSTRUCTIONS.md`) and updated `Taskfile.yml`, `CMakePresets.json`, `scripts/run_ci_locally.sh`, and Conan dependencies (`glm/1.0.3`, `spdlog/1.15.3`, `libpng/1.6.59`, `libjpeg-turbo/3.2.0`, `libwebp/1.6.0`, `ktx/4.4.2`, `harfbuzz/11.4.1`, `gtest/1.17.0`).
 
 ---

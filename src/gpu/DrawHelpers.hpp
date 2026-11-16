@@ -114,7 +114,7 @@ struct VertexAndInstanceLayoutStorage {
  */
 inline void FillVertexAndInstanceLayouts(VertexAndInstanceLayoutStorage& storage) noexcept {
     const auto makeAttr = [](WGPUVertexFormat fmt, uint64_t offset, uint32_t location) noexcept {
-        WGPUVertexAttribute attr = WGPU_VERTEX_ATTRIBUTE_INIT;
+        WGPUVertexAttribute attr{};
         attr.format = fmt;
         attr.offset = offset;
         attr.shaderLocation = location;

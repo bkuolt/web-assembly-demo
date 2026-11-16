@@ -343,12 +343,15 @@ void ImmediateUI::BeginFrame(const UiInputState& input, uint32_t viewportWidth, 
     hitRects_.clear();
     frameArena_.release();
 
-    // Rebind pmr vectors after arena release (capacity must be dropped cleanly)
+    // Rebind pmr vectors after arena release and pre-reserve inside the frame arena
     vertices_ = std::pmr::vector<UiVertex>{&frameArena_};
     indices_ = std::pmr::vector<uint32_t>{&frameArena_};
     overlayVertices_ = std::pmr::vector<UiVertex>{&frameArena_};
     overlayIndices_ = std::pmr::vector<uint32_t>{&frameArena_};
     hitRects_ = std::pmr::vector<UiRect>{&frameArena_};
+    vertices_.reserve(256);
+    indices_.reserve(512);
+    hitRects_.reserve(32);
 
     input_ = input;
     viewportWidth_ = std::max(1u, viewportWidth);
@@ -529,7 +532,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
     const std::string_view currentText = options[selectedIndex] ? std::string_view{options[selectedIndex]} : "";
     EmitText(vertices_, indices_, currentText, anchorRect.x + 8.0f, anchorRect.y + 4.0f, style_.textPrimary,
              style_.textScale);
-    EmitText(vertices_, indices_, nowOpen ? "▲" : "▼", anchorRect.x + anchorRect.w - 18.0f, anchorRect.y + 4.0f,
+    EmitText(vertices_, indices_, nowOpen ? "^" : "v", anchorRect.x + anchorRect.w - 18.0f, anchorRect.y + 4.0f,
              style_.textMuted, style_.textScale * 0.85f);
 
     if (nowOpen) {
@@ -596,6 +599,7 @@ void ImmediateUI::EndFrame() {
             }
         }
     }
+    UI::SetContext(nullptr);
 }
 
 void ImmediateUI::Render(WGPURenderPassEncoder pass) {
@@ -608,6 +612,9 @@ void ImmediateUI::Render(WGPURenderPassEncoder pass) {
     }
 
     EnsureGpuBuffers(vertices_.size(), indices_.size());
+    if (!vertexBuffer_ || !indexBuffer_ || !uniformBuffer_) {
+        return;
+    }
 
     // Upload uniform projection & SDF parameters
     UiUniformData ubo{};
@@ -657,10 +664,17 @@ void ImmediateUI::EmitRectWithBorder(std::pmr::vector<UiVertex>& verts, std::pmr
                                      float y, float w, float h, const glm::vec4& fill, const glm::vec4& border,
                                      float borderWidth) const {
     EmitRect(verts, idxs, x, y, w, h, fill);
-    EmitRect(verts, idxs, x, y, w, borderWidth, border);
-    EmitRect(verts, idxs, x, y + h - borderWidth, w, borderWidth, border);
-    EmitRect(verts, idxs, x, y, borderWidth, h, border);
-    EmitRect(verts, idxs, x + w - borderWidth, y, borderWidth, h, border);
+    const float bw = std::clamp(borderWidth, 0.0f, std::min(w, h) * 0.5f);
+    if (bw <= 0.0f) {
+        return;
+    }
+    EmitRect(verts, idxs, x, y, w, bw, border);
+    EmitRect(verts, idxs, x, y + h - bw, w, bw, border);
+    const float innerH = std::max(0.0f, h - 2.0f * bw);
+    if (innerH > 0.0f) {
+        EmitRect(verts, idxs, x, y + bw, bw, innerH, border);
+        EmitRect(verts, idxs, x + w - bw, y + bw, bw, innerH, border);
+    }
 }
 
 void ImmediateUI::EmitText(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs, std::string_view text,
@@ -677,33 +691,35 @@ void ImmediateUI::EmitText(std::pmr::vector<UiVertex>& verts, std::pmr::vector<u
 
 void ImmediateUI::EnsureGpuBuffers(size_t vertexCount, size_t indexCount) {
     if (vertexCount > vertexCapacity_) {
-        if (vertexBufferBytes_ > 0) {
-            core::MemoryTracker::Instance().TrackBufferFree(vertexBufferBytes_);
-            vertexBufferBytes_ = 0;
-        }
-        vertexCapacity_ = std::max(vertexCount * 2, size_t{2048});
+        const size_t nextCapacity = std::max(vertexCount * 2, size_t{2048});
         WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        desc.size = vertexCapacity_ * sizeof(UiVertex);
+        desc.size = nextCapacity * sizeof(UiVertex);
         desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         desc.label = gpu::ToWgpuStringView("ImmediateUIVertexBuffer");
-        vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &desc);
-        if (vertexBuffer_) {
+        gpu::BufferHandle nextVb{wgpuDeviceCreateBuffer(device_, &desc)};
+        if (nextVb) {
+            if (vertexBufferBytes_ > 0) {
+                core::MemoryTracker::Instance().TrackBufferFree(vertexBufferBytes_);
+            }
+            vertexBuffer_ = std::move(nextVb);
+            vertexCapacity_ = nextCapacity;
             vertexBufferBytes_ = desc.size;
             core::MemoryTracker::Instance().TrackBufferAlloc(vertexBufferBytes_);
         }
     }
     if (indexCount > indexCapacity_) {
-        if (indexBufferBytes_ > 0) {
-            core::MemoryTracker::Instance().TrackBufferFree(indexBufferBytes_);
-            indexBufferBytes_ = 0;
-        }
-        indexCapacity_ = std::max(indexCount * 2, size_t{4096});
+        const size_t nextCapacity = std::max(indexCount * 2, size_t{4096});
         WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        desc.size = ((indexCapacity_ * sizeof(uint32_t)) + 3u) & ~size_t{3u};
+        desc.size = ((nextCapacity * sizeof(uint32_t)) + 3u) & ~size_t{3u};
         desc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
         desc.label = gpu::ToWgpuStringView("ImmediateUIIndexBuffer");
-        indexBuffer_ = wgpuDeviceCreateBuffer(device_, &desc);
-        if (indexBuffer_) {
+        gpu::BufferHandle nextIb{wgpuDeviceCreateBuffer(device_, &desc)};
+        if (nextIb) {
+            if (indexBufferBytes_ > 0) {
+                core::MemoryTracker::Instance().TrackBufferFree(indexBufferBytes_);
+            }
+            indexBuffer_ = std::move(nextIb);
+            indexCapacity_ = nextCapacity;
             indexBufferBytes_ = desc.size;
             core::MemoryTracker::Instance().TrackBufferAlloc(indexBufferBytes_);
         }

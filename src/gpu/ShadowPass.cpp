@@ -33,11 +33,11 @@ ShadowPass& ShadowPass::operator=(ShadowPass&& other) noexcept {
 void ShadowPass::MoveFrom(ShadowPass& other) noexcept {
     device_ = std::exchange(other.device_, nullptr);
     queue_ = std::exchange(other.queue_, nullptr);
-    shadowPipeline_ = std::exchange(other.shadowPipeline_, nullptr);
-    pipelineLayout_ = std::exchange(other.pipelineLayout_, nullptr);
-    shadowTexture_ = std::exchange(other.shadowTexture_, nullptr);
-    shadowTextureView_ = std::exchange(other.shadowTextureView_, nullptr);
-    shadowSampler_ = std::exchange(other.shadowSampler_, nullptr);
+    shadowPipeline_ = std::move(other.shadowPipeline_);
+    pipelineLayout_ = std::move(other.pipelineLayout_);
+    shadowTexture_ = std::move(other.shadowTexture_);
+    shadowTextureView_ = std::move(other.shadowTextureView_);
+    shadowSampler_ = std::move(other.shadowSampler_);
     dummySkinBindGroup_ = std::exchange(other.dummySkinBindGroup_, nullptr);
     perDrawRing_ = std::move(other.perDrawRing_);
     instanceBuffer_ = std::move(other.instanceBuffer_);
@@ -63,27 +63,14 @@ void ShadowPass::Shutdown() noexcept {
     instanceTransformsScratch_.clear();
     nodeInstanceStartScratch_.clear();
 
-    if (shadowSampler_) {
-        wgpuSamplerRelease(shadowSampler_);
-        shadowSampler_ = nullptr;
-    }
-    if (shadowTextureView_) {
-        wgpuTextureViewRelease(shadowTextureView_);
-        shadowTextureView_ = nullptr;
-    }
+    shadowSampler_.Reset();
+    shadowTextureView_.Reset();
     if (shadowTexture_) {
         core::MemoryTracker::Instance().TrackTextureFree(static_cast<size_t>(kShadowMapSize) * kShadowMapSize * 4);
-        wgpuTextureRelease(shadowTexture_);
-        shadowTexture_ = nullptr;
+        shadowTexture_.Reset();
     }
-    if (shadowPipeline_) {
-        wgpuRenderPipelineRelease(shadowPipeline_);
-        shadowPipeline_ = nullptr;
-    }
-    if (pipelineLayout_) {
-        wgpuPipelineLayoutRelease(pipelineLayout_);
-        pipelineLayout_ = nullptr;
-    }
+    shadowPipeline_.Reset();
+    pipelineLayout_.Reset();
     dummySkinBindGroup_ = nullptr;
     device_ = nullptr;
     queue_ = nullptr;
@@ -484,15 +471,12 @@ core::Result<void> ShadowPass::CreatePipeline(bool validateScope) {
     rpDesc.multisample.count = 1;
     rpDesc.multisample.mask = 0xFFFFFFFF;
 
-    WGPURenderPipeline nextPipeline = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    RenderPipelineHandle nextPipeline{wgpuDeviceCreateRenderPipeline(device_, &rpDesc)};
     if (!nextPipeline) {
         return std::unexpected("Failed to create shadow render pipeline");
     }
 
-    if (shadowPipeline_) {
-        wgpuRenderPipelineRelease(shadowPipeline_);
-    }
-    shadowPipeline_ = nextPipeline;
+    shadowPipeline_ = std::move(nextPipeline);
     return {};
 }
 

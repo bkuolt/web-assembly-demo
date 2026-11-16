@@ -133,10 +133,11 @@ global.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE
 global.GPUBufferUsage = { MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128 };
 global.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
 
-// Load and evaluate web/app.js
-const appPath = path.join(__dirname, '../web/app.js');
-const appCode = fs.readFileSync(appPath, 'utf8');
-eval(appCode);
+// Load and evaluate modular web client scripts in browser defer order
+for (const relPath of ['../web/js/core.js', '../web/js/gltf.js', '../web/js/renderer.js', '../web/app.js']) {
+  const modPath = path.join(__dirname, relPath);
+  eval(fs.readFileSync(modPath, 'utf8'));
+}
 
 // Access exported units from window
 const BglState = window.BglState;
@@ -202,16 +203,11 @@ suite('Vector & Matrix Mathematics (BglWebGpuRenderer.mat4)', () => {
   test('mat4.identity(): resets any modified matrix back to the identity matrix', () => {
     const m = mat4.create();
     m.fill(99.0);
-    // Identity matrix values: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
-    m[0] = 1; m[1] = 0; m[2] = 0; m[3] = 0;
-    m[4] = 0; m[5] = 1; m[6] = 0; m[7] = 0;
-    m[8] = 0; m[9] = 0; m[10] = 1; m[11] = 0;
-    m[12] = 0; m[13] = 0; m[14] = 0; m[15] = 1;
-    assert.strictEqual(m[0], 1);
-    assert.strictEqual(m[5], 1);
-    assert.strictEqual(m[10], 1);
-    assert.strictEqual(m[15], 1);
-    assert.strictEqual(m[1], 0);
+    mat4.identity(m);
+    for (let i = 0; i < 16; i++) {
+      const expected = (i % 5 === 0) ? 1.0 : 0.0;
+      assert.strictEqual(m[i], expected, `Diagonal at index ${i} must be ${expected}`);
+    }
   });
 
   test('mat4.multiply(): identity preservation (M * I = M and I * M = M)', () => {

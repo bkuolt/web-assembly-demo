@@ -8,6 +8,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -546,7 +547,7 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
             break;
     }
 
-    // 2. Read resolution line: "-Y <height> +X <width>"
+    // 2. Read resolution line: "-Y <height> +X <width>" or "+X <width> -Y <height>"
     const std::string_view resLine{readLine()};
     if (resLine.empty()) {
         return std::unexpected("Malformed Radiance .hdr file: missing resolution string");
@@ -554,19 +555,44 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
 
     uint32_t width{0};
     uint32_t height{0};
-    const size_t yPos{resLine.find('Y')};
-    const size_t xPos{resLine.find('X')};
-    if (yPos == std::string_view::npos || xPos == std::string_view::npos) {
-        return std::unexpected("Malformed Radiance .hdr resolution string");
-    }
+    {
+        auto nextToken = [](std::string_view& s) noexcept -> std::string_view {
+            while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) {
+                s.remove_prefix(1);
+            }
+            const size_t end = s.find_first_of(" \t");
+            const std::string_view tok = (end == std::string_view::npos) ? s : s.substr(0, end);
+            s.remove_prefix(tok.size());
+            return tok;
+        };
 
-    try {
-        const std::string ySub{resLine.substr(yPos + 1, xPos - (yPos + 1))};
-        const std::string xSub{resLine.substr(xPos + 1)};
-        height = static_cast<uint32_t>(std::stoul(ySub));
-        width = static_cast<uint32_t>(std::stoul(xSub));
-    } catch (...) {
-        return std::unexpected("Failed to parse Radiance .hdr width/height");
+        std::string_view cursor{resLine};
+        bool foundX{false};
+        bool foundY{false};
+        while (!cursor.empty()) {
+            const std::string_view axis = nextToken(cursor);
+            const std::string_view valStr = nextToken(cursor);
+            if (axis.empty() || valStr.empty()) {
+                break;
+            }
+            uint32_t parsed{0};
+            const auto [ptr, ec] = std::from_chars(valStr.data(), valStr.data() + valStr.size(), parsed);
+            if (ec != std::errc{} || ptr != valStr.data() + valStr.size()) {
+                return std::unexpected("Failed to parse Radiance .hdr width/height");
+            }
+            if (axis.size() == 2 && (axis[0] == '+' || axis[0] == '-')) {
+                if (axis[1] == 'Y') {
+                    height = parsed;
+                    foundY = true;
+                } else if (axis[1] == 'X') {
+                    width = parsed;
+                    foundX = true;
+                }
+            }
+        }
+        if (!foundX || !foundY) {
+            return std::unexpected("Malformed Radiance .hdr resolution string");
+        }
     }
 
     if (width == 0 || height == 0 || width > kMaxTextureDimension || height > kMaxTextureDimension) {

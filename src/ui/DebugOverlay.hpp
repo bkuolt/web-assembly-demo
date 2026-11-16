@@ -54,6 +54,7 @@ struct OverlayStats {
     bool dayNightCycleEnabled{false};
 
     // System Memory & Hardware Telemetry
+    uint32_t sampleCount{4};
     size_t residentRamBytes{0};
     size_t vramBytes{0};
     bool gamepadConnected{false};

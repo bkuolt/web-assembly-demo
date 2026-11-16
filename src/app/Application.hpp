@@ -360,6 +360,7 @@ private:
     bool running_{false};
     bool showBoundingBoxes_{true};
     bool showQuadtreeBounds_{false};
+    bool wireframeMode_{false};
 
     core::Camera camera_{};
     core::Gamepad gamepad_{};

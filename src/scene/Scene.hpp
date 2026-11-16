@@ -174,14 +174,15 @@ struct MeshPrimitive {
     WGPUBuffer gpuWireframeIndexBuffer{nullptr};
     uint64_t gpuVertexBufferSize{0};
     uint64_t gpuIndexBufferSize{0};
+    uint64_t gpuWireframeIndexBufferSize{0};
     uint32_t wireframeIndexCount{0};
     WGPUBuffer gpuUniformBuffer{nullptr};
-    WGPUBuffer gpuShadowUniformBuffer{nullptr};
+    uint64_t gpuUniformBufferSize{0};
     WGPUBuffer gpuMorphDeltaBuffer{nullptr};
+    uint64_t gpuMorphDeltaBufferSize{0};
     uint32_t gpuMorphTargetCount{0};
     uint32_t gpuMorphVertexCount{0};
     WGPUBindGroup gpuBindGroup{nullptr};
-    WGPUBindGroup gpuShadowBindGroup{nullptr};
 
     explicit MeshPrimitive(std::pmr::memory_resource* mr = std::pmr::get_default_resource());
     MeshPrimitive(const MeshPrimitive& other);

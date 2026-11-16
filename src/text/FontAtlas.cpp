@@ -75,6 +75,7 @@ void FontAtlas::Cleanup() {
     }
     glyphCache_.clear();
     cpuAtlas_.clear();
+    fontDataBuffer_.clear();
 }
 
 core::Result<void> FontAtlas::InitializeFromMemory(std::span<const uint8_t> fontData, uint32_t pixelSize,
@@ -146,9 +147,12 @@ core::Result<void> FontAtlas::InitializeFromFile(std::string_view filePath, uint
     if (!file.is_open()) {
         return std::unexpected(std::string("Cannot open font file: ") + std::string(filePath));
     }
-    std::streamsize size = file.tellg();
+    const std::streamsize size = file.tellg();
+    if (size <= 0) {
+        return std::unexpected(std::string("Empty or unreadable font file: ") + std::string(filePath));
+    }
     file.seekg(0, std::ios::beg);
-    fontDataBuffer_.resize(size);
+    fontDataBuffer_.resize(static_cast<size_t>(size));
     if (!file.read(reinterpret_cast<char*>(fontDataBuffer_.data()), size)) {
         return std::unexpected(std::string("Failed to read font file: ") + std::string(filePath));
     }
@@ -183,6 +187,7 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
     }
     if (err) {
         BGL_LOG_WARN("FreeType failed to render glyph index {}", glyphIndex);
+        info.size = glm::vec2{0.0f};
         info.uvMin = whitePixelUV_;
         info.uvMax = whitePixelUV_;
         return;
@@ -213,6 +218,7 @@ void FontAtlas::RasterizeAndPack(uint32_t glyphIndex, GlyphInfo& info) {
 
     if (packY_ + glyphH > atlasDim_) {
         BGL_LOG_ERROR("Font Atlas ({}x{}) overflowed while packing glyph index {}", atlasDim_, atlasDim_, glyphIndex);
+        info.size = glm::vec2{0.0f};
         info.uvMin = whitePixelUV_;
         info.uvMax = whitePixelUV_;
         return;

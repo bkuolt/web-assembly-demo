@@ -73,3 +73,14 @@ TEST(SoundEngineTest, IdempotentShutdown) {
         EXPECT_FALSE(engine.IsInitialized());
     }
 }
+
+TEST(SoundEngineTest, DoubleInitializeIsIdempotent) {
+    SoundEngine engine;
+    if (engine.Initialize().has_value()) {
+        EXPECT_TRUE(engine.IsInitialized());
+        EXPECT_TRUE(engine.Initialize().has_value());
+        EXPECT_TRUE(engine.IsInitialized());
+        engine.Shutdown();
+        EXPECT_FALSE(engine.IsInitialized());
+    }
+}

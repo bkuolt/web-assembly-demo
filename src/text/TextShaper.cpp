@@ -17,8 +17,19 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas, std::string_view text, float 
         return layout;
     }
 
-    const std::unique_ptr<hb_buffer_t, decltype(&hb_buffer_destroy)> hbBuffer{hb_buffer_create(), &hb_buffer_destroy};
-    if (!hbBuffer)
+    struct HbBufferGuard {
+        hb_buffer_t* handle{nullptr};
+        HbBufferGuard() noexcept : handle{hb_buffer_create()} {}
+        ~HbBufferGuard() {
+            if (handle) {
+                hb_buffer_destroy(handle);
+            }
+        }
+        HbBufferGuard(const HbBufferGuard&) = delete;
+        HbBufferGuard& operator=(const HbBufferGuard&) = delete;
+    };
+    thread_local HbBufferGuard hbBuffer{};
+    if (!hbBuffer.handle)
         return layout;
 
     const float lineHeight{fontAtlas.GetLineHeight() * scale};
@@ -34,21 +45,24 @@ TextLayout TextShaper::Shape(FontAtlas& fontAtlas, std::string_view text, float 
             lineEnd = text.size();
         }
 
-        const std::string_view line{text.substr(lineStart, lineEnd - lineStart)};
+        std::string_view line{text.substr(lineStart, lineEnd - lineStart)};
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
         lineStart = lineEnd + 1;
 
         if (!line.empty()) {
-            hb_buffer_clear_contents(hbBuffer.get());
-            hb_buffer_add_utf8(hbBuffer.get(), line.data(), static_cast<int>(line.size()), 0,
+            hb_buffer_reset(hbBuffer.handle);
+            hb_buffer_add_utf8(hbBuffer.handle, line.data(), static_cast<int>(line.size()), 0,
                                static_cast<int>(line.size()));
-            hb_buffer_guess_segment_properties(hbBuffer.get());
-            hb_shape(fontAtlas.GetHarfBuzzFont(), hbBuffer.get(), nullptr, 0);
+            hb_buffer_guess_segment_properties(hbBuffer.handle);
+            hb_shape(fontAtlas.GetHarfBuzzFont(), hbBuffer.handle, nullptr, 0);
 
             unsigned int glyphCount{0};
-            const std::span<const hb_glyph_info_t> glyphInfos{hb_buffer_get_glyph_infos(hbBuffer.get(), &glyphCount),
+            const std::span<const hb_glyph_info_t> glyphInfos{hb_buffer_get_glyph_infos(hbBuffer.handle, &glyphCount),
                                                               glyphCount};
             const std::span<const hb_glyph_position_t> glyphPositions{
-                hb_buffer_get_glyph_positions(hbBuffer.get(), &glyphCount), glyphCount};
+                hb_buffer_get_glyph_positions(hbBuffer.handle, &glyphCount), glyphCount};
 
             float currentX{startX};
             float baselineY{currentY + ascender};

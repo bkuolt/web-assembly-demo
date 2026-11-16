@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/Types.hpp"
+#include <functional>
 #include <glm/glm.hpp>
 #include <memory>
 #include <miniaudio.h>
@@ -71,9 +72,16 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
 
 private:
+    struct TransparentStringHash {
+        using is_transparent = void;
+        [[nodiscard]] size_t operator()(std::string_view sv) const noexcept {
+            return std::hash<std::string_view>{}(sv);
+        }
+    };
+
     bool initialized_{false};
     ma_engine engine_{};
-    std::unordered_map<std::string, std::unique_ptr<ma_sound>> activeSounds_{};
+    std::unordered_map<std::string, std::unique_ptr<ma_sound>, TransparentStringHash, std::equal_to<>> activeSounds_{};
 };
 
 } // namespace bgl::audio

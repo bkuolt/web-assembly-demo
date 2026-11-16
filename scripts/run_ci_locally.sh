@@ -20,6 +20,9 @@ if command -v clang-tidy >/dev/null 2>&1; then
   clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Wall -Wextra -Isrc
 fi
 if command -v node >/dev/null 2>&1; then
+  node --check web/js/core.js
+  node --check web/js/gltf.js
+  node --check web/js/renderer.js
   node --check web/app.js
   node --check web/gltf_worker.js
   node tests/test_web_unit.js
@@ -74,8 +77,15 @@ conan install . -s build_type=Release --build=missing ${LOCK_ARG}
 echo "[Step 4/7] Configuring CMake with Conan Toolchain..."
 cmake -B "${BUILD_DIR}" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
   -DCMAKE_TOOLCHAIN_FILE="${BUILD_DIR}/generators/conan_toolchain.cmake" \
   -DBGL_BUILD_TESTING=ON
+
+if command -v clang-tidy >/dev/null 2>&1; then
+  clang-tidy -p "${BUILD_DIR}" --config-file=.clang-tidy \
+    src/core/Camera.cpp src/core/MemoryPool.cpp src/gpu/ShadowPass.cpp
+fi
 
 # Step 5: Compilation
 echo "[Step 5/7] Building native libraries and viewer..."

@@ -16,6 +16,7 @@ Checks: >
   -bugprone-narrowing-conversions,
   -bugprone-implicit-widening-of-multiplication-result,
   -bugprone-branch-clone,
+  -bugprone-argument-comment,
   -performance-enum-size
 WarningsAsErrors: ''
 HeaderFilterRegex: '^(src|tests)/'

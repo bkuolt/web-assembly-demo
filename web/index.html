@@ -218,7 +218,7 @@
             <div class="category-title">Lighting &amp; Environment</div>
             <div class="chip-row">
               <button class="chip-btn active" id="btn-shadows" onclick="toggleShadows()" title="Directional PCF Shadows">Shadow [M]</button>
-              <button class="chip-btn" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
+              <button class="chip-btn active" id="btn-skybox" onclick="toggleSkybox()" title="Atmospheric Procedural Skybox">Skybox [K]</button>
               <button class="chip-btn active" id="btn-reflections" onclick="toggleReflections()" title="Split-Sum GGX Cubemap IBL">Reflect [R]</button>
               <button class="chip-btn active" id="btn-flare" onclick="toggleLensFlare()" title="Sun Lens Flares">Flares [J]</button>
               <button class="chip-btn" id="btn-day-night" onclick="toggleDayNightCycle()" title="Toggle automatic Day/Night Sun & Moon Cycle [I]">Day/Night [I]</button>
@@ -246,8 +246,8 @@
               <button class="chip-btn" id="btn-auto-lod" onclick="toggleAutoLod()" title="Adaptive 60 FPS Auto-LOD Bias Scaling [F12]">Auto-LOD [F12]</button>
               <button class="chip-btn" id="btn-lod-heatmap" onclick="toggleLodHeatmap()" title="Diagnostic LOD Heatmap (LOD0=Emerald, LOD1=Yellow, LOD2=Orange, LOD3=Crimson) [F10]">LOD Map [F10]</button>
               <button class="chip-btn" id="btn-debug-view" onclick="cycleDebugView()" title="Cycle Diagnostic Shading View (Lit / LOD / Normals / PBR / UV) [F9]">View: Lit [F9]</button>
-              <button class="chip-btn active" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
-              <button class="chip-btn" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
+              <button class="chip-btn" id="btn-quadtree" onclick="toggleQuadtree()" title="Spatial Quadtree Hi-Z Culling">Quadtree [Q]</button>
+              <button class="chip-btn active" id="btn-bbox" onclick="toggleBBox()" title="3D AABB Bounding Boxes">AABB [B]</button>
               <button class="chip-btn active" id="btn-hud" onclick="toggleHUD()" title="In-Engine Native HUD">HUD [O]</button>
               <button class="chip-btn" id="btn-tree" onclick="toggleTreePanel()" title="Open Scene Hierarchy Panel">Hierarchy [N]</button>
             </div>
@@ -407,7 +407,7 @@
         <span>◈</span>
         <div>
           <div>Scene Hierarchy</div>
-          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">Sponza.glb</div>
+          <div style="font-size: 0.72rem; color: #94a3b8; font-weight: normal;" id="model-name-label">ToyCar.glb</div>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 6px;">
@@ -439,7 +439,10 @@
     </div>
   </div>
 
-  <!-- Modular Application Client Script -->
+  <!-- Modular Application Client Scripts -->
+  <script src="js/core.js" defer></script>
+  <script src="js/gltf.js" defer></script>
+  <script src="js/renderer.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

@@ -257,6 +257,19 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
     std::unordered_set<std::string> pragmaOnceSet{};
     std::vector<std::string> activeStack{};
     std::unordered_set<std::string> recordedDeps{};
+    std::unordered_map<std::string, std::string> sourceCache{};
+
+    auto cachedLookup = [&](const std::string& path) -> core::Result<std::string_view> {
+        if (auto it = sourceCache.find(path); it != sourceCache.end()) {
+            return std::string_view{it->second};
+        }
+        auto res = lookup(path);
+        if (!res) {
+            return std::unexpected(res.error());
+        }
+        auto [insertedIt, _] = sourceCache.emplace(path, std::move(*res));
+        return std::string_view{insertedIt->second};
+    };
 
     auto processFile = [&](auto& self, std::string_view currentPath, size_t depth) -> core::Result<void> {
         if (depth > maxDepth) {
@@ -272,7 +285,7 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
             return {};
         }
 
-        auto srcRes = lookup(normPath);
+        auto srcRes = cachedLookup(normPath);
         if (!srcRes) {
             return std::unexpected(srcRes.error());
         }
@@ -308,10 +321,12 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
                 }
                 const std::string target{arg.substr(1, arg.size() - 2)};
                 std::string resolved{ResolveIncludePath(normPath, target)};
-                // If relative resolution didn't point to an existing lookup when in a subdirectory, also verify root
-                if (resolved.find('/') != std::string::npos && !lookup(resolved).has_value() &&
-                    lookup(NormalizeVirtualPath(target)).has_value()) {
-                    resolved = NormalizeVirtualPath(target);
+                // If relative resolution fails when in a subdirectory, fall back to shader root using cachedLookup.
+                if (resolved.find('/') != std::string::npos && !cachedLookup(resolved).has_value()) {
+                    std::string rootCandidate{NormalizeVirtualPath(target)};
+                    if (cachedLookup(rootCandidate).has_value()) {
+                        resolved = std::move(rootCandidate);
+                    }
                 }
                 if (auto subRes = self(self, resolved, depth + 1); !subRes) {
                     activeStack.pop_back();

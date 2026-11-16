@@ -187,7 +187,10 @@ void Application::Update(float deltaTime) {
                                        static_cast<uint32_t>(event.window.data2));
                 }
             } else if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_F2) {
+                if (event.key.keysym.sym == SDLK_F1) {
+                    wireframeMode_ = !wireframeMode_;
+                    BGL_LOG_INFO("Toggled Wireframe Overlay: {}", wireframeMode_ ? "ON" : "OFF");
+                } else if (event.key.keysym.sym == SDLK_F2) {
                     ToggleSettingsUI();
                     BGL_LOG_INFO("Toggled VRAM & Compression Settings UI: {}", showSettingsUi_ ? "ON" : "OFF");
                 } else if (event.key.keysym.sym == SDLK_ESCAPE) {
@@ -502,6 +505,7 @@ void Application::Update(float deltaTime) {
         cachedMemTelemetry_ = core::MemoryTracker::Instance().Query();
     }
     const auto& memTelemetry = cachedMemTelemetry_;
+    stats.sampleCount = gpuContext_.GetSampleCount();
     stats.residentRamBytes = memTelemetry.residentRamBytes;
     size_t vramBytes = memTelemetry.TotalGpuBytes();
     size_t textureVramBytes = 0;
@@ -514,13 +518,16 @@ void Application::Update(float deltaTime) {
             textureVramBytes += texBytes;
         }
         vramBytes += textureVramBytes;
-        vramBytes += totalVertices_ * sizeof(core::Vertex);
-        vramBytes += totalIndices_ * sizeof(uint32_t);
     }
-    // RGBA16F and Depth24 MSAA targets are not tracked in MemoryTracker; ShadowPass depth is already included via
-    // TotalGpuBytes().
-    vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 8 * 4); // RGBA16F 4x MSAA
-    vramBytes += static_cast<size_t>(gpuContext_.GetWidth() * gpuContext_.GetHeight() * 4 * 4); // Depth24 4x MSAA
+    // Offscreen HDR + Depth render targets allocated in gpu::Context are not registered via MemoryTracker;
+    // ShadowPass depth, geometry/skin/morph/ring/instance/UI buffers are already counted in TotalGpuBytes().
+    const size_t pxCount = static_cast<size_t>(gpuContext_.GetWidth()) * static_cast<size_t>(gpuContext_.GetHeight());
+    const size_t msaaSamples = static_cast<size_t>(std::max<uint32_t>(1u, gpuContext_.GetSampleCount()));
+    vramBytes += pxCount * 8u; // HDR single-sampled resolve target (RGBA16Float)
+    if (msaaSamples > 1u) {
+        vramBytes += pxCount * 8u * msaaSamples; // HDR MSAA color target
+    }
+    vramBytes += pxCount * 4u * msaaSamples; // Depth24Plus target
     stats.vramBytes = vramBytes;
     lastVramBytes_ = vramBytes;
     lastTextureVramBytes_ = textureVramBytes;
@@ -583,7 +590,7 @@ void Application::Render() {
 
     if (activeScene_) {
         // 1. Hardware 4x MSAA Opaque/Masked PBR Pass (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
-        pipelineManager_.RenderOpaqueScene(hdrPass, *activeScene_, vp, camPos, false, quadtree_.get(),
+        pipelineManager_.RenderOpaqueScene(hdrPass, *activeScene_, vp, camPos, wireframeMode_, quadtree_.get(),
                                            camera_.GetViewMatrix(), camera_.GetProjectionMatrix(),
                                            gpuContext_.GetWidth(), gpuContext_.GetHeight(), camera_.GetNearPlane(),
                                            camera_.GetFarPlane());
@@ -607,7 +614,7 @@ void Application::Render() {
         return;
 
     if (activeScene_) {
-        pipelineManager_.RenderTransparentScene(transparentPass, *activeScene_, vp, false);
+        pipelineManager_.RenderTransparentScene(transparentPass, *activeScene_, vp, wireframeMode_);
 
         // 4. Batch & Flush 3D Wireframe Bounding Boxes (Gold/Cyan) and Quadtree Bounds (Emerald) in a single draw call
         if (showBoundingBoxes_) {
@@ -933,7 +940,7 @@ void Application::UpdateSettingsUI() {
         return;
     }
 
-    settingsUi_.BeginWindow("Engine & VRAM Settings", 16.0f, 16.0f, 330.0f);
+    settingsUi_.BeginWindow("Engine & VRAM Settings", std::max(16.0f, static_cast<float>(vpW) - 346.0f), 16.0f, 330.0f);
 
     char vramBuf[96];
     const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
@@ -989,6 +996,11 @@ void Application::UpdateSettingsUI() {
     bool shadows = pipelineManager_.IsShadowsEnabled();
     if (bgl::ui::UI::Checkbox("Shadows", shadows)) {
         ToggleShadows();
+    }
+
+    bool wf = wireframeMode_;
+    if (bgl::ui::UI::Checkbox("Wireframe [F1]", wf)) {
+        wireframeMode_ = wf;
     }
 
     if (bgl::ui::UI::Button("Frame All")) {

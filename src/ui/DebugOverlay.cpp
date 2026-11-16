@@ -126,8 +126,11 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     // 3. Header: Engine name & Version (Left) and Live FPS Pill (Right)
     const float textX = panelX + 14.0f;
-    textRenderer_.DrawText(std::format("{} v{} [4x MSAA]", bgl::kEngineName, bgl::kEngineVersion), textX,
-                           panelY + 10.0f, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
+    const std::string headerText =
+        (currentStats_.sampleCount > 1u)
+            ? std::format("{} v{} [{}x MSAA]", bgl::kEngineName, bgl::kEngineVersion, currentStats_.sampleCount)
+            : std::format("{} v{} [No MSAA]", bgl::kEngineName, bgl::kEngineVersion);
+    textRenderer_.DrawText(headerText, textX, panelY + 10.0f, glm::vec4{0.22f, 0.74f, 0.97f, 1.0f});
 
     // Right-aligned FPS badge pill
     const float fpsPillW = 144.0f;

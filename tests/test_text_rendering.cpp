@@ -224,4 +224,17 @@ TEST(ImmediateUITest, EmbeddedShaderAndWidgetsAndMouseConsumption) {
     EXPECT_EQ(imgui.GetVertexCount(), 0u);
     EXPECT_EQ(imgui.GetIndexCount(), 0u);
     EXPECT_FALSE(imgui.WantsMouse());
+    EXPECT_EQ(ui::UI::GetContext(), nullptr);
+}
+
+TEST(TextRenderingTest, CrlfLineEndingsShapeWithoutExtraCrGlyph) {
+    auto data = text::GetEmbeddedFontData();
+    text::FontAtlas atlas;
+    ASSERT_TRUE(atlas.InitializeFromMemory(data, 16, 1024).has_value());
+
+    const auto lfLayout = text::TextShaper::Shape(atlas, "Hello\nWorld", 0.0f, 0.0f);
+    const auto crlfLayout = text::TextShaper::Shape(atlas, "Hello\r\nWorld", 0.0f, 0.0f);
+    EXPECT_EQ(lfLayout.quads.size(), crlfLayout.quads.size());
+    EXPECT_FLOAT_EQ(lfLayout.bounds.x, crlfLayout.bounds.x);
+    EXPECT_FLOAT_EQ(lfLayout.bounds.y, crlfLayout.bounds.y);
 }

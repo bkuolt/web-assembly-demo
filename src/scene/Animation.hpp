@@ -94,6 +94,7 @@ struct Skin {
     int skeletonRootNodeIndex{-1};
     std::vector<int> joints{};
     WGPUBuffer gpuJointBuffer{nullptr};
+    uint64_t gpuJointBufferSize{0};
     WGPUBindGroup gpuBindGroup{nullptr};
     mutable std::vector<glm::mat4> cachedJointMatrices{};
     mutable uint64_t cachedFrameId{0};

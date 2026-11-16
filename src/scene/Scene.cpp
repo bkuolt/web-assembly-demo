@@ -4,6 +4,7 @@
  *        and multithreaded MikkTSpace/Lengyel tangent-space basis computation.
  */
 #include "scene/Scene.hpp"
+#include "core/MemoryTracker.hpp"
 #include "core/ThreadPool.hpp"
 #include <algorithm>
 #include <cmath>
@@ -21,9 +22,9 @@ MeshPrimitive::MeshPrimitive(const MeshPrimitive& other)
       lodLevels{other.lodLevels}, morphTargets{other.morphTargets}, morphDirty{other.morphDirty},
       boundingBox{other.boundingBox}, materialIndex{other.materialIndex}, indexFormat{other.indexFormat},
       gpuVertexBuffer{nullptr}, gpuIndexBuffer{nullptr}, gpuWireframeIndexBuffer{nullptr}, gpuVertexBufferSize{0},
-      gpuIndexBufferSize{0}, wireframeIndexCount{0}, gpuUniformBuffer{nullptr}, gpuShadowUniformBuffer{nullptr},
-      gpuMorphDeltaBuffer{nullptr}, gpuMorphTargetCount{0}, gpuMorphVertexCount{0}, gpuBindGroup{nullptr},
-      gpuShadowBindGroup{nullptr} {}
+      gpuIndexBufferSize{0}, gpuWireframeIndexBufferSize{0}, wireframeIndexCount{0}, gpuUniformBuffer{nullptr},
+      gpuUniformBufferSize{0}, gpuMorphDeltaBuffer{nullptr}, gpuMorphDeltaBufferSize{0}, gpuMorphTargetCount{0},
+      gpuMorphVertexCount{0}, gpuBindGroup{nullptr} {}
 
 MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
     if (this != &other) {
@@ -43,14 +44,15 @@ MeshPrimitive& MeshPrimitive::operator=(const MeshPrimitive& other) {
         gpuWireframeIndexBuffer = nullptr;
         gpuVertexBufferSize = 0;
         gpuIndexBufferSize = 0;
+        gpuWireframeIndexBufferSize = 0;
         wireframeIndexCount = 0;
         gpuUniformBuffer = nullptr;
-        gpuShadowUniformBuffer = nullptr;
+        gpuUniformBufferSize = 0;
         gpuMorphDeltaBuffer = nullptr;
+        gpuMorphDeltaBufferSize = 0;
         gpuMorphTargetCount = 0;
         gpuMorphVertexCount = 0;
         gpuBindGroup = nullptr;
-        gpuShadowBindGroup = nullptr;
     }
     return *this;
 }
@@ -65,14 +67,15 @@ MeshPrimitive::MeshPrimitive(MeshPrimitive&& other) noexcept
       gpuWireframeIndexBuffer{std::exchange(other.gpuWireframeIndexBuffer, nullptr)},
       gpuVertexBufferSize{std::exchange(other.gpuVertexBufferSize, 0)},
       gpuIndexBufferSize{std::exchange(other.gpuIndexBufferSize, 0)},
+      gpuWireframeIndexBufferSize{std::exchange(other.gpuWireframeIndexBufferSize, 0)},
       wireframeIndexCount{std::exchange(other.wireframeIndexCount, 0)},
       gpuUniformBuffer{std::exchange(other.gpuUniformBuffer, nullptr)},
-      gpuShadowUniformBuffer{std::exchange(other.gpuShadowUniformBuffer, nullptr)},
+      gpuUniformBufferSize{std::exchange(other.gpuUniformBufferSize, 0)},
       gpuMorphDeltaBuffer{std::exchange(other.gpuMorphDeltaBuffer, nullptr)},
+      gpuMorphDeltaBufferSize{std::exchange(other.gpuMorphDeltaBufferSize, 0)},
       gpuMorphTargetCount{std::exchange(other.gpuMorphTargetCount, 0)},
       gpuMorphVertexCount{std::exchange(other.gpuMorphVertexCount, 0)},
-      gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
-      gpuShadowBindGroup{std::exchange(other.gpuShadowBindGroup, nullptr)} {}
+      gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)} {}
 
 MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
     if (this != &other) {
@@ -92,14 +95,15 @@ MeshPrimitive& MeshPrimitive::operator=(MeshPrimitive&& other) noexcept {
         gpuWireframeIndexBuffer = std::exchange(other.gpuWireframeIndexBuffer, nullptr);
         gpuVertexBufferSize = std::exchange(other.gpuVertexBufferSize, 0);
         gpuIndexBufferSize = std::exchange(other.gpuIndexBufferSize, 0);
+        gpuWireframeIndexBufferSize = std::exchange(other.gpuWireframeIndexBufferSize, 0);
         wireframeIndexCount = std::exchange(other.wireframeIndexCount, 0);
         gpuUniformBuffer = std::exchange(other.gpuUniformBuffer, nullptr);
-        gpuShadowUniformBuffer = std::exchange(other.gpuShadowUniformBuffer, nullptr);
+        gpuUniformBufferSize = std::exchange(other.gpuUniformBufferSize, 0);
         gpuMorphDeltaBuffer = std::exchange(other.gpuMorphDeltaBuffer, nullptr);
+        gpuMorphDeltaBufferSize = std::exchange(other.gpuMorphDeltaBufferSize, 0);
         gpuMorphTargetCount = std::exchange(other.gpuMorphTargetCount, 0);
         gpuMorphVertexCount = std::exchange(other.gpuMorphVertexCount, 0);
         gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
-        gpuShadowBindGroup = std::exchange(other.gpuShadowBindGroup, nullptr);
     }
     return *this;
 }
@@ -109,26 +113,40 @@ MeshPrimitive::~MeshPrimitive() {
 }
 
 void MeshPrimitive::ReleaseGpu() noexcept {
-    if (auto bg = std::exchange(gpuShadowBindGroup, nullptr))
-        wgpuBindGroupRelease(bg);
     if (auto bg = std::exchange(gpuBindGroup, nullptr))
         wgpuBindGroupRelease(bg);
-    if (auto b = std::exchange(gpuMorphDeltaBuffer, nullptr))
+    if (auto b = std::exchange(gpuMorphDeltaBuffer, nullptr)) {
+        if (gpuMorphDeltaBufferSize > 0)
+            core::MemoryTracker::Instance().TrackBufferFree(gpuMorphDeltaBufferSize);
         wgpuBufferRelease(b);
+    }
+    gpuMorphDeltaBufferSize = 0;
     gpuMorphTargetCount = 0;
     gpuMorphVertexCount = 0;
-    if (auto b = std::exchange(gpuShadowUniformBuffer, nullptr))
+    if (auto b = std::exchange(gpuUniformBuffer, nullptr)) {
+        if (gpuUniformBufferSize > 0)
+            core::MemoryTracker::Instance().TrackBufferFree(gpuUniformBufferSize);
         wgpuBufferRelease(b);
-    if (auto b = std::exchange(gpuUniformBuffer, nullptr))
+    }
+    gpuUniformBufferSize = 0;
+    if (auto b = std::exchange(gpuIndexBuffer, nullptr)) {
+        if (gpuIndexBufferSize > 0)
+            core::MemoryTracker::Instance().TrackBufferFree(gpuIndexBufferSize);
         wgpuBufferRelease(b);
-    if (auto b = std::exchange(gpuIndexBuffer, nullptr))
-        wgpuBufferRelease(b);
+    }
     gpuIndexBufferSize = 0;
-    if (auto b = std::exchange(gpuWireframeIndexBuffer, nullptr))
+    if (auto b = std::exchange(gpuWireframeIndexBuffer, nullptr)) {
+        if (gpuWireframeIndexBufferSize > 0)
+            core::MemoryTracker::Instance().TrackBufferFree(gpuWireframeIndexBufferSize);
         wgpuBufferRelease(b);
+    }
+    gpuWireframeIndexBufferSize = 0;
     wireframeIndexCount = 0;
-    if (auto b = std::exchange(gpuVertexBuffer, nullptr))
+    if (auto b = std::exchange(gpuVertexBuffer, nullptr)) {
+        if (gpuVertexBufferSize > 0)
+            core::MemoryTracker::Instance().TrackBufferFree(gpuVertexBufferSize);
         wgpuBufferRelease(b);
+    }
     gpuVertexBufferSize = 0;
 }
 
@@ -645,7 +663,7 @@ void Scene::SetAnimation(int index) noexcept {
 Skin::Skin(const Skin& other)
     : name{other.name}, inverseBindMatrices{other.inverseBindMatrices},
       skeletonRootNodeIndex{other.skeletonRootNodeIndex}, joints{other.joints}, gpuJointBuffer{nullptr},
-      gpuBindGroup{nullptr} {}
+      gpuJointBufferSize{0}, gpuBindGroup{nullptr} {}
 
 Skin& Skin::operator=(const Skin& other) {
     if (this != &other) {
@@ -654,6 +672,7 @@ Skin& Skin::operator=(const Skin& other) {
         inverseBindMatrices = other.inverseBindMatrices;
         skeletonRootNodeIndex = other.skeletonRootNodeIndex;
         joints = other.joints;
+        gpuJointBufferSize = 0;
         cachedJointMatrices.clear();
         cachedFrameId = 0;
         cachedUploadedFrameId = 0;
@@ -667,6 +686,7 @@ Skin::Skin(Skin&& other) noexcept
     : name{std::move(other.name)}, inverseBindMatrices{std::move(other.inverseBindMatrices)},
       skeletonRootNodeIndex{std::exchange(other.skeletonRootNodeIndex, -1)}, joints{std::move(other.joints)},
       gpuJointBuffer{std::exchange(other.gpuJointBuffer, nullptr)},
+      gpuJointBufferSize{std::exchange(other.gpuJointBufferSize, 0)},
       gpuBindGroup{std::exchange(other.gpuBindGroup, nullptr)},
       cachedJointMatrices{std::move(other.cachedJointMatrices)}, cachedFrameId{std::exchange(other.cachedFrameId, 0)},
       cachedUploadedFrameId{std::exchange(other.cachedUploadedFrameId, 0)},
@@ -681,6 +701,7 @@ Skin& Skin::operator=(Skin&& other) noexcept {
         skeletonRootNodeIndex = std::exchange(other.skeletonRootNodeIndex, -1);
         joints = std::move(other.joints);
         gpuJointBuffer = std::exchange(other.gpuJointBuffer, nullptr);
+        gpuJointBufferSize = std::exchange(other.gpuJointBufferSize, 0);
         gpuBindGroup = std::exchange(other.gpuBindGroup, nullptr);
         cachedJointMatrices = std::move(other.cachedJointMatrices);
         cachedFrameId = std::exchange(other.cachedFrameId, 0);
@@ -700,8 +721,12 @@ void Skin::ReleaseGpu() noexcept {
         wgpuBindGroupRelease(bg);
     }
     if (auto b = std::exchange(gpuJointBuffer, nullptr)) {
+        if (gpuJointBufferSize > 0) {
+            core::MemoryTracker::Instance().TrackBufferFree(gpuJointBufferSize);
+        }
         wgpuBufferRelease(b);
     }
+    gpuJointBufferSize = 0;
 }
 
 uint32_t Skin::ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,

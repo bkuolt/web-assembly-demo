@@ -4,7 +4,7 @@
 
 [![Instant Preview - GitHack](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
-[![Tests](https://img.shields.io/badge/Unit_Tests-313_Passing-22c55e?style=for-the-badge)](tests/)
+[![Tests](https://img.shields.io/badge/Unit_Tests-318_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v0.9.18-f59e0b?style=for-the-badge)](CHANGELOG.md)
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
@@ -165,7 +165,10 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   ├── DrawHelpers.hpp        # Shared per-draw UBO/skin/morph helpers & DynamicInstanceBuffer
 │   │   ├── GpuCuller.hpp/.cpp     # Parallel WebGPU compute frustum culling
 │   │   ├── GpuRayPicker.hpp/.cpp  # Two-pass WebGPU compute ray-AABB picker
-│   │   ├── Pipeline.hpp/.cpp      # 4-group PBR pipelines, IBL, GPU mipmaps, hardware instancing
+│   │   ├── Pipeline.hpp/.cpp      # 4-group PBR pipelines, state caching & GPU mipmaps
+│   │   ├── PipelineIBL.cpp        # Compute BRDF LUT, GGX prefiltering & SH irradiance
+│   │   ├── PipelineScene.cpp      # Scene staging, morph SSBO upload & split opaque/transparent draw
+│   │   ├── PipelineHelpers.hpp    # Inline FP16/cubemap/material uniform helpers
 │   │   ├── PostProcessPass.hpp/.cpp # HDR tonemapping, bloom, SSAO & sun lens flare
 │   │   ├── ShaderManager.hpp/.cpp # Modular .wgsl loader, #include preprocessor, #embed & hot-reload
 │   │   ├── Shaders.hpp            # ShaderManager-backed WGSL entry-point accessors
@@ -223,8 +226,12 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 └── web/                           # Web viewer client
     ├── index.html                 # Interactive UI (Tree Diagram, JSON Inspector, Telemetry Card)
     ├── style.css                  # Modern dark-mode responsive glassmorphism styles
-    ├── app.js                     # Modular application client runtime (BglWebGpuRenderer)
+    ├── app.js                     # UI coordinator, frame scheduler & startup bootstrap
     ├── gltf_worker.js             # Dedicated Web Worker for glTF/GLB parsing & base64 decoding
+    ├── js/
+    │   ├── core.js                # Logging, notifications, state, UI cache & WASM bridge
+    │   ├── gltf.js                # glTF/GLB parser, scene graph builder & telemetry
+    │   └── renderer.js            # Modular WebGPU Cook-Torrance PBR renderer
     └── dist/                      # Precompiled WebAssembly binary (`bgl_engine.wasm`)
 ```
 
@@ -488,7 +495,7 @@ python3 scripts/package_web.py
 
 ## Unit Testing Suite
 
-The engine includes an extensive, production-grade test suite with **241 C++ GTests across 23 test suites** plus **72 Web unit tests** and headless WebGPU/browser E2E suites:
+The engine includes an extensive, production-grade test suite with **246 C++ GTests across 23 test suites**, a headless GPU smoke CTest (`NativeHeadlessSmokeTest`), plus **72 Web unit tests** and headless WebGPU/browser E2E suites:
 
 | Test Suite | Tests | Description |
 | :--- | :---: | :--- |

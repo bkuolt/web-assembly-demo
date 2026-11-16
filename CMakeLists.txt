@@ -238,6 +238,8 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/GpuCuller.cpp
     src/gpu/GpuRayPicker.cpp
     src/gpu/Pipeline.cpp
+    src/gpu/PipelineIBL.cpp
+    src/gpu/PipelineScene.cpp
 )
 target_link_libraries(bgl_gpu PUBLIC bgl_core)
 if(NOT EMSCRIPTEN)
@@ -375,6 +377,13 @@ if(BGL_BUILD_TESTING)
     add_test(NAME AllUnitTests COMMAND bgl_unit_tests)
     set_tests_properties(AllUnitTests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp"
+    )
+
+    add_test(NAME NativeHeadlessSmokeTest COMMAND bgl_viewer --headless assets/ToyCar.glb)
+    set_tests_properties(NativeHeadlessSmokeTest PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        TIMEOUT 30
         ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp"
     )
 

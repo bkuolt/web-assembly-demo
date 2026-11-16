@@ -35,6 +35,9 @@ def package_web_app(output_zip: Path, include_sponza: bool = False):
         (web_dir / "style.css", "style.css"),
         (web_dir / "app.js", "app.js"),
         (web_dir / "gltf_worker.js", "gltf_worker.js"),
+        (web_dir / "js" / "core.js", "js/core.js"),
+        (web_dir / "js" / "gltf.js", "js/gltf.js"),
+        (web_dir / "js" / "renderer.js", "js/renderer.js"),
     ]
 
     # Precompiled WebAssembly binary

@@ -2308,3 +2308,178 @@ TEST(RenderingFeaturesTest, SplitPassBlendAndTransmissionClassification) {
     EXPECT_EQ(blend.alpha.srcFactor, WGPUBlendFactor_One);
     EXPECT_EQ(blend.alpha.dstFactor, WGPUBlendFactor_OneMinusSrcAlpha);
 }
+
+TEST(RenderingFeaturesTest, HdrDecodeSupportsAsymmetricAxisOrdering) {
+    const std::string header = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n+X 4 -Y 2\n";
+    std::vector<uint8_t> bytes(header.begin(), header.end());
+    // 4 * 2 = 8 pixels in uncompressed RGBE
+    for (int i = 0; i < 8; ++i) {
+        bytes.push_back(static_cast<uint8_t>(128 + i * 8));
+        bytes.push_back(96);
+        bytes.push_back(64);
+        bytes.push_back(128);
+    }
+
+    auto res = scene::TextureDecoder::DecodeHDR(bytes);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    EXPECT_EQ(res->width, 4u);
+    EXPECT_EQ(res->height, 2u);
+    EXPECT_EQ(res->rgbaFloat.size(), 32u);
+    EXPECT_FLOAT_EQ(res->rgbaFloat[3], 1.0f);
+}
+
+TEST(RenderingFeaturesTest, ExtMeshGpuInstancingZeroQuaternionSafe) {
+    static constexpr std::string_view kGltfJson = R"({
+        "asset": { "version": "2.0" },
+        "extensionsUsed": ["EXT_mesh_gpu_instancing"],
+        "buffers": [{
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAABAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8=",
+            "byteLength": 92
+        }],
+        "bufferViews": [
+            { "buffer": 0, "byteOffset": 0, "byteLength": 36 },
+            { "buffer": 0, "byteOffset": 36, "byteLength": 24 },
+            { "buffer": 0, "byteOffset": 60, "byteLength": 32 }
+        ],
+        "accessors": [
+            { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" },
+            { "bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3" },
+            { "bufferView": 2, "componentType": 5126, "count": 2, "type": "VEC4" }
+        ],
+        "meshes": [{
+            "primitives": [{
+                "attributes": { "POSITION": 0 }
+            }]
+        }],
+        "nodes": [{
+            "mesh": 0,
+            "extensions": {
+                "EXT_mesh_gpu_instancing": {
+                    "attributes": {
+                        "TRANSLATION": 1,
+                        "ROTATION": 2
+                    }
+                }
+            }
+        }],
+        "scenes": [{ "nodes": [0] }]
+    })";
+
+    std::vector<uint8_t> bytes(kGltfJson.begin(), kGltfJson.end());
+    scene::AssetManager assetManager;
+    scene::FastGltfLoader loader(assetManager);
+    auto sceneRes = loader.LoadFromMemory(bytes, "inst_zero_quat.gltf");
+    ASSERT_TRUE(sceneRes.has_value()) << sceneRes.error();
+    ASSERT_EQ((*sceneRes)->rootNodes.size(), 1u);
+    const auto& instances = (*sceneRes)->rootNodes[0]->instanceTransforms;
+    ASSERT_EQ(instances.size(), 2u);
+    for (const glm::mat4& m : instances) {
+        for (int c = 0; c < 4; ++c) {
+            for (int r = 0; r < 4; ++r) {
+                EXPECT_TRUE(std::isfinite(m[c][r]));
+            }
+        }
+    }
+}
+
+#if defined(BGL_PLATFORM_NATIVE)
+TEST(RenderingFeaturesTest, OffscreenWebGpuPipelineAndGpuCullerValidation) {
+    gpu::InstanceHandle instance{wgpuCreateInstance(nullptr)};
+    if (!instance) {
+        GTEST_SKIP() << "WebGPU instance unavailable";
+    }
+
+    WGPURequestAdapterOptions opts = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
+    opts.powerPreference = WGPUPowerPreference_HighPerformance;
+    struct AdapterData {
+        WGPUAdapter adapter{nullptr};
+    } adapterData{};
+    WGPURequestAdapterCallbackInfo adapterCb = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
+    adapterCb.mode = WGPUCallbackMode_AllowProcessEvents;
+    adapterCb.callback = [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView, void* u1, void*) {
+        if (status == WGPURequestAdapterStatus_Success) {
+            static_cast<AdapterData*>(u1)->adapter = adapter;
+        }
+    };
+    adapterCb.userdata1 = &adapterData;
+    wgpuInstanceRequestAdapter(instance, &opts, adapterCb);
+    gpu::AdapterHandle adapter{adapterData.adapter};
+    if (!adapter) {
+        GTEST_SKIP() << "No hardware/software WebGPU adapter available";
+    }
+
+    WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
+    devDesc.label = gpu::ToWgpuStringView("TestHeadlessDevice");
+    struct DeviceData {
+        WGPUDevice device{nullptr};
+    } devData{};
+    WGPURequestDeviceCallbackInfo devCb = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
+    devCb.mode = WGPUCallbackMode_AllowProcessEvents;
+    devCb.callback = [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView, void* u1, void*) {
+        if (status == WGPURequestDeviceStatus_Success) {
+            static_cast<DeviceData*>(u1)->device = device;
+        }
+    };
+    devCb.userdata1 = &devData;
+    wgpuAdapterRequestDevice(adapter, &devDesc, devCb);
+    gpu::DeviceHandle device{devData.device};
+    if (!device) {
+        GTEST_SKIP() << "Could not create headless WebGPU device";
+    }
+    gpu::QueueHandle queue{wgpuDeviceGetQueue(device)};
+    ASSERT_TRUE(queue);
+
+    // 1. Validate PipelineManager (including 2-slot vertex+instance PBR, Wireframe, ShadowPass, PostProcess)
+    {
+        gpu::PipelineManager pipelineMgr;
+        auto initRes = pipelineMgr.Initialize(device, queue, WGPUTextureFormat_BGRA8Unorm, 4);
+        ASSERT_TRUE(initRes.has_value()) << initRes.error();
+        EXPECT_TRUE(pipelineMgr.IsInitialized());
+
+        // 2. Validate GpuCuller (@binding 0..4 including indirectArgs) with an instanced scene
+        auto scene = std::make_shared<scene::Scene>();
+        auto node = std::make_shared<scene::SceneNode>();
+        auto mesh = std::make_shared<scene::Mesh>();
+        auto& prim = mesh->primitives.emplace_back();
+        prim.vertices.resize(3);
+        prim.vertices[0].position = glm::vec3{0.0f, 0.5f, 0.0f};
+        prim.vertices[1].position = glm::vec3{-0.5f, -0.5f, 0.0f};
+        prim.vertices[2].position = glm::vec3{0.5f, -0.5f, 0.0f};
+        prim.indices = {0, 1, 2};
+        prim.boundingBox.minBound = glm::vec3{-0.5f, -0.5f, -0.1f};
+        prim.boundingBox.maxBound = glm::vec3{0.5f, 0.5f, 0.1f};
+        node->mesh = mesh;
+        node->instanceTransforms.push_back(glm::mat4{1.0f});
+        node->instanceTransforms.push_back(glm::translate(glm::mat4{1.0f}, glm::vec3{2.0f, 0.0f, 0.0f}));
+        scene->rootNodes.push_back(node);
+        scene->allNodes.push_back(node);
+        scene->Update();
+
+        pipelineMgr.PrepareScene(*scene);
+        EXPECT_NE(prim.gpuVertexBuffer, nullptr);
+        EXPECT_NE(prim.gpuIndexBuffer, nullptr);
+        EXPECT_NE(prim.gpuUniformBuffer, nullptr);
+        EXPECT_GT(core::MemoryTracker::Instance().Query().TotalGpuBytes(), 0u);
+
+        auto& culler = pipelineMgr.GetGpuCuller();
+        EXPECT_TRUE(culler.IsInitialized());
+        culler.UploadSceneBounds(*scene);
+        EXPECT_EQ(culler.GetPrimitiveCount(), 1u);
+        EXPECT_NE(culler.GetIndirectArgsBuffer(), nullptr);
+
+        if (gpu::CommandEncoderHandle enc{wgpuDeviceCreateCommandEncoder(device, nullptr)}) {
+            const glm::mat4 vp = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 100.0f) *
+                                 glm::lookAt(glm::vec3{0.0f, 0.0f, 5.0f}, glm::vec3{0.0f}, glm::vec3{0.0f, 1.0f, 0.0f});
+            culler.Dispatch(enc, core::Frustum::FromViewProjection(vp));
+            pipelineMgr.RenderShadowPass(enc, *scene, glm::vec3{0.35f, 1.0f, 0.25f});
+            if (gpu::CommandBufferHandle cmd{wgpuCommandEncoderFinish(enc, nullptr)}) {
+                WGPUCommandBuffer rawCmd{cmd.Get()};
+                wgpuQueueSubmit(queue, 1, &rawCmd);
+            }
+        }
+
+        scene.reset();
+        pipelineMgr.Shutdown();
+    }
+}
+#endif

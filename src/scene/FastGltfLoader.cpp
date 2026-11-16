@@ -874,7 +874,10 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                 node->instanceTransforms.resize(instCount);
                 for (size_t i = 0; i < instCount; ++i) {
                     const glm::mat4 tMat = glm::translate(glm::mat4{1.0f}, instT[i]);
-                    const glm::mat4 rMat = glm::mat4_cast(glm::normalize(instR[i]));
+                    const float qLen = glm::length(instR[i]);
+                    const glm::quat safeQ =
+                        (qLen > 1e-6f && std::isfinite(qLen)) ? (instR[i] / qLen) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+                    const glm::mat4 rMat = glm::mat4_cast(safeQ);
                     const glm::mat4 sMat = glm::scale(glm::mat4{1.0f}, instS[i]);
                     node->instanceTransforms[i] = tMat * rMat * sMat;
                 }

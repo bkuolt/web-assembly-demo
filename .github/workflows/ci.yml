@@ -23,6 +23,9 @@ jobs:
 
     - name: Validate Client JavaScript & Web Suites
       run: |
+        node --check web/js/core.js
+        node --check web/js/gltf.js
+        node --check web/js/renderer.js
         node --check web/app.js
         node --check web/gltf_worker.js
         node tests/test_web_unit.js
@@ -136,6 +139,7 @@ jobs:
         sudo apt-get install -y \
           ninja-build \
           pkg-config \
+          clang-tidy \
           libsdl2-dev \
           libcurl4-openssl-dev \
           libgl1-mesa-dev \
@@ -166,8 +170,15 @@ jobs:
       run: |
         cmake -B build/Release -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
           -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
           -DBGL_BUILD_TESTING=ON
+
+    - name: Run Clang-Tidy Static Analysis (Core & GPU Passes)
+      run: |
+        clang-tidy -p build/Release --config-file=.clang-tidy \
+          src/core/Camera.cpp src/core/MemoryPool.cpp src/gpu/ShadowPass.cpp
 
     - name: Build Libraries and Viewer Executable
       run: |
@@ -224,7 +235,7 @@ jobs:
 
     - name: Stage GitHub Pages Site
       run: |
-        mkdir -p _site/dist _site/assets _site/web/dist _site/web/assets web/dist
+        mkdir -p _site/dist _site/assets _site/js _site/web/dist _site/web/assets _site/web/js web/dist
         if [ -d _wasm_artifact/web/dist ] && [ "$(ls -A _wasm_artifact/web/dist 2>/dev/null)" ]; then
           cp -rf _wasm_artifact/web/dist/* web/dist/
         fi
@@ -233,6 +244,7 @@ jobs:
         cp -f web/style.css _site/style.css
         cp -f web/app.js _site/app.js
         cp -f web/gltf_worker.js _site/gltf_worker.js
+        cp -rf web/js/* _site/js/
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/dist/; fi
         cp -rf web/assets/* _site/assets/
         # 2. Subdirectory assets for subpath access (https://<user>.github.io/<repo>/web/index.html)
@@ -240,6 +252,7 @@ jobs:
         cp -f web/style.css _site/web/style.css
         cp -f web/app.js _site/web/app.js
         cp -f web/gltf_worker.js _site/web/gltf_worker.js
+        cp -rf web/js/* _site/web/js/
         if [ -d web/dist ] && [ "$(ls -A web/dist 2>/dev/null)" ]; then cp -rf web/dist/* _site/web/dist/; fi
         cp -rf web/assets/* _site/web/assets/
         # 3. Add .nojekyll to prevent Jekyll from skipping underscore files or assets

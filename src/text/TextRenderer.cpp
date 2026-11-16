@@ -207,21 +207,29 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
 
 void TextRenderer::EnsureBuffers(size_t vertexCount, size_t indexCount) {
     if (vertexCount > vertexBufferCapacity_) {
-        vertexBufferCapacity_ = std::max(vertexCount * 2, size_t{1024});
+        const size_t nextCapacity = std::max(vertexCount * 2, size_t{1024});
         WGPUBufferDescriptor vbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        vbDesc.size = (vertexBufferCapacity_ * sizeof(TextVertex) + 3) & ~3;
+        vbDesc.size = (nextCapacity * sizeof(TextVertex) + 3) & ~3;
         vbDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         vbDesc.label = gpu::ToWgpuStringView("TextVertexBuffer");
-        vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &vbDesc);
+        gpu::BufferHandle nextVb{wgpuDeviceCreateBuffer(device_, &vbDesc)};
+        if (nextVb) {
+            vertexBuffer_ = std::move(nextVb);
+            vertexBufferCapacity_ = nextCapacity;
+        }
     }
 
     if (indexCount > indexBufferCapacity_) {
-        indexBufferCapacity_ = std::max(indexCount * 2, size_t{2048});
+        const size_t nextCapacity = std::max(indexCount * 2, size_t{2048});
         WGPUBufferDescriptor ibDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        ibDesc.size = (indexBufferCapacity_ * sizeof(uint32_t) + 3) & ~3;
+        ibDesc.size = (nextCapacity * sizeof(uint32_t) + 3) & ~3;
         ibDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
         ibDesc.label = gpu::ToWgpuStringView("TextIndexBuffer");
-        indexBuffer_ = wgpuDeviceCreateBuffer(device_, &ibDesc);
+        gpu::BufferHandle nextIb{wgpuDeviceCreateBuffer(device_, &ibDesc)};
+        if (nextIb) {
+            indexBuffer_ = std::move(nextIb);
+            indexBufferCapacity_ = nextCapacity;
+        }
     }
 }
 
@@ -308,6 +316,11 @@ void TextRenderer::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     // 3. Ensure GPU vertex and index buffers are sized appropriately and upload
     EnsureBuffers(vertexBatch_.size(), indexBatch_.size());
+    if (!vertexBuffer_ || !indexBuffer_) {
+        vertexBatch_.clear();
+        indexBatch_.clear();
+        return;
+    }
     wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, vertexBatch_.data(), vertexBatch_.size() * sizeof(TextVertex));
     wgpuQueueWriteBuffer(queue_, indexBuffer_, 0, indexBatch_.data(), indexBatch_.size() * sizeof(uint32_t));
 
