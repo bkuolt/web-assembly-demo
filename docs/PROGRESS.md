@@ -21,8 +21,8 @@
 | T09 | DONE | | samples/01_hello_engine + BGL_BUILD_SAMPLES + Layering-Regel |
 | T10 | DONE | | bgl::gui (Begin/End/Label/Button/Checkbox/Slider) + 01_hello_engine OnGui |
 | T11 | DONE | | bgl::Entity + EntityOps + test_entity + 02_entities_and_lights |
-| T12 | TODO | | |
-| T13 | TODO | | |
+| T12 | DONE | | LayeringCheck + grep WGPU/SDL + grep Application OK |
+| T13 | DONE | | README, ARCHITECTURE, GETTING_STARTED, CHEATSHEET, AGENT_INSTRUCTIONS, CHANGELOG |
 
 ## Abweichungen von der Anleitung
 - Vorab-Split im Repo: `src/app/ApplicationUI.cpp` und `src/app/ApplicationModelLoader.cpp` existieren bereits neben `src/app/Application.cpp`.

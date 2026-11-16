@@ -41,7 +41,14 @@
      - `libbgl_text.so`
      - `libbgl_ui.so`
      - `libbgl_audio.so`
-     - `libbgl_app.so`
+     - `libbgl_engine.so`
+     - `libbgl_viewer_lib.so`
+
+7. **Module Layering (`scripts/check_layering.py`):**
+   - `include/bgl` may only include `core/*` and `bgl/*` — **never** WebGPU (`WGPU*`/`webgpu.h`) or `SDL*`.
+   - `samples` may only include `bgl/*`.
+   - `src/engine` must never include `apps/viewer` or reference `Application`.
+   - `src/core` → `{core}`, `src/audio` → `{core, audio}`, `src/scene` → `{core, scene}`, `src/gpu` → `{core, gpu, scene}`, `src/text` → `{core, gpu, text}`, `src/ui` → `{core, gpu, text, ui}`.
 
 ---
 

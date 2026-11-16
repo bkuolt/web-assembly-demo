@@ -1,4 +1,4 @@
-# WebAssembly and WebGPU Demo (bgl-Engine v1.0.0)
+# bgl Engine (v1.0.0)
 
 # 🎮 **[👉 RUN LIVE DEMO IN BROWSER (GitHub Pages / GitHack Preview) 👈](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)**
 
@@ -7,6 +7,74 @@
 [![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue?style=for-the-badge&logo=cplusplus)](https://en.cppreference.com/w/cpp/23)
 [![Tests](https://img.shields.io/badge/Unit_Tests-328_Passing-22c55e?style=for-the-badge)](tests/)
 [![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-f59e0b?style=for-the-badge)](CHANGELOG.md)
+
+## bgl Engine
+
+**bgl Engine** is a modular C++23 3D graphics engine powered by WebGPU (`wgpu-native` on Linux desktop). It provides full glTF 2.0/2.1 PBR rendering, HDR Image-Based Lighting (IBL), Forward+ clustered lighting, directional PCF shadows, and a cinematic post-processing pipeline behind a clean, backend-free public API (`#include <bgl/bgl.hpp>`). The interactive desktop viewer in [`apps/viewer/`](apps/viewer/) is a reference application built on top of the engine.
+
+### Quickstart (`samples/01_hello_engine/main.cpp`)
+
+```cpp
+// Minimal bgl Engine app: load a glTF model and slowly orbit around it.
+// Run from the repository root:  ./build/Release/sample_01_hello_engine
+#include <bgl/bgl.hpp>
+
+class HelloEngine : public bgl::App {
+public:
+    void OnStart() override {
+        if (auto result = GetEngine().LoadModel("assets/ToyCar.glb"); !result) {
+            BGL_LOG_ERROR("Could not load model: {}", result.error());
+            Quit();
+        }
+    }
+
+    void OnUpdate(float deltaTime) override {
+        if (bgl::Input::IsKeyPressed(bgl::Key::Escape)) {
+            Quit();
+        }
+        GetEngine().GetCamera().Orbit(0.3f * deltaTime, 0.0f);
+    }
+
+    void OnGui() override {
+        bgl::gui::Begin("Hello bgl");
+        bgl::gui::Slider("Exposure", GetEngine().Settings().exposure, 0.2f, 4.0f);
+        bgl::gui::End();
+    }
+};
+
+BGL_RUN(HelloEngine)
+```
+
+```bash
+task build
+./build/Release/sample_01_hello_engine
+```
+
+### Core Concepts
+
+| Concept | Role | Public Header |
+| :--- | :--- | :--- |
+| **`bgl::App` & `BGL_RUN`** | Lifecycle hooks (`OnStart`, `OnUpdate`, `OnGui`, `OnResize`, `OnFileDrop`, `OnShutdown`) | [`include/bgl/App.hpp`](include/bgl/App.hpp) |
+| **`bgl::Engine`** | Facade owning window, GPU device, renderer, camera, and active scene | [`include/bgl/Engine.hpp`](include/bgl/Engine.hpp) |
+| **`bgl::Input`** | Frame-buffered polling for keyboard & mouse (`IsKeyDown/Pressed/Released`, `MouseDelta`) | [`include/bgl/Input.hpp`](include/bgl/Input.hpp) |
+| **`bgl::RenderSettings`** | Plain-data rendering & post-processing options applied automatically every frame | [`include/bgl/Settings.hpp`](include/bgl/Settings.hpp) |
+| **`bgl::gui`** | Immediate-mode debug UI helpers (`Begin`, `End`, `Label`, `Button`, `Checkbox`, `Slider`) | [`include/bgl/Gui.hpp`](include/bgl/Gui.hpp) |
+| **`bgl::Entity`** | Lightweight handle to a scene node (transform, parent/child hierarchy, punctual lights) | [`include/bgl/Entity.hpp`](include/bgl/Entity.hpp) |
+
+### Using bgl Engine as a Library
+
+```cmake
+add_subdirectory(bgl-engine)                       # or FetchContent
+target_link_libraries(my_game PRIVATE bgl::engine)
+```
+
+> **Note:** The Conan 2.x dependencies (`conanfile.py` / `conan.lock`) and `third_party/wgpu-native` must be available in your build environment. See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for details.
+
+### Reference Viewer (`apps/viewer`)
+
+The full-featured desktop viewer (`bgl_viewer`) lives in [`apps/viewer/`](apps/viewer/) as a reference application of the bgl Engine. See the keyboard shortcuts and CLI reference below, or [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/CHEATSHEET.md](docs/CHEATSHEET.md) for engine internals.
+
+---
 
 Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64 Desktop and WebAssembly (Wasm).
 
@@ -214,14 +282,29 @@ Modular C++23 WebGPU & glTF 2.0/2.1 High-Performance 3D Renderer for Linux amd64
 │   │   └── shaders/ui.wgsl            # Analytical 2D SDF, Gaussian shadow & frosted glass UI shader
 │   ├── audio/                         # -> libbgl_audio.so
 │   │   └── SoundEngine.hpp/.cpp       # 3D spatial audio listener and sound source management
-│   ├── app/                           # -> libbgl_app.so
-│   │   ├── Application.hpp/.cpp       # Lifecycle, SDL input/events, diurnal sun & shader hot-reload
-│   │   ├── ApplicationModelLoader.cpp # 19-model preset catalog, async worker lifecycle & node picking
-│   │   ├── ApplicationUI.cpp          # Per-section SDF UI studio builders & selection badge
-│   │   └── CommandLine.hpp/.cpp       # CLI argument parsing, help screen, and format inspection
-│   ├── wasm/
-│   │   └── wasm_bridge.cpp            # Freestanding C++23 Emscripten C-ABI bridge (`bgl_engine.wasm`)
+│   ├── engine/                        # -> libbgl_engine.so
+│   │   ├── EngineCore.hpp/.cpp        # Reusable runtime (window, GPU, scene, render loop)
+│   │   ├── Engine.cpp / EngineImpl.*  # Public bgl::Engine Pimpl facade & RenderSettings diffing
+│   │   ├── App.cpp / Gui.cpp          # bgl::App lifecycle runner & bgl::gui helpers
+│   │   ├── Input*.hpp/.cpp            # bgl::Input polling state & native SDL2 backend
+│   │   └── Entity*.hpp/.cpp           # bgl::Entity handle & CPU scene-graph ops
+│   └── wasm/
+│       └── wasm_bridge.cpp            # Freestanding C++23 Emscripten C-ABI bridge (`bgl_engine.wasm`)
+├── include/bgl/                       # Public SDK headers (#include <bgl/bgl.hpp>)
+│   ├── bgl.hpp                        # Umbrella header
+│   ├── App.hpp / Engine.hpp           # Application lifecycle & engine facade
+│   ├── Entity.hpp / Gui.hpp           # Scene entity handle & immediate-mode debug UI
+│   ├── Input.hpp / Settings.hpp       # Polling input & plain-data RenderSettings
+│   └── Types.hpp                      # Public Result<T> & GLM types
+├── apps/viewer/                       # -> libbgl_viewer_lib.so + bgl_viewer (Reference App)
+│   ├── Application.hpp/.cpp           # Viewer-specific shortcuts, HUD, turntable & studio UI
+│   ├── ApplicationModelLoader.cpp     # 19-model preset catalog, async worker lifecycle & node picking
+│   ├── ApplicationUI.cpp              # Per-section SDF UI studio builders & selection badge
+│   ├── CommandLine.hpp/.cpp           # CLI argument parsing, help screen, and format inspection
 │   └── main.cpp                       # Native desktop viewer entry point
+├── samples/                           # Standalone engine samples (only #include <bgl/bgl.hpp>)
+│   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
+│   └── 02_entities_and_lights/main.cpp # Scene entities and orbiting punctual point light
 ├── tests/                             # C++ GTest (256 tests across 24 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum culling math, 96-byte Vertex layout

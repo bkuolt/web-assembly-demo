@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Engine Architecture & Public SDK (`include/bgl/`, `src/engine/`, `apps/viewer/`, `samples/`)
+- **Public Engine API (`include/bgl/bgl.hpp`):** Introduced `bgl::Engine` (Pimpl facade), `bgl::App` + `BGL_RUN` lifecycle runner, `bgl::Input` polling API, `bgl::RenderSettings` plain-data configuration, `bgl::gui` immediate-mode helpers, and `bgl::Entity` scene-node/light handle without exposing WebGPU or SDL headers.
+- **Reusable Runtime (`src/engine/EngineCore.*`):** Extracted window, WebGPU, scene loading, picking, and HDR render-loop orchestration from `Application` into `bgl::engine::EngineCore` (`libbgl_engine.so`).
+- **Viewer Separation (`apps/viewer/`):** Moved the desktop viewer (`Application`, `CommandLine`, `main.cpp`) out of `src/` into `apps/viewer/` (`bgl_viewer_lib` / `bgl_viewer`) as a reference application inheriting from `EngineCore`.
+- **Samples & Layering Guard:** Added `samples/01_hello_engine` and `samples/02_entities_and_lights` (`BGL_BUILD_SAMPLES=ON`), `scripts/check_layering.py` (`LayeringCheck` CTest), and `docs/ARCHITECTURE.md`, `docs/GETTING_STARTED.md`, `docs/CHEATSHEET.md`.
+
 ### Custom UI Studio Upgrade, Advanced Post-Processing Suite & Physically Based Shader Extensions
 - **Analytical SDF Custom UI (`src/ui/ImmediateUI.*`, `src/ui/shaders/ui.wgsl`):**
   - Replaced flat quads with analytical 2D signed-distance rounded boxes (`sdRoundedBox`), soft Gaussian drop shadows, hover rim glows, HSV 2D/1D gradient picker planes, and real-time frosted glassmorphism sampling `PostProcessPass`'s downsampled blurred HDR mip view (`GetUiBackdropView()`).
