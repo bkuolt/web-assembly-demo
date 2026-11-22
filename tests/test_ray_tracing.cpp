@@ -441,5 +441,98 @@ TEST(RayTracingPassTest, HeadlessWebGpuHybridAndPathTracePasses) {
 }
 #endif
 
+TEST(RayTracingSceneTest, UnindexedGeometryMaterialsAndNonUniformNormalsWork) {
+    RayTracingScene rtScene;
+    auto scene = std::make_shared<scene::Scene>();
+
+    scene::Material mat;
+    mat.baseColorFactor = glm::vec4{0.8f, 0.2f, 0.1f, 1.0f};
+    mat.doubleSided = true;
+    mat.transmissionFactor = 0.85f;
+    mat.roughnessFactor = 0.25f;
+    scene->materials.push_back(mat);
+
+    // Unindexed triangle lying on slanted plane (normal ~(0, 1, 1)/sqrt(2))
+    auto mesh = std::make_shared<scene::Mesh>();
+    auto& prim = mesh->primitives.emplace_back();
+    prim.materialIndex = 0;
+    prim.vertices.resize(3);
+    prim.vertices[0].position = glm::vec3{-2.0f, 0.0f, 1.0f};
+    prim.vertices[1].position = glm::vec3{2.0f, 0.0f, 1.0f};
+    prim.vertices[2].position = glm::vec3{0.0f, 2.0f, -1.0f};
+    const glm::vec3 n = glm::normalize(glm::vec3{0.0f, 1.0f, 1.0f});
+    for (auto& v : prim.vertices) {
+        v.normal = n;
+    }
+
+    auto node = std::make_shared<scene::SceneNode>();
+    node->mesh = mesh;
+    // Non-uniform Y scale = 2.0 flattens slope -> worldNormal Y halves relative to Z
+    node->localTransform = glm::scale(glm::mat4{1.0f}, glm::vec3{1.0f, 2.0f, 1.0f});
+    scene->rootNodes.push_back(node);
+    scene->allNodes.push_back(node);
+    scene->Update();
+
+    rtScene.BuildFromScene(*scene);
+    ASSERT_TRUE(rtScene.IsReady());
+    EXPECT_EQ(rtScene.GetStats().triangleCount, 1u);
+    EXPECT_EQ(rtScene.GetStats().materialCount, 2u); // default slot 0 + scene material 0
+
+    const RtCpuHit hit = rtScene.TraceRayCpu(core::Ray{glm::vec3{0.0f, 1.0f, 5.0f}, glm::vec3{0.0f, 0.0f, -1.0f}});
+    ASSERT_TRUE(hit.hit);
+    // Expected world normal = normalize((invModel)^T * (0,1,1)) = normalize((0, 0.5, 1))
+    const glm::vec3 expectedN = glm::normalize(glm::vec3{0.0f, 0.5f, 1.0f});
+    EXPECT_NEAR(hit.worldNormal.x, expectedN.x, 1e-4f);
+    EXPECT_NEAR(hit.worldNormal.y, expectedN.y, 1e-4f);
+    EXPECT_NEAR(hit.worldNormal.z, expectedN.z, 1e-4f);
+}
+
+TEST(RayTracingSceneTest, InvalidInitAndSingularTransformsFailSafely) {
+    RayTracingScene rtScene;
+    auto errRes = rtScene.Initialize(nullptr, nullptr, false, nullptr, nullptr);
+    EXPECT_FALSE(errRes.has_value());
+    EXPECT_FALSE(rtScene.IsInitialized());
+
+    auto scene = std::make_shared<scene::Scene>();
+    auto mesh = std::make_shared<scene::Mesh>();
+    auto& prim = mesh->primitives.emplace_back();
+    prim.vertices.resize(3);
+    prim.vertices[0].position = glm::vec3{0.0f, 0.0f, 0.0f};
+    prim.vertices[1].position = glm::vec3{1.0f, 0.0f, 0.0f};
+    prim.vertices[2].position = glm::vec3{0.0f, 1.0f, 0.0f};
+    prim.indices = {0u, 1u, 2u};
+
+    auto singularNode = std::make_shared<scene::SceneNode>();
+    singularNode->mesh = mesh;
+    singularNode->localTransform = glm::scale(glm::mat4{1.0f}, glm::vec3{0.0f});
+    scene->rootNodes.push_back(singularNode);
+    scene->allNodes.push_back(singularNode);
+    scene->Update();
+
+    rtScene.BuildFromScene(*scene);
+    // Singular transform excluded -> zero instances, IsReady false, trace misses safely
+    EXPECT_FALSE(rtScene.IsReady());
+    EXPECT_EQ(rtScene.GetStats().instanceCount, 0u);
+    EXPECT_FALSE(rtScene.TraceRayCpu(core::Ray{glm::vec3{0.0f, 0.0f, 5.0f}, glm::vec3{0.0f, 0.0f, -1.0f}}).hit);
+}
+
+TEST(RayTracingPassTest, SetConfigResetsAccumulationAndReloadIgnoresNonRtPaths) {
+    RayTracingPass pass;
+    RtConfig cfg{};
+    cfg.pathTracing = true;
+    cfg.pathBounces = 3u;
+    pass.SetConfig(cfg);
+    EXPECT_TRUE(pass.GetConfig().pathTracing);
+    EXPECT_EQ(pass.GetConfig().pathBounces, 3u);
+
+    cfg.pathBounces = 5u;
+    pass.SetConfig(cfg);
+    EXPECT_EQ(pass.GetConfig().pathBounces, 5u);
+
+    // Uninitialized pass ReloadShaders cleanly returns ok
+    const std::array<std::string, 2> nonRtPaths{"pbr.wgsl", "post/bloom.wgsl"};
+    EXPECT_TRUE(pass.ReloadShaders(nonRtPaths).has_value());
+}
+
 } // namespace
 } // namespace bgl::gpu

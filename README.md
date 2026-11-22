@@ -299,12 +299,14 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   ├── 02_entities_and_lights/main.cpp# Scene entities and orbiting point light
 │   └── 03_sprites_and_billboards/main.cpp # 2D animated sprites & 3D HDR billboards
-├── tests/                             # C++ GTest (301 tests across 48 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (322 tests across 51 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay, bookmarks
 │   ├── test_memory_pool.cpp           # MemoryPool, free-list reuse, ScratchArena
 │   ├── test_asset_manager.cpp         # FNV-1a hashing, cache deduplication, arena clear
+│   ├── test_network_fetcher.cpp       # URI sanitization, relative resolution, FetchSync/Async & MemoryTracker
+│   ├── test_scene_mesh.cpp            # Dense LOD reduction, ComputeTangents, morph targets & Scene hierarchies
 │   ├── test_quadtree_lod.cpp          # Quadtree subdivision, Refit(), Hi-Z occlusion, SSE LOD
 │   ├── test_ray_picker.cpp            # Möller-Trumbore ray-triangle hit/miss & hierarchy picking
 │   ├── test_gltf_loader.cpp           # ToyCar glTF, KHR extensions, async progress, cancel & presets
@@ -323,7 +325,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── test_entity.cpp                # Scene graph reparenting, cycle guard & Entity handle safety
 │   ├── test_engine_api.cpp            # Live Engine API, gui safety & scene reload invalidation
 │   ├── test_sprites.cpp               # Sprites, AnimatedSprites, SpriteClips & SpriteRenderer
-│   ├── test_web_unit.js               # 73 Node.js web math, shader, glTF, frustum & LOD tests
+│   ├── test_web_unit.js               # 74 Node.js web math, shader, glTF, frustum & LOD tests
 │   ├── test_webgpu_path.js            # Headless WebGPU pipeline + bgl_engine.wasm verification
 │   └── test_browsers_e2e.py           # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
@@ -643,7 +645,7 @@ Produces `dist/bgl_web_app_minimal.zip` (~4 MB) with the web runtime and core as
 
 ## Test Suite Overview
 
-The repository includes **301 C++ GoogleTests across 48 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **73 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
+The repository includes **322 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **74 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
 
 | Test Suite | Tests | Scope |
 | :--- | :---: | :--- |
@@ -662,12 +664,14 @@ The repository includes **301 C++ GoogleTests across 48 suites**, a static modul
 | `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion/deduplication/replacement, KTX2 handling, scratch arena reset, bit-avalanche, and missing path errors. |
 | `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall, `std::stacktrace` output, boundary safety, and idempotent re-installation. |
 | `SoundEngineTest` | 6 | Audio lifecycle & initialization, missing-file error handling, repeated stop safety, and idempotent shutdown. |
-| `RayTracingSceneTest` & `RayTracingPassTest` | 7 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + CPU ray tracing, `UpdateTlas`, `EXT_mesh_gpu_instancing` multi-instance tracing, small-scale transform retention, RT parameter clamping, and headless WebGPU hybrid & path-trace execution. |
+| `RayTracingSceneTest` & `RayTracingPassTest` | 10 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + unindexed geometry + non-uniform scale normals + CPU ray tracing, `UpdateTlas`, `EXT_mesh_gpu_instancing` multi-instance tracing, singular transform rejection, RT parameter clamping, shader reload filtering, and headless WebGPU hybrid & path-trace execution. |
+| `NetworkFetcherTest` & `MemoryTrackerTest` | 8 | URI scheme/sanitization/percent-decoding, relative resolution, `FetchSync` (`file://`, `data:` base64/plain, directory/missing rejection, progress & cancellation), `FetchAsync`, and saturated GPU VRAM alloc/free counters. |
+| `SceneMeshTest` | 7 | `MeshPrimitive::GenerateLODs` dense/small/collapsed-area reduction, `ComputeTangents` (indexed, unindexed, degenerate UVs), `ApplyMorphTargets`, copy/move buffer ownership guards, and instanced `Scene::Update` bounds. |
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & backdrop blur flags, HSV conversion, sliders/collapsing headers/sparklines/scroll areas, `ColorEdit3` popup, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, buffer determinism, FNV-1a content hashing, and instancing checks. |
 | `ShaderManagerTest` | 4 | WGSL `#include` & `#pragma once`, circular/missing include detection, entry-point checks, and hot-reload detection. |
-| Public SDK & Engine Suites | 18 | `InputState` (7), `EntityOps` (5), `RenderSettings` (2), `GuiPublicApi` (2), `EnginePublicApi` (1), and `EntityHandle` (1). |
-| UI Scoping, Modal, Hover & Font Suites | 9 | `ImmediateUIModalAndLoadingTest` (2), `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, `ImmediateUILayoutAndControlsTest`, and `ImmediateUIScopingAndDisabledTest`. |
+| Public SDK & Engine Suites | 20 | `InputState` (7), `EntityOps` (7), `RenderSettings` (2), `GuiPublicApi` (2), `EnginePublicApi` (1), and `EntityHandle` (1). |
+| UI Scoping, Modal, Hover & Font Suites | 10 | `ImmediateUIModalAndLoadingTest` (2), `ImmediateUIScopingAndDisabledTest` (2), `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, and `ImmediateUILayoutAndControlsTest`. |
 | Sprites & Billboards Suites | 6 | `SpriteTextureTest`, `SpriteClipAndAnimatorTest`, `AnimatedSpriteAndBillboardTest`, `BillboardBasisTest`, `SpriteRendererCpuTest`, and `EnginePublicSpriteApiTest`. |
 | Single-Test Targeted Suites | 8 | `GamepadTest` (1), `ImmediateUITest` (1), `ImmediateUiSafetyTest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), `ShaderManagerSecurityTest` (1), and `TextureDecoderHdrTest` (1). |
 

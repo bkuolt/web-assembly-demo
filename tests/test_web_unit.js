@@ -1427,6 +1427,30 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
       assert(Number.isFinite(mTopDown[i]), `lookAt element [${i}] must be finite when viewing straight down`);
     }
   });
+
+  test('Modular js/math.js and js/shaders.js exports bind cleanly onto BglWebGpuRenderer', () => {
+    assert(globalThis.BglWebGpuMath && globalThis.BglWebGpuMath.mat4 === mat4, 'BglWebGpuMath.mat4 must be exported');
+    assert(globalThis.BglWebGpuShaders && typeof globalThis.BglWebGpuShaders.pbrWgsl === 'string',
+      'BglWebGpuShaders.pbrWgsl must be exported');
+    assert.strictEqual(BglWebGpuRenderer.getShaderWgsl(), globalThis.BglWebGpuShaders.pbrWgsl);
+
+    // Singular matrix inversion must fall back cleanly to identity without NaN
+    const singular = new Float32Array(16);
+    const inv = mat4.invert(mat4.create(), singular);
+    assert.strictEqual(inv[0], 1);
+    assert.strictEqual(inv[5], 1);
+    assert.strictEqual(inv[10], 1);
+    assert.strictEqual(inv[15], 1);
+
+    // generateLodData on < 24 triangles retains full geometry slices safely
+    const smallPos = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    const smallNorm = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+    const smallIdx = new Uint16Array([0, 1, 2]);
+    const smallLod = BglWebGpuRenderer.generateLodData(smallPos, smallNorm, smallIdx, 3);
+    assert.strictEqual(smallLod.lodSlices.length, 4);
+    assert.strictEqual(smallLod.lodSlices[3].indexCount, 3);
+    assert(Number.isFinite(smallLod.localRadius) && smallLod.localRadius > 0);
+  });
 });
 
 // ============================================================================

@@ -880,3 +880,74 @@ TEST(ImmediateUIScopingAndDisabledTest, ScopedIdsHiddenSuffixAndDisabledBlockWor
     EXPECT_NEAR(ui.GetLastItemRect().h, panelRect.h, 0.1f);
     ui.EndFrame();
 }
+
+TEST(ImmediateUIScopingAndDisabledTest, GridContainerWrapsRowsAndCollapsingHeaderTogglesGroup) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+
+    bgl::ui::ContainerOptions gridOpts{};
+    gridOpts.layout = bgl::ui::ContainerLayout::Horizontal;
+    gridOpts.columns = 2;
+    gridOpts.showBackground = true;
+    gridOpts.showBorder = true;
+
+    ui.BeginFrame(bgl::ui::UiInputState{}, 1024, 768, 0.016f);
+    ui.BeginPanel("GridPanel", 20.0f, 20.0f, 320.0f, 0.0f, "Grid");
+    ui.BeginContainer("BtnGrid", gridOpts);
+    ui.Button("One");
+    const bgl::ui::UiRect r0 = ui.GetLastItemRect();
+    ui.Button("Two");
+    const bgl::ui::UiRect r1 = ui.GetLastItemRect();
+    ui.Button("Three");
+    const bgl::ui::UiRect r2 = ui.GetLastItemRect();
+    ui.Button("Four");
+    const bgl::ui::UiRect r3 = ui.GetLastItemRect();
+    ui.EndContainer();
+
+    ui.BeginGroup("SectionCard", true);
+    const bool open1 = ui.CollapsingHeader("Collapsible", true);
+    EXPECT_TRUE(open1);
+    const bgl::ui::UiRect hdrRect = ui.GetLastItemRect();
+    if (open1) {
+        ui.Label("Inside Group");
+        ui.Button("Inner Action");
+    }
+    ui.EndGroup();
+    ui.EndPanel();
+    const bgl::ui::UiRect openPanelRect = ui.GetLastItemRect();
+    ui.EndFrame();
+
+    // Row 0: r0 & r1 side by side; Row 1: r2 & r3 wrapped onto next row
+    EXPECT_NEAR(r0.y, r1.y, 1.0f);
+    EXPECT_GT(r1.x, r0.x);
+    EXPECT_GT(r2.y, r0.y + 4.0f);
+    EXPECT_NEAR(r2.y, r3.y, 1.0f);
+
+    // Click inside collapsible header to toggle closed on next frame
+    bgl::ui::UiInputState toggleGroup{};
+    toggleGroup.mouseX = hdrRect.x + hdrRect.w * 0.5f;
+    toggleGroup.mouseY = hdrRect.y + hdrRect.h * 0.5f;
+    toggleGroup.mouseReleased = true;
+
+    ui.BeginFrame(toggleGroup, 1024, 768, 0.016f);
+    ui.BeginPanel("GridPanel", 20.0f, 20.0f, 320.0f, 0.0f, "Grid");
+    ui.BeginContainer("BtnGrid", gridOpts);
+    ui.Button("One");
+    ui.Button("Two");
+    ui.Button("Three");
+    ui.Button("Four");
+    ui.EndContainer();
+    ui.BeginGroup("SectionCard", true);
+    const bool open2 = ui.CollapsingHeader("Collapsible", true);
+    EXPECT_FALSE(open2);
+    if (open2) {
+        ui.Label("Inside Group");
+        ui.Button("Inner Action");
+    }
+    ui.EndGroup();
+    ui.EndPanel();
+    const bgl::ui::UiRect collapsedPanelRect = ui.GetLastItemRect();
+    ui.EndFrame();
+
+    EXPECT_LT(collapsedPanelRect.h, openPanelRect.h);
+}

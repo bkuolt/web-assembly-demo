@@ -113,3 +113,40 @@ TEST(EntityHandle, DefaultInvalidHandleIsSafe) {
     EXPECT_FALSE(empty.IsValid());
     EXPECT_FALSE(static_cast<bool>(empty));
 }
+
+TEST(EntityOps, MultiLevelHierarchyPropagatesScaleAndRotation) {
+    bgl::scene::Scene scene;
+    auto root = AddNode(scene, "Root");
+    auto mid = AddNode(scene, "Mid");
+    auto leaf = AddNode(scene, "Leaf");
+
+    root->scale = glm::vec3{2.0f, 2.0f, 2.0f};
+    root->UpdateLocalTransform();
+    mid->translation = glm::vec3{3.0f, 0.0f, 0.0f};
+    mid->UpdateLocalTransform();
+    leaf->translation = glm::vec3{0.0f, 4.0f, 0.0f};
+    leaf->UpdateLocalTransform();
+
+    Reparent(scene, *mid, root.get());
+    Reparent(scene, *leaf, mid.get());
+
+    // 3-level ancestor cycle must be blocked cleanly
+    Reparent(scene, *root, leaf.get());
+    EXPECT_EQ(scene.rootNodes.size(), 1u);
+    EXPECT_FLOAT_EQ(leaf->worldTransform[3][0], 6.0f);
+    EXPECT_FLOAT_EQ(leaf->worldTransform[3][1], 8.0f);
+}
+
+TEST(EntityOps, AttachLightPreservesDirectionalAndSpotAttributes) {
+    bgl::scene::Scene scene;
+    auto sunNode = AddNode(scene, "Sun");
+    bgl::scene::PunctualLight dirLight{};
+    dirLight.type = bgl::scene::LightType::Directional;
+    dirLight.color = glm::vec3{1.0f, 0.95f, 0.9f};
+    dirLight.intensity = 3.5f;
+    AttachLight(scene, *sunNode, dirLight);
+
+    ASSERT_EQ(scene.lights.size(), 1u);
+    EXPECT_EQ(scene.lights[0].type, bgl::scene::LightType::Directional);
+    EXPECT_FLOAT_EQ(scene.lights[0].intensity, 3.5f);
+}
