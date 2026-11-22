@@ -48,6 +48,15 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
     return -1;
 }
 
+[[nodiscard]] bool ContainsControlOrNul(std::string_view text) noexcept {
+    for (unsigned char ch : text) {
+        if (ch < 0x20u || ch == 0x7Fu) {
+            return true;
+        }
+    }
+    return false;
+}
+
 [[nodiscard]] Result<std::vector<uint8_t>> DecodeBase64(std::string_view encoded) {
     static constexpr std::array<int8_t, 256> kDecTable = []() constexpr {
         std::array<int8_t, 256> tab{};
@@ -388,6 +397,41 @@ std::string NetworkFetcher::ResolveRelativeUri(std::string_view baseUri, std::st
     return (parentDir / relPath).lexically_normal().string();
 }
 
+Result<std::string> NetworkFetcher::ResolveExternalAssetUri(std::string_view baseUri, std::string_view relativeUri) {
+    const std::string cleanRel{SanitizeUri(relativeUri)};
+    if (cleanRel.empty()) {
+        return std::unexpected("Empty external subresource URI");
+    }
+    if (ContainsControlOrNul(cleanRel)) {
+        return std::unexpected("External URI contains invalid control or NUL characters");
+    }
+
+    const std::string cleanBase{SanitizeUri(baseUri)};
+    std::string resolved{ResolveRelativeUri(cleanBase, cleanRel)};
+    if (resolved.empty() || ContainsControlOrNul(resolved)) {
+        return std::unexpected("Resolved external URI is invalid or contains control/NUL characters");
+    }
+    if (!IsDataUri(resolved) && ContainsControlOrNul(DecodeUrlPercent(resolved))) {
+        return std::unexpected("Percent-decoded external URI contains invalid control or NUL characters");
+    }
+
+    if (IsHttpUrl(cleanBase)) {
+        if (!IsHttpUrl(resolved) && !IsDataUri(resolved)) {
+            return std::unexpected("Remote asset may only reference http(s):// or data: subresources");
+        }
+        return resolved;
+    }
+
+    if (cleanBase.empty() || IsDataUri(cleanBase)) {
+        if (!IsDataUri(resolved)) {
+            return std::unexpected("Inline data or memory-buffered asset may only reference data: subresources");
+        }
+        return resolved;
+    }
+
+    return resolved;
+}
+
 std::string NetworkFetcher::ExtractDisplayName(std::string_view uri) {
     const std::string cleaned{SanitizeUri(uri)};
     if (cleaned.empty())
@@ -420,6 +464,9 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
     if (cleanedUri.empty()) {
         return std::unexpected("Cannot fetch empty URI");
     }
+    if (ContainsControlOrNul(cleanedUri)) {
+        return std::unexpected("Rejected URI containing control or NUL characters");
+    }
 
     // 1. RFC 2397 inline data:[<mediatype>][;base64],<data>
     if (IsDataUri(cleanedUri)) {
@@ -446,6 +493,9 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
             pathPart.remove_prefix(9);
         }
         const std::string decodedPath{DecodeUrlPercent(pathPart)};
+        if (ContainsControlOrNul(decodedPath)) {
+            return std::unexpected("Rejected file:// URI with control or NUL characters");
+        }
         return ReadLocalFileBytes(std::filesystem::path{decodedPath}, progressCb);
     }
 
@@ -554,6 +604,9 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
     }
     if (cleanedUri.find('%') != std::string::npos) {
         const std::string decodedPath{DecodeUrlPercent(cleanedUri)};
+        if (ContainsControlOrNul(decodedPath)) {
+            return std::unexpected("Rejected local path containing control or NUL characters");
+        }
         auto decodedRes = ReadLocalFileBytes(std::filesystem::path{decodedPath}, progressCb);
         if (decodedRes) {
             return decodedRes;

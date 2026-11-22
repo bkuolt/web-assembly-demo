@@ -18,6 +18,12 @@ namespace bgl::scene {
 namespace {
 
 constexpr size_t kMaxTextureDimension{16384};
+constexpr size_t kMaxExrChannels{64};
+constexpr size_t kMaxExrAttributes{1024};
+
+[[nodiscard]] constexpr bool CanReadSlice(size_t offset, size_t len, size_t total) noexcept {
+    return offset <= total && len <= (total - offset);
+}
 
 [[nodiscard]] float HalfToFloat(uint16_t h) noexcept {
     const uint32_t sign{static_cast<uint32_t>(h & 0x8000u) << 16};
@@ -157,7 +163,7 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
     std::vector<uint8_t> scanline(static_cast<size_t>(width) * 4u);
 
     for (uint32_t y{0}; y < height; ++y) {
-        if (pos + 4 > data.size()) {
+        if (!CanReadSlice(pos, 4u, data.size())) {
             return std::unexpected("Unexpected EOF while reading .hdr scanline");
         }
 
@@ -182,7 +188,7 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
                     const uint8_t code{data[pos++]};
                     if (code > 128) {
                         const uint32_t runCount{static_cast<uint32_t>(code - 128)};
-                        if (pos >= data.size() || x + runCount > width) {
+                        if (pos >= data.size() || runCount > (width - x)) {
                             return std::unexpected("Corrupt RLE run in .hdr scanline");
                         }
                         const uint8_t val{data[pos++]};
@@ -192,7 +198,7 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
                         x += runCount;
                     } else {
                         const uint32_t litCount{static_cast<uint32_t>(code)};
-                        if (litCount == 0 || pos + litCount > data.size() || x + litCount > width) {
+                        if (litCount == 0 || !CanReadSlice(pos, litCount, data.size()) || litCount > (width - x)) {
                             return std::unexpected("Corrupt literal run in .hdr scanline");
                         }
                         for (uint32_t i{0}; i < litCount; ++i) {
@@ -205,7 +211,7 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
         } else {
             // Uncompressed RGBE scanline
             const size_t rowBytes{static_cast<size_t>(width) * 4u};
-            if (pos + rowBytes > data.size()) {
+            if (!CanReadSlice(pos, rowBytes, data.size())) {
                 return std::unexpected("Unexpected EOF in uncompressed .hdr scanline");
             }
             std::memcpy(scanline.data(), data.data() + pos, rowBytes);
@@ -269,31 +275,42 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
     int32_t minX{0}, minY{0}, maxX{-1}, maxY{-1};
 
     // Parse OpenEXR header attributes until null byte
+    size_t attrCount{0};
     while (pos < data.size()) {
         if (data[pos] == 0) {
             ++pos;
             break;
         }
+        if (++attrCount > kMaxExrAttributes) {
+            return std::unexpected("OpenEXR header exceeds maximum allowed attribute count");
+        }
         const std::string_view attrName{readCString(pos, data.size())};
         const std::string_view attrType{readCString(pos, data.size())};
-        if (pos + 4 > data.size()) {
+        if (!CanReadSlice(pos, 4u, data.size())) {
             return std::unexpected("Truncated OpenEXR attribute header");
         }
         const uint32_t attrSize{readU32(pos)};
         pos += 4;
-        if (pos + attrSize > data.size()) {
+        if (!CanReadSlice(pos, static_cast<size_t>(attrSize), data.size())) {
             return std::unexpected("Truncated OpenEXR attribute payload");
         }
 
-        const size_t attrEnd{pos + attrSize};
+        const size_t attrEnd{pos + static_cast<size_t>(attrSize)};
         if (attrName == "channels" && attrType == "chlist") {
             size_t chPos{pos};
             while (chPos < attrEnd && data[chPos] != 0) {
                 const std::string_view chName{readCString(chPos, attrEnd)};
-                if (chPos + 16 > attrEnd)
+                if (!CanReadSlice(chPos, 16u, attrEnd)) {
                     break;
+                }
                 const int32_t pType{readI32(chPos)};
                 chPos += 16; // pixelType(4) + pLinear(1) + reserved(3) + xSampling(4) + ySampling(4)
+                if (pType < 0 || pType > 2) {
+                    return std::unexpected("Unsupported OpenEXR channel pixelType");
+                }
+                if (channels.size() >= kMaxExrChannels) {
+                    return std::unexpected("OpenEXR channel count exceeds maximum allowed limit");
+                }
 
                 ExrChannel ch{};
                 ch.name = std::string{chName};
@@ -328,14 +345,17 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
                                " not supported (use uncompressed EXR or Radiance .hdr)");
     }
 
-    const uint32_t width{static_cast<uint32_t>(maxX - minX + 1)};
-    const uint32_t height{static_cast<uint32_t>(maxY - minY + 1)};
-    if (width == 0 || height == 0 || width > kMaxTextureDimension || height > kMaxTextureDimension) {
+    const int64_t rawW{static_cast<int64_t>(maxX) - static_cast<int64_t>(minX) + 1};
+    const int64_t rawH{static_cast<int64_t>(maxY) - static_cast<int64_t>(minY) + 1};
+    if (rawW <= 0 || rawH <= 0 || rawW > static_cast<int64_t>(kMaxTextureDimension) ||
+        rawH > static_cast<int64_t>(kMaxTextureDimension)) {
         return std::unexpected("OpenEXR dimensions exceed limits");
     }
+    const uint32_t width{static_cast<uint32_t>(rawW)};
+    const uint32_t height{static_cast<uint32_t>(rawH)};
 
     // Skip scanline offset table (height * uint64_t for NO_COMPRESSION)
-    if (pos + static_cast<size_t>(height) * sizeof(uint64_t) > data.size()) {
+    if (!CanReadSlice(pos, static_cast<size_t>(height) * sizeof(uint64_t), data.size())) {
         return std::unexpected("Truncated OpenEXR scanline offset table");
     }
 
@@ -348,23 +368,28 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
     }
 
     for (uint32_t lineIdx{0}; lineIdx < height; ++lineIdx) {
-        const uint64_t chunkOffset{readU64(pos + static_cast<size_t>(lineIdx) * sizeof(uint64_t))};
-        if (chunkOffset + 8 > data.size()) {
+        const uint64_t rawOffset{readU64(pos + static_cast<size_t>(lineIdx) * sizeof(uint64_t))};
+        if (rawOffset > static_cast<uint64_t>(data.size()) ||
+            !CanReadSlice(static_cast<size_t>(rawOffset), 8u, data.size())) {
             return std::unexpected("OpenEXR scanline chunk offset out of bounds");
         }
+        const size_t chunkOffset{static_cast<size_t>(rawOffset)};
         const int32_t yCoord{readI32(chunkOffset)};
         const uint32_t dataSize{readU32(chunkOffset + 4)};
-        const int32_t relY{yCoord - minY};
-        if (relY < 0 || static_cast<uint32_t>(relY) >= height || chunkOffset + 8 + dataSize > data.size()) {
+        const int64_t relY{static_cast<int64_t>(yCoord) - static_cast<int64_t>(minY)};
+        if (relY < 0 || relY >= static_cast<int64_t>(height) ||
+            !CanReadSlice(chunkOffset + 8u, static_cast<size_t>(dataSize), data.size())) {
             return std::unexpected("OpenEXR scanline payload out of bounds");
         }
 
-        size_t cPtr{chunkOffset + 8};
+        const size_t chunkEnd{chunkOffset + 8u + static_cast<size_t>(dataSize)};
+        size_t cPtr{chunkOffset + 8u};
         float* dstRow{&hdr.rgbaFloat[static_cast<size_t>(relY) * width * 4u]};
         for (const auto& ch : channels) {
             const size_t chRowBytes{static_cast<size_t>(width) * ch.byteSize};
-            if (cPtr + chRowBytes > chunkOffset + 8 + dataSize)
+            if (!CanReadSlice(cPtr, chRowBytes, chunkEnd)) {
                 break;
+            }
             if (ch.rgbaComp >= 0 && ch.rgbaComp < 4) {
                 for (uint32_t x{0}; x < width; ++x) {
                     float val{0.0f};

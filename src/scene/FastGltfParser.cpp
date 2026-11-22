@@ -272,7 +272,13 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
             if (decodeHint.empty()) {
                 decodeHint = rawUriStr;
             }
-            const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
+            auto resolvedRes{core::NetworkFetcher::ResolveExternalAssetUri(baseUri, rawUriStr)};
+            if (!resolvedRes) {
+                BGL_LOG_WARN("  * Image #{}: Blocked or invalid external image URI '{}': {}", imgIdx, rawUriStr,
+                             resolvedRes.error());
+                return;
+            }
+            const std::string resolvedUri{std::move(*resolvedRes)};
             BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, resolvedUri);
             auto fetchRes =
                 core::NetworkFetcher::FetchSync(resolvedUri, [reporter](const core::FetchProgress&) -> bool {

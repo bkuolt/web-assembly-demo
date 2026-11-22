@@ -125,7 +125,7 @@ void* WasmMalloc(size_t requestedBytes) noexcept {
     for (BlockHeader* cur = gHeapHead; cur != nullptr; prev = cur, cur = cur->next) {
         if (cur->free && cur->size >= alignedSize) {
             auto* curBytes = reinterpret_cast<unsigned char*>(cur);
-            if (cur->size >= alignedSize + sizeof(BlockHeader) + 32u) {
+            if ((cur->size - alignedSize) >= (sizeof(BlockHeader) + 32u)) {
                 auto* split = reinterpret_cast<BlockHeader*>(curBytes + sizeof(BlockHeader) + alignedSize);
                 split->size = cur->size - alignedSize - sizeof(BlockHeader);
                 split->free = true;
@@ -199,7 +199,7 @@ inline uint32_t ReadU32LE(const uint8_t* p) noexcept {
 }
 
 bool SpanStartsWith(ByteSpan span, size_t pos, const char* lit, size_t litLen) noexcept {
-    if (pos + litLen > span.len) {
+    if (pos > span.len || litLen > (span.len - pos)) {
         return false;
     }
     for (size_t i = 0; i < litLen; ++i) {
@@ -215,7 +215,10 @@ int CountArrayElementsForKey(ByteSpan json, const char* quotedKey, size_t keyLen
     bool inString = false;
     bool escaped = false;
 
-    for (size_t i = 0; i + keyLen + 2u < json.len; ++i) {
+    if (json.len <= keyLen + 2u) {
+        return 0;
+    }
+    for (size_t i = 0; i < json.len - (keyLen + 2u); ++i) {
         const uint8_t ch = json.ptr[i];
         if (inString) {
             if (escaped) {

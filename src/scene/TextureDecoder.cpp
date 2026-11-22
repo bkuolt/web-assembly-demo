@@ -26,7 +26,7 @@ struct PngMemoryReader {
 
 static void PngReadCallback(png_structp png_ptr, png_bytep outBytes, png_size_t byteCountToRead) {
     auto* reader = static_cast<PngMemoryReader*>(png_get_io_ptr(png_ptr));
-    if (reader->offset + byteCountToRead > reader->size) {
+    if (reader->offset > reader->size || byteCountToRead > reader->size - reader->offset) {
         png_error(png_ptr, "PNG read EOF reached unexpectedly");
         return;
     }
@@ -149,6 +149,12 @@ static bool ReadJpegStreamIsolateSetjmp(std::span<const uint8_t> data, DecodedIm
         return false;
     }
 
+    if (cinfo.image_width == 0 || cinfo.image_height == 0 || cinfo.image_width > kMaxTextureDimension ||
+        cinfo.image_height > kMaxTextureDimension) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
     cinfo.out_color_space = JCS_RGB;
     jpeg_start_decompress(&cinfo);
 
@@ -232,6 +238,13 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     }
     int width{0};
     int height{0};
+    if (!WebPGetInfo(data.data(), data.size(), &width, &height)) {
+        return std::unexpected("Invalid or truncated WebP header");
+    }
+    if (width <= 0 || height <= 0 || static_cast<size_t>(width) > kMaxTextureDimension ||
+        static_cast<size_t>(height) > kMaxTextureDimension) {
+        return std::unexpected("WebP image dimensions exceed maximum allowed limits");
+    }
     std::unique_ptr<uint8_t, decltype(&WebPFree)> decoded{WebPDecodeRGBA(data.data(), data.size(), &width, &height),
                                                           &WebPFree};
     if (!decoded) {

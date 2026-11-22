@@ -147,4 +147,30 @@ TEST(MemoryTrackerTest, TracksGpuBytesSafelyAndPreventsUnderflow) {
     }
 }
 
+TEST(NetworkFetcherTest, ResolveExternalAssetUriBlocksCrossSchemeAndControlInjection) {
+    // 1. Remote HTTP(S) base allows same/remote HTTP(S) and inline data:, never file://
+    auto okHttp = NetworkFetcher::ResolveExternalAssetUri("https://cdn.example.com/models/car.gltf", "../tex/a.png");
+    ASSERT_TRUE(okHttp.has_value());
+    EXPECT_EQ(*okHttp, "https://cdn.example.com/tex/a.png");
+
+    auto okData = NetworkFetcher::ResolveExternalAssetUri("https://cdn.example.com/models/car.gltf",
+                                                          "data:image/png;base64,AAAA");
+    EXPECT_TRUE(okData.has_value());
+
+    EXPECT_FALSE(
+        NetworkFetcher::ResolveExternalAssetUri("https://cdn.example.com/models/car.gltf", "file:///etc/passwd")
+            .has_value());
+
+    // 2. Inline data: or empty base may only reference data: URIs (no local filesystem access)
+    EXPECT_TRUE(NetworkFetcher::ResolveExternalAssetUri("", "data:application/octet-stream;base64,AA==").has_value());
+    EXPECT_FALSE(NetworkFetcher::ResolveExternalAssetUri("", "/etc/passwd").has_value());
+    EXPECT_FALSE(NetworkFetcher::ResolveExternalAssetUri("data:model/gltf+json,{}", "file:///etc/passwd").has_value());
+
+    // 3. Reject NUL-byte (%00) and ASCII control character injection in subresources and FetchSync
+    EXPECT_FALSE(NetworkFetcher::ResolveExternalAssetUri("assets/scene.gltf", "textures/albedo%00.png").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("file:///assets/ToyCar%00.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("assets/ToyCar%00.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync(std::string("https://example.com/\x01/evil.glb")).has_value());
+}
+
 } // namespace

@@ -37,7 +37,12 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
             typeStr = "External URI";
             const auto& uriSource = std::get<fastgltf::sources::URI>(buf.data);
             const std::string rawUriStr{uriSource.uri.string()};
-            const std::string resolvedUri{core::NetworkFetcher::ResolveRelativeUri(baseUri, rawUriStr)};
+            auto resolvedRes{core::NetworkFetcher::ResolveExternalAssetUri(baseUri, rawUriStr)};
+            if (!resolvedRes) {
+                return std::unexpected("Blocked or invalid external glTF buffer URI '" + rawUriStr +
+                                       "': " + resolvedRes.error());
+            }
+            const std::string resolvedUri{std::move(*resolvedRes)};
             BGL_LOG_INFO("  * Buffer #{}: Resolving external URI '{}' -> '{}'", bIdx, rawUriStr, resolvedUri);
 
             auto fetchRes =

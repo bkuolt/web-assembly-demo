@@ -211,3 +211,86 @@ TEST(TextureDecoderTest, IsKtx2DataAndPmrDecodeOverload) {
     EXPECT_EQ(texRes.vramBytes, 0u);
     EXPECT_EQ(texRes.format, KtxTranscodeTarget::Rgba32);
 }
+
+TEST(TextureDecoderTest, OpenExrOverflowAndCraftedHeaderHardening) {
+    // Build minimal uncompressed EXR with crafted INT32_MIN..INT32_MAX dataWindow (would UB without int64 math)
+    std::vector<uint8_t> exrOverflow{0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00};
+    auto appendStr = [&](std::string_view s) {
+        exrOverflow.insert(exrOverflow.end(), s.begin(), s.end());
+        exrOverflow.push_back(0);
+    };
+    auto appendU32 = [&](uint32_t v) {
+        for (int i = 0; i < 4; ++i)
+            exrOverflow.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFFu));
+    };
+    auto appendI32 = [&](int32_t v) { appendU32(static_cast<uint32_t>(v)); };
+
+    // channels attribute ("R", HALF)
+    appendStr("channels");
+    appendStr("chlist");
+    appendU32(19);
+    appendStr("R");
+    appendI32(1); // HALF
+    for (int i = 0; i < 12; ++i)
+        exrOverflow.push_back(0);
+    exrOverflow.push_back(0); // end chlist
+
+    // compression = 0
+    appendStr("compression");
+    appendStr("compression");
+    appendU32(1);
+    exrOverflow.push_back(0);
+
+    // dataWindow with signed overflow span
+    appendStr("dataWindow");
+    appendStr("box2i");
+    appendU32(16);
+    appendI32(-2000000000);
+    appendI32(0);
+    appendI32(2000000000);
+    appendI32(0);
+    exrOverflow.push_back(0); // end header
+
+    EXPECT_FALSE(TextureDecoder::DecodeEXR(exrOverflow).has_value());
+
+    // Minimal valid 1x1 EXR header followed by wraparound chunkOffset (UINT64_MAX - 2)
+    std::vector<uint8_t> exrBadOffset{0x76, 0x2F, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00};
+    auto appendTo = [&](std::vector<uint8_t>& dst, std::string_view s) {
+        dst.insert(dst.end(), s.begin(), s.end());
+        dst.push_back(0);
+    };
+    auto appendU32To = [&](std::vector<uint8_t>& dst, uint32_t v) {
+        for (int i = 0; i < 4; ++i)
+            dst.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFFu));
+    };
+    appendTo(exrBadOffset, "channels");
+    appendTo(exrBadOffset, "chlist");
+    appendU32To(exrBadOffset, 19);
+    appendTo(exrBadOffset, "R");
+    appendU32To(exrBadOffset, 1);
+    for (int i = 0; i < 12; ++i)
+        exrBadOffset.push_back(0);
+    exrBadOffset.push_back(0);
+    appendTo(exrBadOffset, "compression");
+    appendTo(exrBadOffset, "compression");
+    appendU32To(exrBadOffset, 1);
+    exrBadOffset.push_back(0);
+    appendTo(exrBadOffset, "dataWindow");
+    appendTo(exrBadOffset, "box2i");
+    appendU32To(exrBadOffset, 16);
+    appendU32To(exrBadOffset, 0);
+    appendU32To(exrBadOffset, 0);
+    appendU32To(exrBadOffset, 0);
+    appendU32To(exrBadOffset, 0);
+    exrBadOffset.push_back(0);
+    // Offset table entry: 0xFFFFFFFFFFFFFFFD (would wrap +8 without safe bounds check)
+    for (int i = 0; i < 8; ++i)
+        exrBadOffset.push_back(i == 0 ? 0xFDu : 0xFFu);
+
+    EXPECT_FALSE(TextureDecoder::DecodeEXR(exrBadOffset).has_value());
+
+    // Invalid oversized/corrupt WebP header rejected prior to full pixel allocation
+    std::vector<uint8_t> corruptWebp{'R', 'I', 'F', 'F', 20, 0, 0, 0, 'W', 'E', 'B', 'P',
+                                     'V', 'P', '8', ' ', 8,  0, 0, 0, 0,   0,   0,   0};
+    EXPECT_FALSE(TextureDecoder::DecodeWebP(corruptWebp).has_value());
+}
