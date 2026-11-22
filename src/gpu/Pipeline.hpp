@@ -535,72 +535,79 @@ public:
     [[nodiscard]] const RayTracingPass& GetRayTracingPass() const noexcept { return rtPass_; }
 
     // Desktop Ray Tracing Controls & Telemetry
+    /** @brief Returns true when desktop compute-shader ray tracing was initialized on the adapter. */
     [[nodiscard]] bool IsDesktopRayTracingSupported() const noexcept { return desktopRtSupported_; }
+    /** @brief Enables or disables the master desktop ray tracing toggle. */
     void SetRayTracingEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.enabled = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.enabled = enabled; });
     }
+    /** @brief Returns whether the master desktop ray tracing toggle is enabled. */
     [[nodiscard]] bool IsRayTracingEnabled() const noexcept { return rtPass_.GetConfig().enabled; }
+    /** @brief Enables or disables ray-traced soft directional and punctual light shadows. */
     void SetRtShadowsEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.shadows = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.shadows = enabled; });
     }
+    /** @brief Returns whether ray-traced soft shadows are enabled. */
     [[nodiscard]] bool IsRtShadowsEnabled() const noexcept { return rtPass_.GetConfig().shadows; }
+    /** @brief Enables or disables cosine-weighted ray-traced ambient occlusion (RTAO). */
     void SetRtAoEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.ambientOcclusion = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.ambientOcclusion = enabled; });
     }
+    /** @brief Returns whether ray-traced ambient occlusion (RTAO) is enabled. */
     [[nodiscard]] bool IsRtAoEnabled() const noexcept { return rtPass_.GetConfig().ambientOcclusion; }
+    /** @brief Enables or disables 1-bounce GGX ray-traced specular reflections. */
     void SetRtReflectionsEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.reflections = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.reflections = enabled; });
     }
+    /** @brief Returns whether 1-bounce ray-traced reflections are enabled. */
     [[nodiscard]] bool IsRtReflectionsEnabled() const noexcept { return rtPass_.GetConfig().reflections; }
+    /** @brief Enables or disables the progressive multi-bounce compute path tracer mode. */
     void SetRtPathTracingEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.pathTracing = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.pathTracing = enabled; });
     }
+    /** @brief Returns whether progressive multi-bounce compute path tracing is enabled. */
     [[nodiscard]] bool IsRtPathTracingEnabled() const noexcept { return rtPass_.GetConfig().pathTracing; }
+    /** @brief Toggles half-resolution ray tracing with bilateral upsampling vs. full resolution. */
     void SetRtHalfResEnabled(bool enabled) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.halfRes = enabled;
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([enabled](RtConfig& cfg) { cfg.halfRes = enabled; });
     }
+    /** @brief Returns whether half-resolution RT tracing is enabled. */
     [[nodiscard]] bool IsRtHalfResEnabled() const noexcept { return rtPass_.GetConfig().halfRes; }
+    /** @brief Sets the clamped world-space RTAO ray radius in `[0.05, 5.0]` meters. */
     void SetRtAoRadius(float radius) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.aoRadius = std::clamp(radius, 0.05f, 5.0f);
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([radius](RtConfig& cfg) { cfg.aoRadius = std::clamp(radius, 0.05f, 5.0f); });
     }
+    /** @brief Returns the configured RTAO ray radius in meters. */
     [[nodiscard]] float GetRtAoRadius() const noexcept { return rtPass_.GetConfig().aoRadius; }
+    /** @brief Sets the clamped sun cone jitter angle for soft RT shadows in `[0.0, 0.15]` radians. */
     void SetRtShadowSoftness(float softness) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.shadowSoftness = std::clamp(softness, 0.0f, 0.15f);
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([softness](RtConfig& cfg) { cfg.shadowSoftness = std::clamp(softness, 0.0f, 0.15f); });
     }
+    /** @brief Returns the configured RT sun shadow softness cone angle. */
     [[nodiscard]] float GetRtShadowSoftness() const noexcept { return rtPass_.GetConfig().shadowSoftness; }
+    /** @brief Sets the multiplier on ray-traced specular reflections in `[0.0, 2.0]`. */
     void SetRtReflectionIntensity(float intensity) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.reflectionIntensity = std::clamp(intensity, 0.0f, 2.0f);
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([intensity](RtConfig& cfg) { cfg.reflectionIntensity = std::clamp(intensity, 0.0f, 2.0f); });
     }
+    /** @brief Returns the ray-traced reflection intensity multiplier. */
     [[nodiscard]] float GetRtReflectionIntensity() const noexcept { return rtPass_.GetConfig().reflectionIntensity; }
+    /** @brief Sets the maximum light bounce depth `[1, 6]` for the compute path tracer. */
     void SetRtPathBounces(uint32_t bounces) noexcept {
-        auto cfg = rtPass_.GetConfig();
-        cfg.pathBounces = std::clamp(bounces, 1u, 6u);
-        rtPass_.SetConfig(cfg);
+        UpdateRtConfig([bounces](RtConfig& cfg) { cfg.pathBounces = std::clamp(bounces, 1u, 6u); });
     }
+    /** @brief Returns the configured maximum bounce count for the compute path tracer. */
     [[nodiscard]] uint32_t GetRtPathBounces() const noexcept { return rtPass_.GetConfig().pathBounces; }
+    /** @brief Resets progressive path tracer sample accumulation to zero. */
     void ResetRtPathAccumulation() noexcept { rtPass_.ResetPathAccumulation(); }
+    /** @brief Returns true if RT shadows are initialized, enabled, and ready this frame. */
     [[nodiscard]] bool IsRtShadowsActive() const noexcept { return rtPass_.IsShadowActive(rtScene_); }
+    /** @brief Returns true if RTAO is initialized, enabled, and ready this frame. */
     [[nodiscard]] bool IsRtAoActive() const noexcept { return rtPass_.IsAoActive(rtScene_); }
+    /** @brief Returns true if RT reflections are initialized, enabled, and ready this frame. */
     [[nodiscard]] bool IsRtReflectionsActive() const noexcept { return rtPass_.IsReflectionsActive(rtScene_); }
+    /** @brief Returns true if the progressive compute path tracer is initialized and active. */
     [[nodiscard]] bool IsPathTracingActive() const noexcept { return rtPass_.IsPathTracingActive(rtScene_); }
+    /** @brief Returns current BVH, path sample, and GPU timing telemetry. */
     [[nodiscard]] RtPassStats GetRtPassStats() const noexcept { return rtPass_.GetStats(rtScene_); }
 
     // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also
@@ -696,6 +703,13 @@ private:
     void EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj, bool wireframe,
                          bool transparentPass, size_t startIdx, size_t endIdx,
                          DynamicUniformRing<PerDrawUniforms>& ring);
+
+    template <typename Fn>
+    void UpdateRtConfig(Fn&& fn) noexcept {
+        RtConfig cfg = rtPass_.GetConfig();
+        fn(cfg);
+        rtPass_.SetConfig(cfg);
+    }
 
     bool initialized_{false};
     bool bumpMappingEnabled_{true};

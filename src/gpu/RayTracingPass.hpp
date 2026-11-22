@@ -27,23 +27,31 @@ class SceneNode;
 
 namespace bgl::gpu {
 
+/**
+ * @struct RtPassUniforms
+ * @brief Dynamic-offset uniform block (`416` bytes) bound at `@group(0) @binding(0)` for RT compute & denoiser passes.
+ */
 struct alignas(16) RtPassUniforms {
-    glm::mat4 invViewProj{1.0f};
-    glm::mat4 prevViewProj{1.0f};
-    glm::mat4 viewProj{1.0f};
-    glm::vec4 cameraPos{0.0f};                          // xyz = pos, w = frameIndex
-    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f};       // xyz = sunDir, w = shadowSoftness
-    glm::vec4 params0{1280.0f, 720.0f, 640.0f, 360.0f}; // fullW, fullH, traceW, traceH
-    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f};         // aoRadius, aoIntensity, reflIntensity, envRotation
-    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};          // maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun
-    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f};        // punctualCount, solarElev, envMipCount, stepStride
-    std::array<glm::vec4, 4> lightsPos{};
-    std::array<glm::vec4, 4> lightsCol{};
+    glm::mat4 invViewProj{1.0f};                          ///< Inverse view-projection matrix for primary ray reconstruction.
+    glm::mat4 prevViewProj{1.0f};                         ///< Previous frame view-projection matrix for temporal reprojection.
+    glm::mat4 viewProj{1.0f};                             ///< Current frame view-projection matrix.
+    glm::vec4 cameraPos{0.0f};                            ///< `xyz` = camera world position, `w` = frame counter.
+    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f};         ///< `xyz` = unit sun direction, `w` = shadow cone jitter angle.
+    glm::vec4 params0{1280.0f, 720.0f, 640.0f, 360.0f};   ///< `{fullWidth, fullHeight, traceWidth, traceHeight}`.
+    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f};           ///< `{aoRadius, aoIntensity, reflectionIntensity, envRotationRad}`.
+    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};            ///< `{maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun}`.
+    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f};          ///< `{punctualCount, solarElevation, envMipCount, atrousStride}`.
+    std::array<glm::vec4, 4> lightsPos{};                 ///< Packed light world positions / types (`w`: 0=dir, 1=point, 2=spot).
+    std::array<glm::vec4, 4> lightsCol{};                 ///< Packed light linear RGB * intensity (`xyz`) and range (`w`).
 };
 static_assert(sizeof(RtPassUniforms) == 416, "RtPassUniforms must be 416 bytes");
 
+/**
+ * @struct RtCompositeUniforms
+ * @brief Dimensions uniform block (`16` bytes) passed to the RT reflection composite and path-trace present shaders.
+ */
 struct alignas(16) RtCompositeUniforms {
-    glm::vec4 params{1280.0f, 720.0f, 640.0f, 360.0f};
+    glm::vec4 params{1280.0f, 720.0f, 640.0f, 360.0f}; ///< `{fullWidth, fullHeight, sourceWidth, sourceHeight}`.
 };
 static_assert(sizeof(RtCompositeUniforms) == 16, "RtCompositeUniforms must be 16 bytes");
 
@@ -52,29 +60,29 @@ static_assert(sizeof(RtCompositeUniforms) == 16, "RtCompositeUniforms must be 16
  * @brief Runtime tuning knobs for Desktop Ray Tracing passes.
  */
 struct RtConfig {
-    bool enabled{true};
-    bool shadows{true};
-    bool ambientOcclusion{true};
-    bool reflections{true};
-    bool pathTracing{false};
-    bool halfRes{true};
-    float aoRadius{0.65f};
-    float shadowSoftness{0.025f};
-    float reflectionIntensity{1.0f};
-    uint32_t pathBounces{3};
+    bool enabled{true};             ///< Master desktop hybrid ray tracing toggle.
+    bool shadows{true};             ///< Enables ray-traced soft directional and punctual light shadows.
+    bool ambientOcclusion{true};    ///< Enables cosine-weighted ray-traced ambient occlusion (RTAO).
+    bool reflections{true};         ///< Enables 1-bounce GGX importance-sampled specular reflections.
+    bool pathTracing{false};        ///< Switches to the progressive multi-bounce compute path tracer.
+    bool halfRes{true};             ///< Traces hybrid effects at half resolution with bilateral upsampling.
+    float aoRadius{0.65f};          ///< World-space RTAO ray distance `[0.05, 5.0]`.
+    float shadowSoftness{0.025f};   ///< Directional sun jitter cone half-angle `[0.0, 0.15]`.
+    float reflectionIntensity{1.0f};///< Additive reflection brightness scale `[0.0, 2.0]`.
+    uint32_t pathBounces{3};        ///< Maximum path tracer bounce depth `[1, 6]`.
 };
 
 /**
  * @struct RtPassStats
- * @brief Telemetry metrics exposed to DebugOverlay and Studio UI.
+ * @brief Telemetry metrics exposed to `DebugOverlay` and Studio UI.
  */
 struct RtPassStats {
-    bool active{false};
-    bool bindlessActive{false};
-    bool pathTracingActive{false};
-    uint32_t pathSamples{0};
-    float lastGpuMs{0.0f};
-    RtSceneStats sceneStats{};
+    bool active{false};            ///< True when RT pass is initialized, enabled, and has valid BVH scene data.
+    bool bindlessActive{false};    ///< True when bindless texture arrays (`@group(2)`) are bound in ray shaders.
+    bool pathTracingActive{false}; ///< True when the progressive compute path tracer is driving output.
+    uint32_t pathSamples{0};       ///< Accumulated path-tracer samples since last reset.
+    float lastGpuMs{0.0f};         ///< Exponentially smoothed GPU ray tracing duration in milliseconds.
+    RtSceneStats sceneStats{};     ///< Active 2-level BVH scene geometry and instance statistics.
 };
 
 /**
@@ -83,8 +91,9 @@ struct RtPassStats {
  */
 class RayTracingPass {
 public:
-    static constexpr uint32_t kUniformSlotStride = 512u; // Aligned >= sizeof(RtPassUniforms) and >= 256
-    static constexpr uint32_t kMaxUniformSlots = 16u;
+    static constexpr uint32_t kUniformSlotStride = 512u;   ///< Dynamic UBO stride aligned >= 256 bytes and `sizeof(RtPassUniforms)`.
+    static constexpr uint32_t kMaxUniformSlots = 16u;      ///< Number of per-dispatch uniform slots in the ring buffer.
+    static constexpr uint32_t kNoTimestampIndex = ~0u;     ///< Sentinel disabling begin/end timestamp writes on a compute pass.
 
     RayTracingPass() = default;
     ~RayTracingPass();
@@ -94,23 +103,75 @@ public:
     RayTracingPass(RayTracingPass&&) = delete;
     RayTracingPass& operator=(RayTracingPass&&) = delete;
 
+    /**
+     * @brief Allocates shared RT uniform/timestamp buffers, layouts, and compute/render pipelines.
+     * @param device Active WebGPU device.
+     * @param queue Active WebGPU command queue.
+     * @param mainPipelineLayout Shared 4-group pipeline layout reused by the 1x G-Buffer pass.
+     * @param perDrawBgl Per-draw dynamic uniform bind group layout for G-Buffer draws.
+     * @param dummySkinBindGroup Default empty skin SSBO bind group.
+     * @param rtScene Initialized `RayTracingScene` providing BVH and bindless layouts.
+     * @param envCubemapView Environment cubemap view sampled on reflection/path-trace ray misses.
+     * @param defaultSampler Shared filtering sampler.
+     * @param fallbackWhiteView Fallback white texture view.
+     * @param supportsTimestampQueries Enables `WGPUQuerySet` GPU timing when supported by device.
+     * @return Success or descriptive initialization failure message.
+     */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUPipelineLayout mainPipelineLayout,
                                   WGPUBindGroupLayout perDrawBgl, WGPUBindGroup dummySkinBindGroup,
                                   const RayTracingScene& rtScene, WGPUTextureView envCubemapView,
                                   WGPUSampler defaultSampler, WGPUTextureView fallbackWhiteView,
                                   bool supportsTimestampQueries);
 
+    /**
+     * @brief Recompiles affected RT compute/render pipelines when watched `.wgsl` files change on disk.
+     * @param modifiedVirtualPaths Virtual shader paths reported by `ShaderManager`.
+     * @return Success or shader compilation error while keeping prior valid pipelines intact.
+     */
     core::Result<void> ReloadShaders(std::span<const std::string> modifiedVirtualPaths);
+
+    /**
+     * @brief Releases all pipelines, offscreen RT/denoiser textures, timestamp queries, and bind groups.
+     */
     void Shutdown() noexcept;
 
+    /**
+     * @brief Applies new RT configuration and resets temporal/path accumulation counters when structural toggles change.
+     * @param cfg Updated runtime RT tuning configuration.
+     */
     void SetConfig(const RtConfig& cfg) noexcept;
+
+    /** @brief Returns the active RT configuration. */
     [[nodiscard]] const RtConfig& GetConfig() const noexcept { return config_; }
+
+    /** @brief Resets progressive path tracer sample counter (`pathSampleIndex_ = 0`). */
     void ResetPathAccumulation() noexcept { pathSampleIndex_ = 0; }
 
+    /**
+     * @brief Updates the environment cubemap texture view used on secondary ray misses and rebuilds bind groups.
+     * @param envCubemapView New pre-filtered cubemap view.
+     * @param envMipCount Mip level count of the environment cubemap.
+     */
     void SetEnvironmentCubemap(WGPUTextureView envCubemapView, uint32_t envMipCount) noexcept;
 
     /**
      * @brief Records the 1x opaque G-Buffer pass, RT Shadows, and RTAO compute + denoise passes before `pbr.wgsl`.
+     * @param encoder Active frame command encoder.
+     * @param rtScene Built 2-level BVH scene.
+     * @param scene CPU/GPU scene state containing materials, skins, lights, and meshes.
+     * @param sceneGlobalsBindGroup Main `@group(0)` bind group shared with the 1x G-Buffer pass.
+     * @param opaqueItems Visible opaque node/primitive pairs for G-Buffer rasterization.
+     * @param viewProj Current camera view-projection matrix.
+     * @param lightViewProj Directional shadow light view-projection matrix.
+     * @param cameraPos Camera world coordinates.
+     * @param sunDir Normalized direction toward the primary directional light.
+     * @param solarElev Diurnal sun elevation scalar.
+     * @param envRotation Environment azimuth rotation in radians.
+     * @param baseDrawFlags Active frame draw flags.
+     * @param skinFrameId Monotonic skinning upload generation counter.
+     * @param aoIntensity RTAO intensity scalar forwarded to denoised/PBR shading.
+     * @param viewportW Current viewport width in pixels.
+     * @param viewportH Current viewport height in pixels.
      */
     void ExecutePrePass(WGPUCommandEncoder encoder, const RayTracingScene& rtScene, scene::Scene& scene,
                         WGPUBindGroup sceneGlobalsBindGroup,
@@ -121,6 +182,16 @@ public:
 
     /**
      * @brief Records RT Reflections + Temporal/À-Trous Denoiser + HDR additive composite after opaque + skybox.
+     * @param encoder Active frame command encoder.
+     * @param rtScene Built 2-level BVH scene.
+     * @param hdrResolveView Single-sampled `RGBA16Float` resolve target receiving additive reflections.
+     * @param viewProj Current camera view-projection matrix.
+     * @param cameraPos Camera world coordinates.
+     * @param sunDir Normalized direction toward the primary directional light.
+     * @param solarElev Diurnal sun elevation scalar.
+     * @param envRotation Environment azimuth rotation in radians.
+     * @param viewportW Current viewport width in pixels.
+     * @param viewportH Current viewport height in pixels.
      */
     void ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTracingScene& rtScene, WGPUTextureView hdrResolveView,
                            const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir,
@@ -128,6 +199,17 @@ public:
 
     /**
      * @brief Records progressive compute path tracing and presents the accumulated HDR image onto `hdrResolveView`.
+     * @param encoder Active frame command encoder.
+     * @param rtScene Built 2-level BVH scene.
+     * @param scene Scene light/transform metadata evaluated for path accumulation resets.
+     * @param hdrResolveView Single-sampled `RGBA16Float` resolve target receiving the presented HDR image.
+     * @param viewProj Current camera view-projection matrix.
+     * @param cameraPos Camera world coordinates.
+     * @param sunDir Normalized direction toward the primary directional light.
+     * @param solarElev Diurnal sun elevation scalar.
+     * @param envRotation Environment azimuth rotation in radians.
+     * @param viewportW Current viewport width in pixels.
+     * @param viewportH Current viewport height in pixels.
      */
     void ExecutePathTrace(WGPUCommandEncoder encoder, const RayTracingScene& rtScene, const scene::Scene& scene,
                           WGPUTextureView hdrResolveView, const glm::mat4& viewProj, const glm::vec3& cameraPos,
@@ -139,28 +221,53 @@ public:
      */
     void PollGpuTimestamps() noexcept;
 
+    /** @brief Returns true if GPU pipelines and uniform buffers are initialized. */
     [[nodiscard]] bool IsInitialized() const noexcept { return initialized_; }
+    /** @brief Returns the denoised full-resolution RT shadow factor texture view. */
     [[nodiscard]] WGPUTextureView GetShadowView() const noexcept { return shadowFinalView_.Get(); }
+    /** @brief Returns the denoised full-resolution RTAO factor texture view. */
     [[nodiscard]] WGPUTextureView GetAoView() const noexcept { return aoFinalView_.Get(); }
+    /** @brief Returns true if RT shadows are active for `rtScene` in the current mode. */
     [[nodiscard]] bool IsShadowActive(const RayTracingScene& rtScene) const noexcept {
         return initialized_ && config_.enabled && !config_.pathTracing && config_.shadows && rtScene.IsReady() &&
                shadowFinalView_ != nullptr;
     }
+    /** @brief Returns true if RTAO is active for `rtScene` in the current mode. */
     [[nodiscard]] bool IsAoActive(const RayTracingScene& rtScene) const noexcept {
         return initialized_ && config_.enabled && !config_.pathTracing && config_.ambientOcclusion &&
                rtScene.IsReady() && aoFinalView_ != nullptr;
     }
+    /** @brief Returns true if 1-bounce RT reflections are active for `rtScene` in the current mode. */
     [[nodiscard]] bool IsReflectionsActive(const RayTracingScene& rtScene) const noexcept {
         return initialized_ && config_.enabled && !config_.pathTracing && config_.reflections && rtScene.IsReady() &&
                reflPipeline_ != nullptr;
     }
+    /** @brief Returns true if the progressive compute path tracer is active for `rtScene`. */
     [[nodiscard]] bool IsPathTracingActive(const RayTracingScene& rtScene) const noexcept {
         return initialized_ && config_.enabled && config_.pathTracing && rtScene.IsReady() &&
                pathTracePipeline_ != nullptr;
     }
+    /** @brief Returns combined RT configuration status, path-sample count, GPU timing, and BVH scene metrics. */
     [[nodiscard]] RtPassStats GetStats(const RayTracingScene& rtScene) const noexcept;
 
 private:
+    struct DenoisePassLabels {
+        const char* trace{nullptr};
+        const char* temporal{nullptr};
+        const char* atrous1{nullptr};
+        const char* atrous2{nullptr};
+        const char* atrous3{nullptr};
+        const char* upsample{nullptr};
+    };
+
+    struct GbufDraw {
+        scene::MeshPrimitive* prim{nullptr};
+        WGPUBindGroup skinBg{nullptr};
+        WGPURenderPipeline pipe{nullptr};
+        uint32_t dynOffset{0};
+        uint32_t instanceStart{0};
+        uint32_t instanceCount{1};
+    };
     struct DenoiseBindGroupSet {
         std::array<BindGroupHandle, 2> temporal{};
         std::array<BindGroupHandle, 2> atrousStep1{};

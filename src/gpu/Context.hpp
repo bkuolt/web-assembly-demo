@@ -60,16 +60,25 @@ public:
     [[nodiscard]] WGPUTextureView GetDepthReadView() const noexcept { return depthReadView_.Get(); }
     [[nodiscard]] uint32_t GetSampleCount() const noexcept { return sampleCount_; }
 
+    /** @brief Returns true if BC7/BC compressed textures are supported by the adapter. */
     [[nodiscard]] bool SupportsBC() const noexcept { return supportsBC_; }
+    /** @brief Returns true if ASTC 4x4 compressed textures are supported by the adapter. */
     [[nodiscard]] bool SupportsASTC() const noexcept { return supportsASTC_; }
+    /** @brief Returns true if ETC2 compressed textures are supported by the adapter. */
     [[nodiscard]] bool SupportsETC2() const noexcept { return supportsETC2_; }
+    /** @brief Returns true when compute-shader 2-level BVH ray tracing limits are met on desktop (`wgpu-native`). */
     [[nodiscard]] bool SupportsDesktopRayTracing() const noexcept { return supportsDesktopRayTracing_; }
+    /** @brief Returns true when native bindless `binding_array` texture sampling is active. */
     [[nodiscard]] bool SupportsBindlessTextures() const noexcept { return supportsBindlessTextures_; }
+    /** @brief Returns true when WebGPU subgroup operations are supported by the device. */
     [[nodiscard]] bool SupportsSubgroups() const noexcept { return supportsSubgroups_; }
+    /** @brief Returns true when GPU timestamp queries are enabled on the device. */
     [[nodiscard]] bool SupportsTimestampQueries() const noexcept { return supportsTimestampQueries_; }
+    /** @brief Returns the negotiated `maxStorageBuffersPerShaderStage` device limit. */
     [[nodiscard]] uint32_t GetMaxStorageBuffersPerShaderStage() const noexcept {
         return maxStorageBuffersPerShaderStage_;
     }
+    /** @brief Returns the negotiated native bindless texture binding-array capacity. */
     [[nodiscard]] uint32_t GetMaxBindingArrayElements() const noexcept { return maxBindingArrayElements_; }
 
     /**
