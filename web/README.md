@@ -6,7 +6,7 @@ A high-performance, zero-allocation native WebGPU 3D scene viewer and glTF 2.0 P
 [![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-10b981?style=for-the-badge&logo=webgpu)](web/app.js)
 [![PBR](https://img.shields.io/badge/Shading-Cook--Torrance_GGX-blue?style=for-the-badge)](web/app.js)
-[![Tests Passing](https://img.shields.io/badge/Unit_Tests-72_Passing-22c55e?style=for-the-badge)](tests/test_web_unit.js)
+[![Tests Passing](https://img.shields.io/badge/Unit_Tests-73_Passing-22c55e?style=for-the-badge)](tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
 
@@ -259,6 +259,9 @@ Camera parameters are dynamically configured:
 | **Mozilla Firefox (Desktop)** | WebGPU (wgpu) | Cook-Torrance PBR (WGSL) | 4-byte buffer alignment, universal WGSL |
 | **Apple Safari (macOS / iOS)**| WebGPU (WebGPU API) | Cook-Torrance PBR (WGSL) | Touch gestures, responsive viewport |
 
+> [!NOTE]
+> The browser runtime uses the full native WebGPU Cook-Torrance PBR, Weather, Mipmap, POM, and Multi-Level LOD pipeline paired with `bgl_engine.wasm`. The desktop Compute-Shader 2-Level BVH Ray Tracing & Path Tracing suite is gated to `BGL_PLATFORM_NATIVE` (`wgpu-native`) because it leverages native storage/bindless adapter extensions (`128`-slot `binding_array`), while WebAssembly builds keep standard raster shadows, GTAO, and IBL.
+
 ---
 
 ## Automated Verification & Test Suites
@@ -266,7 +269,7 @@ Camera parameters are dynamically configured:
 The web runtime is verified by three complementary automated test suites:
 
 ### 1. Web Runtime Unit Tests (`tests/test_web_unit.js`)
-Dedicated, high-speed unit test suite executing **72 isolated unit tests** covering all algorithmic, mathematical, and parser components:
+Dedicated, high-speed unit test suite executing **73 isolated unit tests** covering all algorithmic, mathematical, and parser components:
 ```bash
 node tests/test_web_unit.js
 ```

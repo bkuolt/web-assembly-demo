@@ -25,7 +25,7 @@ BGL_RUN(MyApp)
 | Load glTF/GLB from memory | `GetEngine().LoadModel(bytes, "memory.glb");` |
 | Frame whole scene | `GetEngine().FrameAll();` |
 | Orbit / move camera | `bgl::Camera& cam = GetEngine().GetCamera(); cam.Orbit(0.5f * dt, 0.0f); cam.SetMode(bgl::CameraMode::Fly);` |
-| Change render settings | `GetEngine().Settings().exposure = 1.4f;` / `.bloom = false;` / `.weather = bgl::Weather::Rain;` |
+| Change render & RT settings | `GetEngine().Settings().exposure = 1.4f;` / `.bloom = false;` / `.rayTracing = true;` / `.rtPathTracing = true;` |
 | Poll keyboard | `if (bgl::Input::IsKeyPressed(bgl::Key::Escape)) Quit();` |
 | Poll mouse | `glm::vec2 delta = bgl::Input::MouseDelta();` |
 | Debug UI slider & tooltip | `bgl::gui::Begin("Panel"); bgl::gui::Slider("EV", GetEngine().Settings().exposure, 0.2f, 4.0f); bgl::gui::Tooltip("Exposure"); bgl::gui::End();` |

@@ -9,8 +9,8 @@
  */
 
 /**
- * @defgroup bgl_gpu WebGPU Backend & Post-Processing (`libbgl_gpu`)
- * @brief Hardware WebGPU context, 4x MSAA split render passes, clustered Forward+ PBR pipelines, IBL compute generation, shadows, and HDR post-processing suite.
+ * @defgroup bgl_gpu WebGPU Backend, Ray Tracing & Post-Processing (`libbgl_gpu`)
+ * @brief Hardware WebGPU context, 4x MSAA split render passes, clustered Forward+ PBR pipelines, IBL compute generation, shadows, Desktop 2-level BVH Hybrid Ray Tracing & Path Tracer, batched sprites/billboards, and HDR post-processing suite.
  */
 
 /**
@@ -62,7 +62,7 @@
 /**
  * @namespace bgl::gpu
  * @ingroup bgl_gpu
- * @brief Hardware WebGPU abstractions, RAII handles, PBR/IBL/Shadow/PostProcess pipelines, shader preprocessing, and GPU compute culling/picking.
+ * @brief Hardware WebGPU abstractions, RAII handles, PBR/IBL/Shadow/PostProcess pipelines, Desktop 2-level BVH Hybrid Ray Tracing & Path Tracer, sprite/billboard rendering, shader preprocessing, and GPU compute culling/picking.
  */
 
 /**

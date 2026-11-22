@@ -111,7 +111,8 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
-| **Desktop Hybrid RT & Path Tracing** | 2-level binned-SAH BVH2 (`RayTracingScene`), G-Buffer pass, compute RT soft shadows, RTAO, 1-bounce GGX reflections, temporal + À-Trous denoiser, and progressive compute path tracer | Studio UI / `RenderSettings` |
+| **Desktop Hybrid RT & Path Tracing** | 2-level binned-SAH BVH2 (`RayTracingScene`), G-Buffer pass, 128-slot bindless textures, compute RT soft shadows, RTAO, 1-bounce GGX reflections, temporal + À-Trous denoiser, GPU timestamps, and progressive compute path tracer | `[Ctrl+R]` / `[Ctrl+P]` / Studio UI / `RenderSettings` |
+| **2D Sprites & 3D HDR Billboards** | Layer-sorted 2D swapchain sprites, grid/region `SpriteClip` animators, and depth-sorted 3D `Spherical`/`CylindricalY`/`ScreenAligned` HDR billboards feeding Bloom & Tonemapping | `bgl::Engine::DrawSprite` / `DrawBillboard` |
 | **Multi-Level LOD & Debug Views** | 4-stage Mesh & Shader LOD (`LOD0`–`LOD3`), Screen-Space Error (SSE) Quadtree selection, Shadow-Pass `LOD1`, $4\times 4$ Bayer dithered cross-fade, Adaptive 60 FPS Auto-LOD, and 7 Diagnostic Views (`Lit`, `LOD Heatmap`, `Normals`, `PBR`, `UV`, `Clay + Wireframe`, `Toon / Cel`) | `[F9]`–`[F12]` / `[;]`/`[']` / `--lod-bias` / `--lod-heatmap` / `--debug-view` |
 | **SDF Studio UI & Async Model Switcher** | Single-batch 2D SDF UI (`sdRoundedBox`, drop shadows, frosted HDR glass backdrop blur), containers/panels/groups/toggle boxes/option groups, 19-model glTF dropdown, non-blocking `std::jthread` loader with progress bar, FPS sparkline, and HSV `ColorEdit3` | `[F2]` / Studio UI Panel |
 | **Post-Processing Pipeline** | `Depth24Plus` -> `R32Float` linear depth resolve, half-res Depth GTAO + bilateral blur, 5-mip Jimenez Bloom pyramid, GPU Auto-Exposure, Hi-Z SSR reflections, Vogel bokeh DoF, depth-gated Sun God Rays, edge chromatic aberration, 5 Color Grading presets, Film Grain, and FXAA 3.11 | Studio UI / `[X]` / `[Z]` / `[G]` / `[J]` |
@@ -405,6 +406,16 @@ flowchart LR
 - **Karis Split-Sum Specular & Clearcoat IBL:**
   Samples `textureSampleLevel(envCubemap, defaultSampler, R, roughness * maxMip)` along $\mathbf{R} = \text{reflect}(-\mathbf{V}, \mathbf{N})$ and applies the analytic split-sum BRDF (`envBRDFApprox(F0, roughness, NdotV)`) plus clearcoat reflection weighting.
 
+### 5. Desktop Compute-Shader Ray Tracing & Progressive Path Tracer (`[Ctrl+R]` / `[Ctrl+P]`)
+- **2-Level Binned-SAH BVH2 (`RayTracingScene`, `RayTracingSceneBvh.cpp`):**
+  Builds compact 32-byte `RtBvhNode` bottom-level trees (`BLAS`) per unique `MeshPrimitive` in parallel across `ThreadPool` alongside a dirty-tracked scene-level `TLAS` (`RtInstance`, 176 bytes) supporting `EXT_mesh_gpu_instancing` and small-scale glTF transforms (`abs(det) >= 1e-24`).
+- **128-Slot Bindless Texture Arrays (`Context.cpp`, `rt_traversal.wgsl`):**
+  Queries `wgpu-native` bindless capabilities (`WGPUNativeFeature_TextureBindingArray`, non-uniform indexing, partially bound arrays) so secondary ray hits sample base-color textures from `@group(2)` `binding_array<texture_2d<f32>, 128>`, falling back seamlessly to material factor shading when bindless slots are unavailable.
+- **Hybrid RT Passes & Temporal / À-Trous Denoiser (`RayTracingPass`, `rt_denoise.wgsl`, `rt_denoise_hdr.wgsl`):**
+  Renders a 1x `G-Buffer` (`rt_gbuffer.wgsl`), traces jittered soft sun + up to 3 punctual light shadows (`rt_shadows.wgsl` -> `@group(0) @binding(6)` in `pbr.wgsl`), 2-sample cosine RTAO (`rt_ao.wgsl` overriding GTAO in `PostProcessPass`), and 1-bounce GGX specular reflections (`rt_reflections_core.wgsl`, suppressing SSR and blending smoothly across `roughness` $\in [0.40, 0.65]$), stabilized via temporal reprojection, 3-step À-Trous spatial filtering, and bilateral half-res upsampling.
+- **Progressive Compute Path Tracer (`rt_pathtrace_core.wgsl`, `[Ctrl+P]`):**
+  Accumulates multi-bounce diffuse, GGX specular, and dielectric transmission paths in a linear fp32 `pathAccum` storage buffer (`1`–`6` bounces) using Next-Event Estimation (NEE) and Russian Roulette, automatically resetting accumulation on camera, light, or scene changes and reporting non-blocking `WGPUQuerySet` GPU timings in `DebugOverlay` and `"Desktop Ray Tracing"` Studio UI (`BGL_PLATFORM_WASM` safely retains raster/IBL/GTAO/SSR rendering).
+
 ---
 
 ## Spatial Quadtree Partitioning & Frustum Culling
@@ -568,6 +579,7 @@ The executable resolves relative RPATHs to its shared libraries and WebGPU backe
 - **Mouse / Picking**: `LMB + Drag` Orbit, `RMB / Shift + Drag` Pan, `Scroll Wheel` Zoom, `Double-Click / MMB` Pick node (`RayPicker`) & show 3D Selection Outline.
 - **Studio UI & Overlays**: `F1` Wireframe Overlay, `F2` SDF Studio Settings UI (19-model selector, async loading progress bar, scene tree, theme customizer, desktop RT controls), `O` / `F3` Debug Overlay HUD.
 - **PBR & Lighting**: `V` Bump/Normal Mapping, `L` 16x Aniso Mipmapping, `M` PCF Shadows, `R` Specular IBL Reflections, `U` Ambient Occlusion, `P` Parallax Occlusion Mapping, `E` Environment Preset, `[` / `]` Rotate Environment (-5° / +5°), `K` Skybox Mode (`Sharp` / `Blurred` / `Hidden`).
+- **Desktop Ray Tracing**: `Ctrl+R` Toggle Desktop Hybrid Ray Tracing (Shadows, RTAO, 1-Bounce GGX Reflections), `Ctrl+P` Toggle Progressive Compute Path Tracer.
 - **Post-Processing & Exposure**: `X` Cycle Tonemapper (`Khronos PBR Neutral` / `AgX` / `ACES`), `Z` Emissive HDR Bloom, `G` GTAO/SSAO, `J` Sun Lens Flare, `Shift + (+ / -)` Exposure.
 - **Weather & Diurnal Sun**: `Y` Cycle Weather (`Clear` / `Rain` / `Snow` / `Fog` / `Smoke`), `F4`–`F7` Direct Weather Toggles, `I` / `F8` Auto Day/Night Cycle, `,` / `.` Step Time (-30m / +30m).
 - **Culling, LOD & Views**: `B` AABB Wireframes, `Q` Quadtree Boundaries, `H` Hi-Z Occlusion Culling, `N` / `F9` Cycle Diagnostic View, `F10` LOD Heatmap, `F11` Multi-Level LOD, `F12` Auto-LOD, `;` / `'` LOD Bias (-0.15 / +0.15).
