@@ -70,8 +70,7 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
     case SDLK_r:
         if ((keyMod & KMOD_CTRL) != 0) {
             pipelineManager_.SetRayTracingEnabled(!pipelineManager_.IsRayTracingEnabled());
-            BGL_LOG_INFO("Toggled Desktop Ray Tracing: {}",
-                         pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
+            BGL_LOG_INFO("Toggled Desktop Ray Tracing: {}", pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
         } else {
             ToggleReflections();
             BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());

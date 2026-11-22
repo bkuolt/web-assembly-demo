@@ -90,16 +90,16 @@ struct RenderSettings {
     // Diagnostics
     DebugView debugView{DebugView::LitPbr}; ///< Final PBR view or diagnostic inspection shading mode.
     // Desktop WebGPU Ray Tracing (no-op on WebAssembly)
-    bool rayTracing{true};                ///< Master desktop hybrid ray tracing toggle.
-    bool rtShadows{true};                 ///< Enables ray-traced soft directional + punctual light shadows.
-    bool rtAmbientOcclusion{true};        ///< Enables ray-traced hemisphere ambient occlusion (RTAO).
-    bool rtReflections{true};             ///< Enables 1-bounce GGX ray-traced specular reflections.
-    bool rtPathTracing{false};            ///< Enables progressive multi-bounce compute path-traced GI showcase.
-    bool rtHalfRes{true};                 ///< Traces RT effects at half resolution with bilateral upsampling.
-    float rtAoRadius{0.65f};              ///< World-space RTAO ray distance `[0.05, 5.0]`.
-    float rtShadowSoftness{0.025f};       ///< Directional sun cone jitter angle for soft penumbras `[0.0, 0.15]`.
-    float rtReflectionIntensity{1.0f};    ///< Multiplier on ray-traced specular reflections `[0.0, 2.0]`.
-    uint32_t rtPathBounces{3};            ///< Maximum path tracer light bounces `[1, 6]`.
+    bool rayTracing{true};             ///< Master desktop hybrid ray tracing toggle.
+    bool rtShadows{true};              ///< Enables ray-traced soft directional + punctual light shadows.
+    bool rtAmbientOcclusion{true};     ///< Enables ray-traced hemisphere ambient occlusion (RTAO).
+    bool rtReflections{true};          ///< Enables 1-bounce GGX ray-traced specular reflections.
+    bool rtPathTracing{false};         ///< Enables progressive multi-bounce compute path-traced GI showcase.
+    bool rtHalfRes{true};              ///< Traces RT effects at half resolution with bilateral upsampling.
+    float rtAoRadius{0.65f};           ///< World-space RTAO ray distance `[0.05, 5.0]`.
+    float rtShadowSoftness{0.025f};    ///< Directional sun cone jitter angle for soft penumbras `[0.0, 0.15]`.
+    float rtReflectionIntensity{1.0f}; ///< Multiplier on ray-traced specular reflections `[0.0, 2.0]`.
+    uint32_t rtPathBounces{3};         ///< Maximum path tracer light bounces `[1, 6]`.
 
     /**
      * @brief Component-wise equality comparison used by the engine to apply incremental diffs per frame.

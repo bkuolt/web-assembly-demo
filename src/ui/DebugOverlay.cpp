@@ -206,8 +206,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
         rtColor = glm::vec4(0.32f, 0.92f, 0.72f, 1.0f);
     } else {
         rtText = std::format("RT: Shd:{} AO:{} Refl:{} {}| {:.2f}ms", currentStats_.rtShadowsActive ? "ON" : "OFF",
-                             currentStats_.rtAoActive ? "ON" : "OFF",
-                             currentStats_.rtReflectionsActive ? "ON" : "OFF",
+                             currentStats_.rtAoActive ? "ON" : "OFF", currentStats_.rtReflectionsActive ? "ON" : "OFF",
                              currentStats_.rtBindlessActive ? "[Bindless] " : "", currentStats_.rtGpuMs);
         rtColor = glm::vec4(0.28f, 0.88f, 0.98f, 1.0f);
     }
@@ -222,8 +221,8 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     textRenderer_.DrawRect(panelX, footerY, panelW, footerH, glm::vec4(0.02f, 0.04f, 0.07f, 0.75f));
     textRenderer_.DrawRect(panelX, footerY, panelW, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.05f));
 
-    textRenderer_.DrawText("[O] HUD | [F] Focus | [Ctrl+R] RT | [Ctrl+P] PathTrace | [C] Fly", textX,
-                           footerY + 5.0f, glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
+    textRenderer_.DrawText("[O] HUD | [F] Focus | [Ctrl+R] RT | [Ctrl+P] PathTrace | [C] Fly", textX, footerY + 5.0f,
+                           glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
 
     // Flush GPU draw call
     textRenderer_.Render(pass, viewportWidth, viewportHeight);

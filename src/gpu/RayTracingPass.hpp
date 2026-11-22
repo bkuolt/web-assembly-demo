@@ -31,12 +31,12 @@ struct alignas(16) RtPassUniforms {
     glm::mat4 invViewProj{1.0f};
     glm::mat4 prevViewProj{1.0f};
     glm::mat4 viewProj{1.0f};
-    glm::vec4 cameraPos{0.0f}; // xyz = pos, w = frameIndex
-    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f}; // xyz = sunDir, w = shadowSoftness
+    glm::vec4 cameraPos{0.0f};                          // xyz = pos, w = frameIndex
+    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f};       // xyz = sunDir, w = shadowSoftness
     glm::vec4 params0{1280.0f, 720.0f, 640.0f, 360.0f}; // fullW, fullH, traceW, traceH
-    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f}; // aoRadius, aoIntensity, reflIntensity, envRotation
-    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};  // maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun
-    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f}; // punctualCount, solarElev, envMipCount, stepStride
+    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f};         // aoRadius, aoIntensity, reflIntensity, envRotation
+    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};          // maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun
+    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f};        // punctualCount, solarElev, envMipCount, stepStride
     std::array<glm::vec4, 4> lightsPos{};
     std::array<glm::vec4, 4> lightsCol{};
 };
@@ -122,10 +122,9 @@ public:
     /**
      * @brief Records RT Reflections + Temporal/À-Trous Denoiser + HDR additive composite after opaque + skybox.
      */
-    void ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTracingScene& rtScene,
-                           WGPUTextureView hdrResolveView, const glm::mat4& viewProj, const glm::vec3& cameraPos,
-                           const glm::vec3& sunDir, float solarElev, float envRotation, uint32_t viewportW,
-                           uint32_t viewportH);
+    void ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTracingScene& rtScene, WGPUTextureView hdrResolveView,
+                           const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& sunDir,
+                           float solarElev, float envRotation, uint32_t viewportW, uint32_t viewportH);
 
     /**
      * @brief Records progressive compute path tracing and presents the accumulated HDR image onto `hdrResolveView`.

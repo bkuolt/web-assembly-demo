@@ -307,11 +307,11 @@ void PipelineManager::RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene
     EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
 }
 
-void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::mat4& viewProj,
-                                              const glm::vec3& cameraPos, const glm::vec3& lightDir,
-                                              const scene::Quadtree* spatialIndex, const glm::mat4& viewMatrix,
-                                              const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH,
-                                              float zNear, float zFar) {
+void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene::Scene& scene,
+                                              const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                                              const glm::vec3& lightDir, const scene::Quadtree* spatialIndex,
+                                              const glm::mat4& viewMatrix, const glm::mat4& projMatrix,
+                                              uint32_t viewportW, uint32_t viewportH, float zNear, float zFar) {
     framePreparedByRtPrePass_ = false;
     if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady() || !rtPass_.GetConfig().enabled ||
         rtPass_.GetConfig().pathTracing) {
@@ -349,8 +349,8 @@ void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene:
     }
 
     rtPass_.ExecutePrePass(encoder, rtScene_, scene, sceneGlobalsBindGroup_.Get(), rtOpaqueItemsScratch_, viewProj,
-                           currentLightViewProj_, cameraPos, currentLightDir_, solarElevation_, envRotation_,
-                           baseFlags, skinFrameId_, aoIntensity_, viewportW, viewportH);
+                           currentLightViewProj_, cameraPos, currentLightDir_, solarElevation_, envRotation_, baseFlags,
+                           skinFrameId_, aoIntensity_, viewportW, viewportH);
 
     WGPUTextureView activeRtShadowView =
         rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();

@@ -170,10 +170,10 @@ void EngineCore::Render() {
         pipelineManager_.RenderPathTracePass(gpuContext_.GetCommandEncoder(), *activeScene_,
                                              gpuContext_.GetHdrResolveView(), vp, camPos, sunDir,
                                              gpuContext_.GetWidth(), gpuContext_.GetHeight());
-        pipelineManager_.PreparePostProcessPass(
-            gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), nullptr, 1u, vp,
-            camera_.GetProjectionMatrix(), camPos, sunDir, skybox_.GetRotation(), gpuContext_.GetWidth(),
-            gpuContext_.GetHeight(), lastDeltaTime_, elapsedTime_);
+        pipelineManager_.PreparePostProcessPass(gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(),
+                                                nullptr, 1u, vp, camera_.GetProjectionMatrix(), camPos, sunDir,
+                                                skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight(),
+                                                lastDeltaTime_, elapsedTime_);
         OnPrepareOverlay();
         WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
         if (!swapchainPass) {
@@ -191,11 +191,10 @@ void EngineCore::Render() {
     // 0. Desktop RayTracing Pre-Pass (G-Buffer + RT Shadows + RTAO) or Directional Shadow Map Pre-Pass
     if (activeScene_) {
         pipelineManager_.EnsureOpaqueCopyTexture(gpuContext_.GetWidth(), gpuContext_.GetHeight());
-        pipelineManager_.RenderRayTracingPrePass(gpuContext_.GetCommandEncoder(), *activeScene_, vp, camPos, sunDir,
-                                                 quadtree_.get(), camera_.GetViewMatrix(),
-                                                 camera_.GetProjectionMatrix(), gpuContext_.GetWidth(),
-                                                 gpuContext_.GetHeight(), camera_.GetNearPlane(),
-                                                 camera_.GetFarPlane());
+        pipelineManager_.RenderRayTracingPrePass(
+            gpuContext_.GetCommandEncoder(), *activeScene_, vp, camPos, sunDir, quadtree_.get(),
+            camera_.GetViewMatrix(), camera_.GetProjectionMatrix(), gpuContext_.GetWidth(), gpuContext_.GetHeight(),
+            camera_.GetNearPlane(), camera_.GetFarPlane());
         if (!pipelineManager_.IsRtShadowsActive()) {
             pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
         }
@@ -256,8 +255,9 @@ void EngineCore::Render() {
     gpuContext_.FinishHdrPass(transparentPass);
 
     if (activeScene_) {
-        pipelineManager_.RenderRayTracingPostOpaque(gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), vp,
-                                                    camPos, sunDir, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+        pipelineManager_.RenderRayTracingPostOpaque(gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(),
+                                                    vp, camPos, sunDir, gpuContext_.GetWidth(),
+                                                    gpuContext_.GetHeight());
     }
 
     if (activeScene_ && selectedNode_) {

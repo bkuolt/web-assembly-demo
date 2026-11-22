@@ -36,8 +36,8 @@ void CreateTex2D(WGPUDevice device, uint32_t w, uint32_t h, WGPUTextureFormat fm
     }
 }
 
-[[nodiscard]] WGPUBindGroupLayoutEntry MakeUniformEntry(uint32_t binding, WGPUShaderStage visibility,
-                                                        uint64_t minSize, bool dynamicOffset = false) noexcept {
+[[nodiscard]] WGPUBindGroupLayoutEntry MakeUniformEntry(uint32_t binding, WGPUShaderStage visibility, uint64_t minSize,
+                                                        bool dynamicOffset = false) noexcept {
     WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     e.binding = binding;
     e.visibility = visibility;
@@ -47,9 +47,9 @@ void CreateTex2D(WGPUDevice device, uint32_t w, uint32_t h, WGPUTextureFormat fm
     return e;
 }
 
-[[nodiscard]] WGPUBindGroupLayoutEntry MakeTexEntry(uint32_t binding, WGPUShaderStage visibility,
-                                                    WGPUTextureSampleType sampleType,
-                                                    WGPUTextureViewDimension dim = WGPUTextureViewDimension_2D) noexcept {
+[[nodiscard]] WGPUBindGroupLayoutEntry
+MakeTexEntry(uint32_t binding, WGPUShaderStage visibility, WGPUTextureSampleType sampleType,
+             WGPUTextureViewDimension dim = WGPUTextureViewDimension_2D) noexcept {
     WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     e.binding = binding;
     e.visibility = visibility;
@@ -392,7 +392,8 @@ core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, WGPUPipel
     auto shdPipe = MakeComputePipe(device_, trace8Pl_.Get(), shdMod->Get(), "cs_rt_shadows", "RT_ShadowsPipeline");
     auto aoPipe = MakeComputePipe(device_, trace8Pl_.Get(), aoMod->Get(), "cs_rt_ao", "RT_AOPipeline");
     auto reflPipe = MakeComputePipe(device_, reflPl_.Get(), reflMod->Get(), "cs_rt_reflections", "RT_ReflPipeline");
-    auto tmp8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_temporal_8", "RT_Temporal8Pipeline");
+    auto tmp8Pipe =
+        MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_temporal_8", "RT_Temporal8Pipeline");
     auto atr8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_atrous_8", "RT_Atrous8Pipeline");
     auto up8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_upsample_8", "RT_Upsample8Pipeline");
     auto tmp16Pipe =
@@ -598,31 +599,29 @@ void RayTracingPass::RebuildPassBindGroups() {
     };
 
     // Trace8 bind groups (Shadow & AO)
-    shadowTraceBg_ = makeBg(
-        trace8Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                          texEntry(3, shadowRawView_.Get())},
-        "RT_ShadowTrace_BG");
-    aoTraceBg_ = makeBg(
-        trace8Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                          texEntry(3, aoRawView_.Get())},
-        "RT_AoTrace_BG");
+    shadowTraceBg_ = makeBg(trace8Bgl_.Get(),
+                            std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                              texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                              texEntry(3, shadowRawView_.Get())},
+                            "RT_ShadowTrace_BG");
+    aoTraceBg_ = makeBg(trace8Bgl_.Get(),
+                        std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                          texEntry(3, aoRawView_.Get())},
+                        "RT_AoTrace_BG");
 
     // Reflections trace bind group
     {
         WGPUBindGroupEntry sampE = WGPU_BIND_GROUP_ENTRY_INIT;
         sampE.binding = 4;
         sampE.sampler = defaultSampler_;
-        reflTraceBg_ = makeBg(
-            reflBgl_.Get(),
-            std::array<WGPUBindGroupEntry, 7>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                              texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                              texEntry(3, gbufferAlbedoMetallicView_.Get()), sampE,
-                                              texEntry(5, envCubemapView_), texEntry(6, reflRawView_.Get())},
-            "RT_ReflTrace_BG");
+        reflTraceBg_ =
+            makeBg(reflBgl_.Get(),
+                   std::array<WGPUBindGroupEntry, 7>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                     texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                     texEntry(3, gbufferAlbedoMetallicView_.Get()), sampE,
+                                                     texEntry(5, envCubemapView_), texEntry(6, reflRawView_.Get())},
+                   "RT_ReflTrace_BG");
     }
 
     // PathTrace bind group
@@ -635,10 +634,9 @@ void RayTracingPass::RebuildPassBindGroups() {
         accE.buffer = pathAccumBuffer_.Get();
         accE.offset = 0;
         accE.size = pathAccumBytes_;
-        pathTraceBg_ = makeBg(
-            pathTraceBgl_.Get(),
-            std::array<WGPUBindGroupEntry, 4>{dynUbo(), sampE, texEntry(2, envCubemapView_), accE},
-            "RT_PathTrace_BG");
+        pathTraceBg_ = makeBg(pathTraceBgl_.Get(),
+                              std::array<WGPUBindGroupEntry, 4>{dynUbo(), sampE, texEntry(2, envCubemapView_), accE},
+                              "RT_PathTrace_BG");
     }
 
     // Denoise8 (Shadows & AO) bind groups for ping-pong temporal + 3x A-Trous + upsample
@@ -651,35 +649,31 @@ void RayTracingPass::RebuildPassBindGroups() {
             outTemporal[h] = makeBg(
                 denoise8Bgl_.Get(),
                 std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                  texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                  texEntry(3, rawV), texEntry(4, histV[prevH].Get()),
-                                                  texEntry(5, histV[h].Get())},
+                                                  texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, rawV),
+                                                  texEntry(4, histV[prevH].Get()), texEntry(5, histV[h].Get())},
                 "RT_Temporal8_BG");
-            outA1[h] = makeBg(
-                denoise8Bgl_.Get(),
-                std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                  texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                  texEntry(3, histV[h].Get()), texEntry(4, histV[h].Get()),
-                                                  texEntry(5, rawV)},
-                "RT_Atrous8_1_BG");
+            outA1[h] = makeBg(denoise8Bgl_.Get(),
+                              std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                                texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                                texEntry(3, histV[h].Get()),
+                                                                texEntry(4, histV[h].Get()), texEntry(5, rawV)},
+                              "RT_Atrous8_1_BG");
         }
         outA2 = makeBg(denoise8Bgl_.Get(),
                        std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
                                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                         texEntry(3, rawV), texEntry(4, rawV),
-                                                         texEntry(5, scratchV)},
+                                                         texEntry(3, rawV), texEntry(4, rawV), texEntry(5, scratchV)},
                        "RT_Atrous8_2_BG");
-        outA3 = makeBg(denoise8Bgl_.Get(),
-                       std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                         texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                         texEntry(3, scratchV), texEntry(4, scratchV),
-                                                         texEntry(5, rawV)},
-                       "RT_Atrous8_3_BG");
+        outA3 =
+            makeBg(denoise8Bgl_.Get(),
+                   std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                     texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                     texEntry(3, scratchV), texEntry(4, scratchV), texEntry(5, rawV)},
+                   "RT_Atrous8_3_BG");
         outUp = makeBg(denoise8Bgl_.Get(),
                        std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
                                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                         texEntry(3, rawV), texEntry(4, rawV),
-                                                         texEntry(5, finalV)},
+                                                         texEntry(3, rawV), texEntry(4, rawV), texEntry(5, finalV)},
                        "RT_Upsample8_BG");
     };
 
@@ -692,36 +686,33 @@ void RayTracingPass::RebuildPassBindGroups() {
     // Denoise16 (Reflections) bind groups: Temporal -> hist[h], A1: hist[h]->raw, A2: raw->scratch, A3: scratch->raw
     for (uint32_t h = 0; h < 2u; ++h) {
         const uint32_t prevH = 1u - h;
-        reflTemporalBg_[h] = makeBg(
-            denoise16Bgl_.Get(),
-            std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                              texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                              texEntry(3, reflRawView_.Get()), texEntry(4, reflHistoryView_[prevH].Get()),
-                                              texEntry(5, reflHistoryView_[h].Get())},
-            "RT_Temporal16_BG");
-        reflAtrousStep1Bg_[h] = makeBg(
-            denoise16Bgl_.Get(),
-            std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                              texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                              texEntry(3, reflHistoryView_[h].Get()),
-                                              texEntry(4, reflHistoryView_[h].Get()),
-                                              texEntry(5, reflRawView_.Get())},
-            "RT_Atrous16_1_BG");
+        reflTemporalBg_[h] = makeBg(denoise16Bgl_.Get(),
+                                    std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                                      texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                                      texEntry(3, reflRawView_.Get()),
+                                                                      texEntry(4, reflHistoryView_[prevH].Get()),
+                                                                      texEntry(5, reflHistoryView_[h].Get())},
+                                    "RT_Temporal16_BG");
+        reflAtrousStep1Bg_[h] = makeBg(denoise16Bgl_.Get(),
+                                       std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                                                         texEntry(2, gbufferNormalRoughnessView_.Get()),
+                                                                         texEntry(3, reflHistoryView_[h].Get()),
+                                                                         texEntry(4, reflHistoryView_[h].Get()),
+                                                                         texEntry(5, reflRawView_.Get())},
+                                       "RT_Atrous16_1_BG");
     }
-    reflAtrousStep2Bg_ = makeBg(
-        denoise16Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                          texEntry(3, reflRawView_.Get()), texEntry(4, reflRawView_.Get()),
-                                          texEntry(5, reflScratchView_.Get())},
-        "RT_Atrous16_2_BG");
-    reflAtrousStep3Bg_ = makeBg(
-        denoise16Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                          texEntry(3, reflScratchView_.Get()), texEntry(4, reflScratchView_.Get()),
-                                          texEntry(5, reflRawView_.Get())},
-        "RT_Atrous16_3_BG");
+    reflAtrousStep2Bg_ = makeBg(denoise16Bgl_.Get(),
+                                std::array<WGPUBindGroupEntry, 6>{
+                                    dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                    texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, reflRawView_.Get()),
+                                    texEntry(4, reflRawView_.Get()), texEntry(5, reflScratchView_.Get())},
+                                "RT_Atrous16_2_BG");
+    reflAtrousStep3Bg_ = makeBg(denoise16Bgl_.Get(),
+                                std::array<WGPUBindGroupEntry, 6>{
+                                    dynUbo(), texEntry(1, gbufferDepthView_.Get()),
+                                    texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, reflScratchView_.Get()),
+                                    texEntry(4, reflScratchView_.Get()), texEntry(5, reflRawView_.Get())},
+                                "RT_Atrous16_3_BG");
 
     // Composite & PathTrace Present bind groups
     {
@@ -741,16 +732,14 @@ void RayTracingPass::RebuildPassBindGroups() {
         accE.offset = 0;
         accE.size = pathAccumBytes_;
 
-        compositeReflBg_ = makeBg(
-            compositeBgl_.Get(),
-            std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
-                                              texEntry(3, gbufferDepthView_.Get()), accE},
-            "RT_CompositeRefl_BG");
-        pathPresentBg_ = makeBg(
-            compositeBgl_.Get(),
-            std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
-                                              texEntry(3, gbufferDepthView_.Get()), accE},
-            "RT_PathPresent_BG");
+        compositeReflBg_ = makeBg(compositeBgl_.Get(),
+                                  std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
+                                                                    texEntry(3, gbufferDepthView_.Get()), accE},
+                                  "RT_CompositeRefl_BG");
+        pathPresentBg_ = makeBg(compositeBgl_.Get(),
+                                std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
+                                                                  texEntry(3, gbufferDepthView_.Get()), accE},
+                                "RT_PathPresent_BG");
     }
 #endif
 }
@@ -921,7 +910,8 @@ core::Result<void> RayTracingPass::ReloadShaders(std::span<const std::string> mo
     auto shdPipe = MakeComputePipe(device_, trace8Pl_.Get(), shdMod->Get(), "cs_rt_shadows", "RT_ShadowsPipeline");
     auto aoPipe = MakeComputePipe(device_, trace8Pl_.Get(), aoMod->Get(), "cs_rt_ao", "RT_AOPipeline");
     auto reflPipe = MakeComputePipe(device_, reflPl_.Get(), reflMod->Get(), "cs_rt_reflections", "RT_ReflPipeline");
-    auto tmp8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_temporal_8", "RT_Temporal8Pipeline");
+    auto tmp8Pipe =
+        MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_temporal_8", "RT_Temporal8Pipeline");
     auto atr8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_atrous_8", "RT_Atrous8Pipeline");
     auto up8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_upsample_8", "RT_Upsample8Pipeline");
     auto tmp16Pipe =

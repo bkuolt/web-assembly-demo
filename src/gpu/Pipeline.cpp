@@ -475,8 +475,8 @@ core::Result<void> PipelineManager::InitializeDesktopRayTracing(bool supportsDes
         return res;
     }
     if (auto res = rtPass_.Initialize(device_, queue_, mainPipelineLayout_.Get(), perDrawBgl_.Get(),
-                                      dummySkinBindGroup_.Get(), rtScene_, envCubemapView_.Get(),
-                                      defaultSampler_.Get(), defaultWhiteTextureView_.Get(), supportsTimestampQueries);
+                                      dummySkinBindGroup_.Get(), rtScene_, envCubemapView_.Get(), defaultSampler_.Get(),
+                                      defaultWhiteTextureView_.Get(), supportsTimestampQueries);
         !res) {
         rtScene_.Shutdown();
         return res;

@@ -78,7 +78,8 @@ void RayTracingPass::PopulateUniformTemplate(RtPassUniforms& out, const scene::S
     if (scene) {
         uint32_t pCount = 0u;
         bool hasExplicitDir = false;
-        auto collect = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node, const glm::mat4& parentMat) -> void {
+        auto collect = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
+                           const glm::mat4& parentMat) -> void {
             if (!node || pCount >= 4u) {
                 return;
             }
@@ -93,8 +94,7 @@ void RayTracingPass::PopulateUniformTemplate(RtPassUniforms& out, const scene::S
                     out.lightsPos[pCount] = glm::vec4{-dirToTarget, 0.0f};
                     hasExplicitDir = true;
                 } else {
-                    out.lightsPos[pCount] =
-                        glm::vec4{worldPos, (l.type == scene::LightType::Point) ? 1.0f : 2.0f};
+                    out.lightsPos[pCount] = glm::vec4{worldPos, (l.type == scene::LightType::Point) ? 1.0f : 2.0f};
                 }
                 out.lightsCol[pCount] = glm::vec4{l.color * l.intensity, l.range};
                 ++pCount;
@@ -138,8 +138,8 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
                                     std::span<const std::pair<const scene::SceneNode*, size_t>> opaqueItems,
                                     const glm::mat4& viewProj, const glm::mat4& lightViewProj,
                                     const glm::vec3& cameraPos, const glm::vec3& sunDir, float solarElev,
-                                    float envRotation, uint32_t baseDrawFlags, uint64_t skinFrameId,
-                                    float aoIntensity, uint32_t viewportW, uint32_t viewportH) {
+                                    float envRotation, uint32_t baseDrawFlags, uint64_t skinFrameId, float aoIntensity,
+                                    uint32_t viewportW, uint32_t viewportH) {
 #if defined(BGL_PLATFORM_NATIVE)
     if (!initialized_ || !config_.enabled || config_.pathTracing || !encoder || !rtScene.IsReady() ||
         (!config_.shadows && !config_.ambientOcclusion && !config_.reflections)) {
@@ -147,7 +147,8 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     }
 
     EnsureResolutionTargets(viewportW, viewportH);
-    if (!gbufferDepthView_ || !gbufferNormalRoughnessView_ || !gbufferAlbedoMetallicView_ || !rtScene.GetSceneBindGroup()) {
+    if (!gbufferDepthView_ || !gbufferNormalRoughnessView_ || !gbufferAlbedoMetallicView_ ||
+        !rtScene.GetSceneBindGroup()) {
         return;
     }
 
@@ -255,17 +256,14 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
                     wgpuRenderPassEncoderSetBindGroup(pass.Get(), 3, dc.skinBg, 0, nullptr);
                     wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 0, dc.prim->gpuVertexBuffer, 0,
                                                          dc.prim->gpuVertexBufferSize);
-                    wgpuRenderPassEncoderSetVertexBuffer(
-                        pass.Get(), 1, gbufferInstanceBuffer_.GetBuffer(),
-                        DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
-                        DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
+                    wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 1, gbufferInstanceBuffer_.GetBuffer(),
+                                                         DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
+                                                         DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
                     if (dc.prim->gpuIndexBuffer && lod0.indexCount > 0) {
-                        const uint64_t idxByteOffset =
-                            static_cast<uint64_t>(lod0.firstIndex) *
-                            ((dc.prim->indexFormat == WGPUIndexFormat_Uint16) ? 2u : 4u);
+                        const uint64_t idxByteOffset = static_cast<uint64_t>(lod0.firstIndex) *
+                                                       ((dc.prim->indexFormat == WGPUIndexFormat_Uint16) ? 2u : 4u);
                         wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), dc.prim->gpuIndexBuffer, dc.prim->indexFormat,
-                                                            idxByteOffset,
-                                                            dc.prim->gpuIndexBufferSize - idxByteOffset);
+                                                            idxByteOffset, dc.prim->gpuIndexBufferSize - idxByteOffset);
                         wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, dc.instanceCount, 0, 0, 0);
                     } else if (!dc.prim->vertices.empty()) {
                         wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(dc.prim->vertices.size()),
@@ -362,8 +360,8 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
                    "Pass_RT_AoAtrous2");
         runCompute(atrous8Pipeline_.Get(), aoAtrousStep3Bg_.Get(), nullptr, 7u, traceWgX, traceWgY,
                    "Pass_RT_AoAtrous3");
-        runCompute(upsample8Pipeline_.Get(), aoUpsampleBg_.Get(), nullptr, 7u, fullWgX, fullWgY,
-                   "Pass_RT_AoUpsample", false, true);
+        runCompute(upsample8Pipeline_.Get(), aoUpsampleBg_.Get(), nullptr, 7u, fullWgX, fullWgY, "Pass_RT_AoUpsample",
+                   false, true);
     }
 
     if (config_.shadows || config_.ambientOcclusion) {
@@ -375,7 +373,8 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
         timestampHasPostPass_ = false;
         if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
             timestampDataWritten_ && !timestampReadInFlight_) {
-            wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(), 0u);
+            wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(),
+                                              0u);
             wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(),
                                                  0u, 4u * sizeof(uint64_t));
             timestampDataWritten_ = false;
@@ -408,8 +407,7 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
                                        const glm::vec3& cameraPos, const glm::vec3& sunDir, float solarElev,
                                        float envRotation, uint32_t viewportW, uint32_t viewportH) {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (!initialized_ || !config_.enabled || config_.pathTracing || !encoder || !hdrResolveView ||
-        !rtScene.IsReady()) {
+    if (!initialized_ || !config_.enabled || config_.pathTracing || !encoder || !hdrResolveView || !rtScene.IsReady()) {
         return;
     }
 
@@ -537,10 +535,8 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
     EnsureResolutionTargets(viewportW, viewportH);
 
     const bool dirty = (&scene != lastPathScene_) || (scene.transformVersion_ != lastPathTransformVer_) ||
-                       !MatricesClose(viewProj, lastPathViewProj_) ||
-                       (glm::length(sunDir - lastPathSunDir_) > 1e-4f) ||
-                       (std::abs(envRotation - lastPathEnvRot_) > 1e-4f) ||
-                       (config_.pathBounces != lastPathBounces_);
+                       !MatricesClose(viewProj, lastPathViewProj_) || (glm::length(sunDir - lastPathSunDir_) > 1e-4f) ||
+                       (std::abs(envRotation - lastPathEnvRot_) > 1e-4f) || (config_.pathBounces != lastPathBounces_);
     if (dirty) {
         pathSampleIndex_ = 0;
         lastPathScene_ = &scene;
@@ -552,7 +548,8 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
     }
 
     RtPassUniforms ptUbo{};
-    PopulateUniformTemplate(ptUbo, &scene, viewProj, cameraPos, sunDir, solarElev, envRotation, fullWidth_, fullHeight_);
+    PopulateUniformTemplate(ptUbo, &scene, viewProj, cameraPos, sunDir, solarElev, envRotation, fullWidth_,
+                            fullHeight_);
     WriteUniformSlot(12u, ptUbo);
     wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 12u * kUniformSlotStride,
                          uniformStaging_.data() + 12u * kUniformSlotStride, kUniformSlotStride);
@@ -665,7 +662,8 @@ void RayTracingPass::PollGpuTimestamps() noexcept {
             return;
         }
         if (status == WGPUMapAsyncStatus_Success && self->timestampReadbackBuf_) {
-            const void* ptr = wgpuBufferGetConstMappedRange(self->timestampReadbackBuf_.Get(), 0u, 4u * sizeof(uint64_t));
+            const void* ptr =
+                wgpuBufferGetConstMappedRange(self->timestampReadbackBuf_.Get(), 0u, 4u * sizeof(uint64_t));
             if (ptr) {
                 std::array<uint64_t, 4> ts{};
                 std::memcpy(ts.data(), ptr, sizeof(ts));
