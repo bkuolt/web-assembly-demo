@@ -362,8 +362,8 @@ void RayTracingScene::RebuildTlasInternal(const scene::Scene& scene, bool forceU
             }
             const PrimitiveBlasSlice& slice = it->second;
             const uint32_t matIdx =
-                (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex + 1) < materials_.size())
-                    ? static_cast<uint32_t>(prim.materialIndex + 1)
+                (prim.materialIndex >= 0 && (static_cast<size_t>(prim.materialIndex) + 1u) < materials_.size())
+                    ? (static_cast<uint32_t>(prim.materialIndex) + 1u)
                     : 0u;
             const auto& rtMat = materials_[matIdx];
             const uint32_t instFlags = (rtMat.flagsAlpha.z != 0u ? 1u : 0u) | (rtMat.flagsAlpha.w != 0u ? 2u : 0u);

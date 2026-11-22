@@ -298,7 +298,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   ├── 02_entities_and_lights/main.cpp# Scene entities and orbiting point light
 │   └── 03_sprites_and_billboards/main.cpp # 2D animated sprites & 3D HDR billboards
-├── tests/                             # C++ GTest (300 tests across 48 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (301 tests across 48 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay, bookmarks
@@ -640,7 +640,7 @@ Produces `dist/bgl_web_app_minimal.zip` (~4 MB) with the web runtime and core as
 
 ## Test Suite Overview
 
-The repository includes **300 C++ GoogleTests across 48 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **73 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
+The repository includes **301 C++ GoogleTests across 48 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **73 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
 
 | Test Suite | Tests | Scope |
 | :--- | :---: | :--- |
@@ -659,7 +659,7 @@ The repository includes **300 C++ GoogleTests across 48 suites**, a static modul
 | `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion/deduplication/replacement, KTX2 handling, scratch arena reset, bit-avalanche, and missing path errors. |
 | `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall, `std::stacktrace` output, boundary safety, and idempotent re-installation. |
 | `SoundEngineTest` | 6 | Audio lifecycle & initialization, missing-file error handling, repeated stop safety, and idempotent shutdown. |
-| `RayTracingSceneTest` & `RayTracingPassTest` | 6 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + CPU ray tracing, `UpdateTlas`, small-scale transform retention, RT parameter clamping, and headless WebGPU hybrid & path-trace execution. |
+| `RayTracingSceneTest` & `RayTracingPassTest` | 7 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + CPU ray tracing, `UpdateTlas`, `EXT_mesh_gpu_instancing` multi-instance tracing, small-scale transform retention, RT parameter clamping, and headless WebGPU hybrid & path-trace execution. |
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & backdrop blur flags, HSV conversion, sliders/collapsing headers/sparklines/scroll areas, `ColorEdit3` popup, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, buffer determinism, FNV-1a content hashing, and instancing checks. |
 | `ShaderManagerTest` | 4 | WGSL `#include` & `#pragma once`, circular/missing include detection, entry-point checks, and hot-reload detection. |

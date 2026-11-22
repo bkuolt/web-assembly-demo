@@ -620,7 +620,7 @@ void RayTracingPass::PollGpuTimestamps() noexcept {
     }
     timestampCopyQueued_ = false;
 
-    WGPUBufferMapCallbackInfo cb = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    WGPUBufferMapCallbackInfo cb{};
     cb.mode = WGPUCallbackMode_AllowProcessEvents;
     cb.userdata1 = this;
     cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {

@@ -209,6 +209,42 @@ TEST(RayTracingSceneTest, SmallScaleModelTransformsAreNotCulledFromTlas) {
     EXPECT_NEAR(hit.distance, 0.05f, 1e-4f);
 }
 
+TEST(RayTracingSceneTest, GpuInstancingCreatesMultipleTraceableTlasInstances) {
+    auto scene = std::make_shared<scene::Scene>();
+    auto mesh = std::make_shared<scene::Mesh>();
+    auto& prim = mesh->primitives.emplace_back();
+    prim.vertices.resize(3);
+    prim.vertices[0].position = glm::vec3{-0.5f, -0.5f, 0.0f};
+    prim.vertices[1].position = glm::vec3{0.5f, -0.5f, 0.0f};
+    prim.vertices[2].position = glm::vec3{0.0f, 0.5f, 0.0f};
+    for (auto& v : prim.vertices) {
+        v.normal = glm::vec3{0.0f, 0.0f, 1.0f};
+    }
+    prim.indices = {0u, 1u, 2u};
+    prim.boundingBox.minBound = glm::vec3{-0.5f, -0.5f, -0.1f};
+    prim.boundingBox.maxBound = glm::vec3{0.5f, 0.5f, 0.1f};
+
+    auto instNode = std::make_shared<scene::SceneNode>();
+    instNode->mesh = mesh;
+    instNode->instanceTransforms = {
+        glm::translate(glm::mat4{1.0f}, glm::vec3{-4.0f, 0.0f, 0.0f}),
+        glm::translate(glm::mat4{1.0f}, glm::vec3{4.0f, 0.0f, 0.0f}),
+    };
+    scene->rootNodes.push_back(instNode);
+    scene->allNodes.push_back(instNode);
+    scene->Update();
+
+    RayTracingScene rtScene;
+    rtScene.BuildFromScene(*scene);
+    ASSERT_TRUE(rtScene.IsReady());
+    EXPECT_EQ(rtScene.GetStats().blasCount, 1u);
+    EXPECT_EQ(rtScene.GetStats().instanceCount, 2u);
+
+    EXPECT_TRUE(rtScene.TraceRayCpu(core::Ray{glm::vec3{-4.0f, 0.0f, 3.0f}, glm::vec3{0.0f, 0.0f, -1.0f}}).hit);
+    EXPECT_TRUE(rtScene.TraceRayCpu(core::Ray{glm::vec3{4.0f, 0.0f, 3.0f}, glm::vec3{0.0f, 0.0f, -1.0f}}).hit);
+    EXPECT_FALSE(rtScene.TraceRayCpu(core::Ray{glm::vec3{0.0f, 0.0f, 3.0f}, glm::vec3{0.0f, 0.0f, -1.0f}}).hit);
+}
+
 TEST(RayTracingPassTest, PipelineRtConfigClampingAndTogglesWork) {
     PipelineManager pipeline;
     EXPECT_FALSE(pipeline.IsDesktopRayTracingSupported());
