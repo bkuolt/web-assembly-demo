@@ -40,6 +40,15 @@ constexpr char kEmbCommonWeather[] = {
 constexpr char kEmbCommonGpuBounds[] = {
 #embed "shaders/common/gpu_bounds.wgsl"
 };
+constexpr char kEmbCommonRtTraversal[] = {
+#embed "shaders/common/rt_traversal.wgsl"
+};
+constexpr char kEmbCommonRtReflectionsCore[] = {
+#embed "shaders/common/rt_reflections_core.wgsl"
+};
+constexpr char kEmbCommonRtPathtraceCore[] = {
+#embed "shaders/common/rt_pathtrace_core.wgsl"
+};
 constexpr char kEmbBrdfLut[] = {
 #embed "shaders/brdf_lut.wgsl"
 };
@@ -103,6 +112,36 @@ constexpr char kEmbOutlineComp[] = {
 constexpr char kEmbSprite[] = {
 #embed "shaders/sprite.wgsl"
 };
+constexpr char kEmbRtGbuffer[] = {
+#embed "shaders/rt_gbuffer.wgsl"
+};
+constexpr char kEmbRtShadows[] = {
+#embed "shaders/rt_shadows.wgsl"
+};
+constexpr char kEmbRtAo[] = {
+#embed "shaders/rt_ao.wgsl"
+};
+constexpr char kEmbRtReflections[] = {
+#embed "shaders/rt_reflections.wgsl"
+};
+constexpr char kEmbRtReflectionsBindless[] = {
+#embed "shaders/rt_reflections_bindless.wgsl"
+};
+constexpr char kEmbRtDenoise[] = {
+#embed "shaders/rt_denoise.wgsl"
+};
+constexpr char kEmbRtDenoiseHdr[] = {
+#embed "shaders/rt_denoise_hdr.wgsl"
+};
+constexpr char kEmbRtComposite[] = {
+#embed "shaders/rt_composite.wgsl"
+};
+constexpr char kEmbRtPathtrace[] = {
+#embed "shaders/rt_pathtrace.wgsl"
+};
+constexpr char kEmbRtPathtraceBindless[] = {
+#embed "shaders/rt_pathtrace_bindless.wgsl"
+};
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -115,11 +154,14 @@ struct EmbeddedEntry {
     std::string_view bytes;
 };
 
-constexpr std::array<EmbeddedEntry, 25> kEmbeddedShaders{{
+constexpr std::array<EmbeddedEntry, 38> kEmbeddedShaders{{
     {"common/uniforms.wgsl", {kEmbCommonUniforms, sizeof(kEmbCommonUniforms)}},
     {"common/ggx_sample.wgsl", {kEmbCommonGgxSample, sizeof(kEmbCommonGgxSample)}},
     {"common/weather.wgsl", {kEmbCommonWeather, sizeof(kEmbCommonWeather)}},
     {"common/gpu_bounds.wgsl", {kEmbCommonGpuBounds, sizeof(kEmbCommonGpuBounds)}},
+    {"common/rt_traversal.wgsl", {kEmbCommonRtTraversal, sizeof(kEmbCommonRtTraversal)}},
+    {"common/rt_reflections_core.wgsl", {kEmbCommonRtReflectionsCore, sizeof(kEmbCommonRtReflectionsCore)}},
+    {"common/rt_pathtrace_core.wgsl", {kEmbCommonRtPathtraceCore, sizeof(kEmbCommonRtPathtraceCore)}},
     {"brdf_lut.wgsl", {kEmbBrdfLut, sizeof(kEmbBrdfLut)}},
     {"ggx_prefilter.wgsl", {kEmbGgxPrefilter, sizeof(kEmbGgxPrefilter)}},
     {"tonemap.wgsl", {kEmbTonemap, sizeof(kEmbTonemap)}},
@@ -141,6 +183,16 @@ constexpr std::array<EmbeddedEntry, 25> kEmbeddedShaders{{
     {"outline.wgsl", {kEmbOutline, sizeof(kEmbOutline)}},
     {"outline_comp.wgsl", {kEmbOutlineComp, sizeof(kEmbOutlineComp)}},
     {"sprite.wgsl", {kEmbSprite, sizeof(kEmbSprite)}},
+    {"rt_gbuffer.wgsl", {kEmbRtGbuffer, sizeof(kEmbRtGbuffer)}},
+    {"rt_shadows.wgsl", {kEmbRtShadows, sizeof(kEmbRtShadows)}},
+    {"rt_ao.wgsl", {kEmbRtAo, sizeof(kEmbRtAo)}},
+    {"rt_reflections.wgsl", {kEmbRtReflections, sizeof(kEmbRtReflections)}},
+    {"rt_reflections_bindless.wgsl", {kEmbRtReflectionsBindless, sizeof(kEmbRtReflectionsBindless)}},
+    {"rt_denoise.wgsl", {kEmbRtDenoise, sizeof(kEmbRtDenoise)}},
+    {"rt_denoise_hdr.wgsl", {kEmbRtDenoiseHdr, sizeof(kEmbRtDenoiseHdr)}},
+    {"rt_composite.wgsl", {kEmbRtComposite, sizeof(kEmbRtComposite)}},
+    {"rt_pathtrace.wgsl", {kEmbRtPathtrace, sizeof(kEmbRtPathtrace)}},
+    {"rt_pathtrace_bindless.wgsl", {kEmbRtPathtraceBindless, sizeof(kEmbRtPathtraceBindless)}},
 }};
 #endif
 
