@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] - 2026-11-22
+
 ### Modularity, Security Hardening, Documentation & Test Coverage (`src/`, `apps/viewer/`, `web/`, `tests/`, `.github/`, `docs/`)
 - **Input & Parser Security Hardening:**
   - Enforced cross-scheme subresource containment in [`NetworkFetcher::ResolveExternalAssetUri`](src/core/NetworkFetcher.hpp) across [`FastGltfLoader.cpp`](src/scene/FastGltfLoader.cpp) and [`FastGltfParser.cpp`](src/scene/FastGltfParser.cpp) (blocking `file://` / local path escalation from remote `http(s)://` or inline `data:` glTF payloads), plus control-character and `%00` NUL-byte rejection in `FetchSync`.

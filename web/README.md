@@ -5,7 +5,7 @@ Native browser WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (P
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
 [![Direct Mirror](https://img.shields.io/badge/Mirror-GitHack_main-0f766e?style=flat)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs](https://img.shields.io/badge/Docs-Doxygen-0284c7?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
-[![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-0d9488?style=flat)](web/js/renderer.js)
+[![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-0d9488?style=flat)](js/renderer.js)
 [![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-74_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
@@ -157,7 +157,7 @@ To prevent garbage collection (GC) micro-stutters and guarantee steady 60 FPS / 
 1. **Preallocated Scratch Matrices & Vectors**:
    `BglWebGpuRenderer.draw()` allocates 0 heap objects during rendering. Reusable typed array buffers are initialized once during setup:
    ```javascript
-   // Preallocated scratch objects (web/app.js)
+   // Preallocated scratch objects (web/js/renderer.js)
    _scratchEye: new Float32Array(3),
    _scratchLightDir: new Float32Array(3),
    _scratchProj: null,

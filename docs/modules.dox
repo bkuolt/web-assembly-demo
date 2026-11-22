@@ -5,7 +5,7 @@
 
 /**
  * @defgroup bgl_core Core Engine Utilities (`libbgl_core`)
- * @brief Camera math, spatial geometry primitives, lock-free thread pool, PMR arenas, libcurl fetcher, logging, and POSIX crash diagnostics.
+ * @brief Camera math, spatial geometry primitives, concurrent thread pool, PMR arenas, libcurl fetcher, logging, and POSIX crash diagnostics.
  */
 
 /**

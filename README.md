@@ -1,10 +1,10 @@
-# bgl Engine (v1.0.0)
+# bgl Engine (v1.1.0)
 
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue?style=flat)](https://en.cppreference.com/w/cpp/23)
 [![Backend](https://img.shields.io/badge/Backend-WebGPU-0284c7?style=flat)](https://gpuweb.github.io/gpuweb/)
 [![API Docs](https://img.shields.io/badge/Docs-Doxygen-0f766e?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.0.0-d97706?style=flat)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.1.0-d97706?style=flat)](CHANGELOG.md)
 
 Modular C++23 3D graphics engine built on WebGPU (`wgpu-native` + SDL2 on Linux desktop, paired with an Emscripten WebAssembly core and native WebGPU client for browsers). It supports glTF 2.0/2.1 PBR rendering, HDR Image-Based Lighting (IBL), Forward+ clustered lighting, directional PCF shadows, desktop hybrid ray tracing and progressive path tracing, spatial Quadtree culling, and an SDF immediate-mode UI behind a backend-free public API (`#include <bgl/bgl.hpp>`).
 
@@ -107,7 +107,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 
 ## Overview & Capabilities
 
-`bgl Engine` separates a modular C++23 runtime (`bgl_core`, `bgl_gpu`, `bgl_scene`, `bgl_text`, `bgl_ui`, `bgl_audio`, `bgl_engine`) from platform integration (SDL2 + `wgpu-native` on Linux x86_64; freestanding Emscripten WebAssembly + JS WebGPU client in browsers). Memory lifetimes are managed explicitly via RAII `Handle<>` GPU wrappers, `std::pmr` scratch arenas, and lock-free asset workers.
+`bgl Engine` separates a modular C++23 runtime (`bgl_core`, `bgl_gpu`, `bgl_scene`, `bgl_text`, `bgl_ui`, `bgl_audio`, `bgl_engine`) from platform integration (SDL2 + `wgpu-native` on Linux x86_64; freestanding Emscripten WebAssembly + JS WebGPU client in browsers). Memory lifetimes are managed explicitly via RAII `Handle<>` GPU wrappers, `std::pmr` scratch arenas, and concurrent asset workers.
 
 | Subsystem | Key Capabilities | Runtime Toggle / CLI |
 | :--- | :--- | :--- |
@@ -146,7 +146,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 
 ### Modules & Namespaces (`bgl`)
 
-- `bgl::core`: Math, types (`AABB`, `Ray`, `Frustum`, `Vertex`, `Result<T>`), camera, block memory pool, PMR arenas, work-stealing `ThreadPool`, POSIX signal crash handler, C++23 `std::stacktrace` diagnosis, `libcurl` fetcher, and `spdlog` logging.
+- `bgl::core`: Math, types (`AABB`, `Ray`, `Frustum`, `Vertex`, `Result<T>`), camera, block memory pool, PMR arenas, concurrent `ThreadPool`, POSIX signal crash handler, C++23 `std::stacktrace` diagnosis, `libcurl` fetcher, and `spdlog` logging.
 - `bgl::gpu`: WebGPU device context, swapchain surface, 4x MSAA, modular WGSL shader pipeline (`#include`, `#pragma once`, hot-reload), Forward+ rendering, directional shadows, IBL, post-processing, 2-level SAH BVH & RT passes, skybox, and batched AABB/sprite renderers.
 - `bgl::scene`: Multithreaded glTF ingestion (`fastgltf`), toggleable KTX / PNG / JPEG / WebP / HDR / EXR decoders, Basis Universal transcoding, CPU mip generation, MikkTSpace tangents, loose-bounds XZ Quadtree with `Refit()` and Hi-Z occlusion, and Möller-Trumbore ray picking.
 - `bgl::text`: Cross-platform font discovery (`FontLibrary`), FreeType 2 glyph/SDF rasterization into RGBA8 atlases with fallback faces, HarfBuzz Unicode shaping, and batched 2D text rendering.
@@ -171,7 +171,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
   - `-DBGL_ENABLE_KTX=ON/OFF` (`libktx 4.4.2`, KTX1/KTX2 + Basis Universal UASTC/ETC1S transcoding + magic-byte sniffing)
   - Query compiled capabilities via `./build/Release/bgl_viewer --formats` or `TextureDecoder::GetSupportedFormats()`.
 - **Concurrent Asset Loading & Text Shaping**:
-  - Lock-free parallel image decoding and scene primitive/LOD extraction via `ThreadPool` (`std::jthread`).
+  - Parallel image decoding and scene primitive/LOD extraction via `ThreadPool` (`std::jthread`).
   - `FontLibrary::Discover` / `Find` resolves system and workspace `.ttf`/`.otf`/`.ttc` fonts alongside `"sans"`, `"mono"`, `"serif"`, and `"embedded"` (Liberation Mono Regular).
 - **Zero-GLFW Windowing & Deterministic Dependencies**:
   - Desktop uses native SDL2; browser builds target freestanding Emscripten C-ABI (`src/wasm/wasm_bridge.cpp`, `web/dist/bgl_engine.wasm`) paired with the JS WebGPU frontend (with `BGL_PLATFORM_WASM` guards in place for direct `emdawnwebgpu` binding).
@@ -185,7 +185,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 .
 ├── CMakeLists.txt                     # C++23 target-based CMake configuration (+ optional Doxygen target)
 ├── CMakePresets.json                  # Release, Clang, ASan, UBSan & TSan presets
-├── CHANGELOG.md                       # Release history (v0.6.0 -> v1.0.0+)
+├── CHANGELOG.md                       # Release history (v0.6.0 -> v1.1.0)
 ├── Doxyfile                           # Doxygen + Graphviz SVG configuration
 ├── Taskfile.yml                       # Format, lint, build, test, docs & web helper tasks
 ├── conanfile.py                       # Conan 2.x package recipe
@@ -212,7 +212,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   │   ├── MemoryTracker.hpp/.cpp     # OS RSS RAM & atomic WebGPU VRAM counters
 │   │   ├── NetworkFetcher.hpp/.cpp    # libcurl / local streaming with timeout & cancellation
 │   │   ├── Sprite.hpp/.cpp            # 2D Sprites, AnimatedSprites, SpriteClip & 3D Billboards
-│   │   ├── ThreadPool.hpp/.cpp        # Work-stealing thread pool
+│   │   ├── ThreadPool.hpp/.cpp        # Concurrent worker pool and ParallelFor scheduler
 │   │   ├── Types.hpp                  # AABB, Ray, Frustum, 96-byte Vertex, Result<T>
 │   │   └── Version.hpp(.in)           # Generated version header
 │   ├── gpu/                           # -> libbgl_gpu.so
@@ -551,7 +551,7 @@ The executable resolves relative RPATHs to its shared libraries and WebGPU backe
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `1.0.0` |
+| `-v`, `--version` | — | Print engine version string | `1.1.0` |
 | `--formats` | — | Query compiled texture decoders and `libcurl` availability | — |
 | `-a`, `--asset` | `<path\|url>` | Load `.glb` or `.gltf` model from path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
@@ -642,7 +642,7 @@ cmake --build build/Release --target package_web
 python3 scripts/package_web.py
 ```
 
-Produces `dist/bgl_web_app_minimal.zip` (~4 MB) with the web runtime and core assets while excluding large benchmark `.glb` files.
+Produces `dist/bgl_web_app_minimal.zip` (~5.8 MB) with the web runtime and core assets while excluding large benchmark `.glb` files.
 
 ---
 
@@ -662,13 +662,13 @@ The repository includes **324 C++ GoogleTests across 51 suites**, a static modul
 | `AnimationTest` | 14 | Step/Linear/Slerp/CubicSpline samplers, edge-case keyframes, TRS decoupling, hierarchy propagation, morph blending, time wrapping, and skeletal skin matrices. |
 | `QuadtreeTest` | 13 | 4-way XZ subdivision, loose bounds, `Refit()` relocation, `ContainsXZ`, Sponza culling ratios, Hi-Z `OcclusionBuffer` tile queries, and `LOD0`–`LOD3` bias scaling. |
 | `TextRenderingTest` | 11 | Embedded Liberation Mono integrity, FreeType alpha/SDF atlases, glyph rasterization, HarfBuzz shaping, UTF-8/CRLF/empty strings, multi-line layout, and tinting. |
-| `TextureDecoderTest` | 9 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` headers, PMR decoding, and NPOT mip levels. |
+| `TextureDecoderTest` | 10 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` headers, PMR decoding, NPOT mip levels, and crafted WebP/EXR overflow guards. |
 | `ThreadPoolTest` | 9 | Worker lifecycle, singleton identity, async futures, `ParallelFor` partitioning, empty/inverted bounds, nested deadlock guard, and exception propagation. |
 | `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion/deduplication/replacement, KTX2 handling, scratch arena reset, bit-avalanche, and missing path errors. |
 | `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall, `std::stacktrace` output, boundary safety, and idempotent re-installation. |
 | `SoundEngineTest` | 6 | Audio lifecycle & initialization, missing-file error handling, repeated stop safety, and idempotent shutdown. |
 | `RayTracingSceneTest` & `RayTracingPassTest` | 10 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + unindexed geometry + non-uniform scale normals + CPU ray tracing, `UpdateTlas`, `EXT_mesh_gpu_instancing` multi-instance tracing, singular transform rejection, RT parameter clamping, shader reload filtering, and headless WebGPU hybrid & path-trace execution. |
-| `NetworkFetcherTest` & `MemoryTrackerTest` | 8 | URI scheme/sanitization/percent-decoding, relative resolution, `FetchSync` (`file://`, `data:` base64/plain, directory/missing rejection, progress & cancellation), `FetchAsync`, and saturated GPU VRAM alloc/free counters. |
+| `NetworkFetcherTest` & `MemoryTrackerTest` | 9 | URI scheme/sanitization/percent-decoding, relative & cross-scheme subresource containment, `FetchSync` (`file://`, `data:`, NUL/control guards, progress & cancellation), `FetchAsync`, and saturated GPU VRAM alloc/free counters. |
 | `SceneMeshTest` | 7 | `MeshPrimitive::GenerateLODs` dense/small/collapsed-area reduction, `ComputeTangents` (indexed, unindexed, degenerate UVs), `ApplyMorphTargets`, copy/move buffer ownership guards, and instanced `Scene::Update` bounds. |
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & backdrop blur flags, HSV conversion, sliders/collapsing headers/sparklines/scroll areas, `ColorEdit3` popup, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
 | `GoldenImageTest` | 4 | Headless GLB golden geometry validation, buffer determinism, FNV-1a content hashing, and instancing checks. |
@@ -682,9 +682,9 @@ The repository includes **324 C++ GoogleTests across 51 suites**, a static modul
 
 ## Changelog & Release History
 
-See [**CHANGELOG.md**](CHANGELOG.md) for version notes from `v0.6.0` through **`v1.0.0`** and `Unreleased` changes:
+See [**CHANGELOG.md**](CHANGELOG.md) for version notes from `v0.6.0` through **`v1.1.0`**:
 
-- **[Unreleased](CHANGELOG.md#unreleased)**: Desktop hybrid ray tracing (`RayTracingScene` + `RayTracingPass`) and progressive compute path tracer, modular `RayTracingSceneBvh.cpp` / `RayTracingPassTargets.cpp` splits, expanded `bgl::gui` containers/panels/groups/toggle-box/option-group and hover/disabled/ID scoping, `FontLibrary` OS font discovery, SDF Studio UI & 19-model async dropdown, GTAO, Bloom, Auto-Exposure, SSR, DoF, God Rays, Color Grading, FXAA, selection outlines, extended KHR PBR extensions, and GitHub Pages (`pages.yml`) deployment for the web viewer & Doxygen docs.
+- **[1.1.0](CHANGELOG.md#110---2026-11-22)**: Public backend-free C++23 SDK (`include/bgl/`, `EngineCore`, `samples/01..03`), desktop compute-shader hybrid ray tracing & progressive path tracer (`RayTracingScene` + `RayTracingPass`), 2D sprites & 3D HDR billboards, cross-platform font discovery (`FontLibrary`) & frosted-glass modals, SDF studio UI & full post-processing suite (GTAO, Bloom, Auto-Exposure, SSR, DoF, God Rays, FXAA), security & overflow hardening, modular source/JS splits, 324 C++ GoogleTests + 74 Web unit tests, and Doxygen/GitHub Pages deployment.
 - **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Production 1.0 release with RAII `Handle<>` WebGPU lifecycle, modularized `FastGltfLoader` / `PipelineManager` / `Application`, consolidated swapchain/attachment helpers, zero `clang-tidy`/compiler warnings, and cross-compiler/sanitizer/browser E2E parity.
 - **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular `.wgsl` shader pipeline with `#include`/`#pragma once` and hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and Conan 2 dependency upgrades.
 - **[0.7.0](CHANGELOG.md#070---2026-10-22)**: Bump & Normal Mapping (`[V]`), normal-renormalized mipmapping (`[L]`), 2048x2048 3x3 PCF shadows (`[M]`), 6-face environment cubemap reflections (`[R]`), C++23 `{}` uniform init, `std::span` APIs, and multithreaded CPU asset generation.
