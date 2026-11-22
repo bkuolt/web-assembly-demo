@@ -141,7 +141,7 @@ TEST(RayTracingSceneTest, BuildFromSceneAndCpuRayTracingTracksClosestHitAndTlasU
     const auto stats = rtScene.GetStats();
     EXPECT_EQ(stats.blasCount, 1u); // Shared primitive reuses single BLAS
     EXPECT_EQ(stats.instanceCount, 2u);
-    EXPECT_EQ(stats.triangleCount, 2u);
+    EXPECT_EQ(stats.triangleCount, 1u); // 1 unique BLAS triangle shared by 2 instances
     EXPECT_GT(stats.tlasNodeCount, 0u);
 
     // Closest hit returns nearNode at z = 1 (distance = 4 from z = 5)
@@ -174,6 +174,39 @@ TEST(RayTracingSceneTest, BuildFromSceneAndCpuRayTracingTracksClosestHitAndTlasU
     ASSERT_TRUE(movedHit.hit);
     EXPECT_NEAR(movedHit.distance, 4.0f, 1e-4f);
     EXPECT_NEAR(movedHit.worldPos.x, 8.0f, 1e-4f);
+}
+
+TEST(RayTracingSceneTest, SmallScaleModelTransformsAreNotCulledFromTlas) {
+    // Regression guard: millimeter-scaled glTF models (e.g. scale 0.0001 -> det = 1e-12) must remain traceable
+    auto scene = std::make_shared<scene::Scene>();
+    auto mesh = std::make_shared<scene::Mesh>();
+    auto& prim = mesh->primitives.emplace_back();
+    prim.vertices.resize(3);
+    prim.vertices[0].position = glm::vec3{-100.0f, -100.0f, 0.0f};
+    prim.vertices[1].position = glm::vec3{100.0f, -100.0f, 0.0f};
+    prim.vertices[2].position = glm::vec3{0.0f, 100.0f, 0.0f};
+    for (auto& v : prim.vertices) {
+        v.normal = glm::vec3{0.0f, 0.0f, 1.0f};
+    }
+    prim.indices = {0u, 1u, 2u};
+    prim.boundingBox.minBound = glm::vec3{-100.0f, -100.0f, -1.0f};
+    prim.boundingBox.maxBound = glm::vec3{100.0f, 100.0f, 1.0f};
+
+    auto tinyNode = std::make_shared<scene::SceneNode>();
+    tinyNode->mesh = mesh;
+    tinyNode->localTransform = glm::scale(glm::mat4{1.0f}, glm::vec3{0.0001f});
+    scene->rootNodes.push_back(tinyNode);
+    scene->allNodes.push_back(tinyNode);
+    scene->Update();
+
+    RayTracingScene rtScene;
+    rtScene.BuildFromScene(*scene);
+    ASSERT_TRUE(rtScene.IsReady());
+    EXPECT_EQ(rtScene.GetStats().instanceCount, 1u);
+
+    const RtCpuHit hit = rtScene.TraceRayCpu(core::Ray{glm::vec3{0.0f, 0.0f, 0.05f}, glm::vec3{0.0f, 0.0f, -1.0f}});
+    ASSERT_TRUE(hit.hit);
+    EXPECT_NEAR(hit.distance, 0.05f, 1e-4f);
 }
 
 TEST(RayTracingPassTest, PipelineRtConfigClampingAndTogglesWork) {
@@ -310,8 +343,8 @@ TEST(RayTracingPassTest, HeadlessWebGpuHybridAndPathTracePasses) {
 
     pipelineMgr.PrepareScene(*scene);
     EXPECT_TRUE(pipelineMgr.GetRayTracingScene().IsReady());
-    EXPECT_TRUE(pipelineMgr.IsRtShadowsActive());
-    EXPECT_TRUE(pipelineMgr.IsRtAoActive());
+    EXPECT_FALSE(pipelineMgr.IsRtShadowsActive()); // Allocated lazily on first PrePass
+    EXPECT_FALSE(pipelineMgr.IsRtAoActive());
     EXPECT_TRUE(pipelineMgr.IsRtReflectionsActive());
 
     WGPUTextureDescriptor hdrTd = WGPU_TEXTURE_DESCRIPTOR_INIT;
@@ -335,6 +368,8 @@ TEST(RayTracingPassTest, HeadlessWebGpuHybridAndPathTracePasses) {
     if (CommandEncoderHandle enc{wgpuDeviceCreateCommandEncoder(device, nullptr)}) {
         pipelineMgr.RenderRayTracingPrePass(enc, *scene, vp, camPos, lightDir, nullptr, view, proj, 64u, 64u, 0.1f,
                                             100.0f);
+        EXPECT_TRUE(pipelineMgr.IsRtShadowsActive());
+        EXPECT_TRUE(pipelineMgr.IsRtAoActive());
         EXPECT_NE(pipelineMgr.GetRayTracingPass().GetShadowView(), nullptr);
         EXPECT_NE(pipelineMgr.GetRayTracingPass().GetAoView(), nullptr);
 
