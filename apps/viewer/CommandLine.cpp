@@ -359,6 +359,7 @@ void CliOptions::PrintHelp(std::string_view programName) {
            "  B, Q, H, K, V, L, M, R, U              Bounding boxes, Quadtree, Occlusion, Skybox, Bump, Mips, "
            "Shadows, IBL, AO\n"
            "  X, Z, E, + / -, [ / ]                  Tonemapper, Bloom, Environment preset, Exposure, Env rotation\n"
+           "  Ctrl+R, Ctrl+P                         Toggle Desktop Ray Tracing, Toggle Progressive Path Tracer\n"
            "  Y / F4-F7, I / F8, , / .               Weather modes, Day/Night cycle, Time step\n"
            "  N / F9, F10-F12, ; / ', F1-F3, ESC     Debug view, LOD controls, Wireframe, Settings UI, HUD, Exit\n"
            "  Double-Click / MMB, Drag & Drop        RayPicker node pick, Load .glb/.gltf or HTTP(S) URL\n"
