@@ -44,13 +44,13 @@ struct FontInfo {
 // --- Windows & Containers ---
 
 /**
- * @brief Opens a sleek glassmorphic window docked cleanly near the top-right corner.
+ * @brief Opens a translucent SDF window docked near the top-right corner.
  * @param title Window header caption.
  */
 void Begin(std::string_view title);
 
 /**
- * @brief Opens a sleek glassmorphic window at explicit screen coordinates and width.
+ * @brief Opens a translucent SDF window at explicit screen coordinates and width.
  * @param title Window header caption.
  * @param x Horizontal position in logical pixels from the top-left viewport corner.
  * @param y Vertical position in logical pixels from the top-left viewport corner.

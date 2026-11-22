@@ -458,7 +458,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
 #endif
 
     initialized_ = true;
-    BGL_LOG_INFO("Native WebGPU Context successfully ready!");
+    BGL_LOG_INFO("Native WebGPU context initialized.");
     return {};
 }
 

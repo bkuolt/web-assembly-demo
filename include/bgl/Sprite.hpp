@@ -24,7 +24,7 @@ using SpriteClip = core::SpriteClip;
 using SpriteTexture = core::SpriteTexture;
 /// Reusable clip animation controller.
 using SpriteAnimator = core::SpriteAnimator;
-/// 2D screen-space quad sprite rendered in the crisp swapchain pass.
+/// 2D screen-space quad sprite rendered in the swapchain 2D pass.
 using Sprite = core::Sprite;
 /// 2D sprite paired with a `SpriteAnimator` controller.
 using AnimatedSprite = core::AnimatedSprite;
