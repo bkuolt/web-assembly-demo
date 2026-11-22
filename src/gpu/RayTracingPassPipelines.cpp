@@ -1,15 +1,15 @@
 /**
  * @file RayTracingPassPipelines.cpp
- * @brief Pipeline compilation, bind group layouts, resolution targets, and shader hot-reload for RayTracingPass.
+ * @brief Pipeline compilation, bind group layouts, lifecycle, and shader hot-reload for RayTracingPass.
  */
 #include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/DrawHelpers.hpp"
 #include "gpu/RayTracingPass.hpp"
 #include "gpu/ShaderManager.hpp"
-#include <algorithm>
 #include <array>
-#include <cstring>
+#include <span>
+#include <string>
 #include <utility>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -20,22 +20,7 @@ namespace bgl::gpu {
 
 namespace {
 
-void CreateTex2D(WGPUDevice device, uint32_t w, uint32_t h, WGPUTextureFormat fmt, WGPUTextureUsage usage,
-                 const char* label, TextureHandle& outTex, TextureViewHandle& outView) {
-    WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
-    desc.usage = usage;
-    desc.dimension = WGPUTextureDimension_2D;
-    desc.size = WGPUExtent3D{w, h, 1};
-    desc.format = fmt;
-    desc.mipLevelCount = 1;
-    desc.sampleCount = 1;
-    desc.label = ToWgpuStringView(label);
-    outTex = wgpuDeviceCreateTexture(device, &desc);
-    if (outTex) {
-        outView = wgpuTextureCreateView(outTex.Get(), nullptr);
-    }
-}
-
+#if defined(BGL_PLATFORM_NATIVE)
 [[nodiscard]] WGPUBindGroupLayoutEntry MakeUniformEntry(uint32_t binding, WGPUShaderStage visibility, uint64_t minSize,
                                                         bool dynamicOffset = false) noexcept {
     WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -44,6 +29,24 @@ void CreateTex2D(WGPUDevice device, uint32_t w, uint32_t h, WGPUTextureFormat fm
     e.buffer.type = WGPUBufferBindingType_Uniform;
     e.buffer.hasDynamicOffset = dynamicOffset ? WGPU_TRUE : WGPU_FALSE;
     e.buffer.minBindingSize = minSize;
+    return e;
+}
+
+[[nodiscard]] WGPUBindGroupLayoutEntry MakeBufferEntry(uint32_t binding, WGPUShaderStage visibility,
+                                                       WGPUBufferBindingType type, uint64_t minSize) noexcept {
+    WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    e.binding = binding;
+    e.visibility = visibility;
+    e.buffer.type = type;
+    e.buffer.minBindingSize = minSize;
+    return e;
+}
+
+[[nodiscard]] WGPUBindGroupLayoutEntry MakeSamplerEntry(uint32_t binding, WGPUShaderStage visibility) noexcept {
+    WGPUBindGroupLayoutEntry e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    e.binding = binding;
+    e.visibility = visibility;
+    e.sampler.type = WGPUSamplerBindingType_Filtering;
     return e;
 }
 
@@ -69,6 +72,24 @@ MakeTexEntry(uint32_t binding, WGPUShaderStage visibility, WGPUTextureSampleType
     return e;
 }
 
+[[nodiscard]] BindGroupLayoutHandle MakeBgl(WGPUDevice device, std::span<const WGPUBindGroupLayoutEntry> entries,
+                                            const char* label) {
+    WGPUBindGroupLayoutDescriptor desc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    desc.entryCount = entries.size();
+    desc.entries = entries.data();
+    desc.label = ToWgpuStringView(label);
+    return BindGroupLayoutHandle{wgpuDeviceCreateBindGroupLayout(device, &desc)};
+}
+
+[[nodiscard]] PipelineLayoutHandle MakePl(WGPUDevice device, std::span<const WGPUBindGroupLayout> bgls,
+                                          const char* label) {
+    WGPUPipelineLayoutDescriptor desc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    desc.bindGroupLayoutCount = bgls.size();
+    desc.bindGroupLayouts = bgls.data();
+    desc.label = ToWgpuStringView(label);
+    return PipelineLayoutHandle{wgpuDeviceCreatePipelineLayout(device, &desc)};
+}
+
 [[nodiscard]] core::Result<ComputePipelineHandle> MakeComputePipe(WGPUDevice device, WGPUPipelineLayout layout,
                                                                   WGPUShaderModule mod, std::string_view entry,
                                                                   std::string_view label) {
@@ -83,6 +104,7 @@ MakeTexEntry(uint32_t binding, WGPUShaderStage visibility, WGPUTextureSampleType
     }
     return pipe;
 }
+#endif
 
 } // namespace
 
@@ -90,27 +112,28 @@ core::Result<void> RayTracingPass::CreateLayoutsAndBuffers(WGPUPipelineLayout ma
                                                            const RayTracingScene& rtScene) {
 #if defined(BGL_PLATFORM_NATIVE)
     mainPipelineLayout_ = mainPipelineLayout;
+    sceneBgl_ = rtScene.GetSceneBindGroupLayout();
     bindlessActive_ = rtScene.HasBindlessTextures() && (rtScene.GetBindlessTexturesBgl() != nullptr);
 
-    WGPUBufferDescriptor ubDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    ubDesc.size = static_cast<uint64_t>(kMaxUniformSlots) * kUniformSlotStride;
-    ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    ubDesc.label = ToWgpuStringView("RT_PassUniformRing");
-    passUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
-    if (!passUniformBuffer_) {
-        return std::unexpected("Failed to create RT pass uniform buffer");
-    }
-    core::MemoryTracker::Instance().TrackBufferAlloc(ubDesc.size);
+    auto makeBuffer = [&](uint64_t size, WGPUBufferUsage usage, const char* lbl, bool trackAlloc) -> BufferHandle {
+        WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
+        desc.size = size;
+        desc.usage = usage;
+        desc.label = ToWgpuStringView(lbl);
+        BufferHandle buf{wgpuDeviceCreateBuffer(device_, &desc)};
+        if (buf && trackAlloc) {
+            core::MemoryTracker::Instance().TrackBufferAlloc(size);
+        }
+        return buf;
+    };
 
-    WGPUBufferDescriptor cbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    cbDesc.size = sizeof(RtCompositeUniforms);
-    cbDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    cbDesc.label = ToWgpuStringView("RT_CompositeUniforms");
-    compositeUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &cbDesc);
-    if (!compositeUniformBuffer_) {
-        return std::unexpected("Failed to create RT composite uniform buffer");
+    passUniformBuffer_ = makeBuffer(static_cast<uint64_t>(kMaxUniformSlots) * kUniformSlotStride,
+                                    WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst, "RT_PassUniformRing", true);
+    compositeUniformBuffer_ = makeBuffer(sizeof(RtCompositeUniforms), WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
+                                         "RT_CompositeUniforms", true);
+    if (!passUniformBuffer_ || !compositeUniformBuffer_) {
+        return std::unexpected("Failed to create RayTracingPass uniform buffers");
     }
-    core::MemoryTracker::Instance().TrackBufferAlloc(cbDesc.size);
 
     WGPUSamplerDescriptor sampDesc = WGPU_SAMPLER_DESCRIPTOR_INIT;
     sampDesc.addressModeU = WGPUAddressMode_ClampToEdge;
@@ -122,22 +145,14 @@ core::Result<void> RayTracingPass::CreateLayoutsAndBuffers(WGPUPipelineLayout ma
     sampDesc.maxAnisotropy = 1;
     linearSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
-    auto makeBgl = [&](std::span<const WGPUBindGroupLayoutEntry> entries, const char* lbl) -> BindGroupLayoutHandle {
-        WGPUBindGroupLayoutDescriptor d = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-        d.entryCount = entries.size();
-        d.entries = entries.data();
-        d.label = ToWgpuStringView(lbl);
-        return BindGroupLayoutHandle{wgpuDeviceCreateBindGroupLayout(device_, &d)};
+    auto makeSecondaryPl = [&](WGPUBindGroupLayout passBgl, const char* stdLbl, const char* bindlessLbl) {
+        if (bindlessActive_) {
+            const std::array<WGPUBindGroupLayout, 3> pls{passBgl, sceneBgl_, rtScene.GetBindlessTexturesBgl()};
+            return MakePl(device_, pls, bindlessLbl);
+        }
+        const std::array<WGPUBindGroupLayout, 2> pls{passBgl, sceneBgl_};
+        return MakePl(device_, pls, stdLbl);
     };
-    auto makePl = [&](std::span<const WGPUBindGroupLayout> bgls, const char* lbl) -> PipelineLayoutHandle {
-        WGPUPipelineLayoutDescriptor d = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-        d.bindGroupLayoutCount = bgls.size();
-        d.bindGroupLayouts = bgls.data();
-        d.label = ToWgpuStringView(lbl);
-        return PipelineLayoutHandle{wgpuDeviceCreatePipelineLayout(device_, &d)};
-    };
-
-    const WGPUBindGroupLayout sceneBgl = rtScene.GetSceneBindGroupLayout();
 
     // 1. trace8Bgl (Shadows & AO): UBO(dyn) + Depth + NormalRoughness + StorageRGBA8
     {
@@ -147,117 +162,69 @@ core::Result<void> RayTracingPass::CreateLayoutsAndBuffers(WGPUPipelineLayout ma
             MakeTexEntry(2, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
             MakeStorageTexEntry(3, WGPUTextureFormat_RGBA8Unorm),
         };
-        trace8Bgl_ = makeBgl(e, "RT_Trace8_BGL");
-        const std::array<WGPUBindGroupLayout, 2> pls{trace8Bgl_.Get(), sceneBgl};
-        trace8Pl_ = makePl(pls, "RT_Trace8_PL");
+        trace8Bgl_ = MakeBgl(device_, e, "RT_Trace8_BGL");
+        const std::array<WGPUBindGroupLayout, 2> pls{trace8Bgl_.Get(), sceneBgl_};
+        trace8Pl_ = MakePl(device_, pls, "RT_Trace8_PL");
     }
 
     // 2. reflBgl: UBO(dyn) + Depth + NormalRoughness + AlbedoMetallic + Sampler + EnvCube + StorageRGBA16F
     {
-        WGPUBindGroupLayoutEntry sampE = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        sampE.binding = 4;
-        sampE.visibility = WGPUShaderStage_Compute;
-        sampE.sampler.type = WGPUSamplerBindingType_Filtering;
-
         const std::array<WGPUBindGroupLayoutEntry, 7> e{
             MakeUniformEntry(0, WGPUShaderStage_Compute, sizeof(RtPassUniforms), true),
             MakeTexEntry(1, WGPUShaderStage_Compute, WGPUTextureSampleType_Depth),
             MakeTexEntry(2, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
             MakeTexEntry(3, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
-            sampE,
+            MakeSamplerEntry(4, WGPUShaderStage_Compute),
             MakeTexEntry(5, WGPUShaderStage_Compute, WGPUTextureSampleType_Float, WGPUTextureViewDimension_Cube),
             MakeStorageTexEntry(6, WGPUTextureFormat_RGBA16Float),
         };
-        reflBgl_ = makeBgl(e, "RT_Refl_BGL");
-        if (bindlessActive_) {
-            const std::array<WGPUBindGroupLayout, 3> pls{reflBgl_.Get(), sceneBgl, rtScene.GetBindlessTexturesBgl()};
-            reflPl_ = makePl(pls, "RT_ReflBindless_PL");
-        } else {
-            const std::array<WGPUBindGroupLayout, 2> pls{reflBgl_.Get(), sceneBgl};
-            reflPl_ = makePl(pls, "RT_Refl_PL");
-        }
+        reflBgl_ = MakeBgl(device_, e, "RT_Refl_BGL");
+        reflPl_ = makeSecondaryPl(reflBgl_.Get(), "RT_Refl_PL", "RT_ReflBindless_PL");
     }
 
     // 3. denoise8Bgl & denoise16Bgl: UBO(dyn) + Depth + NormalRoughness + srcTex + historyTex + dstStorage
-    {
-        const std::array<WGPUBindGroupLayoutEntry, 6> e8{
+    auto makeDenoiseLayout = [&](WGPUTextureFormat storageFmt, const char* bglLbl, const char* plLbl,
+                                 BindGroupLayoutHandle& outBgl, PipelineLayoutHandle& outPl) {
+        const std::array<WGPUBindGroupLayoutEntry, 6> e{
             MakeUniformEntry(0, WGPUShaderStage_Compute, sizeof(RtPassUniforms), true),
             MakeTexEntry(1, WGPUShaderStage_Compute, WGPUTextureSampleType_Depth),
             MakeTexEntry(2, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
             MakeTexEntry(3, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
             MakeTexEntry(4, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
-            MakeStorageTexEntry(5, WGPUTextureFormat_RGBA8Unorm),
+            MakeStorageTexEntry(5, storageFmt),
         };
-        denoise8Bgl_ = makeBgl(e8, "RT_Denoise8_BGL");
-        const std::array<WGPUBindGroupLayout, 1> pl8{denoise8Bgl_.Get()};
-        denoise8Pl_ = makePl(pl8, "RT_Denoise8_PL");
-
-        const std::array<WGPUBindGroupLayoutEntry, 6> e16{
-            MakeUniformEntry(0, WGPUShaderStage_Compute, sizeof(RtPassUniforms), true),
-            MakeTexEntry(1, WGPUShaderStage_Compute, WGPUTextureSampleType_Depth),
-            MakeTexEntry(2, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
-            MakeTexEntry(3, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
-            MakeTexEntry(4, WGPUShaderStage_Compute, WGPUTextureSampleType_Float),
-            MakeStorageTexEntry(5, WGPUTextureFormat_RGBA16Float),
-        };
-        denoise16Bgl_ = makeBgl(e16, "RT_Denoise16_BGL");
-        const std::array<WGPUBindGroupLayout, 1> pl16{denoise16Bgl_.Get()};
-        denoise16Pl_ = makePl(pl16, "RT_Denoise16_PL");
-    }
+        outBgl = MakeBgl(device_, e, bglLbl);
+        const std::array<WGPUBindGroupLayout, 1> pls{outBgl.Get()};
+        outPl = MakePl(device_, pls, plLbl);
+    };
+    makeDenoiseLayout(WGPUTextureFormat_RGBA8Unorm, "RT_Denoise8_BGL", "RT_Denoise8_PL", denoise8Bgl_, denoise8Pl_);
+    makeDenoiseLayout(WGPUTextureFormat_RGBA16Float, "RT_Denoise16_BGL", "RT_Denoise16_PL", denoise16Bgl_,
+                      denoise16Pl_);
 
     // 4. compositeBgl: UBO + Sampler + reflTex + Depth + pathAccum SSBO
     {
-        WGPUBindGroupLayoutEntry sampE = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        sampE.binding = 1;
-        sampE.visibility = WGPUShaderStage_Fragment;
-        sampE.sampler.type = WGPUSamplerBindingType_Filtering;
-
-        WGPUBindGroupLayoutEntry ssboE = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        ssboE.binding = 4;
-        ssboE.visibility = WGPUShaderStage_Fragment;
-        ssboE.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
-        ssboE.buffer.minBindingSize = sizeof(glm::vec4);
-
         const std::array<WGPUBindGroupLayoutEntry, 5> e{
             MakeUniformEntry(0, WGPUShaderStage_Fragment, sizeof(RtCompositeUniforms), false),
-            sampE,
+            MakeSamplerEntry(1, WGPUShaderStage_Fragment),
             MakeTexEntry(2, WGPUShaderStage_Fragment, WGPUTextureSampleType_Float),
             MakeTexEntry(3, WGPUShaderStage_Fragment, WGPUTextureSampleType_Depth),
-            ssboE,
+            MakeBufferEntry(4, WGPUShaderStage_Fragment, WGPUBufferBindingType_ReadOnlyStorage, sizeof(glm::vec4)),
         };
-        compositeBgl_ = makeBgl(e, "RT_Composite_BGL");
+        compositeBgl_ = MakeBgl(device_, e, "RT_Composite_BGL");
         const std::array<WGPUBindGroupLayout, 1> plc{compositeBgl_.Get()};
-        compositePl_ = makePl(plc, "RT_Composite_PL");
+        compositePl_ = MakePl(device_, plc, "RT_Composite_PL");
     }
 
     // 5. pathTraceBgl: UBO(dyn) + Sampler + EnvCube + pathAccum(rw)
     {
-        WGPUBindGroupLayoutEntry sampE = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        sampE.binding = 1;
-        sampE.visibility = WGPUShaderStage_Compute;
-        sampE.sampler.type = WGPUSamplerBindingType_Filtering;
-
-        WGPUBindGroupLayoutEntry accumE = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-        accumE.binding = 3;
-        accumE.visibility = WGPUShaderStage_Compute;
-        accumE.buffer.type = WGPUBufferBindingType_Storage;
-        accumE.buffer.minBindingSize = sizeof(glm::vec4);
-
         const std::array<WGPUBindGroupLayoutEntry, 4> e{
             MakeUniformEntry(0, WGPUShaderStage_Compute, sizeof(RtPassUniforms), true),
-            sampE,
+            MakeSamplerEntry(1, WGPUShaderStage_Compute),
             MakeTexEntry(2, WGPUShaderStage_Compute, WGPUTextureSampleType_Float, WGPUTextureViewDimension_Cube),
-            accumE,
+            MakeBufferEntry(3, WGPUShaderStage_Compute, WGPUBufferBindingType_Storage, sizeof(glm::vec4)),
         };
-        pathTraceBgl_ = makeBgl(e, "RT_PathTrace_BGL");
-        if (bindlessActive_) {
-            const std::array<WGPUBindGroupLayout, 3> plp{pathTraceBgl_.Get(), sceneBgl,
-                                                         rtScene.GetBindlessTexturesBgl()};
-            pathTracePl_ = makePl(plp, "RT_PathTraceBindless_PL");
-        } else {
-            const std::array<WGPUBindGroupLayout, 2> plp{pathTraceBgl_.Get(), sceneBgl};
-            pathTracePl_ = makePl(plp, "RT_PathTrace_PL");
-        }
+        pathTraceBgl_ = MakeBgl(device_, e, "RT_PathTrace_BGL");
+        pathTracePl_ = makeSecondaryPl(pathTraceBgl_.Get(), "RT_PathTrace_PL", "RT_PathTraceBindless_PL");
     }
 
     if (supportsTimestampQueries_) {
@@ -267,17 +234,10 @@ core::Result<void> RayTracingPass::CreateLayoutsAndBuffers(WGPUPipelineLayout ma
         qDesc.label = ToWgpuStringView("RT_TimestampQuerySet");
         timestampQuerySet_ = wgpuDeviceCreateQuerySet(device_, &qDesc);
 
-        WGPUBufferDescriptor resDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        resDesc.size = 4u * sizeof(uint64_t);
-        resDesc.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
-        resDesc.label = ToWgpuStringView("RT_TimestampResolve");
-        timestampResolveBuf_ = wgpuDeviceCreateBuffer(device_, &resDesc);
-
-        WGPUBufferDescriptor rbDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        rbDesc.size = 4u * sizeof(uint64_t);
-        rbDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
-        rbDesc.label = ToWgpuStringView("RT_TimestampReadback");
-        timestampReadbackBuf_ = wgpuDeviceCreateBuffer(device_, &rbDesc);
+        timestampResolveBuf_ = makeBuffer(4u * sizeof(uint64_t), WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc,
+                                          "RT_TimestampResolve", false);
+        timestampReadbackBuf_ = makeBuffer(4u * sizeof(uint64_t), WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead,
+                                           "RT_TimestampReadback", false);
 
         timestampPeriodNs_ = wgpuQueueGetTimestampPeriod(queue_);
         if (timestampPeriodNs_ <= 0.0f) {
@@ -297,8 +257,7 @@ core::Result<void> RayTracingPass::CreateLayoutsAndBuffers(WGPUPipelineLayout ma
 #endif
 }
 
-core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, WGPUPipelineLayout mainPipelineLayout,
-                                                   const RayTracingScene& rtScene) {
+core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, bool allowBindlessFallback) {
 #if defined(BGL_PLATFORM_NATIVE)
     auto compile = [&](std::string_view file, const char* lbl) {
         return ShaderManager::Instance().LoadAndCompile(device_, file, lbl, validateScope);
@@ -319,22 +278,13 @@ core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, WGPUPipel
     auto ptMod = compile(bindlessActive_ ? "rt_pathtrace_bindless.wgsl" : "rt_pathtrace.wgsl", "RT_PathTrace_WGSL");
 
     // Graceful fallback to non-bindless shaders if driver/naga rejects binding_array at compile time
-    if ((!reflMod || !ptMod) && bindlessActive_) {
+    if ((!reflMod || !ptMod) && bindlessActive_ && allowBindlessFallback) {
         BGL_LOG_WARN("Bindless RT WGSL compilation failed; falling back to non-bindless secondary hit shading");
         bindlessActive_ = false;
-        const WGPUBindGroupLayout sceneBgl = rtScene.GetSceneBindGroupLayout();
-        const std::array<WGPUBindGroupLayout, 2> rPls{reflBgl_.Get(), sceneBgl};
-        WGPUPipelineLayoutDescriptor rd = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-        rd.bindGroupLayoutCount = rPls.size();
-        rd.bindGroupLayouts = rPls.data();
-        reflPl_ = wgpuDeviceCreatePipelineLayout(device_, &rd);
-
-        const std::array<WGPUBindGroupLayout, 2> pPls{pathTraceBgl_.Get(), sceneBgl};
-        WGPUPipelineLayoutDescriptor pd = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-        pd.bindGroupLayoutCount = pPls.size();
-        pd.bindGroupLayouts = pPls.data();
-        pathTracePl_ = wgpuDeviceCreatePipelineLayout(device_, &pd);
-
+        const std::array<WGPUBindGroupLayout, 2> rPls{reflBgl_.Get(), sceneBgl_};
+        reflPl_ = MakePl(device_, rPls, "RT_Refl_PL");
+        const std::array<WGPUBindGroupLayout, 2> pPls{pathTraceBgl_.Get(), sceneBgl_};
+        pathTracePl_ = MakePl(device_, pPls, "RT_PathTrace_PL");
         reflMod = compile("rt_reflections.wgsl", "RT_Refl_WGSL");
         ptMod = compile("rt_pathtrace.wgsl", "RT_PathTrace_WGSL");
     }
@@ -366,7 +316,7 @@ core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, WGPUPipel
     gbufDepth.depthCompare = WGPUCompareFunction_LessEqual;
 
     WGPURenderPipelineDescriptor gbufRp = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
-    gbufRp.layout = mainPipelineLayout;
+    gbufRp.layout = mainPipelineLayout_;
     gbufRp.vertex.module = gbufMod->Get();
     gbufRp.vertex.entryPoint = ToWgpuStringView("vs_gbuffer");
     gbufRp.vertex.bufferCount = static_cast<uint32_t>(layoutStorage.layouts.size());
@@ -467,365 +417,9 @@ core::Result<void> RayTracingPass::CreatePipelines(bool validateScope, WGPUPipel
     return {};
 #else
     (void)validateScope;
-    (void)mainPipelineLayout;
-    (void)rtScene;
+    (void)allowBindlessFallback;
     return {};
 #endif
-}
-
-void RayTracingPass::EnsureResolutionTargets(uint32_t fullW, uint32_t fullH) {
-#if defined(BGL_PLATFORM_NATIVE)
-    if (!device_ || fullW == 0 || fullH == 0) {
-        return;
-    }
-    const uint32_t nextTraceW = config_.halfRes ? std::max(1u, (fullW + 1u) / 2u) : fullW;
-    const uint32_t nextTraceH = config_.halfRes ? std::max(1u, (fullH + 1u) / 2u) : fullH;
-    if (fullW == fullWidth_ && fullH == fullHeight_ && nextTraceW == traceWidth_ && nextTraceH == traceHeight_ &&
-        config_.halfRes == lastHalfRes_ && gbufferDepthView_ != nullptr) {
-        return;
-    }
-
-    ReleaseResolutionTargets();
-    fullWidth_ = fullW;
-    fullHeight_ = fullH;
-    traceWidth_ = nextTraceW;
-    traceHeight_ = nextTraceH;
-    lastHalfRes_ = config_.halfRes;
-    frameIndex_ = 0;
-    pathSampleIndex_ = 0;
-
-    const WGPUTextureUsage tex8Usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding;
-    const WGPUTextureUsage tex16Usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding;
-
-    // 1. G-Buffer (Full resolution 1x)
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA16Float,
-                WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding, "RT_GbufferNormalRough",
-                gbufferNormalRoughnessTex_, gbufferNormalRoughnessView_);
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA8Unorm,
-                WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding, "RT_GbufferAlbedoMetal",
-                gbufferAlbedoMetallicTex_, gbufferAlbedoMetallicView_);
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_Depth32Float,
-                WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding, "RT_GbufferDepth",
-                gbufferDepthTex_, gbufferDepthView_);
-
-    // 2. RT Shadows (Trace resolution + full-res output)
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_ShadowRaw",
-                shadowRawTex_, shadowRawView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_ShadowScratch",
-                shadowScratchTex_, shadowScratchView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_ShadowHist0",
-                shadowHistoryTex_[0], shadowHistoryView_[0]);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_ShadowHist1",
-                shadowHistoryTex_[1], shadowHistoryView_[1]);
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_ShadowFinal",
-                shadowFinalTex_, shadowFinalView_);
-
-    // 3. RTAO (Trace resolution + full-res output)
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_AoRaw", aoRawTex_,
-                aoRawView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_AoScratch",
-                aoScratchTex_, aoScratchView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_AoHist0",
-                aoHistoryTex_[0], aoHistoryView_[0]);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_AoHist1",
-                aoHistoryTex_[1], aoHistoryView_[1]);
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA8Unorm, tex8Usage, "RT_AoFinal", aoFinalTex_,
-                aoFinalView_);
-
-    // 4. RT Reflections (Trace resolution HDR)
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA16Float, tex16Usage, "RT_ReflRaw",
-                reflRawTex_, reflRawView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA16Float, tex16Usage, "RT_ReflScratch",
-                reflScratchTex_, reflScratchView_);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA16Float, tex16Usage, "RT_ReflHist0",
-                reflHistoryTex_[0], reflHistoryView_[0]);
-    CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA16Float, tex16Usage, "RT_ReflHist1",
-                reflHistoryTex_[1], reflHistoryView_[1]);
-
-    // 5. Progressive Path Tracer FP32 Accumulation Buffer
-    const uint64_t accumBytes = static_cast<uint64_t>(fullWidth_) * fullHeight_ * sizeof(glm::vec4);
-    WGPUBufferDescriptor accDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
-    accDesc.size = accumBytes;
-    accDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-    accDesc.label = ToWgpuStringView("RT_PathAccum_SSBO");
-    pathAccumBuffer_ = wgpuDeviceCreateBuffer(device_, &accDesc);
-    if (pathAccumBuffer_) {
-        pathAccumBytes_ = accumBytes;
-        core::MemoryTracker::Instance().TrackBufferAlloc(pathAccumBytes_);
-    }
-
-    const size_t fullPixels = static_cast<size_t>(fullWidth_) * fullHeight_;
-    const size_t tracePixels = static_cast<size_t>(traceWidth_) * traceHeight_;
-    core::MemoryTracker::Instance().TrackTextureAlloc(fullPixels * (8u + 4u + 4u + 4u + 4u) +
-                                                      tracePixels * (4u * 4u + 4u * 4u + 8u * 4u));
-
-    RebuildPassBindGroups();
-#else
-    (void)fullW;
-    (void)fullH;
-#endif
-}
-
-void RayTracingPass::RebuildPassBindGroups() {
-#if defined(BGL_PLATFORM_NATIVE)
-    if (!device_ || !gbufferDepthView_ || !passUniformBuffer_ || !envCubemapView_ || !defaultSampler_ ||
-        !linearSampler_ || !pathAccumBuffer_) {
-        return;
-    }
-
-    auto makeBg = [&](WGPUBindGroupLayout layout, std::span<const WGPUBindGroupEntry> entries,
-                      const char* lbl) -> BindGroupHandle {
-        WGPUBindGroupDescriptor d = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        d.layout = layout;
-        d.entryCount = entries.size();
-        d.entries = entries.data();
-        d.label = ToWgpuStringView(lbl);
-        return BindGroupHandle{wgpuDeviceCreateBindGroup(device_, &d)};
-    };
-
-    auto dynUbo = [&]() {
-        WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
-        e.binding = 0;
-        e.buffer = passUniformBuffer_.Get();
-        e.offset = 0;
-        e.size = sizeof(RtPassUniforms);
-        return e;
-    };
-    auto texEntry = [&](uint32_t b, WGPUTextureView v) {
-        WGPUBindGroupEntry e = WGPU_BIND_GROUP_ENTRY_INIT;
-        e.binding = b;
-        e.textureView = v;
-        return e;
-    };
-
-    // Trace8 bind groups (Shadow & AO)
-    shadowTraceBg_ = makeBg(trace8Bgl_.Get(),
-                            std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                              texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                              texEntry(3, shadowRawView_.Get())},
-                            "RT_ShadowTrace_BG");
-    aoTraceBg_ = makeBg(trace8Bgl_.Get(),
-                        std::array<WGPUBindGroupEntry, 4>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                          texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                          texEntry(3, aoRawView_.Get())},
-                        "RT_AoTrace_BG");
-
-    // Reflections trace bind group
-    {
-        WGPUBindGroupEntry sampE = WGPU_BIND_GROUP_ENTRY_INIT;
-        sampE.binding = 4;
-        sampE.sampler = defaultSampler_;
-        reflTraceBg_ =
-            makeBg(reflBgl_.Get(),
-                   std::array<WGPUBindGroupEntry, 7>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                     texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                     texEntry(3, gbufferAlbedoMetallicView_.Get()), sampE,
-                                                     texEntry(5, envCubemapView_), texEntry(6, reflRawView_.Get())},
-                   "RT_ReflTrace_BG");
-    }
-
-    // PathTrace bind group
-    {
-        WGPUBindGroupEntry sampE = WGPU_BIND_GROUP_ENTRY_INIT;
-        sampE.binding = 1;
-        sampE.sampler = defaultSampler_;
-        WGPUBindGroupEntry accE = WGPU_BIND_GROUP_ENTRY_INIT;
-        accE.binding = 3;
-        accE.buffer = pathAccumBuffer_.Get();
-        accE.offset = 0;
-        accE.size = pathAccumBytes_;
-        pathTraceBg_ = makeBg(pathTraceBgl_.Get(),
-                              std::array<WGPUBindGroupEntry, 4>{dynUbo(), sampE, texEntry(2, envCubemapView_), accE},
-                              "RT_PathTrace_BG");
-    }
-
-    // Denoise8 (Shadows & AO) bind groups for ping-pong temporal + 3x A-Trous + upsample
-    auto buildDenoise8Set = [&](WGPUTextureView rawV, WGPUTextureView scratchV,
-                                const std::array<TextureViewHandle, 2>& histV, WGPUTextureView finalV,
-                                std::array<BindGroupHandle, 2>& outTemporal, std::array<BindGroupHandle, 2>& outA1,
-                                BindGroupHandle& outA2, BindGroupHandle& outA3, BindGroupHandle& outUp) {
-        for (uint32_t h = 0; h < 2u; ++h) {
-            const uint32_t prevH = 1u - h;
-            outTemporal[h] = makeBg(
-                denoise8Bgl_.Get(),
-                std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                  texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, rawV),
-                                                  texEntry(4, histV[prevH].Get()), texEntry(5, histV[h].Get())},
-                "RT_Temporal8_BG");
-            outA1[h] = makeBg(denoise8Bgl_.Get(),
-                              std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                                texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                                texEntry(3, histV[h].Get()),
-                                                                texEntry(4, histV[h].Get()), texEntry(5, rawV)},
-                              "RT_Atrous8_1_BG");
-        }
-        outA2 = makeBg(denoise8Bgl_.Get(),
-                       std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                         texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                         texEntry(3, rawV), texEntry(4, rawV), texEntry(5, scratchV)},
-                       "RT_Atrous8_2_BG");
-        outA3 =
-            makeBg(denoise8Bgl_.Get(),
-                   std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                     texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                     texEntry(3, scratchV), texEntry(4, scratchV), texEntry(5, rawV)},
-                   "RT_Atrous8_3_BG");
-        outUp = makeBg(denoise8Bgl_.Get(),
-                       std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                         texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                         texEntry(3, rawV), texEntry(4, rawV), texEntry(5, finalV)},
-                       "RT_Upsample8_BG");
-    };
-
-    buildDenoise8Set(shadowRawView_.Get(), shadowScratchView_.Get(), shadowHistoryView_, shadowFinalView_.Get(),
-                     shadowTemporalBg_, shadowAtrousStep1Bg_, shadowAtrousStep2Bg_, shadowAtrousStep3Bg_,
-                     shadowUpsampleBg_);
-    buildDenoise8Set(aoRawView_.Get(), aoScratchView_.Get(), aoHistoryView_, aoFinalView_.Get(), aoTemporalBg_,
-                     aoAtrousStep1Bg_, aoAtrousStep2Bg_, aoAtrousStep3Bg_, aoUpsampleBg_);
-
-    // Denoise16 (Reflections) bind groups: Temporal -> hist[h], A1: hist[h]->raw, A2: raw->scratch, A3: scratch->raw
-    for (uint32_t h = 0; h < 2u; ++h) {
-        const uint32_t prevH = 1u - h;
-        reflTemporalBg_[h] = makeBg(denoise16Bgl_.Get(),
-                                    std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                                      texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                                      texEntry(3, reflRawView_.Get()),
-                                                                      texEntry(4, reflHistoryView_[prevH].Get()),
-                                                                      texEntry(5, reflHistoryView_[h].Get())},
-                                    "RT_Temporal16_BG");
-        reflAtrousStep1Bg_[h] = makeBg(denoise16Bgl_.Get(),
-                                       std::array<WGPUBindGroupEntry, 6>{dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                                                         texEntry(2, gbufferNormalRoughnessView_.Get()),
-                                                                         texEntry(3, reflHistoryView_[h].Get()),
-                                                                         texEntry(4, reflHistoryView_[h].Get()),
-                                                                         texEntry(5, reflRawView_.Get())},
-                                       "RT_Atrous16_1_BG");
-    }
-    reflAtrousStep2Bg_ = makeBg(denoise16Bgl_.Get(),
-                                std::array<WGPUBindGroupEntry, 6>{
-                                    dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                    texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, reflRawView_.Get()),
-                                    texEntry(4, reflRawView_.Get()), texEntry(5, reflScratchView_.Get())},
-                                "RT_Atrous16_2_BG");
-    reflAtrousStep3Bg_ = makeBg(denoise16Bgl_.Get(),
-                                std::array<WGPUBindGroupEntry, 6>{
-                                    dynUbo(), texEntry(1, gbufferDepthView_.Get()),
-                                    texEntry(2, gbufferNormalRoughnessView_.Get()), texEntry(3, reflScratchView_.Get()),
-                                    texEntry(4, reflScratchView_.Get()), texEntry(5, reflRawView_.Get())},
-                                "RT_Atrous16_3_BG");
-
-    // Composite & PathTrace Present bind groups
-    {
-        WGPUBindGroupEntry compUboE = WGPU_BIND_GROUP_ENTRY_INIT;
-        compUboE.binding = 0;
-        compUboE.buffer = compositeUniformBuffer_.Get();
-        compUboE.offset = 0;
-        compUboE.size = sizeof(RtCompositeUniforms);
-
-        WGPUBindGroupEntry sampE = WGPU_BIND_GROUP_ENTRY_INIT;
-        sampE.binding = 1;
-        sampE.sampler = linearSampler_.Get();
-
-        WGPUBindGroupEntry accE = WGPU_BIND_GROUP_ENTRY_INIT;
-        accE.binding = 4;
-        accE.buffer = pathAccumBuffer_.Get();
-        accE.offset = 0;
-        accE.size = pathAccumBytes_;
-
-        compositeReflBg_ = makeBg(compositeBgl_.Get(),
-                                  std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
-                                                                    texEntry(3, gbufferDepthView_.Get()), accE},
-                                  "RT_CompositeRefl_BG");
-        pathPresentBg_ = makeBg(compositeBgl_.Get(),
-                                std::array<WGPUBindGroupEntry, 5>{compUboE, sampE, texEntry(2, reflRawView_.Get()),
-                                                                  texEntry(3, gbufferDepthView_.Get()), accE},
-                                "RT_PathPresent_BG");
-    }
-#endif
-}
-
-void RayTracingPass::ReleaseResolutionTargets() noexcept {
-    shadowTraceBg_.Reset();
-    aoTraceBg_.Reset();
-    reflTraceBg_.Reset();
-    pathTraceBg_.Reset();
-    compositeReflBg_.Reset();
-    pathPresentBg_.Reset();
-    for (auto& bg : shadowTemporalBg_) {
-        bg.Reset();
-    }
-    for (auto& bg : shadowAtrousStep1Bg_) {
-        bg.Reset();
-    }
-    shadowAtrousStep2Bg_.Reset();
-    shadowAtrousStep3Bg_.Reset();
-    shadowUpsampleBg_.Reset();
-    for (auto& bg : aoTemporalBg_) {
-        bg.Reset();
-    }
-    for (auto& bg : aoAtrousStep1Bg_) {
-        bg.Reset();
-    }
-    aoAtrousStep2Bg_.Reset();
-    aoAtrousStep3Bg_.Reset();
-    aoUpsampleBg_.Reset();
-    for (auto& bg : reflTemporalBg_) {
-        bg.Reset();
-    }
-    for (auto& bg : reflAtrousStep1Bg_) {
-        bg.Reset();
-    }
-    reflAtrousStep2Bg_.Reset();
-    reflAtrousStep3Bg_.Reset();
-
-    if (fullWidth_ > 0 && fullHeight_ > 0) {
-        const size_t fullPixels = static_cast<size_t>(fullWidth_) * fullHeight_;
-        const size_t tracePixels = static_cast<size_t>(traceWidth_) * traceHeight_;
-        core::MemoryTracker::Instance().TrackTextureFree(fullPixels * (8u + 4u + 4u + 4u + 4u) +
-                                                         tracePixels * (4u * 4u + 4u * 4u + 8u * 4u));
-    }
-
-    gbufferNormalRoughnessView_.Reset();
-    gbufferNormalRoughnessTex_.Reset();
-    gbufferAlbedoMetallicView_.Reset();
-    gbufferAlbedoMetallicTex_.Reset();
-    gbufferDepthView_.Reset();
-    gbufferDepthTex_.Reset();
-
-    shadowRawView_.Reset();
-    shadowRawTex_.Reset();
-    shadowScratchView_.Reset();
-    shadowScratchTex_.Reset();
-    for (size_t i = 0; i < 2; ++i) {
-        shadowHistoryView_[i].Reset();
-        shadowHistoryTex_[i].Reset();
-        aoHistoryView_[i].Reset();
-        aoHistoryTex_[i].Reset();
-        reflHistoryView_[i].Reset();
-        reflHistoryTex_[i].Reset();
-    }
-    shadowFinalView_.Reset();
-    shadowFinalTex_.Reset();
-    aoRawView_.Reset();
-    aoRawTex_.Reset();
-    aoScratchView_.Reset();
-    aoScratchTex_.Reset();
-    aoFinalView_.Reset();
-    aoFinalTex_.Reset();
-    reflRawView_.Reset();
-    reflRawTex_.Reset();
-    reflScratchView_.Reset();
-    reflScratchTex_.Reset();
-
-    if (pathAccumBuffer_) {
-        core::MemoryTracker::Instance().TrackBufferFree(pathAccumBytes_);
-        pathAccumBuffer_.Reset();
-    }
-    pathAccumBytes_ = 0;
-    fullWidth_ = 0;
-    fullHeight_ = 0;
-    traceWidth_ = 0;
-    traceHeight_ = 0;
 }
 
 core::Result<void> RayTracingPass::Initialize(WGPUDevice device, WGPUQueue queue, WGPUPipelineLayout mainPipelineLayout,
@@ -858,7 +452,7 @@ core::Result<void> RayTracingPass::Initialize(WGPUDevice device, WGPUQueue queue
         Shutdown();
         return res;
     }
-    if (auto res = CreatePipelines(false, mainPipelineLayout, rtScene); !res) {
+    if (auto res = CreatePipelines(false, true); !res) {
         Shutdown();
         return res;
     }
@@ -889,48 +483,9 @@ core::Result<void> RayTracingPass::ReloadShaders(std::span<const std::string> mo
     if (!needReload) {
         return {};
     }
-    // Note: pass dummy empty check — CreatePipelines uses stored mainPipelineLayout_ and existing layouts
-    // For full hot-reload we recompile shaders directly using existing layouts:
-    auto compile = [&](std::string_view file, const char* lbl) {
-        return ShaderManager::Instance().LoadAndCompile(device_, file, lbl, true);
-    };
-    auto gbufMod = compile("rt_gbuffer.wgsl", "RT_GBuffer_WGSL");
-    auto shdMod = compile("rt_shadows.wgsl", "RT_Shadows_WGSL");
-    auto aoMod = compile("rt_ao.wgsl", "RT_AO_WGSL");
-    auto den8Mod = compile("rt_denoise.wgsl", "RT_Denoise8_WGSL");
-    auto den16Mod = compile("rt_denoise_hdr.wgsl", "RT_Denoise16_WGSL");
-    auto compMod = compile("rt_composite.wgsl", "RT_Composite_WGSL");
-    auto reflMod = compile(bindlessActive_ ? "rt_reflections_bindless.wgsl" : "rt_reflections.wgsl", "RT_Refl_WGSL");
-    auto ptMod = compile(bindlessActive_ ? "rt_pathtrace_bindless.wgsl" : "rt_pathtrace.wgsl", "RT_PathTrace_WGSL");
-
-    if (!gbufMod || !shdMod || !aoMod || !den8Mod || !den16Mod || !compMod || !reflMod || !ptMod) {
-        return std::unexpected("Failed to hot-reload one or more RayTracing WGSL shaders");
+    if (auto res = CreatePipelines(true, false); !res) {
+        return res;
     }
-
-    auto shdPipe = MakeComputePipe(device_, trace8Pl_.Get(), shdMod->Get(), "cs_rt_shadows", "RT_ShadowsPipeline");
-    auto aoPipe = MakeComputePipe(device_, trace8Pl_.Get(), aoMod->Get(), "cs_rt_ao", "RT_AOPipeline");
-    auto reflPipe = MakeComputePipe(device_, reflPl_.Get(), reflMod->Get(), "cs_rt_reflections", "RT_ReflPipeline");
-    auto tmp8Pipe =
-        MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_temporal_8", "RT_Temporal8Pipeline");
-    auto atr8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_atrous_8", "RT_Atrous8Pipeline");
-    auto up8Pipe = MakeComputePipe(device_, denoise8Pl_.Get(), den8Mod->Get(), "cs_upsample_8", "RT_Upsample8Pipeline");
-    auto tmp16Pipe =
-        MakeComputePipe(device_, denoise16Pl_.Get(), den16Mod->Get(), "cs_temporal_16", "RT_Temporal16Pipeline");
-    auto atr16Pipe =
-        MakeComputePipe(device_, denoise16Pl_.Get(), den16Mod->Get(), "cs_atrous_16", "RT_Atrous16Pipeline");
-    auto ptPipe = MakeComputePipe(device_, pathTracePl_.Get(), ptMod->Get(), "cs_pathtrace", "RT_PathTracePipeline");
-    if (!shdPipe || !aoPipe || !reflPipe || !tmp8Pipe || !atr8Pipe || !up8Pipe || !tmp16Pipe || !atr16Pipe || !ptPipe) {
-        return std::unexpected("Failed to rebuild RayTracing compute pipelines during hot-reload");
-    }
-    shadowPipeline_ = std::move(*shdPipe);
-    aoPipeline_ = std::move(*aoPipe);
-    reflPipeline_ = std::move(*reflPipe);
-    temporal8Pipeline_ = std::move(*tmp8Pipe);
-    atrous8Pipeline_ = std::move(*atr8Pipe);
-    upsample8Pipeline_ = std::move(*up8Pipe);
-    temporal16Pipeline_ = std::move(*tmp16Pipe);
-    atrous16Pipeline_ = std::move(*atr16Pipe);
-    pathTracePipeline_ = std::move(*ptPipe);
     pathSampleIndex_ = 0;
     return {};
 #else
@@ -965,6 +520,9 @@ void RayTracingPass::Shutdown() noexcept {
     timestampQuerySet_.Reset();
     timestampReadInFlight_ = false;
     timestampDataWritten_ = false;
+    timestampCopyQueued_ = false;
+    timestampHasPrePass_ = false;
+    timestampHasPostPass_ = false;
     lastGpuMs_ = 0.0f;
 
     linearSampler_.Reset();
@@ -998,6 +556,7 @@ void RayTracingPass::Shutdown() noexcept {
     device_ = nullptr;
     queue_ = nullptr;
     mainPipelineLayout_ = nullptr;
+    sceneBgl_ = nullptr;
     dummySkinBindGroup_ = nullptr;
     envCubemapView_ = nullptr;
     defaultSampler_ = nullptr;

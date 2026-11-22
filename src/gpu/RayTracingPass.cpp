@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <webgpu/wgpu.h>
@@ -131,6 +132,96 @@ void RayTracingPass::WriteUniformSlot(uint32_t slotIdx, const RtPassUniforms& u)
     if (slotIdx < kMaxUniformSlots) {
         std::memcpy(uniformStaging_.data() + static_cast<size_t>(slotIdx) * kUniformSlotStride, &u, sizeof(u));
     }
+}
+
+void RayTracingPass::DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0,
+                                         WGPUBindGroup bg1, WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX,
+                                         uint32_t wgY, const char* label, uint32_t startTsIdx,
+                                         uint32_t endTsIdx) noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!encoder || !pipe || !bg0) {
+        return;
+    }
+    WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    cpDesc.label = ToWgpuStringView(label);
+    WGPUPassTimestampWrites tsWrites = WGPU_PASS_TIMESTAMP_WRITES_INIT;
+    const bool writeStart = (startTsIdx != 0xFFFFFFFFu);
+    const bool writeEnd = (endTsIdx != 0xFFFFFFFFu);
+    if (supportsTimestampQueries_ && timestampQuerySet_ && (writeStart || writeEnd)) {
+        tsWrites.querySet = timestampQuerySet_.Get();
+        tsWrites.beginningOfPassWriteIndex = writeStart ? startTsIdx : WGPU_QUERY_SET_INDEX_UNDEFINED;
+        tsWrites.endOfPassWriteIndex = writeEnd ? endTsIdx : WGPU_QUERY_SET_INDEX_UNDEFINED;
+        cpDesc.timestampWrites = &tsWrites;
+        timestampDataWritten_ = true;
+    }
+    if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(encoder, &cpDesc)}) {
+        const uint32_t dynOff = slotIdx * kUniformSlotStride;
+        wgpuComputePassEncoderSetPipeline(cpass.Get(), pipe);
+        wgpuComputePassEncoderSetBindGroup(cpass.Get(), 0, bg0, 1, &dynOff);
+        if (bg1) {
+            wgpuComputePassEncoderSetBindGroup(cpass.Get(), 1, bg1, 0, nullptr);
+            if (bg2) {
+                wgpuComputePassEncoderSetBindGroup(cpass.Get(), 2, bg2, 0, nullptr);
+            }
+        }
+        wgpuComputePassEncoderDispatchWorkgroups(cpass.Get(), wgX, wgY, 1u);
+        wgpuComputePassEncoderEnd(cpass.Get());
+    }
+#else
+    (void)encoder;
+    (void)pipe;
+    (void)bg0;
+    (void)bg1;
+    (void)bg2;
+    (void)slotIdx;
+    (void)wgX;
+    (void)wgY;
+    (void)label;
+    (void)startTsIdx;
+    (void)endTsIdx;
+#endif
+}
+
+void RayTracingPass::ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComputePipeline tracePipe,
+                                          WGPUBindGroup traceBg, WGPUBindGroup rtSceneBg,
+                                          const DenoiseBindGroupSet& denoiseSet, uint32_t baseSlot, uint32_t traceWgX,
+                                          uint32_t traceWgY, uint32_t fullWgX, uint32_t fullWgY,
+                                          const char* labelPrefix, bool writeStartTs, bool writeEndTs) noexcept {
+    const std::string pfx = std::string{"Pass_RT_"} + labelPrefix;
+    const std::string lTrace = pfx + "_Trace";
+    const std::string lTmp = pfx + "_Temporal";
+    const std::string lA1 = pfx + "_Atrous1";
+    const std::string lA2 = pfx + "_Atrous2";
+    const std::string lA3 = pfx + "_Atrous3";
+    const std::string lUp = pfx + "_Upsample";
+
+    DispatchComputePass(encoder, tracePipe, traceBg, rtSceneBg, nullptr, baseSlot + 0u, traceWgX, traceWgY,
+                        lTrace.c_str(), writeStartTs ? 0u : 0xFFFFFFFFu);
+    DispatchComputePass(encoder, temporal8Pipeline_.Get(), denoiseSet.temporal[currHistIdx_].Get(), nullptr, nullptr,
+                        baseSlot + 0u, traceWgX, traceWgY, lTmp.c_str());
+    DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep1[currHistIdx_].Get(), nullptr, nullptr,
+                        baseSlot + 1u, traceWgX, traceWgY, lA1.c_str());
+    DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep2.Get(), nullptr, nullptr, baseSlot + 2u,
+                        traceWgX, traceWgY, lA2.c_str());
+    DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep3.Get(), nullptr, nullptr, baseSlot + 3u,
+                        traceWgX, traceWgY, lA3.c_str());
+    DispatchComputePass(encoder, upsample8Pipeline_.Get(), denoiseSet.upsample.Get(), nullptr, nullptr, baseSlot + 3u,
+                        fullWgX, fullWgY, lUp.c_str(), 0xFFFFFFFFu, writeEndTs ? 1u : 0xFFFFFFFFu);
+}
+
+void RayTracingPass::ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
+        timestampDataWritten_ && !timestampReadInFlight_) {
+        wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(), 0u);
+        wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(), 0u,
+                                             4u * sizeof(uint64_t));
+        timestampDataWritten_ = false;
+        timestampCopyQueued_ = true;
+    }
+#else
+    (void)encoder;
+#endif
 }
 
 void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracingScene& rtScene, scene::Scene& scene,
@@ -293,12 +384,7 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     writeStrides(0u);
     writeStrides(4u);
 
-    if (!config_.reflections) {
-        // Also upload slots 0..7 right away when ExecutePostOpaque won't upload
-        wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 0, uniformStaging_.data(), 8u * kUniformSlotStride);
-    } else {
-        wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 0, uniformStaging_.data(), 8u * kUniformSlotStride);
-    }
+    wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 0, uniformStaging_.data(), 8u * kUniformSlotStride);
 
     const uint32_t traceWgX = (traceWidth_ + 7u) / 8u;
     const uint32_t traceWgY = (traceHeight_ + 7u) / 8u;
@@ -306,80 +392,19 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     const uint32_t fullWgY = (fullHeight_ + 7u) / 8u;
     const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
 
-    auto runCompute = [&](WGPUComputePipeline pipe, WGPUBindGroup bg0, WGPUBindGroup bg1, uint32_t slotIdx,
-                          uint32_t wgX, uint32_t wgY, const char* lbl, bool writeStartTs = false,
-                          bool writeEndTs = false) {
-        if (!pipe || !bg0) {
-            return;
-        }
-        WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-        cpDesc.label = ToWgpuStringView(lbl);
-        WGPUPassTimestampWrites tsWrites = WGPU_PASS_TIMESTAMP_WRITES_INIT;
-        if (supportsTimestampQueries_ && timestampQuerySet_ && (writeStartTs || writeEndTs)) {
-            tsWrites.querySet = timestampQuerySet_.Get();
-            tsWrites.beginningOfPassWriteIndex = writeStartTs ? 0u : WGPU_QUERY_SET_INDEX_UNDEFINED;
-            tsWrites.endOfPassWriteIndex = writeEndTs ? 1u : WGPU_QUERY_SET_INDEX_UNDEFINED;
-            cpDesc.timestampWrites = &tsWrites;
-            timestampDataWritten_ = true;
-        }
-        if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(encoder, &cpDesc)}) {
-            const uint32_t dynOff = slotIdx * kUniformSlotStride;
-            wgpuComputePassEncoderSetPipeline(cpass.Get(), pipe);
-            wgpuComputePassEncoderSetBindGroup(cpass.Get(), 0, bg0, 1, &dynOff);
-            if (bg1) {
-                wgpuComputePassEncoderSetBindGroup(cpass.Get(), 1, bg1, 0, nullptr);
-            }
-            wgpuComputePassEncoderDispatchWorkgroups(cpass.Get(), wgX, wgY, 1u);
-            wgpuComputePassEncoderEnd(cpass.Get());
-        }
-    };
-
     if (config_.shadows) {
-        runCompute(shadowPipeline_.Get(), shadowTraceBg_.Get(), rtSceneBg, 0u, traceWgX, traceWgY, "Pass_RT_Shadows",
-                   true, false);
-        runCompute(temporal8Pipeline_.Get(), shadowTemporalBg_[currHistIdx_].Get(), nullptr, 0u, traceWgX, traceWgY,
-                   "Pass_RT_ShadowTemporal");
-        runCompute(atrous8Pipeline_.Get(), shadowAtrousStep1Bg_[currHistIdx_].Get(), nullptr, 1u, traceWgX, traceWgY,
-                   "Pass_RT_ShadowAtrous1");
-        runCompute(atrous8Pipeline_.Get(), shadowAtrousStep2Bg_.Get(), nullptr, 2u, traceWgX, traceWgY,
-                   "Pass_RT_ShadowAtrous2");
-        runCompute(atrous8Pipeline_.Get(), shadowAtrousStep3Bg_.Get(), nullptr, 3u, traceWgX, traceWgY,
-                   "Pass_RT_ShadowAtrous3");
-        runCompute(upsample8Pipeline_.Get(), shadowUpsampleBg_.Get(), nullptr, 3u, fullWgX, fullWgY,
-                   "Pass_RT_ShadowUpsample", false, !config_.ambientOcclusion);
+        ExecuteDenoise8Chain(encoder, shadowPipeline_.Get(), shadowTraceBg_.Get(), rtSceneBg, shadowBgs_, 0u,
+                             traceWgX, traceWgY, fullWgX, fullWgY, "Shadow", true, !config_.ambientOcclusion);
     }
-
     if (config_.ambientOcclusion) {
-        runCompute(aoPipeline_.Get(), aoTraceBg_.Get(), rtSceneBg, 4u, traceWgX, traceWgY, "Pass_RT_AO",
-                   !config_.shadows, false);
-        runCompute(temporal8Pipeline_.Get(), aoTemporalBg_[currHistIdx_].Get(), nullptr, 4u, traceWgX, traceWgY,
-                   "Pass_RT_AoTemporal");
-        runCompute(atrous8Pipeline_.Get(), aoAtrousStep1Bg_[currHistIdx_].Get(), nullptr, 5u, traceWgX, traceWgY,
-                   "Pass_RT_AoAtrous1");
-        runCompute(atrous8Pipeline_.Get(), aoAtrousStep2Bg_.Get(), nullptr, 6u, traceWgX, traceWgY,
-                   "Pass_RT_AoAtrous2");
-        runCompute(atrous8Pipeline_.Get(), aoAtrousStep3Bg_.Get(), nullptr, 7u, traceWgX, traceWgY,
-                   "Pass_RT_AoAtrous3");
-        runCompute(upsample8Pipeline_.Get(), aoUpsampleBg_.Get(), nullptr, 7u, fullWgX, fullWgY, "Pass_RT_AoUpsample",
-                   false, true);
+        ExecuteDenoise8Chain(encoder, aoPipeline_.Get(), aoTraceBg_.Get(), rtSceneBg, aoBgs_, 4u, traceWgX, traceWgY,
+                             fullWgX, fullWgY, "Ao", !config_.shadows, true);
     }
 
-    if (config_.shadows || config_.ambientOcclusion) {
-        timestampHasPrePass_ = true;
-    } else {
-        timestampHasPrePass_ = false;
-    }
+    timestampHasPrePass_ = (config_.shadows || config_.ambientOcclusion);
     if (!config_.reflections) {
         timestampHasPostPass_ = false;
-        if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
-            timestampDataWritten_ && !timestampReadInFlight_) {
-            wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(),
-                                              0u);
-            wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(),
-                                                 0u, 4u * sizeof(uint64_t));
-            timestampDataWritten_ = false;
-            timestampCopyQueued_ = true;
-        }
+        ResolveTimestampQueries(encoder);
         prevViewProj_ = viewProj;
     }
 #else
@@ -433,41 +458,16 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
         const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
         const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
 
-        auto runComp = [&](WGPUComputePipeline pipe, WGPUBindGroup bg0, uint32_t slotIdx, bool withScene,
-                           const char* lbl, bool writeStartTs = false, bool writeEndTs = false) {
-            if (!pipe || !bg0) {
-                return;
-            }
-            WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-            cpDesc.label = ToWgpuStringView(lbl);
-            WGPUPassTimestampWrites tsWrites = WGPU_PASS_TIMESTAMP_WRITES_INIT;
-            if (supportsTimestampQueries_ && timestampQuerySet_ && (writeStartTs || writeEndTs)) {
-                tsWrites.querySet = timestampQuerySet_.Get();
-                tsWrites.beginningOfPassWriteIndex = writeStartTs ? 2u : WGPU_QUERY_SET_INDEX_UNDEFINED;
-                tsWrites.endOfPassWriteIndex = writeEndTs ? 3u : WGPU_QUERY_SET_INDEX_UNDEFINED;
-                cpDesc.timestampWrites = &tsWrites;
-                timestampDataWritten_ = true;
-            }
-            if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(encoder, &cpDesc)}) {
-                const uint32_t dynOff = slotIdx * kUniformSlotStride;
-                wgpuComputePassEncoderSetPipeline(cpass.Get(), pipe);
-                wgpuComputePassEncoderSetBindGroup(cpass.Get(), 0, bg0, 1, &dynOff);
-                if (withScene && rtSceneBg) {
-                    wgpuComputePassEncoderSetBindGroup(cpass.Get(), 1, rtSceneBg, 0, nullptr);
-                    if (bindlessBg) {
-                        wgpuComputePassEncoderSetBindGroup(cpass.Get(), 2, bindlessBg, 0, nullptr);
-                    }
-                }
-                wgpuComputePassEncoderDispatchWorkgroups(cpass.Get(), traceWgX, traceWgY, 1u);
-                wgpuComputePassEncoderEnd(cpass.Get());
-            }
-        };
-
-        runComp(reflPipeline_.Get(), reflTraceBg_.Get(), 8u, true, "Pass_RT_Reflections", true, false);
-        runComp(temporal16Pipeline_.Get(), reflTemporalBg_[currHistIdx_].Get(), 8u, false, "Pass_RT_ReflTemporal");
-        runComp(atrous16Pipeline_.Get(), reflAtrousStep1Bg_[currHistIdx_].Get(), 9u, false, "Pass_RT_ReflAtrous1");
-        runComp(atrous16Pipeline_.Get(), reflAtrousStep2Bg_.Get(), 10u, false, "Pass_RT_ReflAtrous2");
-        runComp(atrous16Pipeline_.Get(), reflAtrousStep3Bg_.Get(), 11u, false, "Pass_RT_ReflAtrous3", false, true);
+        DispatchComputePass(encoder, reflPipeline_.Get(), reflTraceBg_.Get(), rtSceneBg, bindlessBg, 8u, traceWgX,
+                            traceWgY, "Pass_RT_Reflections", 2u);
+        DispatchComputePass(encoder, temporal16Pipeline_.Get(), reflBgs_.temporal[currHistIdx_].Get(), nullptr, nullptr,
+                            8u, traceWgX, traceWgY, "Pass_RT_ReflTemporal");
+        DispatchComputePass(encoder, atrous16Pipeline_.Get(), reflBgs_.atrousStep1[currHistIdx_].Get(), nullptr,
+                            nullptr, 9u, traceWgX, traceWgY, "Pass_RT_ReflAtrous1");
+        DispatchComputePass(encoder, atrous16Pipeline_.Get(), reflBgs_.atrousStep2.Get(), nullptr, nullptr, 10u,
+                            traceWgX, traceWgY, "Pass_RT_ReflAtrous2");
+        DispatchComputePass(encoder, atrous16Pipeline_.Get(), reflBgs_.atrousStep3.Get(), nullptr, nullptr, 11u,
+                            traceWgX, traceWgY, "Pass_RT_ReflAtrous3", 0xFFFFFFFFu, 3u);
         timestampHasPostPass_ = true;
 
         // Composite denoised HDR reflections onto hdrResolveView
@@ -498,14 +498,7 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
         }
     }
 
-    if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
-        timestampDataWritten_ && !timestampReadInFlight_) {
-        wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(), 0u);
-        wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(), 0u,
-                                             4u * sizeof(uint64_t));
-        timestampDataWritten_ = false;
-        timestampCopyQueued_ = true;
-    }
+    ResolveTimestampQueries(encoder);
 
     prevViewProj_ = viewProj;
 #else
@@ -559,29 +552,10 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
     const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
     const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
 
-    WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
-    cpDesc.label = ToWgpuStringView("Pass_RT_PathTrace");
-    WGPUPassTimestampWrites tsWrites = WGPU_PASS_TIMESTAMP_WRITES_INIT;
-    if (supportsTimestampQueries_ && timestampQuerySet_) {
-        tsWrites.querySet = timestampQuerySet_.Get();
-        tsWrites.beginningOfPassWriteIndex = 2u;
-        tsWrites.endOfPassWriteIndex = 3u;
-        cpDesc.timestampWrites = &tsWrites;
-        timestampDataWritten_ = true;
-        timestampHasPrePass_ = false;
-        timestampHasPostPass_ = true;
-    }
-    if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(encoder, &cpDesc)}) {
-        const uint32_t dynOff = 12u * kUniformSlotStride;
-        wgpuComputePassEncoderSetPipeline(cpass.Get(), pathTracePipeline_.Get());
-        wgpuComputePassEncoderSetBindGroup(cpass.Get(), 0, pathTraceBg_.Get(), 1, &dynOff);
-        wgpuComputePassEncoderSetBindGroup(cpass.Get(), 1, rtSceneBg, 0, nullptr);
-        if (bindlessBg) {
-            wgpuComputePassEncoderSetBindGroup(cpass.Get(), 2, bindlessBg, 0, nullptr);
-        }
-        wgpuComputePassEncoderDispatchWorkgroups(cpass.Get(), fullWgX, fullWgY, 1u);
-        wgpuComputePassEncoderEnd(cpass.Get());
-    }
+    timestampHasPrePass_ = false;
+    timestampHasPostPass_ = true;
+    DispatchComputePass(encoder, pathTracePipeline_.Get(), pathTraceBg_.Get(), rtSceneBg, bindlessBg, 12u, fullWgX,
+                        fullWgY, "Pass_RT_PathTrace", 2u, 3u);
 
     if (pathSampleIndex_ < 4096u) {
         ++pathSampleIndex_;
@@ -614,14 +588,7 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
         }
     }
 
-    if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
-        timestampDataWritten_ && !timestampReadInFlight_) {
-        wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(), 0u);
-        wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(), 0u,
-                                             4u * sizeof(uint64_t));
-        timestampDataWritten_ = false;
-        timestampCopyQueued_ = true;
-    }
+    ResolveTimestampQueries(encoder);
 
     prevViewProj_ = viewProj;
 #else

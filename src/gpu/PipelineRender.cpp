@@ -34,6 +34,15 @@ void PackSpotLightCone(const scene::PunctualLight& srcLight, const glm::vec3& ta
         glm::vec4{angleScale, angleOffset, (srcLight.type == scene::LightType::Directional) ? 1.0f : 0.0f, 0.0f};
 }
 
+/// Rotates the normalized sun vector by `-envRotation` to align shadows and RT with rotated IBL maps.
+[[nodiscard]] glm::vec3 ComputeRotatedSunDir(const glm::vec3& lightDir, float envRotation) noexcept {
+    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
+                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
+    const float c{std::cos(-envRotation)};
+    const float s{std::sin(-envRotation)};
+    return glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+}
+
 } // namespace
 
 glm::mat4 PipelineManager::ComputeDirectionalLightMatrix(const core::AABB& sceneBounds,
@@ -245,13 +254,7 @@ void PipelineManager::RenderShadowPass(WGPUCommandEncoder encoder, scene::Scene&
     ++skinFrameId_;
     skinFrameAdvanced_ = true;
 
-    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-    // Rotate primary sun direction by -envRotation_ so shadows match rotated HDR environment
-    const float c{std::cos(-envRotation_)};
-    const float s{std::sin(-envRotation_)};
-    currentLightDir_ =
-        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    currentLightDir_ = ComputeRotatedSunDir(lightDir, envRotation_);
     currentLightViewProj_ = ShadowPass::ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
 
     if (!shadowPass_.IsInitialized()) {
@@ -318,12 +321,7 @@ void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene:
         return;
     }
 
-    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-    const float c{std::cos(-envRotation_)};
-    const float s{std::sin(-envRotation_)};
-    currentLightDir_ =
-        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    currentLightDir_ = ComputeRotatedSunDir(lightDir, envRotation_);
     currentLightViewProj_ = ShadowPass::ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
 
     rtScene_.UpdateTlas(scene);
@@ -365,12 +363,7 @@ void PipelineManager::RenderRayTracingPostOpaque(WGPUCommandEncoder encoder, WGP
     if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady()) {
         return;
     }
-    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-    const float c{std::cos(-envRotation_)};
-    const float s{std::sin(-envRotation_)};
-    const glm::vec3 rotSun =
-        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    const glm::vec3 rotSun = ComputeRotatedSunDir(lightDir, envRotation_);
     rtPass_.ExecutePostOpaque(encoder, rtScene_, hdrResolveView, viewProj, cameraPos, rotSun, solarElevation_,
                               envRotation_, viewportW, viewportH);
 }
@@ -382,12 +375,7 @@ void PipelineManager::RenderPathTracePass(WGPUCommandEncoder encoder, scene::Sce
     if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady()) {
         return;
     }
-    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
-                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
-    const float c{std::cos(-envRotation_)};
-    const float s{std::sin(-envRotation_)};
-    const glm::vec3 rotSun =
-        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    const glm::vec3 rotSun = ComputeRotatedSunDir(lightDir, envRotation_);
     rtScene_.UpdateTlas(scene);
     rtPass_.ExecutePathTrace(encoder, rtScene_, scene, hdrResolveView, viewProj, cameraPos, rotSun, solarElevation_,
                              envRotation_, viewportW, viewportH);

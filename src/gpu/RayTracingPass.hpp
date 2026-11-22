@@ -161,9 +161,28 @@ public:
     [[nodiscard]] RtPassStats GetStats(const RayTracingScene& rtScene) const noexcept;
 
 private:
+    struct DenoiseBindGroupSet {
+        std::array<BindGroupHandle, 2> temporal{};
+        std::array<BindGroupHandle, 2> atrousStep1{};
+        BindGroupHandle atrousStep2{};
+        BindGroupHandle atrousStep3{};
+        BindGroupHandle upsample{};
+
+        void Reset() noexcept {
+            for (auto& bg : temporal) {
+                bg.Reset();
+            }
+            for (auto& bg : atrousStep1) {
+                bg.Reset();
+            }
+            atrousStep2.Reset();
+            atrousStep3.Reset();
+            upsample.Reset();
+        }
+    };
+
     core::Result<void> CreateLayoutsAndBuffers(WGPUPipelineLayout mainPipelineLayout, const RayTracingScene& rtScene);
-    core::Result<void> CreatePipelines(bool validateScope, WGPUPipelineLayout mainPipelineLayout,
-                                       const RayTracingScene& rtScene);
+    core::Result<void> CreatePipelines(bool validateScope, bool allowBindlessFallback);
     void EnsureResolutionTargets(uint32_t fullW, uint32_t fullH);
     void RebuildPassBindGroups();
     void ReleaseResolutionTargets() noexcept;
@@ -172,6 +191,15 @@ private:
                                  const glm::vec3& cameraPos, const glm::vec3& sunDir, float solarElev,
                                  float envRotation, uint32_t fullW, uint32_t fullH) const noexcept;
     void WriteUniformSlot(uint32_t slotIdx, const RtPassUniforms& u) noexcept;
+    void DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0,
+                             WGPUBindGroup bg1, WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX, uint32_t wgY,
+                             const char* label, uint32_t startTsIdx = 0xFFFFFFFFu,
+                             uint32_t endTsIdx = 0xFFFFFFFFu) noexcept;
+    void ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComputePipeline tracePipe, WGPUBindGroup traceBg,
+                              WGPUBindGroup rtSceneBg, const DenoiseBindGroupSet& denoiseSet, uint32_t baseSlot,
+                              uint32_t traceWgX, uint32_t traceWgY, uint32_t fullWgX, uint32_t fullWgY,
+                              const char* labelPrefix, bool writeStartTs, bool writeEndTs) noexcept;
+    void ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcept;
 
     bool initialized_{false};
     bool bindlessActive_{false};
@@ -181,6 +209,7 @@ private:
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
     WGPUPipelineLayout mainPipelineLayout_{nullptr};
+    WGPUBindGroupLayout sceneBgl_{nullptr};
     WGPUBindGroup dummySkinBindGroup_{nullptr};
     WGPUTextureView envCubemapView_{nullptr};
     WGPUSampler defaultSampler_{nullptr};
@@ -291,22 +320,9 @@ private:
     BindGroupHandle compositeReflBg_{};
     BindGroupHandle pathPresentBg_{};
 
-    std::array<BindGroupHandle, 2> shadowTemporalBg_{};
-    std::array<BindGroupHandle, 2> shadowAtrousStep1Bg_{};
-    BindGroupHandle shadowAtrousStep2Bg_{};
-    BindGroupHandle shadowAtrousStep3Bg_{};
-    BindGroupHandle shadowUpsampleBg_{};
-
-    std::array<BindGroupHandle, 2> aoTemporalBg_{};
-    std::array<BindGroupHandle, 2> aoAtrousStep1Bg_{};
-    BindGroupHandle aoAtrousStep2Bg_{};
-    BindGroupHandle aoAtrousStep3Bg_{};
-    BindGroupHandle aoUpsampleBg_{};
-
-    std::array<BindGroupHandle, 2> reflTemporalBg_{};
-    std::array<BindGroupHandle, 2> reflAtrousStep1Bg_{};
-    BindGroupHandle reflAtrousStep2Bg_{};
-    BindGroupHandle reflAtrousStep3Bg_{};
+    DenoiseBindGroupSet shadowBgs_{};
+    DenoiseBindGroupSet aoBgs_{};
+    DenoiseBindGroupSet reflBgs_{};
 
     // Non-blocking GPU timestamp query telemetry
     QuerySetHandle timestampQuerySet_{};
