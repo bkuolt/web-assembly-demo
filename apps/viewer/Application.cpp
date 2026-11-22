@@ -91,8 +91,10 @@ core::Result<void> Application::Initialize(const ApplicationConfig& config) {
     if (assetPathToLoad.empty()) {
         static constexpr std::array<std::string_view, 4> kSearchPaths{"assets/Sponza.glb", "../assets/Sponza.glb",
                                                                       "assets/ToyCar.glb", "../assets/ToyCar.glb"};
-        const auto it =
-            std::ranges::find_if(kSearchPaths, [](std::string_view path) { return std::filesystem::exists(path); });
+        const auto it = std::ranges::find_if(kSearchPaths, [](std::string_view path) {
+            std::error_code ec{};
+            return std::filesystem::exists(path, ec);
+        });
         if (it != kSearchPaths.end()) {
             assetPathToLoad = std::string{*it};
         }

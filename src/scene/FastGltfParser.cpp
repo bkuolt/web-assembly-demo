@@ -20,6 +20,28 @@ namespace bgl::scene::detail {
 
 namespace {
 
+constexpr size_t kMaxPrimitiveVertices{25'000'000u};
+constexpr size_t kMaxPrimitiveIndices{75'000'000u};
+
+[[nodiscard]] bool ValidateAccessorBounds(const fastgltf::Asset& asset, const fastgltf::Accessor& acc,
+                                          size_t minElemBytes, size_t maxAllowedCount) noexcept {
+    if (acc.count == 0 || acc.count > maxAllowedCount) {
+        return false;
+    }
+    if (acc.sparse.has_value()) {
+        return true;
+    }
+    if (!acc.bufferViewIndex.has_value() || *acc.bufferViewIndex >= asset.bufferViews.size()) {
+        return false;
+    }
+    const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
+    if (acc.byteOffset > bv.byteLength) {
+        return false;
+    }
+    const size_t availBytes{bv.byteLength - acc.byteOffset};
+    return minElemBytes == 0 || acc.count <= (availBytes / minElemBytes);
+}
+
 [[nodiscard]] std::span<const uint8_t> ExtractSafeSlice(const void* basePtr, size_t totalSize, size_t offset,
                                                         size_t length) noexcept {
     if (!basePtr || offset > totalSize || length > (totalSize - offset)) {
@@ -105,6 +127,12 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
 
     if (auto posIt = prim.findAttribute("POSITION"); posIt != prim.attributes.end()) {
         const auto& posAccessor = asset.accessors[posIt->second];
+        if (!ValidateAccessorBounds(asset, posAccessor, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
+            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized POSITION accessor (count={})",
+                         posAccessor.count);
+            outNeedsTangents = false;
+            return meshPrim;
+        }
         meshPrim.vertices.resize(posAccessor.count);
         fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor, [&](glm::vec3 pos, size_t idx) {
             meshPrim.vertices[idx].position = pos;
@@ -191,6 +219,12 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
 
     if (prim.indicesAccessor.has_value()) {
         const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
+        if (!ValidateAccessorBounds(asset, idxAccessor, sizeof(uint8_t), kMaxPrimitiveIndices)) {
+            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized indices accessor (count={})",
+                         idxAccessor.count);
+            outNeedsTangents = false;
+            return meshPrim;
+        }
         meshPrim.indices.resize(idxAccessor.count);
         const size_t vertexCount{meshPrim.vertices.size()};
         bool hasInvalidIndices{false};

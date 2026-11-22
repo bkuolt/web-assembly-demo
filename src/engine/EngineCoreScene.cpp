@@ -186,7 +186,8 @@ int EngineCore::PickNodeAt(float screenX, float screenY, float screenWidth, floa
     if (auto hit = scene::RayPicker::Pick(pickRay, activeScene_->rootNodes)) {
         if (hit->hitNode) {
             SelectNode(hit->hitNode, hit->hitNode->nodeIndex);
-            if (std::filesystem::exists("assets/audio/click.wav")) {
+            std::error_code audioEc{};
+            if (std::filesystem::exists("assets/audio/click.wav", audioEc)) {
                 if (auto audioRes = soundEngine_.PlaySound3D("pick", "assets/audio/click.wav", hit->hitPoint);
                     !audioRes) {
                     BGL_LOG_DEBUG("Audio pick cue skipped: {}", audioRes.error());

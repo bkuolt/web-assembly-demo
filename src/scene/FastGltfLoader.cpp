@@ -187,7 +187,8 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
         if (!localParent.empty()) {
             baseDir = localParent;
         }
-        if (std::filesystem::exists(baseDir)) {
+        std::error_code ec{};
+        if (std::filesystem::exists(baseDir, ec)) {
             parseOptions |= fastgltf::Options::LoadExternalBuffers;
         }
     }
@@ -251,11 +252,14 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromFile(std::string_vi
 core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromFile(std::string_view path,
                                                                   LoadProgressCallback progressCb) {
     if (!progressCb) {
-        if (!core::NetworkFetcher::IsUrl(path) && std::filesystem::exists(path)) {
+        const std::string cleanPath{core::NetworkFetcher::SanitizeUri(path)};
+        std::error_code ec{};
+        if (!cleanPath.empty() && !core::NetworkFetcher::IsUrl(cleanPath) &&
+            std::filesystem::is_regular_file(cleanPath, ec)) {
             fastgltf::GltfDataBuffer dataBuffer{};
-            if (dataBuffer.loadFromFile(std::filesystem::path(path))) {
+            if (dataBuffer.loadFromFile(std::filesystem::path(cleanPath))) {
                 auto sp = static_cast<fastgltf::span<std::byte>>(dataBuffer);
-                return ParseAndAssembleScene(dataBuffer, path, sp.size());
+                return ParseAndAssembleScene(dataBuffer, cleanPath, sp.size());
             }
         }
         auto fetchRes = core::NetworkFetcher::FetchSync(path);

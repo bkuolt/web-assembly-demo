@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Hardening & Defensive Bounds Follow-up (`src/scene/`, `src/engine/`, `apps/viewer/`):**
+  - Added `ValidateAccessorBounds` in [`FastGltfParser.cpp`](src/scene/FastGltfParser.cpp) to reject oversized/undersized glTF accessors prior to vertex/index buffer allocation, added `ktxTexture_GetDataSize()` slice bounds + `kMaxKtxMipLevels` (`16`) shift-UB cap and deduplicated `MakeFallbackWhiteQuad()` in [`TextureDecoder.cpp`](src/scene/TextureDecoder.cpp), switched remaining `std::filesystem::exists` probes to non-throwing `std::error_code` overloads, and refined path-separator matching in [`ApplicationModelLoader.cpp`](apps/viewer/ApplicationModelLoader.cpp) (`325` C++ GoogleTests across `51` suites).
+
 ---
 
 ## [1.1.0] - 2026-11-22

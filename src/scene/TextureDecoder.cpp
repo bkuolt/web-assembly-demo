@@ -63,6 +63,18 @@ static void JpegErrorExit(j_common_ptr cinfo) {
 namespace bgl::scene {
 
 static constexpr size_t kMaxTextureDimension{16384};
+static constexpr uint32_t kMaxKtxMipLevels{16u};
+
+#if !defined(BGL_PLATFORM_NATIVE)
+[[nodiscard]] DecodedImage MakeFallbackWhiteQuad() {
+    DecodedImage img{};
+    img.width = 2;
+    img.height = 2;
+    img.channels = 4;
+    img.rgbaData.assign(16u, 255u);
+    return img;
+}
+#endif
 
 #if defined(BGL_PLATFORM_NATIVE) && defined(BGL_ENABLE_PNG)
 static bool ReadPngStreamIsolateSetjmp(png_structp png_ptr, png_infop info_ptr, std::span<const uint8_t> data,
@@ -223,11 +235,7 @@ core::Result<DecodedImage> TextureDecoder::DecodePNG(std::span<const uint8_t> da
     return std::unexpected("PNG texture decoder disabled at build time (-DBGL_ENABLE_PNG=OFF)");
 #else
     (void)data;
-    DecodedImage img;
-    img.width = 2;
-    img.height = 2;
-    img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-    return img;
+    return MakeFallbackWhiteQuad();
 #endif
 }
 
@@ -250,10 +258,6 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     if (!decoded) {
         return std::unexpected("Failed to decode WebP stream");
     }
-    if (width <= 0 || height <= 0 || static_cast<size_t>(width) > kMaxTextureDimension ||
-        static_cast<size_t>(height) > kMaxTextureDimension) {
-        return std::unexpected("WebP image dimensions exceed maximum allowed limits");
-    }
     const size_t totalBytes{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
     DecodedImage img{};
     img.width = static_cast<uint32_t>(width);
@@ -266,11 +270,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeWebP(std::span<const uint8_t> d
     return std::unexpected("WebP texture decoder disabled at build time (-DBGL_ENABLE_WEBP=OFF)");
 #else
     (void)data;
-    DecodedImage img;
-    img.width = 2;
-    img.height = 2;
-    img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-    return img;
+    return MakeFallbackWhiteQuad();
 #endif
 }
 
@@ -291,11 +291,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeJPEG(std::span<const uint8_t> d
     return std::unexpected("JPEG texture decoder disabled at build time (-DBGL_ENABLE_JPEG=OFF)");
 #else
     (void)data;
-    DecodedImage img;
-    img.width = 2;
-    img.height = 2;
-    img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-    return img;
+    return MakeFallbackWhiteQuad();
 #endif
 }
 
@@ -415,12 +411,16 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     }
 
     const ktx_size_t imageSize{ktxTexture_GetImageSize(kTexture.get(), 0)};
+    const ktx_size_t totalDataBytes{ktxTexture_GetDataSize(kTexture.get())};
     ktx_size_t level0Offset{0};
-    ktxTexture_GetImageOffset(kTexture.get(), 0, 0, 0, &level0Offset);
+    if (ktxTexture_GetImageOffset(kTexture.get(), 0, 0, 0, &level0Offset) != KTX_SUCCESS) {
+        return std::unexpected("KTX texture level 0 offset lookup failed");
+    }
     const ktx_uint8_t* baseDataPtr{ktxTexture_GetData(kTexture.get())};
 
-    if (!baseDataPtr || imageSize == 0) {
-        return std::unexpected("KTX texture contains no image data");
+    if (!baseDataPtr || imageSize == 0 || level0Offset > totalDataBytes ||
+        imageSize > (totalDataBytes - level0Offset)) {
+        return std::unexpected("KTX texture contains invalid or truncated image data");
     }
     const ktx_uint8_t* imageBytes{baseDataPtr + level0Offset};
 
@@ -431,8 +431,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     img.isCompressed = transcodedCompressed;
     img.compressionFormat = effectiveTarget;
 
-    // Extract mip chain for compressed or multi-mip KTX2 textures
-    const uint32_t numLevels{std::max(1u, kTexture->numLevels)};
+    // Extract mip chain for compressed or multi-mip KTX2 textures (capped to avoid shift UB / OOM)
+    const uint32_t numLevels{std::clamp<uint32_t>(kTexture->numLevels, 1u, kMaxKtxMipLevels)};
     img.mipLevels.reserve(numLevels);
     for (uint32_t level{0}; level < numLevels; ++level) {
         const uint32_t mipW{std::max(1u, width >> level)};
@@ -442,7 +442,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         }
         const ktx_size_t mipBytesSize{ktxTexture_GetImageSize(kTexture.get(), level)};
         ktx_size_t mipOffset{0};
-        if (ktxTexture_GetImageOffset(kTexture.get(), level, 0, 0, &mipOffset) != KTX_SUCCESS || mipBytesSize == 0) {
+        if (ktxTexture_GetImageOffset(kTexture.get(), level, 0, 0, &mipOffset) != KTX_SUCCESS || mipBytesSize == 0 ||
+            mipOffset > totalDataBytes || mipBytesSize > (totalDataBytes - mipOffset)) {
             break;
         }
         DecodedMipLevel mip{};
@@ -484,12 +485,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 #else
     (void)data;
     (void)target;
-    DecodedImage img{};
-    img.width = 2;
-    img.height = 2;
-    img.channels = 4;
-    img.rgbaData = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-    return img;
+    return MakeFallbackWhiteQuad();
 #endif
 }
 

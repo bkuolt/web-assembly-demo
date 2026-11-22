@@ -77,6 +77,21 @@ constexpr std::array<ModelPresetEntry, 19> kBuiltinModelPresets{{
     return out;
 }
 
+[[nodiscard]] bool MatchesPresetFilename(std::string_view lowerUri, std::string_view lowerDisplayName,
+                                         std::string_view lowerPresetFile) noexcept {
+    if (lowerPresetFile.empty()) {
+        return false;
+    }
+    if (lowerDisplayName == lowerPresetFile || lowerUri == lowerPresetFile) {
+        return true;
+    }
+    if (lowerUri.size() > lowerPresetFile.size() && lowerUri.ends_with(lowerPresetFile)) {
+        const char sep{lowerUri[lowerUri.size() - lowerPresetFile.size() - 1]};
+        return sep == '/' || sep == '\\' || sep == ':';
+    }
+    return false;
+}
+
 } // namespace
 
 struct AsyncLoadState {
@@ -324,8 +339,8 @@ void Application::SyncModelSelectionFromUri(std::string_view sourceUri) {
         const std::string localName = preset.localRelPath
                                           ? ToLowerAscii(core::NetworkFetcher::ExtractDisplayName(preset.localRelPath))
                                           : std::string{};
-        const bool matchLocal = !localName.empty() && (lowerName == localName || lowerUri.ends_with(localName));
-        const bool matchRemote = !remoteName.empty() && (lowerName == remoteName || lowerUri.ends_with(remoteName));
+        const bool matchLocal = MatchesPresetFilename(lowerUri, lowerName, localName);
+        const bool matchRemote = MatchesPresetFilename(lowerUri, lowerName, remoteName);
         if (matchLocal || matchRemote) {
             selectedModelOption_ = i;
             lastCommittedModelOption_ = i;

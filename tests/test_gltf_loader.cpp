@@ -468,3 +468,25 @@ TEST(GltfLoaderTest, AsyncLoadSpawnsWorkerAndCleansUpSafelyOnShutdown) {
     app.Shutdown();
     EXPECT_FALSE(app.IsLoadingScene());
 }
+
+TEST(GltfLoaderTest, RejectsOversizedMalformedAccessorCountWithoutOom) {
+    // glTF declaring 200M vertices over a 36-byte bufferView would trigger bad_alloc without accessor bounds checks.
+    const std::string craftedGltf{R"({
+  "asset": { "version": "2.0" },
+  "buffers": [{ "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "byteLength": 36 }],
+  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 36 }],
+  "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 200000000, "type": "VEC3" }],
+  "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 } }] }],
+  "nodes": [{ "mesh": 0 }],
+  "scenes": [{ "nodes": [0] }],
+  "scene": 0
+})"};
+    const std::span<const uint8_t> bytes{reinterpret_cast<const uint8_t*>(craftedGltf.data()), craftedGltf.size()};
+
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    auto res = loader.LoadFromMemory(bytes, "malformed_accessor.gltf");
+    if (res && *res && !(*res)->meshes.empty() && !(*res)->meshes[0]->primitives.empty()) {
+        EXPECT_TRUE((*res)->meshes[0]->primitives[0].vertices.empty());
+    }
+}

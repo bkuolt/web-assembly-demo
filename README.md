@@ -302,7 +302,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   ├── 02_entities_and_lights/main.cpp# Scene entities and orbiting point light
 │   └── 03_sprites_and_billboards/main.cpp # 2D animated sprites & 3D HDR billboards
-├── tests/                             # C++ GTest (324 tests across 51 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (325 tests across 51 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay, bookmarks
@@ -640,7 +640,7 @@ Produces `dist/bgl_web_app_minimal.zip` (~5.8 MB) with the web runtime and core 
 
 ## Test Suite Overview
 
-The repository includes **324 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **74 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
+The repository includes **325 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **74 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
 
 | Test Suite | Tests | Scope |
 | :--- | :---: | :--- |
@@ -649,7 +649,7 @@ The repository includes **324 C++ GoogleTests across 51 suites**, a static modul
 | `CommandLineTest` | 20 | Default config, `--help`, `--version`, `--formats`, resolution flags, symmetric toggles, `--flag=value` & `--`, weather/time-of-day flags, LOD bias/heatmap, debug views, crash options, `--headless`, and `ApplicationConfig` slicing. |
 | `CameraTest` | 18 | Orbit, pan, zoom clamping, view/projection composition, `ScreenPointToRay` unprojection, pitch limits, aspect ratios, WASD/fly navigation, bounds framing, bookmarks, and glTF camera import. |
 | `MemoryPoolTest` | 15 | Fixed-size block allocation, multi-block chaining, free-list reuse, destructor tracking, move semantics, LIFO safety, 64-byte alignment, and PMR `ScratchArena`. |
-| `GltfLoaderTest` | 15 | `ToyCar.glb` parsing, KHR extensions, corrupted GLB rejection, hierarchy transforms, monotonic async progress & cancellation, 19-model presets, worker teardown safety, and optional 1 GB megacity stress test. |
+| `GltfLoaderTest` | 16 | `ToyCar.glb` parsing, KHR extensions, corrupted GLB rejection, oversized-accessor bounds protection, hierarchy transforms, monotonic async progress & cancellation, 19-model presets, worker teardown safety, and optional 1 GB megacity stress test. |
 | `RayPickerTest` | 14 | Möller-Trumbore ray-triangle hit/miss, backface/negative-t rejection, normal orthogonality, hierarchical transforms, and empty/multi-root scenes. |
 | `AnimationTest` | 14 | Step/Linear/Slerp/CubicSpline samplers, edge-case keyframes, TRS decoupling, hierarchy propagation, morph blending, time wrapping, and skeletal skin matrices. |
 | `QuadtreeTest` | 13 | 4-way XZ subdivision, loose bounds, `Refit()` relocation, `ContainsXZ`, Sponza culling ratios, Hi-Z `OcclusionBuffer` tile queries, and `LOD0`–`LOD3` bias scaling. |
