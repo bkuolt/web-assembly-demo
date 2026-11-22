@@ -72,7 +72,8 @@ struct alignas(16) RtMaterial {
     glm::vec4 emissiveFactor{0.0f};              ///< `xyz` = emissive * strength, `w` = emissive strength.
     glm::vec4 pbrParams{0.0f, 1.0f, 0.5f, 1.5f}; ///< `x` = metallic, `y` = roughness, `z` = alphaCutoff, `w` = ior.
     glm::ivec4 texIndices{0, 0, 0, 0};           ///< Bindless texture slots (`0` = fallback, `>0` = array slot).
-    glm::uvec4 flagsAlpha{0u, 0u, 0u, 0u};       ///< `x` = MaterialFlags, `y` = alphaMode, `z` = doubleSided, `w` = transmissive.
+    glm::uvec4 flagsAlpha{0u, 0u, 0u,
+                          0u}; ///< `x` = MaterialFlags, `y` = alphaMode, `z` = doubleSided, `w` = transmissive.
 };
 static_assert(sizeof(RtMaterial) == 80, "RtMaterial must be 80 bytes");
 
@@ -81,12 +82,12 @@ static_assert(sizeof(RtMaterial) == 80, "RtMaterial must be 80 bytes");
  * @brief Result returned by `RayTracingScene::TraceRayCpu` for CPU verification and tests.
  */
 struct RtCpuHit {
-    bool hit{false};                   ///< True when the ray intersected a scene triangle within `maxDist`.
-    float distance{1e30f};             ///< World-space hit distance along the normalized ray.
-    uint32_t instanceIndex{0};         ///< Hit index inside `instances_`.
-    uint32_t triangleIndex{0};         ///< Hit triangle index inside the global index buffer.
-    uint32_t nodeIndex{0};             ///< Source `SceneNode` index associated with the hit instance.
-    glm::vec3 worldPos{0.0f};          ///< World-space intersection coordinates.
+    bool hit{false};                         ///< True when the ray intersected a scene triangle within `maxDist`.
+    float distance{1e30f};                   ///< World-space hit distance along the normalized ray.
+    uint32_t instanceIndex{0};               ///< Hit index inside `instances_`.
+    uint32_t triangleIndex{0};               ///< Hit triangle index inside the global index buffer.
+    uint32_t nodeIndex{0};                   ///< Source `SceneNode` index associated with the hit instance.
+    glm::vec3 worldPos{0.0f};                ///< World-space intersection coordinates.
     glm::vec3 worldNormal{0.0f, 1.0f, 0.0f}; ///< World-space outward geometric normal at the hit point.
 };
 

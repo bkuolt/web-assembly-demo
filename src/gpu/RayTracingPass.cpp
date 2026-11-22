@@ -134,6 +134,14 @@ void RayTracingPass::WriteUniformSlot(uint32_t slotIdx, const RtPassUniforms& u)
     }
 }
 
+void RayTracingPass::WriteAtrousUniformBlock(uint32_t baseSlot, RtPassUniforms& u) noexcept {
+    constexpr std::array<float, 4> kAtrousStrides{1.0f, 1.0f, 2.0f, 4.0f};
+    for (uint32_t i = 0; i < kAtrousStrides.size(); ++i) {
+        u.params3.w = kAtrousStrides[i];
+        WriteUniformSlot(baseSlot + i, u);
+    }
+}
+
 void RayTracingPass::DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0,
                                          WGPUBindGroup bg1, WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX,
                                          uint32_t wgY, const char* label, uint32_t startTsIdx,
@@ -145,8 +153,8 @@ void RayTracingPass::DispatchComputePass(WGPUCommandEncoder encoder, WGPUCompute
     WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
     cpDesc.label = ToWgpuStringView(label);
     WGPUPassTimestampWrites tsWrites = WGPU_PASS_TIMESTAMP_WRITES_INIT;
-    const bool writeStart = (startTsIdx != 0xFFFFFFFFu);
-    const bool writeEnd = (endTsIdx != 0xFFFFFFFFu);
+    const bool writeStart = (startTsIdx != kNoTimestampIndex);
+    const bool writeEnd = (endTsIdx != kNoTimestampIndex);
     if (supportsTimestampQueries_ && timestampQuerySet_ && (writeStart || writeEnd)) {
         tsWrites.querySet = timestampQuerySet_.Get();
         tsWrites.beginningOfPassWriteIndex = writeStart ? startTsIdx : WGPU_QUERY_SET_INDEX_UNDEFINED;
@@ -186,27 +194,20 @@ void RayTracingPass::ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComput
                                           WGPUBindGroup traceBg, WGPUBindGroup rtSceneBg,
                                           const DenoiseBindGroupSet& denoiseSet, uint32_t baseSlot, uint32_t traceWgX,
                                           uint32_t traceWgY, uint32_t fullWgX, uint32_t fullWgY,
-                                          const char* labelPrefix, bool writeStartTs, bool writeEndTs) noexcept {
-    const std::string pfx = std::string{"Pass_RT_"} + labelPrefix;
-    const std::string lTrace = pfx + "_Trace";
-    const std::string lTmp = pfx + "_Temporal";
-    const std::string lA1 = pfx + "_Atrous1";
-    const std::string lA2 = pfx + "_Atrous2";
-    const std::string lA3 = pfx + "_Atrous3";
-    const std::string lUp = pfx + "_Upsample";
-
+                                          const DenoisePassLabels& labels, bool writeStartTs,
+                                          bool writeEndTs) noexcept {
     DispatchComputePass(encoder, tracePipe, traceBg, rtSceneBg, nullptr, baseSlot + 0u, traceWgX, traceWgY,
-                        lTrace.c_str(), writeStartTs ? 0u : 0xFFFFFFFFu);
+                        labels.trace, writeStartTs ? 0u : kNoTimestampIndex);
     DispatchComputePass(encoder, temporal8Pipeline_.Get(), denoiseSet.temporal[currHistIdx_].Get(), nullptr, nullptr,
-                        baseSlot + 0u, traceWgX, traceWgY, lTmp.c_str());
+                        baseSlot + 0u, traceWgX, traceWgY, labels.temporal);
     DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep1[currHistIdx_].Get(), nullptr, nullptr,
-                        baseSlot + 1u, traceWgX, traceWgY, lA1.c_str());
+                        baseSlot + 1u, traceWgX, traceWgY, labels.atrous1);
     DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep2.Get(), nullptr, nullptr, baseSlot + 2u,
-                        traceWgX, traceWgY, lA2.c_str());
+                        traceWgX, traceWgY, labels.atrous2);
     DispatchComputePass(encoder, atrous8Pipeline_.Get(), denoiseSet.atrousStep3.Get(), nullptr, nullptr, baseSlot + 3u,
-                        traceWgX, traceWgY, lA3.c_str());
+                        traceWgX, traceWgY, labels.atrous3);
     DispatchComputePass(encoder, upsample8Pipeline_.Get(), denoiseSet.upsample.Get(), nullptr, nullptr, baseSlot + 3u,
-                        fullWgX, fullWgY, lUp.c_str(), 0xFFFFFFFFu, writeEndTs ? 1u : 0xFFFFFFFFu);
+                        fullWgX, fullWgY, labels.upsample, kNoTimestampIndex, writeEndTs ? 1u : kNoTimestampIndex);
 }
 
 void RayTracingPass::ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcept {
@@ -221,6 +222,173 @@ void RayTracingPass::ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcep
     }
 #else
     (void)encoder;
+#endif
+}
+
+void RayTracingPass::RenderGBufferPass(WGPUCommandEncoder encoder, scene::Scene& scene,
+                                       WGPUBindGroup sceneGlobalsBindGroup,
+                                       std::span<const std::pair<const scene::SceneNode*, size_t>> opaqueItems,
+                                       const glm::mat4& viewProj, const glm::mat4& lightViewProj,
+                                       uint32_t baseDrawFlags, uint64_t skinFrameId) {
+#if defined(BGL_PLATFORM_NATIVE)
+    gbufferDrawsScratch_.clear();
+    gbufferPerDrawScratch_.clear();
+    gbufferInstanceTransformsScratch_.clear();
+    gbufferDrawsScratch_.reserve(opaqueItems.size());
+    gbufferPerDrawScratch_.reserve(opaqueItems.size());
+
+    for (const auto& [node, primIdx] : opaqueItems) {
+        if (!node) {
+            continue;
+        }
+        auto prims = const_cast<scene::SceneNode*>(node)->GetPrimitives();
+        if (primIdx >= prims.size()) {
+            continue;
+        }
+        scene::MeshPrimitive& prim = prims[primIdx];
+        if (!prim.gpuVertexBuffer || !prim.gpuBindGroup) {
+            continue;
+        }
+
+        PreparedDrawBindings prepared{};
+        PopulatePerDrawMorphAndSkin(queue_, prim, node, node->worldTransform, viewProj, lightViewProj, baseDrawFlags,
+                                    0.0f, scene.skins, scene.allNodes, skinFrameId, dummySkinBindGroup_, prepared);
+
+        uint32_t instStart = 0u;
+        uint32_t instCount = 1u;
+        if (!node->instanceTransforms.empty()) {
+            instStart = static_cast<uint32_t>(1u + gbufferInstanceTransformsScratch_.size());
+            instCount = static_cast<uint32_t>(node->instanceTransforms.size());
+            gbufferInstanceTransformsScratch_.insert(gbufferInstanceTransformsScratch_.end(),
+                                                     node->instanceTransforms.begin(), node->instanceTransforms.end());
+        }
+
+        const bool doubleSided =
+            (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex) < scene.materials.size())
+                ? scene.materials[static_cast<size_t>(prim.materialIndex)].doubleSided
+                : false;
+
+        const uint32_t dynOff = static_cast<uint32_t>(gbufferPerDrawScratch_.size() * sizeof(PerDrawUniforms));
+        gbufferPerDrawScratch_.push_back(prepared.uniforms);
+        gbufferDrawsScratch_.push_back(GbufDraw{
+            .prim = &prim,
+            .skinBg = prepared.skinBindGroup,
+            .pipe = doubleSided ? gbufferPipeline_.Get() : gbufferBackCulledPipeline_.Get(),
+            .dynOffset = dynOff,
+            .instanceStart = instStart,
+            .instanceCount = instCount,
+        });
+    }
+
+    gbufferInstanceBuffer_.Upload(queue_, gbufferInstanceTransformsScratch_);
+    WGPUBindGroup perDrawBg = gbufferPerDrawRing_.Upload(gbufferPerDrawScratch_);
+
+    std::array<WGPURenderPassColorAttachment, 2> colorAtts{};
+    colorAtts[0] = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAtts[0].view = gbufferNormalRoughnessView_.Get();
+    colorAtts[0].loadOp = WGPULoadOp_Clear;
+    colorAtts[0].storeOp = WGPUStoreOp_Store;
+    colorAtts[0].clearValue = WGPUColor{0.0, 1.0, 0.0, 1.0};
+
+    colorAtts[1] = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAtts[1].view = gbufferAlbedoMetallicView_.Get();
+    colorAtts[1].loadOp = WGPULoadOp_Clear;
+    colorAtts[1].storeOp = WGPUStoreOp_Store;
+    colorAtts[1].clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
+
+    WGPURenderPassDepthStencilAttachment depthAtt = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    depthAtt.view = gbufferDepthView_.Get();
+    depthAtt.depthLoadOp = WGPULoadOp_Clear;
+    depthAtt.depthStoreOp = WGPUStoreOp_Store;
+    depthAtt.depthClearValue = 1.0f;
+    depthAtt.depthReadOnly = WGPU_FALSE;
+
+    WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    rpDesc.colorAttachmentCount = colorAtts.size();
+    rpDesc.colorAttachments = colorAtts.data();
+    rpDesc.depthStencilAttachment = &depthAtt;
+    rpDesc.label = ToWgpuStringView("RT_GBufferPass");
+
+    if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
+        if (perDrawBg && sceneGlobalsBindGroup && gbufferInstanceBuffer_.GetBuffer()) {
+            for (const auto& dc : gbufferDrawsScratch_) {
+                const auto lod0 = dc.prim->GetLodSlice(0);
+                wgpuRenderPassEncoderSetPipeline(pass.Get(), dc.pipe);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, sceneGlobalsBindGroup, 0, nullptr);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 1, perDrawBg, 1, &dc.dynOffset);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 2, dc.prim->gpuBindGroup, 0, nullptr);
+                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 3, dc.skinBg, 0, nullptr);
+                wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 0, dc.prim->gpuVertexBuffer, 0,
+                                                     dc.prim->gpuVertexBufferSize);
+                wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 1, gbufferInstanceBuffer_.GetBuffer(),
+                                                     DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
+                                                     DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
+                if (dc.prim->gpuIndexBuffer && lod0.indexCount > 0) {
+                    const uint64_t idxByteOffset = static_cast<uint64_t>(lod0.firstIndex) *
+                                                   ((dc.prim->indexFormat == WGPUIndexFormat_Uint16) ? 2u : 4u);
+                    wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), dc.prim->gpuIndexBuffer, dc.prim->indexFormat,
+                                                        idxByteOffset, dc.prim->gpuIndexBufferSize - idxByteOffset);
+                    wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, dc.instanceCount, 0, 0, 0);
+                } else if (!dc.prim->vertices.empty()) {
+                    wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(dc.prim->vertices.size()),
+                                              dc.instanceCount, 0, 0);
+                }
+            }
+        }
+        wgpuRenderPassEncoderEnd(pass.Get());
+    }
+#else
+    (void)encoder;
+    (void)scene;
+    (void)sceneGlobalsBindGroup;
+    (void)opaqueItems;
+    (void)viewProj;
+    (void)lightViewProj;
+    (void)baseDrawFlags;
+    (void)skinFrameId;
+#endif
+}
+
+void RayTracingPass::RenderFullscreenComposite(WGPUCommandEncoder encoder, WGPURenderPipeline pipeline,
+                                               WGPUBindGroup bindGroup, WGPUTextureView targetView, uint32_t srcW,
+                                               uint32_t srcH, bool clearTarget, const char* label) noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (!pipeline || !bindGroup || !targetView) {
+        return;
+    }
+    const RtCompositeUniforms compU{
+        .params = glm::vec4{static_cast<float>(fullWidth_), static_cast<float>(fullHeight_), static_cast<float>(srcW),
+                            static_cast<float>(srcH)},
+    };
+    wgpuQueueWriteBuffer(queue_, compositeUniformBuffer_.Get(), 0, &compU, sizeof(compU));
+
+    WGPURenderPassColorAttachment colorAtt = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAtt.view = targetView;
+    colorAtt.loadOp = clearTarget ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    colorAtt.storeOp = WGPUStoreOp_Store;
+    colorAtt.clearValue = WGPUColor{0.0, 0.0, 0.0, 1.0};
+    colorAtt.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+
+    WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    rpDesc.colorAttachmentCount = 1;
+    rpDesc.colorAttachments = &colorAtt;
+    rpDesc.label = ToWgpuStringView(label);
+
+    if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
+        wgpuRenderPassEncoderSetPipeline(pass.Get(), pipeline);
+        wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, bindGroup, 0, nullptr);
+        wgpuRenderPassEncoderDraw(pass.Get(), 3u, 1u, 0u, 0u);
+        wgpuRenderPassEncoderEnd(pass.Get());
+    }
+#else
+    (void)encoder;
+    (void)pipeline;
+    (void)bindGroup;
+    (void)targetView;
+    (void)srcW;
+    (void)srcH;
+    (void)clearTarget;
+    (void)label;
 #endif
 }
 
@@ -246,144 +414,16 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     currHistIdx_ = 1u - currHistIdx_;
     ++frameIndex_;
 
-    // 1. Render 1x Opaque G-Buffer (Normal+Roughness, Albedo+Metallic, Depth32Float)
-    {
-        gbufferPerDrawScratch_.clear();
-        gbufferInstanceTransformsScratch_.clear();
-        struct GbufDraw {
-            scene::MeshPrimitive* prim{nullptr};
-            WGPUBindGroup skinBg{nullptr};
-            WGPURenderPipeline pipe{nullptr};
-            uint32_t dynOffset{0};
-            uint32_t instanceStart{0};
-            uint32_t instanceCount{1};
-        };
-        std::vector<GbufDraw> draws;
-        draws.reserve(opaqueItems.size());
-        gbufferPerDrawScratch_.reserve(opaqueItems.size());
+    RenderGBufferPass(encoder, scene, sceneGlobalsBindGroup, opaqueItems, viewProj, lightViewProj, baseDrawFlags,
+                      skinFrameId);
 
-        for (const auto& [node, primIdx] : opaqueItems) {
-            if (!node) {
-                continue;
-            }
-            auto prims = const_cast<scene::SceneNode*>(node)->GetPrimitives();
-            if (primIdx >= prims.size()) {
-                continue;
-            }
-            scene::MeshPrimitive& prim = prims[primIdx];
-            if (!prim.gpuVertexBuffer || !prim.gpuBindGroup) {
-                continue;
-            }
-
-            PreparedDrawBindings prepared{};
-            PopulatePerDrawMorphAndSkin(queue_, prim, node, node->worldTransform, viewProj, lightViewProj,
-                                        baseDrawFlags, 0.0f, scene.skins, scene.allNodes, skinFrameId,
-                                        dummySkinBindGroup_, prepared);
-
-            uint32_t instStart = 0u;
-            uint32_t instCount = 1u;
-            if (!node->instanceTransforms.empty()) {
-                instStart = static_cast<uint32_t>(1u + gbufferInstanceTransformsScratch_.size());
-                instCount = static_cast<uint32_t>(node->instanceTransforms.size());
-                gbufferInstanceTransformsScratch_.insert(gbufferInstanceTransformsScratch_.end(),
-                                                         node->instanceTransforms.begin(),
-                                                         node->instanceTransforms.end());
-            }
-
-            const bool doubleSided =
-                (prim.materialIndex >= 0 && static_cast<size_t>(prim.materialIndex) < scene.materials.size())
-                    ? scene.materials[static_cast<size_t>(prim.materialIndex)].doubleSided
-                    : false;
-
-            const uint32_t dynOff = static_cast<uint32_t>(gbufferPerDrawScratch_.size() * sizeof(PerDrawUniforms));
-            gbufferPerDrawScratch_.push_back(prepared.uniforms);
-            draws.push_back(GbufDraw{
-                .prim = &prim,
-                .skinBg = prepared.skinBindGroup,
-                .pipe = doubleSided ? gbufferPipeline_.Get() : gbufferBackCulledPipeline_.Get(),
-                .dynOffset = dynOff,
-                .instanceStart = instStart,
-                .instanceCount = instCount,
-            });
-        }
-
-        gbufferInstanceBuffer_.Upload(queue_, gbufferInstanceTransformsScratch_);
-        WGPUBindGroup perDrawBg = gbufferPerDrawRing_.Upload(gbufferPerDrawScratch_);
-
-        std::array<WGPURenderPassColorAttachment, 2> colorAtts{};
-        colorAtts[0] = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-        colorAtts[0].view = gbufferNormalRoughnessView_.Get();
-        colorAtts[0].loadOp = WGPULoadOp_Clear;
-        colorAtts[0].storeOp = WGPUStoreOp_Store;
-        colorAtts[0].clearValue = WGPUColor{0.0, 1.0, 0.0, 1.0};
-
-        colorAtts[1] = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-        colorAtts[1].view = gbufferAlbedoMetallicView_.Get();
-        colorAtts[1].loadOp = WGPULoadOp_Clear;
-        colorAtts[1].storeOp = WGPUStoreOp_Store;
-        colorAtts[1].clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
-
-        WGPURenderPassDepthStencilAttachment depthAtt = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-        depthAtt.view = gbufferDepthView_.Get();
-        depthAtt.depthLoadOp = WGPULoadOp_Clear;
-        depthAtt.depthStoreOp = WGPUStoreOp_Store;
-        depthAtt.depthClearValue = 1.0f;
-        depthAtt.depthReadOnly = WGPU_FALSE;
-
-        WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-        rpDesc.colorAttachmentCount = colorAtts.size();
-        rpDesc.colorAttachments = colorAtts.data();
-        rpDesc.depthStencilAttachment = &depthAtt;
-        rpDesc.label = ToWgpuStringView("RT_GBufferPass");
-
-        if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
-            if (perDrawBg && sceneGlobalsBindGroup && gbufferInstanceBuffer_.GetBuffer()) {
-                for (const auto& dc : draws) {
-                    const auto lod0 = dc.prim->GetLodSlice(0);
-                    wgpuRenderPassEncoderSetPipeline(pass.Get(), dc.pipe);
-                    wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, sceneGlobalsBindGroup, 0, nullptr);
-                    wgpuRenderPassEncoderSetBindGroup(pass.Get(), 1, perDrawBg, 1, &dc.dynOffset);
-                    wgpuRenderPassEncoderSetBindGroup(pass.Get(), 2, dc.prim->gpuBindGroup, 0, nullptr);
-                    wgpuRenderPassEncoderSetBindGroup(pass.Get(), 3, dc.skinBg, 0, nullptr);
-                    wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 0, dc.prim->gpuVertexBuffer, 0,
-                                                         dc.prim->gpuVertexBufferSize);
-                    wgpuRenderPassEncoderSetVertexBuffer(pass.Get(), 1, gbufferInstanceBuffer_.GetBuffer(),
-                                                         DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
-                                                         DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
-                    if (dc.prim->gpuIndexBuffer && lod0.indexCount > 0) {
-                        const uint64_t idxByteOffset = static_cast<uint64_t>(lod0.firstIndex) *
-                                                       ((dc.prim->indexFormat == WGPUIndexFormat_Uint16) ? 2u : 4u);
-                        wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), dc.prim->gpuIndexBuffer, dc.prim->indexFormat,
-                                                            idxByteOffset, dc.prim->gpuIndexBufferSize - idxByteOffset);
-                        wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, dc.instanceCount, 0, 0, 0);
-                    } else if (!dc.prim->vertices.empty()) {
-                        wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(dc.prim->vertices.size()),
-                                                  dc.instanceCount, 0, 0);
-                    }
-                }
-            }
-            wgpuRenderPassEncoderEnd(pass.Get());
-        }
-    }
-
-    // 2. Stage dynamic uniform slots 0..7 for Shadows & RTAO
+    // Stage dynamic uniform slots 0..7 for Shadows & RTAO
     RtPassUniforms baseUbo{};
     PopulateUniformTemplate(baseUbo, &scene, viewProj, cameraPos, sunDir, solarElev, envRotation, fullWidth_,
                             fullHeight_);
     baseUbo.params1.y = aoIntensity;
-
-    auto writeStrides = [&](uint32_t baseSlot) {
-        baseUbo.params3.w = 1.0f;
-        WriteUniformSlot(baseSlot + 0u, baseUbo);
-        WriteUniformSlot(baseSlot + 1u, baseUbo);
-        baseUbo.params3.w = 2.0f;
-        WriteUniformSlot(baseSlot + 2u, baseUbo);
-        baseUbo.params3.w = 4.0f;
-        WriteUniformSlot(baseSlot + 3u, baseUbo);
-    };
-    writeStrides(0u);
-    writeStrides(4u);
-
+    WriteAtrousUniformBlock(0u, baseUbo);
+    WriteAtrousUniformBlock(4u, baseUbo);
     wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 0, uniformStaging_.data(), 8u * kUniformSlotStride);
 
     const uint32_t traceWgX = (traceWidth_ + 7u) / 8u;
@@ -392,13 +432,19 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     const uint32_t fullWgY = (fullHeight_ + 7u) / 8u;
     const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
 
+    constexpr DenoisePassLabels kShadowLabels{"Pass_RT_Shadow_Trace",   "Pass_RT_Shadow_Temporal",
+                                              "Pass_RT_Shadow_Atrous1", "Pass_RT_Shadow_Atrous2",
+                                              "Pass_RT_Shadow_Atrous3", "Pass_RT_Shadow_Upsample"};
+    constexpr DenoisePassLabels kAoLabels{"Pass_RT_Ao_Trace",   "Pass_RT_Ao_Temporal", "Pass_RT_Ao_Atrous1",
+                                          "Pass_RT_Ao_Atrous2", "Pass_RT_Ao_Atrous3",  "Pass_RT_Ao_Upsample"};
+
     if (config_.shadows) {
         ExecuteDenoise8Chain(encoder, shadowPipeline_.Get(), shadowTraceBg_.Get(), rtSceneBg, shadowBgs_, 0u, traceWgX,
-                             traceWgY, fullWgX, fullWgY, "Shadow", true, !config_.ambientOcclusion);
+                             traceWgY, fullWgX, fullWgY, kShadowLabels, true, !config_.ambientOcclusion);
     }
     if (config_.ambientOcclusion) {
         ExecuteDenoise8Chain(encoder, aoPipeline_.Get(), aoTraceBg_.Get(), rtSceneBg, aoBgs_, 4u, traceWgX, traceWgY,
-                             fullWgX, fullWgY, "Ao", !config_.shadows, true);
+                             fullWgX, fullWgY, kAoLabels, !config_.shadows, true);
     }
 
     timestampHasPrePass_ = (config_.shadows || config_.ambientOcclusion);
@@ -442,14 +488,7 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
         RtPassUniforms reflUbo{};
         PopulateUniformTemplate(reflUbo, nullptr, viewProj, cameraPos, sunDir, solarElev, envRotation, fullWidth_,
                                 fullHeight_);
-        reflUbo.params3.w = 1.0f;
-        WriteUniformSlot(8u, reflUbo);
-        WriteUniformSlot(9u, reflUbo);
-        reflUbo.params3.w = 2.0f;
-        WriteUniformSlot(10u, reflUbo);
-        reflUbo.params3.w = 4.0f;
-        WriteUniformSlot(11u, reflUbo);
-
+        WriteAtrousUniformBlock(8u, reflUbo);
         wgpuQueueWriteBuffer(queue_, passUniformBuffer_.Get(), 8u * kUniformSlotStride,
                              uniformStaging_.data() + 8u * kUniformSlotStride, 4u * kUniformSlotStride);
 
@@ -467,35 +506,11 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
         DispatchComputePass(encoder, atrous16Pipeline_.Get(), reflBgs_.atrousStep2.Get(), nullptr, nullptr, 10u,
                             traceWgX, traceWgY, "Pass_RT_ReflAtrous2");
         DispatchComputePass(encoder, atrous16Pipeline_.Get(), reflBgs_.atrousStep3.Get(), nullptr, nullptr, 11u,
-                            traceWgX, traceWgY, "Pass_RT_ReflAtrous3", 0xFFFFFFFFu, 3u);
+                            traceWgX, traceWgY, "Pass_RT_ReflAtrous3", kNoTimestampIndex, 3u);
         timestampHasPostPass_ = true;
 
-        // Composite denoised HDR reflections onto hdrResolveView
-        if (compositeReflPipeline_ && compositeReflBg_) {
-            const RtCompositeUniforms compU{
-                .params = glm::vec4{static_cast<float>(fullWidth_), static_cast<float>(fullHeight_),
-                                    static_cast<float>(traceWidth_), static_cast<float>(traceHeight_)},
-            };
-            wgpuQueueWriteBuffer(queue_, compositeUniformBuffer_.Get(), 0, &compU, sizeof(compU));
-
-            WGPURenderPassColorAttachment colorAtt = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-            colorAtt.view = hdrResolveView;
-            colorAtt.loadOp = WGPULoadOp_Load;
-            colorAtt.storeOp = WGPUStoreOp_Store;
-            colorAtt.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-
-            WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-            rpDesc.colorAttachmentCount = 1;
-            rpDesc.colorAttachments = &colorAtt;
-            rpDesc.label = ToWgpuStringView("Pass_RT_CompositeReflections");
-
-            if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
-                wgpuRenderPassEncoderSetPipeline(pass.Get(), compositeReflPipeline_.Get());
-                wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, compositeReflBg_.Get(), 0, nullptr);
-                wgpuRenderPassEncoderDraw(pass.Get(), 3u, 1u, 0u, 0u);
-                wgpuRenderPassEncoderEnd(pass.Get());
-            }
-        }
+        RenderFullscreenComposite(encoder, compositeReflPipeline_.Get(), compositeReflBg_.Get(), hdrResolveView,
+                                  traceWidth_, traceHeight_, false, "Pass_RT_CompositeReflections");
     }
 
     ResolveTimestampQueries(encoder);
@@ -561,32 +576,8 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
         ++pathSampleIndex_;
     }
 
-    if (pathTracePresentPipeline_ && pathPresentBg_) {
-        const RtCompositeUniforms compU{
-            .params = glm::vec4{static_cast<float>(fullWidth_), static_cast<float>(fullHeight_),
-                                static_cast<float>(fullWidth_), static_cast<float>(fullHeight_)},
-        };
-        wgpuQueueWriteBuffer(queue_, compositeUniformBuffer_.Get(), 0, &compU, sizeof(compU));
-
-        WGPURenderPassColorAttachment colorAtt = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-        colorAtt.view = hdrResolveView;
-        colorAtt.loadOp = WGPULoadOp_Clear;
-        colorAtt.storeOp = WGPUStoreOp_Store;
-        colorAtt.clearValue = WGPUColor{0.0, 0.0, 0.0, 1.0};
-        colorAtt.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-
-        WGPURenderPassDescriptor rpDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-        rpDesc.colorAttachmentCount = 1;
-        rpDesc.colorAttachments = &colorAtt;
-        rpDesc.label = ToWgpuStringView("Pass_RT_PathTracePresent");
-
-        if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
-            wgpuRenderPassEncoderSetPipeline(pass.Get(), pathTracePresentPipeline_.Get());
-            wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, pathPresentBg_.Get(), 0, nullptr);
-            wgpuRenderPassEncoderDraw(pass.Get(), 3u, 1u, 0u, 0u);
-            wgpuRenderPassEncoderEnd(pass.Get());
-        }
-    }
+    RenderFullscreenComposite(encoder, pathTracePresentPipeline_.Get(), pathPresentBg_.Get(), hdrResolveView,
+                              fullWidth_, fullHeight_, true, "Pass_RT_PathTracePresent");
 
     ResolveTimestampQueries(encoder);
 

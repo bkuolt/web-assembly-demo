@@ -32,17 +32,17 @@ namespace bgl::gpu {
  * @brief Dynamic-offset uniform block (`416` bytes) bound at `@group(0) @binding(0)` for RT compute & denoiser passes.
  */
 struct alignas(16) RtPassUniforms {
-    glm::mat4 invViewProj{1.0f};                          ///< Inverse view-projection matrix for primary ray reconstruction.
-    glm::mat4 prevViewProj{1.0f};                         ///< Previous frame view-projection matrix for temporal reprojection.
-    glm::mat4 viewProj{1.0f};                             ///< Current frame view-projection matrix.
-    glm::vec4 cameraPos{0.0f};                            ///< `xyz` = camera world position, `w` = frame counter.
-    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f};         ///< `xyz` = unit sun direction, `w` = shadow cone jitter angle.
-    glm::vec4 params0{1280.0f, 720.0f, 640.0f, 360.0f};   ///< `{fullWidth, fullHeight, traceWidth, traceHeight}`.
-    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f};           ///< `{aoRadius, aoIntensity, reflectionIntensity, envRotationRad}`.
-    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};            ///< `{maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun}`.
-    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f};          ///< `{punctualCount, solarElevation, envMipCount, atrousStride}`.
-    std::array<glm::vec4, 4> lightsPos{};                 ///< Packed light world positions / types (`w`: 0=dir, 1=point, 2=spot).
-    std::array<glm::vec4, 4> lightsCol{};                 ///< Packed light linear RGB * intensity (`xyz`) and range (`w`).
+    glm::mat4 invViewProj{1.0f};                  ///< Inverse view-projection matrix for primary ray reconstruction.
+    glm::mat4 prevViewProj{1.0f};                 ///< Previous frame view-projection matrix for temporal reprojection.
+    glm::mat4 viewProj{1.0f};                     ///< Current frame view-projection matrix.
+    glm::vec4 cameraPos{0.0f};                    ///< `xyz` = camera world position, `w` = frame counter.
+    glm::vec4 sunDir{0.35f, 1.0f, 0.25f, 0.025f}; ///< `xyz` = unit sun direction, `w` = shadow cone jitter angle.
+    glm::vec4 params0{1280.0f, 720.0f, 640.0f, 360.0f}; ///< `{fullWidth, fullHeight, traceWidth, traceHeight}`.
+    glm::vec4 params1{0.65f, 1.0f, 1.0f, 0.0f};  ///< `{aoRadius, aoIntensity, reflectionIntensity, envRotationRad}`.
+    glm::vec4 params2{3.0f, 0.0f, 1.0f, 1.0f};   ///< `{maxBounces, pathSampleIndex, halfResFlag, hasPrimarySun}`.
+    glm::vec4 params3{0.0f, 0.866f, 8.0f, 1.0f}; ///< `{punctualCount, solarElevation, envMipCount, atrousStride}`.
+    std::array<glm::vec4, 4> lightsPos{}; ///< Packed light world positions / types (`w`: 0=dir, 1=point, 2=spot).
+    std::array<glm::vec4, 4> lightsCol{}; ///< Packed light linear RGB * intensity (`xyz`) and range (`w`).
 };
 static_assert(sizeof(RtPassUniforms) == 416, "RtPassUniforms must be 416 bytes");
 
@@ -60,16 +60,16 @@ static_assert(sizeof(RtCompositeUniforms) == 16, "RtCompositeUniforms must be 16
  * @brief Runtime tuning knobs for Desktop Ray Tracing passes.
  */
 struct RtConfig {
-    bool enabled{true};             ///< Master desktop hybrid ray tracing toggle.
-    bool shadows{true};             ///< Enables ray-traced soft directional and punctual light shadows.
-    bool ambientOcclusion{true};    ///< Enables cosine-weighted ray-traced ambient occlusion (RTAO).
-    bool reflections{true};         ///< Enables 1-bounce GGX importance-sampled specular reflections.
-    bool pathTracing{false};        ///< Switches to the progressive multi-bounce compute path tracer.
-    bool halfRes{true};             ///< Traces hybrid effects at half resolution with bilateral upsampling.
-    float aoRadius{0.65f};          ///< World-space RTAO ray distance `[0.05, 5.0]`.
-    float shadowSoftness{0.025f};   ///< Directional sun jitter cone half-angle `[0.0, 0.15]`.
-    float reflectionIntensity{1.0f};///< Additive reflection brightness scale `[0.0, 2.0]`.
-    uint32_t pathBounces{3};        ///< Maximum path tracer bounce depth `[1, 6]`.
+    bool enabled{true};              ///< Master desktop hybrid ray tracing toggle.
+    bool shadows{true};              ///< Enables ray-traced soft directional and punctual light shadows.
+    bool ambientOcclusion{true};     ///< Enables cosine-weighted ray-traced ambient occlusion (RTAO).
+    bool reflections{true};          ///< Enables 1-bounce GGX importance-sampled specular reflections.
+    bool pathTracing{false};         ///< Switches to the progressive multi-bounce compute path tracer.
+    bool halfRes{true};              ///< Traces hybrid effects at half resolution with bilateral upsampling.
+    float aoRadius{0.65f};           ///< World-space RTAO ray distance `[0.05, 5.0]`.
+    float shadowSoftness{0.025f};    ///< Directional sun jitter cone half-angle `[0.0, 0.15]`.
+    float reflectionIntensity{1.0f}; ///< Additive reflection brightness scale `[0.0, 2.0]`.
+    uint32_t pathBounces{3};         ///< Maximum path tracer bounce depth `[1, 6]`.
 };
 
 /**
@@ -91,9 +91,11 @@ struct RtPassStats {
  */
 class RayTracingPass {
 public:
-    static constexpr uint32_t kUniformSlotStride = 512u;   ///< Dynamic UBO stride aligned >= 256 bytes and `sizeof(RtPassUniforms)`.
-    static constexpr uint32_t kMaxUniformSlots = 16u;      ///< Number of per-dispatch uniform slots in the ring buffer.
-    static constexpr uint32_t kNoTimestampIndex = ~0u;     ///< Sentinel disabling begin/end timestamp writes on a compute pass.
+    static constexpr uint32_t kUniformSlotStride =
+        512u; ///< Dynamic UBO stride aligned >= 256 bytes and `sizeof(RtPassUniforms)`.
+    static constexpr uint32_t kMaxUniformSlots = 16u; ///< Number of per-dispatch uniform slots in the ring buffer.
+    static constexpr uint32_t kNoTimestampIndex =
+        ~0u; ///< Sentinel disabling begin/end timestamp writes on a compute pass.
 
     RayTracingPass() = default;
     ~RayTracingPass();
@@ -136,7 +138,8 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * @brief Applies new RT configuration and resets temporal/path accumulation counters when structural toggles change.
+     * @brief Applies new RT configuration and resets temporal/path accumulation counters when structural toggles
+     * change.
      * @param cfg Updated runtime RT tuning configuration.
      */
     void SetConfig(const RtConfig& cfg) noexcept;
@@ -298,13 +301,21 @@ private:
                                  const glm::vec3& cameraPos, const glm::vec3& sunDir, float solarElev,
                                  float envRotation, uint32_t fullW, uint32_t fullH) const noexcept;
     void WriteUniformSlot(uint32_t slotIdx, const RtPassUniforms& u) noexcept;
+    void WriteAtrousUniformBlock(uint32_t baseSlot, RtPassUniforms& u) noexcept;
+    void RenderGBufferPass(WGPUCommandEncoder encoder, scene::Scene& scene, WGPUBindGroup sceneGlobalsBindGroup,
+                           std::span<const std::pair<const scene::SceneNode*, size_t>> opaqueItems,
+                           const glm::mat4& viewProj, const glm::mat4& lightViewProj, uint32_t baseDrawFlags,
+                           uint64_t skinFrameId);
+    void RenderFullscreenComposite(WGPUCommandEncoder encoder, WGPURenderPipeline pipeline, WGPUBindGroup bindGroup,
+                                   WGPUTextureView targetView, uint32_t srcW, uint32_t srcH, bool clearTarget,
+                                   const char* label) noexcept;
     void DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0, WGPUBindGroup bg1,
                              WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX, uint32_t wgY, const char* label,
-                             uint32_t startTsIdx = 0xFFFFFFFFu, uint32_t endTsIdx = 0xFFFFFFFFu) noexcept;
+                             uint32_t startTsIdx = kNoTimestampIndex, uint32_t endTsIdx = kNoTimestampIndex) noexcept;
     void ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComputePipeline tracePipe, WGPUBindGroup traceBg,
                               WGPUBindGroup rtSceneBg, const DenoiseBindGroupSet& denoiseSet, uint32_t baseSlot,
                               uint32_t traceWgX, uint32_t traceWgY, uint32_t fullWgX, uint32_t fullWgY,
-                              const char* labelPrefix, bool writeStartTs, bool writeEndTs) noexcept;
+                              const DenoisePassLabels& labels, bool writeStartTs, bool writeEndTs) noexcept;
     void ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcept;
 
     bool initialized_{false};
@@ -344,6 +355,7 @@ private:
     RenderPipelineHandle gbufferBackCulledPipeline_{};
     DynamicUniformRing<PerDrawUniforms> gbufferPerDrawRing_{};
     DynamicInstanceBuffer gbufferInstanceBuffer_{};
+    std::vector<GbufDraw> gbufferDrawsScratch_{};
     std::vector<PerDrawUniforms> gbufferPerDrawScratch_{};
     std::vector<glm::mat4> gbufferInstanceTransformsScratch_{};
 
