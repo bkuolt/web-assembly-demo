@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WebAssembly and WebGPU Demo</title>
+  <title>bgl Engine — WebGPU &amp; WebAssembly Viewer</title>
   <!-- Preload WebAssembly module for rapid startup -->
   <link rel="preload" href="dist/bgl_engine.wasm" as="fetch" type="application/wasm" crossorigin>
   <link rel="stylesheet" href="style.css">
@@ -26,7 +26,7 @@
     <div class="compat-modal-card" role="dialog" aria-modal="true" aria-labelledby="compat-title">
       <div class="compat-modal-header">
         <div class="compat-warning-icon-wrapper">
-          <span class="compat-warning-icon">⚠️</span>
+          <span class="compat-warning-icon">!</span>
         </div>
         <div>
           <h3 id="compat-title">Browser Compatibility Warning</h3>
@@ -99,7 +99,7 @@
     <div class="hud-meta-row">
       <span class="hud-subtitle">Native WebGPU PBR &amp; Wasm Runtime</span>
       <span id="hud-backend-pill" class="badge badge-webgpu" title="Hardware-accelerated native WebGPU PBR rendering pipeline">WebGPU PBR</span>
-      <span id="hud-fps-pill" class="hud-fps-pill">60.0 FPS</span>
+      <span id="hud-fps-pill" class="hud-fps-pill">-- FPS</span>
     </div>
 
     <div id="status-text" class="status-text">Initializing WebAssembly runtime...</div>
@@ -109,7 +109,7 @@
 
     <div id="gamepad-badge" class="gamepad-indicator" style="display: none;">
       <span class="gamepad-dot"></span>
-      <span id="gamepad-label">🎮 Controller Active</span>
+      <span id="gamepad-label">Controller Connected</span>
     </div>
 
     <!-- Collapsible HUD Body -->
@@ -148,14 +148,14 @@
                 <option value="https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb">Duck (0.11 MB)</option>
               </optgroup>
             </select>
-            <button class="model-action-btn" onclick="promptCustomModelUrl()" title="Load glTF / GLB from custom URL">🔗</button>
-            <button class="model-action-btn" onclick="triggerFileInput()" title="Open local glTF / GLB file">📂</button>
+            <button class="model-action-btn" onclick="promptCustomModelUrl()" title="Load glTF / GLB from custom URL">URL</button>
+            <button class="model-action-btn" onclick="triggerFileInput()" title="Open local glTF / GLB file">File</button>
             <input type="file" id="manual-file-input" accept=".gltf,.glb" style="display: none;" onchange="onManualFileSelected(event)">
           </div>
         </div>
 
         <div class="cache-status-strip">
-          <span id="cache-indicator-pill" class="cache-indicator-pill">⚡ Browser Storage Ready</span>
+          <span id="cache-indicator-pill" class="cache-indicator-pill">Browser Storage Ready</span>
           <button id="btn-clear-cache" class="cache-clear-btn" onclick="clearModelCache()" title="Purge locally cached glTF models">Clear Cache</button>
         </div>
 
@@ -173,7 +173,7 @@
               <select id="animation-select" class="camera-select" onchange="onAnimationSelected(this.value)" disabled>
                 <option value="-1">No Animations</option>
               </select>
-              <button id="btn-anim-play" class="model-action-btn" onclick="toggleAnimationPlayback()" title="Play / Pause Animation" disabled>⏸ Pause</button>
+              <button id="btn-anim-play" class="model-action-btn" onclick="toggleAnimationPlayback()" title="Play / Pause Animation" disabled>Pause</button>
             </div>
           </div>
           <div class="slider-row" style="margin-top: 4px;">

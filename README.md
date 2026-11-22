@@ -159,7 +159,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 
 - **Quadtree Frustum & Occlusion Culling**:
   - Hierarchical 4-way XZ partitioning with loose bounding boxes (`looseBounds_`) and `ContainsXZ` containment. Primitives spanning quadrant dividers remain at the parent node to prevent clipping or popping.
-  - Sponza courtyard benchmarks measure **60.2% to 81.6% primitive culling ratios** depending on viewing direction.
+  - On `Sponza.glb` (`103` primitives partitioned into `53` Quadtree nodes), interior frustum queries cull out-of-view quadrants across all primary courtyard viewing axes (`+X`, `-X`, `+Z`, `-Z`).
   - Scene, primitive, and quadtree wireframe AABBs are submitted in one batched GPU draw call.
 - **POSIX Crash Handler & Callstack Diagnostics**:
   - Intercepts `SIGSEGV`, `SIGABRT`, `SIGFPE`, `SIGILL`, and `SIGBUS` via `sigaction` on an alternate signal stack (`sigaltstack`).
@@ -402,17 +402,17 @@ flowchart LR
 - **Live Sampler Switching:**
   Pressing **`L`** toggles `PipelineManager::SetMipmappingEnabled()`, rebuilding material bind groups between `defaultSampler_` (**16x Anisotropic Trilinear**, `lodMaxClamp = 32.0`) and `noMipSampler_` (**Base Mip 0 Only**, `lodMaxClamp = 0.0`).
 
-### 3. Directional Shadow Mapping with 3x3 PCF (`[M]` / `--no-shadows`)
+### 3. Directional Shadow Mapping with 12-Tap Rotated Poisson PCF (`[M]` / `--no-shadows`)
 - **Scene-Fitted Orthographic Light Projection (`ComputeDirectionalLightMatrix`):**
-  Constructs a right-handed zero-to-one orthographic projection (`glm::orthoRH_ZO`) centered on `sceneAABB.Center()` with radius $R = \max(\|\text{Extents}\|, 10.0)$ so all 8 scene corners fit within WebGPU clip space $[-1, 1]^2 \times [0, 1]$.
-- **Hazard-Free Shadow Pass & 9-Tap PCF Kernel:**
-  Uses a dedicated 1-entry `shadowBindGroupLayout_` (binding only `@binding(0)` UBO) during `RenderShadowPass` to avoid WebGPU read/write hazards on `shadowDepthTexture_`. In the main pass, `sampleShadowPCF()` evaluates a $3 \times 3$ Percentage-Closer Filtering kernel via `textureSampleCompareLevel` with slope-scaled normal offset bias.
+  Constructs a right-handed zero-to-one orthographic projection (`glm::orthoRH_ZO`) centered on `sceneAABB.Center()` with radius $R = \max(\|\text{Extents}\|, 5.0)$ enclosing all 8 transformed scene AABB corners plus a $15\%$ light-space safety margin inside WebGPU clip space $[-1, 1]^2 \times [0, 1]$.
+- **Dedicated Shadow Pass & Adaptive Poisson PCF (`ShadowPass`, `pbr.wgsl`):**
+  Executes a `2048×2048` `Depth32Float` pre-pass over `LOD1` proxy slices (binding dynamic per-draw UBOs, material alpha-mask textures, and skeletal skinning SSBOs without binding `shadowDepthTexture_` for read/write hazard safety). In `pbr.wgsl`, `sampleShadowPCF()` evaluates a **12-tap rotated Poisson disk PCF** kernel (jittered per pixel via interleaved gradient noise) on `LOD0`/`LOD1` and a 1-tap `textureSampleCompareLevel` on `LOD2`/`LOD3`.
 
 ### 4. Environment Cubemap Reflections & Specular IBL (`[R]` / `--no-reflections`)
-- **Pre-Filtered 6-Face Roughness Cubemap (`GenerateEnvCubemapFaceMip`):**
-  Generates a $64 \times 64 \times 6$ `WGPUTextureViewDimension_Cube` texture with **7 mip levels** (`roughness` $\in [0, 1]$), convolving the atmospheric sky, horizon glow, solar disk, and ground bounce over a roughness-weighted lobe.
+- **GPU-Prefiltered 6-Face Roughness Cubemap (`PipelineIBL`):**
+  Generates a **$128 \times 128 \times 6$ `WGPUTextureViewDimension_Cube` (`RGBA16Float`) texture with 8 GGX mip levels** via compute shaders (`ggx_prefilter.wgsl`, `roughness` $\in [0, 1]$), alongside $L_2$ Spherical Harmonics diffuse irradiance and $128\times 128$ Split-Sum BRDF LUT (`brdf_lut.wgsl`). Custom `.hdr`/`.exr` equirectangular maps scale face size cleanly between $64\times 64$ and $256\times 256$.
 - **Karis Split-Sum Specular & Clearcoat IBL:**
-  Samples `textureSampleLevel(envCubemap, defaultSampler, R, roughness * maxMip)` along $\mathbf{R} = \text{reflect}(-\mathbf{V}, \mathbf{N})$ and applies the analytic split-sum BRDF (`envBRDFApprox(F0, roughness, NdotV)`) plus clearcoat reflection weighting.
+  Samples `textureSampleLevel(envCubemap, defaultSampler, R, roughness * maxMip)` along $\mathbf{R} = \text{reflect}(-\mathbf{V}, \mathbf{N})$ and applies the $128\times 128$ Split-Sum BRDF LUT plus clearcoat reflection weighting.
 
 ### 5. Desktop Compute-Shader Ray Tracing & Progressive Path Tracer (`[Ctrl+R]` / `[Ctrl+P]`)
 - **2-Level Binned-SAH BVH2 (`RayTracingScene`, `RayTracingSceneBvh.cpp`):**
@@ -464,16 +464,8 @@ flowchart TD
    - Near plane: $Z_{\text{clip}} \ge 0 \implies \text{row}_2 \cdot P \ge 0$
    - Far plane: $Z_{\text{clip}} \le W_{\text{clip}} \implies (\text{row}_3 - \text{row}_2) \cdot P \ge 0$
 
-4. **Sponza Courtyard Culling Measurements:**
-   Measured from the courtyard camera (`target = (-0.48, 2.0, -0.31)`, `camDistance = 10.0m`):
-
-   | View Direction from Courtyard | Visible Primitives | Culled Primitives | Culling Ratio |
-   | :--- | :--- | :--- | :--- |
-   | **Looking along +X** | **41 / 103** | 62 / 103 | **60.2 %** |
-   | **Looking along -X** | **41 / 103** | 62 / 103 | **60.2 %** |
-   | **Looking along +Z** | **25 / 103** | 78 / 103 | **75.7 %** |
-   | **Looking along -Z** | **19 / 103** | 84 / 103 | **81.6 %** |
-   | **Looking UP at sky** | **42 / 103** | 61 / 103 | **59.2 %** |
+4. **Sponza Courtyard Frustum Culling (`QuadtreeTest.SponzaFrustumCullingDiagnostic`):**
+   `assets/Sponza.glb` (`103` primitives partitioned across `53` loose-bounds Quadtree nodes) is verified against an interior courtyard perspective camera at `(-0.5, 2.0, -0.3)` (`45°` FOV, `16:9` aspect), asserting strict subset visibility along all four horizontal cardinal views (`+X`, `-X`, `+Z`, `-Z`).
 
 ---
 
@@ -563,7 +555,7 @@ The executable resolves relative RPATHs to its shared libraries and WebGPU backe
 | `--quadtree` | — | Start with 3D Quadtree partitions visible | `Disabled` |
 | `--no-bump` / `--bump` | — | Toggle tangent-space normal & bump mapping | `Enabled` |
 | `--no-mipmaps` / `--mipmaps` | — | Toggle 16x anisotropic mipmapping vs Mip-0 | `Enabled` |
-| `--no-shadows` / `--shadows` | — | Toggle directional shadow mapping (2048x2048 3x3 PCF) | `Enabled` |
+| `--no-shadows` / `--shadows` | — | Toggle directional shadow mapping (2048x2048 12-tap Poisson PCF) | `Enabled` |
 | `--no-reflections` / `--reflections` | — | Toggle environment cubemap reflections (IBL) | `Enabled` |
 | `--no-ao` / `--ao` | — | Toggle glTF ambient occlusion & micro-cavities | `Enabled` |
 | `--no-occlusion` / `--occlusion` | — | Toggle Quadtree hierarchical occlusion culling | `Enabled` |

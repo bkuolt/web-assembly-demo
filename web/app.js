@@ -67,7 +67,7 @@
     select.disabled = false;
     if (playBtn) {
       playBtn.disabled = false;
-      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? '⏸ Pause' : '▶ Play';
+      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? 'Pause' : 'Play';
       playBtn.classList.toggle('active', BglWebGpuRenderer.animationPlaying);
     }
     if (animSection) animSection.style.opacity = '1';
@@ -88,7 +88,7 @@
     }
     const playBtn = document.getElementById('btn-anim-play');
     if (playBtn) {
-      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? '⏸ Pause' : '▶ Play';
+      playBtn.textContent = BglWebGpuRenderer.animationPlaying ? 'Pause' : 'Play';
       playBtn.classList.toggle('active', BglWebGpuRenderer.animationPlaying);
     }
   }
@@ -101,7 +101,7 @@
     }
     const playBtn = document.getElementById('btn-anim-play');
     if (playBtn) {
-      playBtn.textContent = next ? '⏸ Pause' : '▶ Play';
+      playBtn.textContent = next ? 'Pause' : 'Play';
       playBtn.classList.toggle('active', next);
     }
   }
@@ -387,7 +387,7 @@
         const title = document.createElement('div');
         title.className = 'compat-issue-title';
         const iconSpan = document.createElement('span');
-        iconSpan.textContent = '⚠️';
+        iconSpan.textContent = '!';
         const strongEl = document.createElement('strong');
         strongEl.textContent = String(item.feature || '');
         title.appendChild(iconSpan);
@@ -1472,7 +1472,7 @@
 
         if (activePad && BglState.wasmExports) {
           const isDualSense = /dualsense|054c|ps5|playstation/i.test(activePad.id);
-          const padTitle = isDualSense ? '🎮 PS5 DualSense Controller' : `🎮 ${activePad.id.split('(')[0].trim() || 'Gamepad'}`;
+          const padTitle = isDualSense ? 'PS5 DualSense Controller' : `${activePad.id.split('(')[0].trim() || 'Gamepad'}`;
 
           if (!lastGamepadConnected) {
             lastGamepadConnected = true;

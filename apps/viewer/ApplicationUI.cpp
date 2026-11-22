@@ -45,7 +45,7 @@ void Application::UpdateSettingsUI() {
 
     DrawSelectionFloatingBadge(vpW, vpH);
 
-    settingsUi_.BeginWindow("bgl-Engine Studio", std::max(16.0f, static_cast<float>(vpW) - 356.0f), 14.0f, 340.0f);
+    settingsUi_.BeginWindow("bgl Engine Studio", std::max(16.0f, static_cast<float>(vpW) - 356.0f), 14.0f, 340.0f);
 
     bgl::ui::UI::BeginGroup("Telemetry", true);
     const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
@@ -421,7 +421,7 @@ void Application::DrawEngineThemeSection() {
     if (bgl::ui::UI::Checkbox("Soft Poisson Shadows", shadows)) {
         ToggleShadows();
     }
-    bgl::ui::UI::Tooltip("Smooth cascaded directional shadows with Poisson disk sampling");
+    bgl::ui::UI::Tooltip("Directional 2048x2048 shadow map with 12-tap rotated Poisson PCF");
     bool hoverEffects = settingsUi_.Style().enableHoverEffects;
     if (bgl::ui::UI::ToggleBox("UI Hover Effects", hoverEffects, "Smooth hover highlights across widgets")) {
         settingsUi_.Style().enableHoverEffects = hoverEffects;

@@ -27,7 +27,7 @@ Native browser WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (P
 
 ## Architectural Overview
 
-The web viewer client is architected as an event-driven, reactive modular runtime without third-party web frameworks, ensuring minimal overhead and fast cold-start loading times (<100 ms).
+The web viewer client is architected as an event-driven, modular runtime without third-party web frameworks, keeping bundle overhead low and startup responsive.
 
 ```
                       +-----------------------------+
@@ -65,7 +65,7 @@ The web viewer client is architected as an event-driven, reactive modular runtim
 | Module | Identifier | Description |
 | :--- | :--- | :--- |
 | **Logger** | `BglLogger` | Categorized, color-badged console logger with microsecond-precision timing. |
-| **Notifier** | `BglNotifier` | Modern floating toast notification system for user-facing status and warnings. |
+| **Notifier** | `BglNotifier` | Floating toast notification system for user-facing errors, warnings, and status feedback. |
 | **State** | `BglState` | Central reactive telemetry store for camera, bounds, rendering backend, and diurnal sun angle. |
 | **UI Controller** | `BglUI` | DOM element binding, camera dropdown, HUD collapse, and glTF Inspector manager. |
 | **Offline Cache** | `BglModelCache` | `CacheStorage` API abstraction with in-memory map fallback for offline asset persistence. |
@@ -109,8 +109,8 @@ Each primitive binds a 7-resource bind group:
 **Hardware Mipmap Generation (`generateMipmaps`):**
 Every texture generates a full mip chain ($\lfloor\log_2(\max(W, H))\rfloor + 1$ levels down to $1\times 1$) on the GPU via a dedicated full-screen triangle render pass (`vs_mip` / `fs_mip`), eliminating distant shimmering and enabling 16× anisotropic filtering. All fragment shader texture fetches use `textureSampleGrad` with precomputed uniform screen-space UV derivatives (`duv1 = dpdx(uv)`, `duv2 = dpdy(uv)`).
 
-### 3. Tactile 3D Bump Mapping, MikkTSpace Tangents & Parallax Occlusion Mapping (POM)
-To achieve true sculptural depth and plastic relief on flat surfaces:
+### 3. Tangent-Space Normal Perturbation & Parallax Occlusion Mapping (POM)
+Tangent-space normal mapping and steep parallax relief:
 - **48-Byte Interleaved Vertex Layout & MikkTSpace Tangents**:
   Packs `position` (`vec3<f32>`), `normal` (`vec3<f32>`), `uv` (`vec2<f32>`), and `tangent` (`vec4<f32>`) into a cache-coherent 48-byte stride. When glTF `TANGENT` attributes are present, `getTBN()` orthogonalizes $\vec{T}$ against $\vec{N}$ via Gram-Schmidt and computes $\vec{B} = \text{normalize}(\vec{N} \times \vec{T} \cdot \text{sign}(T_w))$, falling back to the analytic $2\times 2$ screen-space cotangent frame when vertex tangents are omitted:
   $$\begin{pmatrix} duv_{1,x} & duv_{1,y} \\ duv_{2,x} & duv_{2,y} \end{pmatrix} \begin{pmatrix} \vec{T} \\ \vec{B} \end{pmatrix} = \begin{pmatrix} \vec{dp}_1 \\ \vec{dp}_2 \end{pmatrix}$$

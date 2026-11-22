@@ -83,8 +83,8 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
   - Refractive dielectric transmission for glass (`Transmission`, `IOR`).
   - True HDR IBL with WebGPU compute-generated Split-Sum BRDF LUT ($128\times 128$ RGBA16F), pre-filtered GGX specular cubemap mip chains, and $L_2$ Spherical Harmonics diffuse irradiance.
   - Forward+ clustered lighting with 16x8x8 frustum clusters ($1,024$ clusters) supporting directional, point, and spot lights (`KHR_lights_punctual`).
-- **Directional PCF Shadow Mapping**:
-  - $2048\times 2048$ `Depth32Float` shadow map depth pass with slope-scale depth bias and 9-tap $3\times 3$ percentage-closer filtering.
+- **Directional Shadow Mapping**:
+  - $2048\times 2048$ `Depth32Float` scene-fitted orthographic shadow map (`ShadowPass`) rendering `LOD1` proxy meshes with slope-scale depth bias and 12-tap rotated Poisson disk PCF (`LOD0`/`LOD1`, 1-tap compare at `LOD2`/`LOD3`).
 - **Tonemapping & Post-Processing**:
   - HDR `RGBA16Float` render target with Khronos PBR Neutral, AgX (Blender 4), and ACES Filmic tonemapping operators.
 - **Procedural Atmospheric Skybox**:
@@ -111,7 +111,7 @@ All third-party dependencies are pinned via `conan.lock` and managed determinist
 - **K Key**: Cycle Skybox Mode (Sharp / Blurred / Hidden).
 - **V Key**: Toggle Bump & Tangent-Space Normal Mapping.
 - **L Key**: Toggle Trilinear Mipmapping (16x Anisotropic vs Mip 0).
-- **M Key**: Toggle Directional Shadow Mapping (2048x2048 PCF).
+- **M Key**: Toggle Directional Shadow Mapping (2048x2048 12-tap Poisson PCF).
 - **R Key**: Toggle Environment Cubemap Reflections & Specular IBL.
 - **Ctrl+R Key**: Toggle Desktop Compute-Shader Hybrid Ray Tracing (RT Shadows, RTAO, 1-Bounce GGX Reflections).
 - **Ctrl+P Key**: Toggle Progressive Multi-Bounce Compute Path Tracer.

@@ -448,10 +448,10 @@
       const indicator = document.getElementById('cache-indicator-pill');
       if (indicator) {
         if (count > 0) {
-          indicator.textContent = `⚡ ${count} Model${count > 1 ? 's' : ''} Cached`;
+          indicator.textContent = `${count} Model${count > 1 ? 's' : ''} Cached`;
           indicator.classList.add('has-cache');
         } else {
-          indicator.textContent = `⚡ Browser Storage Ready`;
+          indicator.textContent = `Browser Storage Ready`;
           indicator.classList.remove('has-cache');
         }
       }
@@ -464,9 +464,9 @@
       for (const opt of select.options) {
         if (!opt.value) continue;
         const isCached = await this.has(opt.value);
-        const baseLabel = opt.getAttribute('data-label') || opt.textContent.replace(' ⚡', '');
+        const baseLabel = opt.getAttribute('data-label') || opt.textContent.replace(' [Cached]', '').replace(' ⚡', '');
         opt.setAttribute('data-label', baseLabel);
-        opt.textContent = isCached ? `${baseLabel} ⚡` : baseLabel;
+        opt.textContent = isCached ? `${baseLabel} [Cached]` : baseLabel;
       }
     }
   };
