@@ -431,6 +431,7 @@ if(BGL_BUILD_TESTING)
         tests/test_entity.cpp
         tests/test_engine_api.cpp
         tests/test_sprites.cpp
+        tests/test_ray_tracing.cpp
     )
 
     if(TARGET GTest::gtest)

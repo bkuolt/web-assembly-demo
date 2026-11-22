@@ -287,13 +287,16 @@ core::Result<void> RayTracingScene::Initialize(WGPUDevice device, WGPUQueue queu
     }
 
     // Group 1: 6 read-only storage buffers (TLAS, Instances, BLAS, Indices, Vertices, Materials)
+    constexpr std::array<uint64_t, 6> kMinBindingSizes{
+        sizeof(RtBvhNode), sizeof(RtInstance), sizeof(RtBvhNode), sizeof(uint32_t), sizeof(RtVertex), sizeof(RtMaterial),
+    };
     std::array<WGPUBindGroupLayoutEntry, 6> entries{};
     for (uint32_t i = 0; i < 6u; ++i) {
         entries[i] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         entries[i].binding = i;
         entries[i].visibility = WGPUShaderStage_Compute;
         entries[i].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
-        entries[i].buffer.minBindingSize = 16u;
+        entries[i].buffer.minBindingSize = kMinBindingSizes[i];
     }
 
     WGPUBindGroupLayoutDescriptor bglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
@@ -778,12 +781,16 @@ void RayTracingScene::RebuildBindGroups(const scene::Scene* scene) {
         entries[idx].offset = 0;
         entries[idx].size = size;
     };
-    bindBuf(0, tlasNodesBuffer_.Get(), std::max<uint64_t>(16u, tlasNodes_.size() * sizeof(RtBvhNode)));
-    bindBuf(1, instancesBuffer_.Get(), std::max<uint64_t>(16u, instances_.size() * sizeof(RtInstance)));
-    bindBuf(2, blasNodesBuffer_.Get(), std::max<uint64_t>(16u, blasNodes_.size() * sizeof(RtBvhNode)));
-    bindBuf(3, indicesBuffer_.Get(), std::max<uint64_t>(16u, indices_.size() * sizeof(uint32_t)));
-    bindBuf(4, verticesBuffer_.Get(), std::max<uint64_t>(16u, vertices_.size() * sizeof(RtVertex)));
-    bindBuf(5, materialsBuffer_.Get(), std::max<uint64_t>(16u, materials_.size() * sizeof(RtMaterial)));
+    bindBuf(0, tlasNodesBuffer_.Get(),
+            std::max<uint64_t>(sizeof(RtBvhNode), tlasNodes_.size() * sizeof(RtBvhNode)));
+    bindBuf(1, instancesBuffer_.Get(),
+            std::max<uint64_t>(sizeof(RtInstance), instances_.size() * sizeof(RtInstance)));
+    bindBuf(2, blasNodesBuffer_.Get(),
+            std::max<uint64_t>(sizeof(RtBvhNode), blasNodes_.size() * sizeof(RtBvhNode)));
+    bindBuf(3, indicesBuffer_.Get(), std::max<uint64_t>(sizeof(uint32_t), indices_.size() * sizeof(uint32_t)));
+    bindBuf(4, verticesBuffer_.Get(), std::max<uint64_t>(sizeof(RtVertex), vertices_.size() * sizeof(RtVertex)));
+    bindBuf(5, materialsBuffer_.Get(),
+            std::max<uint64_t>(sizeof(RtMaterial), materials_.size() * sizeof(RtMaterial)));
 
     WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     bgDesc.layout = sceneBgl_.Get();

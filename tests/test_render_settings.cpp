@@ -52,6 +52,16 @@ TEST(RenderSettings, DefaultsMatchPipelineDefaults) {
     EXPECT_FLOAT_EQ(s.weatherIntensity, pipeline.GetWeatherIntensity());
     EXPECT_FLOAT_EQ(s.windStrength, pipeline.GetWindStrength());
     EXPECT_EQ(std::to_underlying(s.debugView), std::to_underlying(pipeline.GetDebugViewMode()));
+    EXPECT_EQ(s.rayTracing, pipeline.IsRayTracingEnabled());
+    EXPECT_EQ(s.rtShadows, pipeline.IsRtShadowsEnabled());
+    EXPECT_EQ(s.rtAmbientOcclusion, pipeline.IsRtAoEnabled());
+    EXPECT_EQ(s.rtReflections, pipeline.IsRtReflectionsEnabled());
+    EXPECT_EQ(s.rtPathTracing, pipeline.IsRtPathTracingEnabled());
+    EXPECT_EQ(s.rtHalfRes, pipeline.IsRtHalfResEnabled());
+    EXPECT_FLOAT_EQ(s.rtAoRadius, pipeline.GetRtAoRadius());
+    EXPECT_FLOAT_EQ(s.rtShadowSoftness, pipeline.GetRtShadowSoftness());
+    EXPECT_FLOAT_EQ(s.rtReflectionIntensity, pipeline.GetRtReflectionIntensity());
+    EXPECT_EQ(s.rtPathBounces, pipeline.GetRtPathBounces());
 }
 
 TEST(RenderSettings, EqualityDetectsChanges) {
@@ -76,5 +86,45 @@ TEST(RenderSettings, EqualityDetectsChanges) {
     b = a;
 
     b.skyboxStyle = SkyboxStyle::Blurred;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rayTracing = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtShadows = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtAmbientOcclusion = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtReflections = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtPathTracing = true;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtHalfRes = false;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtAoRadius = 1.25f;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtShadowSoftness = 0.08f;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtReflectionIntensity = 0.5f;
+    EXPECT_NE(a, b);
+    b = a;
+
+    b.rtPathBounces = 5;
     EXPECT_NE(a, b);
 }
