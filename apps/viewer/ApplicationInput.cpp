@@ -1,9 +1,10 @@
 /**
  * @file ApplicationInput.cpp
- * @brief Desktop SDL2 keyboard shortcut handler for the bgl reference viewer.
+ * @brief Table-driven desktop SDL2 keyboard shortcut handler for the bgl reference viewer.
  */
 #include "core/Log.hpp"
 #include "viewer/Application.hpp"
+#include <array>
 #include <cmath>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -13,7 +14,18 @@
 namespace bgl::app {
 
 #if defined(BGL_PLATFORM_NATIVE)
+namespace {
+
+struct SimpleKeyAction {
+    int32_t key;
+    int32_t altKey;
+    void (Application::*handler)();
+};
+
+} // namespace
+
 void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
+    // 1. Camera bookmarks: Ctrl+1..9 saves, 1..9 restores
     if (keySym >= SDLK_1 && keySym <= SDLK_9) {
         const size_t slot = static_cast<size_t>(keySym - SDLK_1);
         if ((keyMod & KMOD_CTRL) != 0) {
@@ -25,215 +37,131 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         return;
     }
 
+    const bool hasCtrl = (keyMod & KMOD_CTRL) != 0;
+    const bool hasShift = (keyMod & KMOD_SHIFT) != 0;
+
+    // 2. Modifier-sensitive shortcuts (Ctrl+R/P, +/- exposure vs zoom, exit, wireframe)
     switch (keySym) {
     case SDLK_ESCAPE:
         running_ = false;
         return;
     case SDLK_F1:
         wireframeMode_ = !wireframeMode_;
-        BGL_LOG_INFO("Toggled Wireframe Overlay: {}", wireframeMode_ ? "ON" : "OFF");
-        break;
-    case SDLK_F2:
-        ToggleSettingsUI();
-        BGL_LOG_INFO("Toggled VRAM & Compression Settings UI: {}", showSettingsUi_ ? "ON" : "OFF");
-        break;
-    case SDLK_o:
-    case SDLK_F3: {
-        ToggleDebugOverlay();
-        const char* modeStr = (debugOverlay_.GetMode() == ui::OverlayMode::Full)      ? "Full"
-                              : (debugOverlay_.GetMode() == ui::OverlayMode::Minimal) ? "Minimal"
-                                                                                      : "Hidden";
-        BGL_LOG_INFO("Toggled In-Engine Debug Overlay mode: {}", modeStr);
-        break;
-    }
-    case SDLK_b:
-        ToggleBoundingBoxes();
-        BGL_LOG_INFO("Toggled 3D Bounding Boxes & AABBs visibility: {}", showBoundingBoxes_);
-        break;
-    case SDLK_q:
-        ToggleQuadtreeBounds();
-        BGL_LOG_INFO("Toggled 3D Quadtree Spatial Bounds visibility: {}", showQuadtreeBounds_);
-        break;
-    case SDLK_v:
-        ToggleBumpMapping();
-        BGL_LOG_INFO("Toggled Bump & Normal Mapping: {}", pipelineManager_.IsBumpMappingEnabled());
-        break;
-    case SDLK_l:
-        ToggleMipmapping();
-        BGL_LOG_INFO("Toggled Texture Mipmapping (16x Anisotropic Trilinear vs Mip-0): {}",
-                     pipelineManager_.IsMipmappingEnabled());
-        break;
-    case SDLK_m:
-        ToggleShadows();
-        BGL_LOG_INFO("Toggled Directional Shadow Mapping (PCF): {}", pipelineManager_.IsShadowsEnabled());
-        break;
+        BGL_LOG_INFO("Wireframe overlay: {}", wireframeMode_ ? "ON" : "OFF");
+        return;
     case SDLK_r:
-        if ((keyMod & KMOD_CTRL) != 0) {
+        if (hasCtrl) {
             pipelineManager_.SetRayTracingEnabled(!pipelineManager_.IsRayTracingEnabled());
-            BGL_LOG_INFO("Toggled Desktop Ray Tracing: {}", pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
+            BGL_LOG_INFO("Desktop Ray Tracing: {}", pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
         } else {
             ToggleReflections();
-            BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+            BGL_LOG_INFO("Environment reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
         }
-        break;
-    case SDLK_u:
-        ToggleAmbientOcclusion();
-        BGL_LOG_INFO("Toggled Ambient Occlusion & Micro-Cavities: {}", pipelineManager_.IsAmbientOcclusionEnabled());
-        break;
-    case SDLK_h:
-        ToggleOcclusionCulling();
-        BGL_LOG_INFO("Toggled Quadtree Hierarchical Occlusion Culling (Hi-Z): {}",
-                     pipelineManager_.IsOcclusionCullingEnabled());
-        break;
-    case SDLK_x:
-        CycleTonemapper();
-        BGL_LOG_INFO("Switched Tonemapper: {}",
-                     pipelineManager_.GetToneMapOperatorName(pipelineManager_.GetToneMapOperator()));
-        break;
-    case SDLK_z:
-        pipelineManager_.ToggleBloom();
-        BGL_LOG_INFO("Toggled Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
-        break;
-    case SDLK_e:
-        CycleEnvironmentPreset();
-        BGL_LOG_INFO("Switched Environment Preset: {}",
-                     pipelineManager_.GetEnvironmentPresetName(pipelineManager_.GetEnvironmentPreset()));
-        break;
-    case SDLK_k:
-        CycleSkyboxMode();
-        BGL_LOG_INFO("Switched Skybox Mode: {}", skybox_.GetModeName(skybox_.GetMode()));
-        break;
+        return;
     case SDLK_p:
-        if ((keyMod & KMOD_CTRL) != 0) {
+        if (hasCtrl) {
             if (!pipelineManager_.IsRayTracingEnabled()) {
                 pipelineManager_.SetRayTracingEnabled(true);
             }
             pipelineManager_.SetRtPathTracingEnabled(!pipelineManager_.IsRtPathTracingEnabled());
-            BGL_LOG_INFO("Toggled Desktop Compute Path Tracer: {}",
-                         pipelineManager_.IsRtPathTracingEnabled() ? "ON" : "OFF");
+            BGL_LOG_INFO("Desktop Path Tracer: {}", pipelineManager_.IsRtPathTracingEnabled() ? "ON" : "OFF");
         } else {
             ToggleParallaxOcclusion();
-            BGL_LOG_INFO("Toggled Parallax Occlusion Mapping (POM): {}", pipelineManager_.IsParallaxEnabled());
+            BGL_LOG_INFO("Parallax Occlusion Mapping (POM): {}", pipelineManager_.IsParallaxEnabled());
         }
-        break;
-    case SDLK_j:
-        ToggleLensFlare();
-        BGL_LOG_INFO("Toggled Directional Sun Lens Flare: {}", pipelineManager_.IsLensFlareEnabled());
-        break;
+        return;
+    case SDLK_z:
+        pipelineManager_.ToggleBloom();
+        BGL_LOG_INFO("Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
+        return;
     case SDLK_g:
         pipelineManager_.ToggleSSAO();
-        BGL_LOG_INFO("Toggled Screen-Space Ambient Occlusion (SSAO/GTAO): {}", pipelineManager_.IsSsaoEnabled());
-        break;
-    case SDLK_y:
-        CycleWeatherMode();
-        BGL_LOG_INFO("Switched Weather Effect: {}",
-                     pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
-        break;
-    case SDLK_F4:
-        ToggleRain();
-        BGL_LOG_INFO("Toggled Rain Shader Effect: {}",
-                     pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
-        break;
-    case SDLK_F5:
-        ToggleSnow();
-        BGL_LOG_INFO("Toggled Snow Shader Effect: {}",
-                     pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
-        break;
-    case SDLK_F6:
-        ToggleFog();
-        BGL_LOG_INFO("Toggled Fog Shader Effect: {}",
-                     pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
-        break;
-    case SDLK_F7:
-        ToggleSmoke();
-        BGL_LOG_INFO("Toggled Smoke Shader Effect: {}",
-                     pipelineManager_.GetWeatherModeName(pipelineManager_.GetWeatherMode()));
-        break;
-    case SDLK_i:
-    case SDLK_F8:
-        ToggleDayNightCycle();
-        BGL_LOG_INFO("Toggled Automatic Day/Night Cycle: {} (Time: {:02d}:{:02d})", dayNightCycleActive_ ? "ON" : "OFF",
-                     static_cast<int>(timeOfDay_), static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
-        break;
-    case SDLK_n:
-    case SDLK_F9:
-        CycleDebugViewMode();
-        BGL_LOG_INFO("Switched Diagnostic Debug View: {}",
-                     pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode()));
-        break;
-    case SDLK_F10:
-        ToggleLodHeatmap();
-        BGL_LOG_INFO("Toggled LOD Heatmap View: {}",
-                     pipelineManager_.GetDebugViewModeName(pipelineManager_.GetDebugViewMode()));
-        break;
-    case SDLK_F11:
-        ToggleLod();
-        BGL_LOG_INFO("Toggled Multi-Level Mesh & Shader LOD System: {}",
-                     pipelineManager_.IsLodEnabled() ? "ON" : "OFF");
-        break;
-    case SDLK_F12:
-        ToggleAutoLod();
-        BGL_LOG_INFO("Toggled Adaptive 60 FPS Auto-LOD: {} (LOD Bias: {:.2f}x)",
-                     pipelineManager_.IsAutoLodEnabled() ? "ON" : "OFF", pipelineManager_.GetLodBias());
-        break;
-    case SDLK_SEMICOLON:
-        SetLodBias(pipelineManager_.GetLodBias() - 0.15f);
-        BGL_LOG_INFO("LOD Bias decreased: {:.2f}x", pipelineManager_.GetLodBias());
-        break;
-    case SDLK_QUOTE:
-        SetLodBias(pipelineManager_.GetLodBias() + 0.15f);
-        BGL_LOG_INFO("LOD Bias increased: {:.2f}x", pipelineManager_.GetLodBias());
-        break;
-    case SDLK_COMMA:
-        SetTimeOfDay(timeOfDay_ - 0.5f);
-        BGL_LOG_INFO("Time of Day stepped back: {:02d}:{:02d}", static_cast<int>(timeOfDay_),
-                     static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
-        break;
-    case SDLK_PERIOD:
-        SetTimeOfDay(timeOfDay_ + 0.5f);
-        BGL_LOG_INFO("Time of Day stepped forward: {:02d}:{:02d}", static_cast<int>(timeOfDay_),
-                     static_cast<int>((timeOfDay_ - std::floor(timeOfDay_)) * 60.0f));
-        break;
-    case SDLK_f:
-        FocusSelection();
-        BGL_LOG_INFO("Framed camera on selection / scene bounds");
-        break;
-    case SDLK_c:
-        ToggleCameraMode();
-        BGL_LOG_INFO("Switched camera mode: {}",
-                     camera_.GetMode() == core::CameraMode::Fly ? "First-Person Fly" : "Orbit");
-        break;
-    case SDLK_t:
-        ToggleTurntable();
-        BGL_LOG_INFO("Turntable autorotation: {}", turntableActive_ ? "ON" : "OFF");
-        break;
+        BGL_LOG_INFO("SSAO/GTAO: {}", pipelineManager_.IsSsaoEnabled());
+        return;
     case SDLK_PLUS:
     case SDLK_KP_PLUS:
     case SDLK_EQUALS:
-        if ((keyMod & KMOD_SHIFT) != 0) {
+        if (hasShift) {
             AdjustExposure(0.15f);
-            BGL_LOG_INFO("Exposure increased: {:.2f}", pipelineManager_.GetExposure());
+            BGL_LOG_INFO("Exposure: {:.2f}", pipelineManager_.GetExposure());
         } else {
             camera_.Zoom(camera_.GetDistance() * 0.15f);
         }
-        break;
+        return;
     case SDLK_MINUS:
     case SDLK_KP_MINUS:
-        if ((keyMod & KMOD_SHIFT) != 0) {
+        if (hasShift) {
             AdjustExposure(-0.15f);
-            BGL_LOG_INFO("Exposure decreased: {:.2f}", pipelineManager_.GetExposure());
+            BGL_LOG_INFO("Exposure: {:.2f}", pipelineManager_.GetExposure());
         } else {
             camera_.Zoom(-camera_.GetDistance() * 0.15f);
         }
-        break;
+        return;
+    case SDLK_SEMICOLON:
+        SetLodBias(pipelineManager_.GetLodBias() - 0.15f);
+        BGL_LOG_INFO("LOD bias: {:.2f}x", pipelineManager_.GetLodBias());
+        return;
+    case SDLK_QUOTE:
+        SetLodBias(pipelineManager_.GetLodBias() + 0.15f);
+        BGL_LOG_INFO("LOD bias: {:.2f}x", pipelineManager_.GetLodBias());
+        return;
+    case SDLK_COMMA:
+        SetTimeOfDay(timeOfDay_ - 0.5f);
+        return;
+    case SDLK_PERIOD:
+        SetTimeOfDay(timeOfDay_ + 0.5f);
+        return;
     case SDLK_LEFTBRACKET:
-        RotateEnvironment(-0.0872665f); // -5 degrees
-        break;
+        RotateEnvironment(-0.0872665f);
+        return;
     case SDLK_RIGHTBRACKET:
-        RotateEnvironment(0.0872665f); // +5 degrees
-        break;
+        RotateEnvironment(0.0872665f);
+        return;
     default:
         break;
+    }
+
+    // 3. Zero-argument toggle and cycle hotkeys
+    static constexpr std::array<SimpleKeyAction, 24> kSimpleActions{{
+        {SDLK_F2, SDLK_UNKNOWN, &Application::ToggleSettingsUI},
+        {SDLK_o, SDLK_F3, &Application::ToggleDebugOverlay},
+        {SDLK_b, SDLK_UNKNOWN, &Application::ToggleBoundingBoxes},
+        {SDLK_q, SDLK_UNKNOWN, &Application::ToggleQuadtreeBounds},
+        {SDLK_v, SDLK_UNKNOWN, &Application::ToggleBumpMapping},
+        {SDLK_l, SDLK_UNKNOWN, &Application::ToggleMipmapping},
+        {SDLK_m, SDLK_UNKNOWN, &Application::ToggleShadows},
+        {SDLK_u, SDLK_UNKNOWN, &Application::ToggleAmbientOcclusion},
+        {SDLK_h, SDLK_UNKNOWN, &Application::ToggleOcclusionCulling},
+        {SDLK_x, SDLK_UNKNOWN, &Application::CycleTonemapper},
+        {SDLK_e, SDLK_UNKNOWN, &Application::CycleEnvironmentPreset},
+        {SDLK_k, SDLK_UNKNOWN, &Application::CycleSkyboxMode},
+        {SDLK_j, SDLK_UNKNOWN, &Application::ToggleLensFlare},
+        {SDLK_y, SDLK_UNKNOWN, &Application::CycleWeatherMode},
+        {SDLK_F4, SDLK_UNKNOWN, &Application::ToggleRain},
+        {SDLK_F5, SDLK_UNKNOWN, &Application::ToggleSnow},
+        {SDLK_F6, SDLK_UNKNOWN, &Application::ToggleFog},
+        {SDLK_F7, SDLK_UNKNOWN, &Application::ToggleSmoke},
+        {SDLK_i, SDLK_F8, &Application::ToggleDayNightCycle},
+        {SDLK_n, SDLK_F9, &Application::CycleDebugViewMode},
+        {SDLK_F10, SDLK_UNKNOWN, &Application::ToggleLodHeatmap},
+        {SDLK_F11, SDLK_UNKNOWN, &Application::ToggleLod},
+        {SDLK_F12, SDLK_UNKNOWN, &Application::ToggleAutoLod},
+        {SDLK_f, SDLK_UNKNOWN, &Application::FocusSelection},
+    }};
+
+    for (const auto& entry : kSimpleActions) {
+        if (keySym == entry.key || (entry.altKey != SDLK_UNKNOWN && keySym == entry.altKey)) {
+            (this->*entry.handler)();
+            return;
+        }
+    }
+
+    if (keySym == SDLK_c) {
+        ToggleCameraMode();
+        BGL_LOG_INFO("Camera mode: {}", camera_.GetMode() == core::CameraMode::Fly ? "Fly" : "Orbit");
+    } else if (keySym == SDLK_t) {
+        ToggleTurntable();
+        BGL_LOG_INFO("Turntable autorotation: {}", turntableActive_ ? "ON" : "OFF");
     }
 }
 #endif

@@ -250,7 +250,8 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   │   ├── FastGltfSceneBuilder.cpp   # Material, light, instancing, hierarchy, camera & skin builders
 │   │   ├── Quadtree.hpp/.cpp          # 4-way XZ partition, Refit(), Hi-Z occlusion & SSE LOD
 │   │   ├── RayPicker.hpp/.cpp         # Hierarchical Möller-Trumbore ray-triangle picking
-│   │   ├── Scene.hpp/.cpp             # Scene graph, morph/skin helpers, LOD decimation & tangents
+│   │   ├── Scene.hpp/.cpp             # Scene graph, hierarchy transforms & GPU cleanup
+│   │   ├── SceneMeshOps.cpp           # Tangent-space basis, adaptive grid/area LODs & morph targets
 │   │   └── TextureDecoder.hpp/.cpp    # PNG, JPEG, WebP, KTX2, HDR & EXR decoding
 │   ├── text/                          # -> libbgl_text.so
 │   │   ├── EmbeddedFont.hpp/.cpp      # Embedded TrueType fallback font bytes
@@ -341,7 +342,9 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
     ├── js/
     │   ├── core.js                    # Logging, notifications, state, UI cache & WASM bridge
     │   ├── gltf.js                    # glTF/GLB parser, scene graph & telemetry
-    │   └── renderer.js                # WebGPU Cook-Torrance PBR renderer
+    │   ├── math.js                    # Column-major mat4, projection, TRS & frustum culling math
+    │   ├── shaders.js                 # WGSL Cook-Torrance PBR, POM, weather & LOD shaders
+    │   └── renderer.js                # WebGPU device/pipeline manager & frame render loop
     └── dist/                          # Compiled WebAssembly module (`bgl_engine.wasm`)
 ```
 

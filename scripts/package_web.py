@@ -37,6 +37,8 @@ def package_web_app(output_zip: Path, include_sponza: bool = False):
         (web_dir / "gltf_worker.js", "gltf_worker.js"),
         (web_dir / "js" / "core.js", "js/core.js"),
         (web_dir / "js" / "gltf.js", "js/gltf.js"),
+        (web_dir / "js" / "math.js", "js/math.js"),
+        (web_dir / "js" / "shaders.js", "js/shaders.js"),
         (web_dir / "js" / "renderer.js", "js/renderer.js"),
     ]
 

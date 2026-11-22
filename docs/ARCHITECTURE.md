@@ -26,7 +26,12 @@ Enforced automatically by [`scripts/check_layering.py`](../scripts/check_layerin
 
 | Component | Location | Responsibility |
 | :--- | :--- | :--- |
-| Public SDK | `include/bgl/*.hpp` | Backend-free API: `App`, `Engine`, `Entity`, `Gui`, `Input`, `RenderSettings`, `Types` |
-| `EngineCore` | `src/engine/EngineCore.*` | Reusable runtime: SDL2 window, WebGPU context, scene loading, picking, sun/sky, full HDR render sequence |
+| Public SDK | `include/bgl/*.hpp` | Backend-free API: `App`, `Engine`, `Entity`, `Gui`, `Input`, `RenderSettings`, `Sprite`, `Types` |
+| Core & Math | `src/core/` | `Camera`, `CrashHandler`, `Gamepad`, `MemoryPool`, `MemoryTracker`, `NetworkFetcher`, `Sprite`, `ThreadPool` |
+| WebGPU Renderer | `src/gpu/` | `Context`, `Pipeline*`, `RayTracingScene*` (`Bvh`), `RayTracingPass*` (`Pipelines`, `Targets`), `PostProcessPass*`, `ShadowPass`, `Skybox`, `SpriteRenderer`, `ShaderManager` |
+| Scene & glTF | `src/scene/` | `FastGltfLoader*`, `Scene.*` & `SceneMeshOps.cpp` (tangents/LOD/morphs), `Animation`, `Quadtree`, `RayPicker`, `TextureDecoder*` |
+| Text & UI | `src/text/`, `src/ui/` | `FontLibrary`, `FontAtlas`, `TextShaper`, `TextRenderer`, `ImmediateUI*` (layout, widgets, overlays, modals, GPU), `DebugOverlay` |
+| `EngineCore` | `src/engine/EngineCore*` | Reusable runtime: SDL2 window, WebGPU context, scene loading, picking, sun/sky, full HDR + desktop RT render sequence |
 | `Engine::Impl` | `src/engine/EngineImpl.*`, `Engine.cpp` | Pimpl implementation of `bgl::Engine`: settings diffing, event pumping, default camera controls, GUI bracket |
-| `Application` | `apps/viewer/Application*` | Reference viewer app inheriting from `EngineCore`: hotkeys, studio UI, debug overlay, async preset loader, turntable |
+| `Application` | `apps/viewer/Application*`, `CommandLine.*` | Reference viewer app inheriting from `EngineCore`: table-driven hotkeys/CLI, studio UI, debug HUD, async model preset loader, turntable |
+| Web Runtime | `web/app.js`, `web/js/` | Browser coordinator, `core.js`, `gltf.js`, `math.js`, `shaders.js`, `renderer.js`, Web Worker, and `bgl_engine.wasm` bridge |

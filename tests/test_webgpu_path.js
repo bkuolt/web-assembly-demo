@@ -227,6 +227,8 @@ global.createImageBitmap = async () => ({ width: 64, height: 64 });
 // Load modular BglGltf and BglWebGpuRenderer definitions directly
 eval(fs.readFileSync('web/js/gltf.js', 'utf8'));
 global.BglState = { isBumpActive: true, isPomActive: true, bumpScale: 1.5, pomScale: 0.035 };
+eval(fs.readFileSync('web/js/math.js', 'utf8'));
+eval(fs.readFileSync('web/js/shaders.js', 'utf8'));
 eval(fs.readFileSync('web/js/renderer.js', 'utf8'));
 
 (async () => {

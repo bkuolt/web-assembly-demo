@@ -98,7 +98,7 @@
 /**
  * @namespace bgl::gui
  * @ingroup bgl_engine
- * @brief Immediate-mode debug UI helpers (`Begin`, `End`, `Label`, `Button`, `Checkbox`, `Slider`).
+ * @brief Immediate-mode SDF UI helpers (`Begin`/`End`, panels/containers/groups, controls, ID/disabled scoping, hover/tooltips, modals, loading screens, and fonts).
  */
 
 /**

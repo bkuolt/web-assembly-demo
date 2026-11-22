@@ -274,6 +274,7 @@ add_library(bgl::audio ALIAS bgl_audio)
 # ==============================================================================
 add_library(bgl_scene ${BGL_LIB_TYPE}
     src/scene/Scene.cpp
+    src/scene/SceneMeshOps.cpp
     src/scene/Animation.cpp
     src/scene/TextureDecoder.cpp
     src/scene/TextureDecoderHdr.cpp

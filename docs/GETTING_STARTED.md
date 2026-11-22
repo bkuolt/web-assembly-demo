@@ -46,9 +46,12 @@ In `main.cpp`, include `<bgl/bgl.hpp>`, subclass `bgl::App`, and finish with `BG
 
 ## 4. Add a New Sample
 
-1. Create `samples/03_my_sample/main.cpp` using `#include <bgl/bgl.hpp>`.
+1. Create `samples/04_my_sample/main.cpp` using `#include <bgl/bgl.hpp>`.
 2. Register it in `samples/CMakeLists.txt`:
    ```cmake
-   bgl_add_sample(sample_03_my_sample 03_my_sample/main.cpp)
+   bgl_add_sample(sample_04_my_sample 04_my_sample/main.cpp)
    ```
-3. Build and run `ctest --test-dir build/Release -R LayeringCheck` to verify no internal headers were included.
+3. Build and verify tests & layering rules:
+   ```bash
+   ctest --test-dir build/Release --output-on-failure -E BrowserE2ETest
+   ```

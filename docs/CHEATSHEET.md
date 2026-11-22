@@ -29,6 +29,8 @@ BGL_RUN(MyApp)
 | Poll keyboard | `if (bgl::Input::IsKeyPressed(bgl::Key::Escape)) Quit();` |
 | Poll mouse | `glm::vec2 delta = bgl::Input::MouseDelta();` |
 | Debug UI slider & tooltip | `bgl::gui::Begin("Panel"); bgl::gui::Slider("EV", GetEngine().Settings().exposure, 0.2f, 4.0f); bgl::gui::Tooltip("Exposure"); bgl::gui::End();` |
+| Containers, panels & groups | `bgl::gui::BeginPanel("Card"); bgl::gui::BeginContainer("Row", true, 2); bgl::gui::BeginGroup("Opts"); bgl::gui::Toggle("Enable", flag); bgl::gui::EndGroup(); bgl::gui::EndContainer(); bgl::gui::EndPanel();` |
+| ID scoping & disabled state | `bgl::gui::PushId(idx); bgl::gui::BeginDisabled(!ready); bgl::gui::Button("Apply"); bgl::gui::EndDisabled(); bgl::gui::PopId();` |
 | Toggle hover & modals | `bgl::gui::SetHoverEffects(true); bgl::gui::ShowMessage("Title", "Hello!"); bgl::gui::ShowLoadingScreen("Loading", 0.5f, "Assets...");` |
 | Load & switch UI fonts | `bgl::gui::SetDefaultFont("sans"); bgl::gui::LoadFont("code", "mono", 20.0f); bgl::gui::PushFont("code"); ... bgl::gui::PopFont();` |
 | Animated 2D sprite | `bgl::AnimatedSprite s; s.texture = *GetEngine().LoadSpriteTexture("sheet.png"); s.AddClip(bgl::SpriteClip::FromGrid("walk", 4, 2)); s.Play("walk"); s.Update(dt); GetEngine().DrawSprite(s);` |

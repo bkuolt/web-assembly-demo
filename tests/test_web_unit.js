@@ -134,7 +134,14 @@ global.GPUBufferUsage = { MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, I
 global.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
 
 // Load and evaluate modular web client scripts in browser defer order
-for (const relPath of ['../web/js/core.js', '../web/js/gltf.js', '../web/js/renderer.js', '../web/app.js']) {
+for (const relPath of [
+  '../web/js/core.js',
+  '../web/js/gltf.js',
+  '../web/js/math.js',
+  '../web/js/shaders.js',
+  '../web/js/renderer.js',
+  '../web/app.js'
+]) {
   const modPath = path.join(__dirname, relPath);
   eval(fs.readFileSync(modPath, 'utf8'));
 }

@@ -1,12 +1,12 @@
 # bgl-Engine Web Viewer & 3D Runtime
 
-A high-performance, zero-allocation native WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (PBR) runtime. Designed for seamless, photorealistic execution across modern WebGPU-enabled browsers (including Google Chrome, Microsoft Edge, and Mozilla Firefox).
+Native browser WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (PBR) runtime paired with `bgl_engine.wasm`. Targets WebGPU-enabled desktop and mobile browsers (Chrome, Edge, Firefox Nightly, Safari).
 
-[![Live GitHack Demo](https://img.shields.io/badge/Live_Demo-GitHack_Preview-059669?style=for-the-badge&logo=webassembly)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
-[![API Docs - Doxygen](https://img.shields.io/badge/API_Docs-Doxygen_Online-0284c7?style=for-the-badge&logo=doxygen)](https://bkuolt.github.io/web-assembly-demo/docs/)
-[![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-10b981?style=for-the-badge&logo=webgpu)](web/app.js)
-[![PBR](https://img.shields.io/badge/Shading-Cook--Torrance_GGX-blue?style=for-the-badge)](web/app.js)
-[![Tests Passing](https://img.shields.io/badge/Unit_Tests-73_Passing-22c55e?style=for-the-badge)](tests/test_web_unit.js)
+[![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
+[![Direct Mirror](https://img.shields.io/badge/Mirror-GitHack_main-0f766e?style=flat)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
+[![API Docs](https://img.shields.io/badge/Docs-Doxygen-0284c7?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
+[![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-0d9488?style=flat)](web/js/renderer.js)
+[![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-73_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
 
@@ -72,8 +72,10 @@ The web viewer client is architected as an event-driven, reactive modular runtim
 | **Loading Screen** | `BglLoadingScreen`| Multi-stage visual progress overlay with real-time download speed meters. |
 | **Network Fetcher** | `BglNetwork` | Chunked `ReadableStream` fetcher with byte transfer metrics and abort controllers. |
 | **Wasm Bridge** | `BglWasmBridge` | WebAssembly streaming loader and native C++ engine binding interface. |
-| **glTF Ingestion** | `BglGltf` | Binary GLB / JSON glTF parser, hierarchy tree generator, and AABB calculator. |
-| **WebGPU Engine** | `BglWebGpuRenderer`| Native hardware-accelerated WebGPU PBR renderer with WGSL shaders and 4-byte buffer alignment. |
+| **glTF Ingestion** | `BglGltf` | Binary GLB / JSON glTF parser, hierarchy tree generator, and AABB calculator (`js/gltf.js`). |
+| **Vector & Frustum Math** | `BglWebGpuMath` | Column-major 4x4 matrix, perspective `[0,1]`, inverse, TRS, and frustum culling math (`js/math.js`). |
+| **WGSL Shader Library** | `BglWebGpuShaders` | Cook-Torrance PBR, MikkTSpace/cotangent bump, POM, weather, and LOD WGSL source (`js/shaders.js`). |
+| **WebGPU Engine** | `BglWebGpuRenderer`| Hardware WebGPU PBR renderer, LOD slice generator, and zero-allocation render loop (`js/renderer.js`). |
 
 ---
 
