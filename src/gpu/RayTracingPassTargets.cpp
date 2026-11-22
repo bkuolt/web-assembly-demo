@@ -132,8 +132,8 @@ void RayTracingPass::EnsureResolutionTargets(uint32_t fullW, uint32_t fullH) {
                 aoHistoryTex_[0], aoHistoryView_[0]);
     CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA8Unorm, rtStorageUsage, "RT_AoHist1",
                 aoHistoryTex_[1], aoHistoryView_[1]);
-    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA8Unorm, rtStorageUsage, "RT_AoFinal", aoFinalTex_,
-                aoFinalView_);
+    CreateTex2D(device_, fullWidth_, fullHeight_, WGPUTextureFormat_RGBA8Unorm, rtStorageUsage, "RT_AoFinal",
+                aoFinalTex_, aoFinalView_);
 
     // 4. RT Reflections (Trace resolution HDR)
     CreateTex2D(device_, traceWidth_, traceHeight_, WGPUTextureFormat_RGBA16Float, rtStorageUsage, "RT_ReflRaw",
@@ -190,11 +190,11 @@ void RayTracingPass::RebuildPassBindGroups() {
 
     // Reflections trace bind group
     reflTraceBg_ = MakeBindGroup(device_, reflBgl_.Get(),
-                                 std::array<WGPUBindGroupEntry, 7>{
-                                     dynUbo, depthEntry, normRoughEntry,
-                                     MakeTexBgEntry(3, gbufferAlbedoMetallicView_.Get()),
-                                     MakeSamplerBgEntry(4, defaultSampler_), MakeTexBgEntry(5, envCubemapView_),
-                                     MakeTexBgEntry(6, reflRawView_.Get())},
+                                 std::array<WGPUBindGroupEntry, 7>{dynUbo, depthEntry, normRoughEntry,
+                                                                   MakeTexBgEntry(3, gbufferAlbedoMetallicView_.Get()),
+                                                                   MakeSamplerBgEntry(4, defaultSampler_),
+                                                                   MakeTexBgEntry(5, envCubemapView_),
+                                                                   MakeTexBgEntry(6, reflRawView_.Get())},
                                  "RT_ReflTrace_BG");
 
     // PathTrace bind group
@@ -206,16 +206,15 @@ void RayTracingPass::RebuildPassBindGroups() {
 
     // Unified Denoise bind group builder for 8-bit (Shadow/AO) and 16-bit HDR (Reflections)
     auto buildDenoiseSet = [&](WGPUBindGroupLayout bgl, WGPUTextureView rawV, WGPUTextureView scratchV,
-                               const std::array<TextureViewHandle, 2>& histV, WGPUTextureView finalV,
-                               const char* tag, DenoiseBindGroupSet& outSet) {
+                               const std::array<TextureViewHandle, 2>& histV, WGPUTextureView finalV, const char* tag,
+                               DenoiseBindGroupSet& outSet) {
         auto makeStep = [&](WGPUTextureView srcV, WGPUTextureView histPrevV, WGPUTextureView dstV, const char* step) {
             const std::string lbl = std::string{"RT_"} + tag + step;
-            return MakeBindGroup(device_, bgl,
-                                 std::array<WGPUBindGroupEntry, 6>{dynUbo, depthEntry, normRoughEntry,
-                                                                   MakeTexBgEntry(3, srcV),
-                                                                   MakeTexBgEntry(4, histPrevV),
-                                                                   MakeTexBgEntry(5, dstV)},
-                                 lbl.c_str());
+            return MakeBindGroup(
+                device_, bgl,
+                std::array<WGPUBindGroupEntry, 6>{dynUbo, depthEntry, normRoughEntry, MakeTexBgEntry(3, srcV),
+                                                  MakeTexBgEntry(4, histPrevV), MakeTexBgEntry(5, dstV)},
+                lbl.c_str());
         };
         for (uint32_t h = 0; h < 2u; ++h) {
             const uint32_t prevH = 1u - h;

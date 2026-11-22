@@ -393,8 +393,8 @@ void RayTracingPass::ExecutePrePass(WGPUCommandEncoder encoder, const RayTracing
     const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
 
     if (config_.shadows) {
-        ExecuteDenoise8Chain(encoder, shadowPipeline_.Get(), shadowTraceBg_.Get(), rtSceneBg, shadowBgs_, 0u,
-                             traceWgX, traceWgY, fullWgX, fullWgY, "Shadow", true, !config_.ambientOcclusion);
+        ExecuteDenoise8Chain(encoder, shadowPipeline_.Get(), shadowTraceBg_.Get(), rtSceneBg, shadowBgs_, 0u, traceWgX,
+                             traceWgY, fullWgX, fullWgY, "Shadow", true, !config_.ambientOcclusion);
     }
     if (config_.ambientOcclusion) {
         ExecuteDenoise8Chain(encoder, aoPipeline_.Get(), aoTraceBg_.Get(), rtSceneBg, aoBgs_, 4u, traceWgX, traceWgY,

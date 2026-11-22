@@ -242,8 +242,10 @@ add_library(bgl_gpu ${BGL_LIB_TYPE}
     src/gpu/GpuCuller.cpp
     src/gpu/GpuRayPicker.cpp
     src/gpu/RayTracingScene.cpp
+    src/gpu/RayTracingSceneBvh.cpp
     src/gpu/RayTracingPass.cpp
     src/gpu/RayTracingPassPipelines.cpp
+    src/gpu/RayTracingPassTargets.cpp
     src/gpu/Pipeline.cpp
     src/gpu/PipelineEffects.cpp
     src/gpu/PipelineIBL.cpp

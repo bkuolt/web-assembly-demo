@@ -191,10 +191,9 @@ private:
                                  const glm::vec3& cameraPos, const glm::vec3& sunDir, float solarElev,
                                  float envRotation, uint32_t fullW, uint32_t fullH) const noexcept;
     void WriteUniformSlot(uint32_t slotIdx, const RtPassUniforms& u) noexcept;
-    void DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0,
-                             WGPUBindGroup bg1, WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX, uint32_t wgY,
-                             const char* label, uint32_t startTsIdx = 0xFFFFFFFFu,
-                             uint32_t endTsIdx = 0xFFFFFFFFu) noexcept;
+    void DispatchComputePass(WGPUCommandEncoder encoder, WGPUComputePipeline pipe, WGPUBindGroup bg0, WGPUBindGroup bg1,
+                             WGPUBindGroup bg2, uint32_t slotIdx, uint32_t wgX, uint32_t wgY, const char* label,
+                             uint32_t startTsIdx = 0xFFFFFFFFu, uint32_t endTsIdx = 0xFFFFFFFFu) noexcept;
     void ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComputePipeline tracePipe, WGPUBindGroup traceBg,
                               WGPUBindGroup rtSceneBg, const DenoiseBindGroupSet& denoiseSet, uint32_t baseSlot,
                               uint32_t traceWgX, uint32_t traceWgY, uint32_t fullWgX, uint32_t fullWgY,
