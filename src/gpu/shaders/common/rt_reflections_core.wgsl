@@ -77,7 +77,7 @@ fn cs_rt_reflections(@builtin(global_invocation_id) gid : vec3<u32>) {
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
     let V = normalize(ubo.cameraPos.xyz - worldPos);
     let viewDist = length(ubo.cameraPos.xyz - worldPos);
-    let origin = worldPos + N * clamp(0.003 + viewDist * 0.001, 0.003, 0.04);
+    let origin = worldPos + N * clamp(0.0003 + viewDist * 0.0006, 0.0003, 0.03);
 
     var rng = rtPcgHash((gid.x * 3571u) ^ (gid.y * 7919u) ^ (u32(ubo.cameraPos.w) * 104729u));
     let u1 = rtRand01(&rng);

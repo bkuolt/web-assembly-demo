@@ -123,7 +123,7 @@ fn cs_pathtrace(@builtin(global_invocation_id) gid : vec3<u32>) {
         let V = -rd;
         let F0 = mix(vec3<f32>(0.04), baseCol, metallic);
         let diffCol = baseCol * (1.0 - metallic);
-        let hitOrigin = hit.worldPos + N * 0.0025;
+        let hitOrigin = hit.worldPos + N * clamp(0.0002 + hit.t * 0.0004, 0.0002, 0.015);
 
         // Next Event Estimation (Primary Sun + Punctual Lights)
         if (!isTransmissive) {

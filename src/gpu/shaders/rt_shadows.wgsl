@@ -40,7 +40,7 @@ fn cs_rt_shadows(@builtin(global_invocation_id) gid : vec3<u32>) {
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
     let N = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
     let viewDist = length(worldPos - ubo.cameraPos.xyz);
-    let origin = worldPos + N * clamp(0.002 + viewDist * 0.0008, 0.002, 0.03);
+    let origin = worldPos + N * clamp(0.0002 + viewDist * 0.0005, 0.0002, 0.02);
 
     var rng = rtPcgHash(gid.x + gid.y * 4099u + u32(ubo.cameraPos.w) * 16777619u);
     let sunL = normalize(ubo.sunDir.xyz);

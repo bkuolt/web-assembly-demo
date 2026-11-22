@@ -40,7 +40,7 @@ fn cs_rt_ao(@builtin(global_invocation_id) gid : vec3<u32>) {
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
     let N = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
     let viewDist = length(worldPos - ubo.cameraPos.xyz);
-    let origin = worldPos + N * clamp(0.002 + viewDist * 0.0005, 0.002, 0.02);
+    let origin = worldPos + N * clamp(0.0002 + viewDist * 0.0004, 0.0002, 0.02);
 
     var rng = rtPcgHash((gid.x * 1973u) ^ (gid.y * 9277u) ^ (u32(ubo.cameraPos.w) * 26699u));
     let radius = max(ubo.params1.x, 0.05);
