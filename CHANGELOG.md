@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Modularity, Documentation & Test Coverage Hardening (`src/`, `apps/viewer/`, `web/`, `tests/`, `.github/`, `docs/`)
+- **Modular Subsystem Splits:** Split monolithic source units into focused translation units — [`RayTracingSceneBvh.cpp`](src/gpu/RayTracingSceneBvh.cpp), [`RayTracingPassTargets.cpp`](src/gpu/RayTracingPassTargets.cpp), [`PipelineScene.cpp`](src/gpu/PipelineScene.cpp), [`SceneMeshOps.cpp`](src/scene/SceneMeshOps.cpp), [`ApplicationInput.cpp`](apps/viewer/ApplicationInput.cpp), [`web/js/math.js`](web/js/math.js), and [`web/js/shaders.js`](web/js/shaders.js) — preserving zero module-layering violations (`scripts/check_layering.py`) and warning-free `Doxyfile` builds.
+- **Expanded C++ & Web Unit Test Suites (`tests/`):** Expanded automated test coverage to **322 GoogleTests across 51 C++ suites** (`src/core/`, `src/scene/`, `src/gpu/`, `src/text/`, `src/ui/`, `src/audio/`, `src/engine/`, `apps/viewer/`) alongside **74 Web runtime unit tests** (`tests/test_web_unit.js`) and headless WebGPU pipeline validation (`tests/test_webgpu_path.js`).
+- **CI & Tooling Consistency:** Synchronized [`Taskfile.yml`](Taskfile.yml), [`run_ci_locally.sh`](scripts/run_ci_locally.sh), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), and [`.github/workflows/pages.yml`](.github/workflows/pages.yml) to validate the split web modules (`math.js`, `shaders.js`) and current repository layout.
+
 ### Desktop Compute-Shader Ray Tracing, Bindless Texture Arrays & Progressive Path Tracer (`src/gpu/`, `src/engine/`, `apps/viewer/`, `include/bgl/`, `tests/test_ray_tracing.cpp`)
 - **WebGPU Capability Negotiation & Telemetry (`src/gpu/Context.*`, `Handle.hpp`, `Uniforms.hpp`):**
   - Queried and enabled native `wgpu-native` capabilities on `BGL_PLATFORM_NATIVE`: bindless texture arrays (`WGPUNativeFeature_TextureBindingArray`, `WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing`, `WGPUNativeFeature_PartiallyBoundBindingArray` with `maxBindingArrayElementsPerShaderStage = 128`), `WGPUNativeFeature_Subgroup`, and `WGPUFeatureName_TimestampQuery`.

@@ -22,6 +22,8 @@ fi
 if command -v node >/dev/null 2>&1; then
   node --check web/js/core.js
   node --check web/js/gltf.js
+  node --check web/js/math.js
+  node --check web/js/shaders.js
   node --check web/js/renderer.js
   node --check web/app.js
   node --check web/gltf_worker.js

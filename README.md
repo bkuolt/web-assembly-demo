@@ -191,6 +191,9 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 ├── conanfile.py                       # Conan 2.x package recipe
 ├── conan.lock                         # Deterministic dependency lockfile
 ├── docs/
+│   ├── ARCHITECTURE.md                # Layering rules, module boundaries & data flow
+│   ├── GETTING_STARTED.md             # Setup, Conan 2.x, presets & first app walkthrough
+│   ├── CHEATSHEET.md                  # Quick-reference snippets for bgl Engine & GUI
 │   ├── modules.dox                    # Doxygen @defgroup & namespace documentation
 │   └── FEATURE_AND_PHYSICS_REPORT.md  # Architecture roadmap & Jolt physics integration blueprint
 ├── assets/
