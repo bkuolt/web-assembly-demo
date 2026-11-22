@@ -12,6 +12,10 @@
 #include <cstring>
 #include <utility>
 
+#if defined(BGL_PLATFORM_NATIVE)
+#include <webgpu/wgpu.h>
+#endif
+
 namespace bgl::gpu {
 
 namespace {
@@ -946,6 +950,11 @@ core::Result<void> RayTracingPass::ReloadShaders(std::span<const std::string> mo
 }
 
 void RayTracingPass::Shutdown() noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    if (device_ && timestampReadInFlight_) {
+        wgpuDevicePoll(device_, WGPU_TRUE, nullptr);
+    }
+#endif
     ReleaseResolutionTargets();
     gbufferPerDrawRing_.Shutdown();
     gbufferInstanceBuffer_.Shutdown();

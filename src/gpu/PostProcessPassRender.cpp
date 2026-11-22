@@ -47,7 +47,8 @@ void PostProcessPass::UploadTonemapUniforms(const glm::mat4& viewProj, const glm
         .sunScreenPos = glm::vec4{sunUV.x, sunUV.y, sunVisibility, aspect},
         .flareParams = glm::vec4{lensFlareIntensity_, 0.38f, 1.0f, 0.0f},
         .bloomParams = glm::vec4{bloomIntensity_, bloomThreshold_, 0.85f, enableBloom_ ? 1.0f : 0.0f},
-        .ssaoParams = glm::vec4{ssaoIntensity_, ssaoRadius_, 0.005f, enableSsao_ ? 1.0f : 0.0f},
+        .ssaoParams = glm::vec4{externalAoView_ ? 1.0f : ssaoIntensity_, ssaoRadius_, 0.005f,
+                                (enableSsao_ || externalAoView_ != nullptr) ? 1.0f : 0.0f},
     };
     wgpuQueueWriteBuffer(queue_, tonemapUniformBuffer_.Get(), 0, &uniforms, sizeof(uniforms));
 
@@ -55,7 +56,7 @@ void PostProcessPass::UploadTonemapUniforms(const glm::mat4& viewProj, const glm
         .proj = projMatrix_,
         .invProj = invProjMatrix_,
         .dofParams = glm::vec4{enableDof_ ? 1.0f : 0.0f, dofFocusDistance_, dofFocusRange_, dofMaxBlurPx_},
-        .ssrParams = glm::vec4{enableSsr_ ? 1.0f : 0.0f, ssrIntensity_, 14.0f, 0.35f},
+        .ssrParams = glm::vec4{(enableSsr_ && !suppressSsr_) ? 1.0f : 0.0f, ssrIntensity_, 14.0f, 0.35f},
         .godRayParams = glm::vec4{enableGodRays_ ? 1.0f : 0.0f, godRaysIntensity_, 0.94f, 0.85f},
         .gradingParams = glm::vec4{static_cast<float>(std::to_underlying(colorGradingPreset_)), vignetteIntensity_,
                                    chromaAberration_, filmGrainIntensity_},
@@ -148,7 +149,7 @@ void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPU
     DrawFullscreenPass(encoder, linearDepthView_.Get(), dlPipe, depthLinBindGroup_.Get(), "Pass_DepthLinearize");
     preparedDepthThisFrame_ = true;
 
-    if (enableSsao_ && gtaoRawView_ && gtaoBlurView_ && gtaoBindGroup_ && gtaoBlurBindGroup_) {
+    if (enableSsao_ && !externalAoView_ && gtaoRawView_ && gtaoBlurView_ && gtaoBindGroup_ && gtaoBlurBindGroup_) {
         const GtaoUniformData gtaoUbo{
             .invProj = invProjMatrix_,
             .params = glm::vec4{ssaoRadius_, ssaoIntensity_, 0.005f, 2.0f},
@@ -288,7 +289,9 @@ void PostProcessPass::PrepareFxaaTonemapPass(WGPUCommandEncoder encoder, WGPUTex
     WGPUTextureView activeBloomView =
         (enableBloom_ && bloomMipViews_[0]) ? bloomMipViews_[0].Get() : fallbackBlackView_.Get();
     WGPUTextureView activeGtaoView =
-        (enableSsao_ && depthReadView && gtaoBlurView_) ? gtaoBlurView_.Get() : fallbackWhiteView_.Get();
+        externalAoView_ ? externalAoView_
+                        : ((enableSsao_ && preparedGtaoThisFrame_ && gtaoBlurView_) ? gtaoBlurView_.Get()
+                                                                                    : fallbackWhiteView_.Get());
 
     EnsureTonemapBindGroup(hdrResolveView, activeDepthView, activeBloomView, activeGtaoView);
     UploadTonemapUniforms(viewProj, cameraPos, lightDir, envRotation, viewportW, viewportH);
@@ -302,10 +305,13 @@ void PostProcessPass::PrepareFxaaTonemapPass(WGPUCommandEncoder encoder, WGPUTex
 void PostProcessPass::Prepare(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView, WGPUTextureView depthReadView,
                               uint32_t sampleCount, const glm::mat4& viewProj, const glm::mat4& projMatrix,
                               const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation,
-                              uint32_t viewportW, uint32_t viewportH, float deltaTime, float elapsedTime) {
+                              uint32_t viewportW, uint32_t viewportH, float deltaTime, float elapsedTime,
+                              WGPUTextureView aoOverrideView, bool suppressSsr) {
     preparedLdrThisFrame_ = false;
     preparedDepthThisFrame_ = false;
     preparedGtaoThisFrame_ = false;
+    externalAoView_ = aoOverrideView;
+    suppressSsr_ = suppressSsr;
     if (!encoder || !hdrResolveView || !tonemapPipeline_ || viewportW == 0 || viewportH == 0) {
         return;
     }
@@ -347,7 +353,9 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureVie
     WGPUTextureView activeBloomView =
         (enableBloom_ && bloomMipViews_[0]) ? bloomMipViews_[0].Get() : fallbackBlackView_.Get();
     WGPUTextureView activeGtaoView =
-        (enableSsao_ && preparedGtaoThisFrame_ && gtaoBlurView_) ? gtaoBlurView_.Get() : fallbackWhiteView_.Get();
+        externalAoView_ ? externalAoView_
+                        : ((enableSsao_ && preparedGtaoThisFrame_ && gtaoBlurView_) ? gtaoBlurView_.Get()
+                                                                                    : fallbackWhiteView_.Get());
 
     EnsureTonemapBindGroup(hdrResolveView, activeDepthView, activeBloomView, activeGtaoView);
     if (!tonemapBindGroup_) {

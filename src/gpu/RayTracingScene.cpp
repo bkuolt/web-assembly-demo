@@ -16,6 +16,10 @@
 #include <limits>
 #include <numeric>
 
+#if defined(BGL_PLATFORM_NATIVE)
+#include <webgpu/wgpu.h>
+#endif
+
 namespace bgl::gpu {
 
 namespace {
@@ -303,6 +307,10 @@ core::Result<void> RayTracingScene::Initialize(WGPUDevice device, WGPUQueue queu
     }
 
     if (supportsBindlessTextures_) {
+        WGPUBindGroupLayoutEntryExtras texArrayExtras{};
+        texArrayExtras.chain.sType = static_cast<WGPUSType>(WGPUSType_BindGroupLayoutEntryExtras);
+        texArrayExtras.count = kMaxBindlessTextures;
+
         std::array<WGPUBindGroupLayoutEntry, 2> bindlessEntries{};
         bindlessEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
         bindlessEntries[0].binding = 0;
@@ -310,6 +318,7 @@ core::Result<void> RayTracingScene::Initialize(WGPUDevice device, WGPUQueue queu
         bindlessEntries[0].sampler.type = WGPUSamplerBindingType_Filtering;
 
         bindlessEntries[1] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+        bindlessEntries[1].nextInChain = &texArrayExtras.chain;
         bindlessEntries[1].binding = 1;
         bindlessEntries[1].visibility = WGPUShaderStage_Compute;
         bindlessEntries[1].texture.sampleType = WGPUTextureSampleType_Float;
@@ -803,10 +812,14 @@ void RayTracingScene::RebuildBindGroups(const scene::Scene* scene) {
         samplerEntry.binding = 0;
         samplerEntry.sampler = defaultSampler_;
 
+        WGPUBindGroupEntryExtras texArrayExtras{};
+        texArrayExtras.chain.sType = static_cast<WGPUSType>(WGPUSType_BindGroupEntryExtras);
+        texArrayExtras.textureViews = texViews.data();
+        texArrayExtras.textureViewCount = texViews.size();
+
         WGPUBindGroupEntry texArrayEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+        texArrayEntry.nextInChain = &texArrayExtras.chain;
         texArrayEntry.binding = 1;
-        texArrayEntry.textureViews = texViews.data();
-        texArrayEntry.textureViewCount = texViews.size();
 
         std::array<WGPUBindGroupEntry, 2> blEntries{samplerEntry, texArrayEntry};
         WGPUBindGroupDescriptor blBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;

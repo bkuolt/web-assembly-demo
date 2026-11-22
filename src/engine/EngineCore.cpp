@@ -70,6 +70,13 @@ core::Result<void> EngineCore::Initialize(const EngineCoreConfig& config) {
         return res;
     }
 
+    if (auto rtRes = pipelineManager_.InitializeDesktopRayTracing(gpuContext_.SupportsDesktopRayTracing(),
+                                                                  gpuContext_.SupportsBindlessTextures(),
+                                                                  gpuContext_.SupportsTimestampQueries());
+        !rtRes) {
+        BGL_LOG_WARN("Desktop RayTracing disabled: {}", rtRes.error());
+    }
+
     if (auto res = skybox_.Initialize(gpuContext_.GetDevice(), gpuContext_.GetQueue(), gpu::Context::GetHdrFormat(),
                                       gpuContext_.GetSampleCount());
         !res) {
@@ -159,10 +166,39 @@ void EngineCore::Render() {
     glm::vec3 camPos = camera_.GetPosition();
     glm::vec3 sunDir = sunDir_;
 
-    // 0. Directional Shadow Map Depth Pre-Pass (before main 4x MSAA color render pass)
+    if (activeScene_ && pipelineManager_.IsPathTracingActive()) {
+        pipelineManager_.RenderPathTracePass(gpuContext_.GetCommandEncoder(), *activeScene_,
+                                             gpuContext_.GetHdrResolveView(), vp, camPos, sunDir,
+                                             gpuContext_.GetWidth(), gpuContext_.GetHeight());
+        pipelineManager_.PreparePostProcessPass(
+            gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), nullptr, 1u, vp,
+            camera_.GetProjectionMatrix(), camPos, sunDir, skybox_.GetRotation(), gpuContext_.GetWidth(),
+            gpuContext_.GetHeight(), lastDeltaTime_, elapsedTime_);
+        OnPrepareOverlay();
+        WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
+        if (!swapchainPass) {
+            return;
+        }
+        pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(), vp, camPos, sunDir,
+                                           skybox_.GetRotation(), gpuContext_.GetWidth(), gpuContext_.GetHeight());
+        spriteRenderer_.Render2D(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+        OnRenderOverlay(swapchainPass);
+        gpuContext_.EndFrame(swapchainPass);
+        pipelineManager_.PollRayTracingTimestamps();
+        return;
+    }
+
+    // 0. Desktop RayTracing Pre-Pass (G-Buffer + RT Shadows + RTAO) or Directional Shadow Map Pre-Pass
     if (activeScene_) {
         pipelineManager_.EnsureOpaqueCopyTexture(gpuContext_.GetWidth(), gpuContext_.GetHeight());
-        pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
+        pipelineManager_.RenderRayTracingPrePass(gpuContext_.GetCommandEncoder(), *activeScene_, vp, camPos, sunDir,
+                                                 quadtree_.get(), camera_.GetViewMatrix(),
+                                                 camera_.GetProjectionMatrix(), gpuContext_.GetWidth(),
+                                                 gpuContext_.GetHeight(), camera_.GetNearPlane(),
+                                                 camera_.GetFarPlane());
+        if (!pipelineManager_.IsRtShadowsActive()) {
+            pipelineManager_.RenderShadowPass(gpuContext_.GetCommandEncoder(), *activeScene_, sunDir, quadtree_.get());
+        }
     }
 
     WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
@@ -214,9 +250,15 @@ void EngineCore::Render() {
         }
     }
 
-    // 5. Render depth-tested / additive HDR 3D billboards, then end HDR MSAA pass for outline & post-process
+    // 5. Render depth-tested / additive HDR 3D billboards, then end HDR MSAA pass for RT reflections, outline &
+    // post-process
     spriteRenderer_.Render3D(transparentPass, vp, camPos, camera_.GetViewMatrix());
     gpuContext_.FinishHdrPass(transparentPass);
+
+    if (activeScene_) {
+        pipelineManager_.RenderRayTracingPostOpaque(gpuContext_.GetCommandEncoder(), gpuContext_.GetHdrResolveView(), vp,
+                                                    camPos, sunDir, gpuContext_.GetWidth(), gpuContext_.GetHeight());
+    }
 
     if (activeScene_ && selectedNode_) {
         pipelineManager_.RenderSelectionOutline(gpuContext_.GetCommandEncoder(), *activeScene_, selectedNode_.get(), vp,
@@ -246,6 +288,7 @@ void EngineCore::Render() {
     OnRenderOverlay(swapchainPass);
 
     gpuContext_.EndFrame(swapchainPass);
+    pipelineManager_.PollRayTracingTimestamps();
 }
 
 void EngineCore::Shutdown() {

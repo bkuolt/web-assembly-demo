@@ -26,6 +26,7 @@ struct SceneLightingUniforms {
 @group(0) @binding(3) var shadowSampler : sampler_comparison;
 @group(0) @binding(4) var brdfLutTexture : texture_2d<f32>;
 @group(0) @binding(5) var opaqueColorTexture : texture_2d<f32>;
+@group(0) @binding(6) var rtShadowTex : texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> drawUbo : PerDrawUniforms;
 
@@ -795,7 +796,15 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let solarElev = sceneLighting.lightDir.w;
     let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
     var shadowFactor = 1.0;
-    if ((flags & 4096u) != 0u) {
+    var rtPunctualShadows = vec4<f32>(1.0);
+    if ((flags & 16777216u) != 0u) {
+        let rtDims = vec2<i32>(textureDimensions(rtShadowTex, 0));
+        let rtPx = clamp(vec2<i32>(in.clipPos.xy), vec2<i32>(0), rtDims - vec2<i32>(1));
+        rtPunctualShadows = textureLoad(rtShadowTex, rtPx, 0);
+        if ((flags & 4096u) != 0u) {
+            shadowFactor = rtPunctualShadows.r;
+        }
+    } else if ((flags & 4096u) != 0u) {
         shadowFactor = computePCFShadow(in.worldPos, geomN, sunL, in.clipPos.xy);
     }
 
@@ -866,6 +875,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
                 var pShadow = 1.0;
                 if (lightType == 0u && sceneLighting.spotAngles[li].z > 0.5) {
                     pShadow = shadowFactor;
+                } else if ((flags & 16777216u) != 0u && (flags & 4096u) != 0u) {
+                    if (li == 0u) { pShadow = rtPunctualShadows.g; }
+                    else if (li == 1u) { pShadow = rtPunctualShadows.b; }
+                    else if (li == 2u) { pShadow = rtPunctualShadows.a; }
                 }
                 directLighting = directLighting + evaluateDirectLobe(
                     L_p, V, N, anisoT, anisoB, anisoStrength, lightRadiance, F0, diffuseColor, roughness, metallic,
@@ -917,6 +930,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
     ambientDiffuse = ambientDiffuse * diurnalAmbientScale;
     ambientSpecular = ambientSpecular * diurnalAmbientScale;
+    if ((flags & 33554432u) != 0u && transFactor <= 0.001) {
+        let rtFade = 1.0 - smoothstep(0.40, 0.65, roughness);
+        ambientSpecular = ambientSpecular * (1.0 - rtFade);
+    }
 
     var finalColor = directLighting + ambientDiffuse + ambientSpecular + emissive;
 

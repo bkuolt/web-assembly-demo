@@ -15,6 +15,8 @@
 #include "gpu/GpuRayPicker.hpp"
 #include "gpu/Handle.hpp"
 #include "gpu/PostProcessPass.hpp"
+#include "gpu/RayTracingPass.hpp"
+#include "gpu/RayTracingScene.hpp"
 #include "gpu/ShadowPass.hpp"
 #include "gpu/Uniforms.hpp"
 #include <array>
@@ -86,6 +88,12 @@ public:
      */
     core::Result<void> Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                   uint32_t sampleCount = 4);
+
+    /**
+     * @brief Initializes Desktop WebGPU Hybrid Ray Tracing & Progressive Path Tracing subsystems.
+     */
+    core::Result<void> InitializeDesktopRayTracing(bool supportsDesktopRt, bool supportsBindlessTextures,
+                                                   bool supportsTimestampQueries);
 
     /**
      * @brief Recompiles and hot-swaps GPU pipelines affected by the given modified entry WGSL virtual paths.
@@ -175,6 +183,31 @@ public:
                            const glm::mat4& viewProj = glm::mat4{1.0f}, const glm::vec3& cameraPos = glm::vec3{0.0f},
                            const glm::vec3& lightDir = glm::vec3{0.577f}, float envRotation = 0.0f,
                            uint32_t viewportW = 1280, uint32_t viewportH = 720);
+
+    /**
+     * @brief Executes Desktop Ray Tracing G-Buffer, RT Shadows, and RTAO compute + denoise passes prior to PBR.
+     */
+    void RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::mat4& viewProj,
+                                 const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                                 const scene::Quadtree* spatialIndex, const glm::mat4& viewMatrix,
+                                 const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH, float zNear,
+                                 float zFar);
+
+    /**
+     * @brief Executes Desktop RT Reflections, Denoiser, and HDR additive composite after opaque + skybox.
+     */
+    void RenderRayTracingPostOpaque(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView,
+                                    const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                                    uint32_t viewportW, uint32_t viewportH);
+
+    /**
+     * @brief Executes Progressive Compute Path Tracing and presents onto `hdrResolveView`.
+     */
+    void RenderPathTracePass(WGPUCommandEncoder encoder, scene::Scene& scene, WGPUTextureView hdrResolveView,
+                             const glm::mat4& viewProj, const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                             uint32_t viewportW, uint32_t viewportH);
+
+    void PollRayTracingTimestamps() noexcept { rtPass_.PollGpuTimestamps(); }
 
     [[nodiscard]] WGPUTextureView GetUiBackdropView() const noexcept { return postProcessPass_.GetUiBackdropView(); }
 
@@ -496,6 +529,79 @@ public:
     [[nodiscard]] const GpuCuller& GetGpuCuller() const noexcept { return gpuCuller_; }
     [[nodiscard]] GpuRayPicker& GetGpuRayPicker() noexcept;
     [[nodiscard]] const GpuRayPicker& GetGpuRayPicker() const noexcept { return gpuRayPicker_; }
+    [[nodiscard]] RayTracingScene& GetRayTracingScene() noexcept { return rtScene_; }
+    [[nodiscard]] const RayTracingScene& GetRayTracingScene() const noexcept { return rtScene_; }
+    [[nodiscard]] RayTracingPass& GetRayTracingPass() noexcept { return rtPass_; }
+    [[nodiscard]] const RayTracingPass& GetRayTracingPass() const noexcept { return rtPass_; }
+
+    // Desktop Ray Tracing Controls & Telemetry
+    [[nodiscard]] bool IsDesktopRayTracingSupported() const noexcept { return desktopRtSupported_; }
+    void SetRayTracingEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.enabled = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRayTracingEnabled() const noexcept { return rtPass_.GetConfig().enabled; }
+    void SetRtShadowsEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.shadows = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRtShadowsEnabled() const noexcept { return rtPass_.GetConfig().shadows; }
+    void SetRtAoEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.ambientOcclusion = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRtAoEnabled() const noexcept { return rtPass_.GetConfig().ambientOcclusion; }
+    void SetRtReflectionsEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.reflections = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRtReflectionsEnabled() const noexcept { return rtPass_.GetConfig().reflections; }
+    void SetRtPathTracingEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.pathTracing = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRtPathTracingEnabled() const noexcept { return rtPass_.GetConfig().pathTracing; }
+    void SetRtHalfResEnabled(bool enabled) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.halfRes = enabled;
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] bool IsRtHalfResEnabled() const noexcept { return rtPass_.GetConfig().halfRes; }
+    void SetRtAoRadius(float radius) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.aoRadius = std::clamp(radius, 0.05f, 5.0f);
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] float GetRtAoRadius() const noexcept { return rtPass_.GetConfig().aoRadius; }
+    void SetRtShadowSoftness(float softness) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.shadowSoftness = std::clamp(softness, 0.0f, 0.15f);
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] float GetRtShadowSoftness() const noexcept { return rtPass_.GetConfig().shadowSoftness; }
+    void SetRtReflectionIntensity(float intensity) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.reflectionIntensity = std::clamp(intensity, 0.0f, 2.0f);
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] float GetRtReflectionIntensity() const noexcept { return rtPass_.GetConfig().reflectionIntensity; }
+    void SetRtPathBounces(uint32_t bounces) noexcept {
+        auto cfg = rtPass_.GetConfig();
+        cfg.pathBounces = std::clamp(bounces, 1u, 6u);
+        rtPass_.SetConfig(cfg);
+    }
+    [[nodiscard]] uint32_t GetRtPathBounces() const noexcept { return rtPass_.GetConfig().pathBounces; }
+    void ResetRtPathAccumulation() noexcept { rtPass_.ResetPathAccumulation(); }
+    [[nodiscard]] bool IsRtShadowsActive() const noexcept { return rtPass_.IsShadowActive(rtScene_); }
+    [[nodiscard]] bool IsRtAoActive() const noexcept { return rtPass_.IsAoActive(rtScene_); }
+    [[nodiscard]] bool IsRtReflectionsActive() const noexcept { return rtPass_.IsReflectionsActive(rtScene_); }
+    [[nodiscard]] bool IsPathTracingActive() const noexcept { return rtPass_.IsPathTracingActive(rtScene_); }
+    [[nodiscard]] RtPassStats GetRtPassStats() const noexcept { return rtPass_.GetStats(rtScene_); }
 
     // Pure CPU helpers for Mipmap Generation, Shadow Matrices, SH Irradiance, Tonemapping, and Clustered Forward+ (also
     // used by unit tests)
@@ -682,6 +788,10 @@ private:
 
     uint64_t skinFrameId_{1};
     bool skinFrameAdvanced_{false};
+    bool framePreparedByRtPrePass_{false};
+    bool desktopRtSupported_{false};
+    WGPUTextureView cachedRtShadowView_{nullptr};
+    std::vector<std::pair<const scene::SceneNode*, size_t>> rtOpaqueItemsScratch_{};
     std::vector<scene::QuadtreeItem> visibleItemsScratch_{};
     std::vector<RenderItem> renderItemsScratch_{};
     std::vector<DrawDispatchItem> drawCallsScratch_{};
@@ -721,6 +831,8 @@ private:
     PostProcessPass postProcessPass_{};
     GpuCuller gpuCuller_{};
     GpuRayPicker gpuRayPicker_{};
+    RayTracingScene rtScene_{};
+    RayTracingPass rtPass_{};
 };
 
 } // namespace bgl::gpu

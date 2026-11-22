@@ -339,6 +339,19 @@ void Application::Update(float deltaTime) {
     stats.isDualSense = gp.isDualSense;
     stats.gamepadName.assign(gp.deviceName);
 
+    const auto rtStats = pipelineManager_.GetRtPassStats();
+    stats.rtSupported = pipelineManager_.IsDesktopRayTracingSupported();
+    stats.rtActive = rtStats.active;
+    stats.rtShadowsActive = pipelineManager_.IsRtShadowsActive();
+    stats.rtAoActive = pipelineManager_.IsRtAoActive();
+    stats.rtReflectionsActive = pipelineManager_.IsRtReflectionsActive();
+    stats.rtPathTracingActive = rtStats.pathTracingActive;
+    stats.rtBindlessActive = rtStats.bindlessActive;
+    stats.rtPathSamples = rtStats.pathSamples;
+    stats.rtTriangles = rtStats.sceneStats.triangleCount;
+    stats.rtBlasNodes = rtStats.sceneStats.blasNodeCount;
+    stats.rtGpuMs = rtStats.lastGpuMs;
+
     if (quadtree_) {
         stats.quadtreeNodes = cachedQuadtreeNodeCount_;
         stats.visiblePrimitives = pipelineManager_.GetVisiblePrimitiveCount();

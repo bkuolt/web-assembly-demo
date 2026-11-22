@@ -101,6 +101,8 @@ using CommandEncoderHandle = Handle<WGPUCommandEncoder, wgpuCommandEncoderReleas
 using RenderPassEncoderHandle = Handle<WGPURenderPassEncoder, wgpuRenderPassEncoderRelease>;
 using ComputePassEncoderHandle = Handle<WGPUComputePassEncoder, wgpuComputePassEncoderRelease>;
 using CommandBufferHandle = Handle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
+using QuerySetHandle = Handle<WGPUQuerySet, wgpuQuerySetRelease>;
+using QuerySetHandle = Handle<WGPUQuerySet, wgpuQuerySetRelease>;
 
 } // namespace bgl::gpu
 

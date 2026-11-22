@@ -140,8 +140,11 @@ void PipelineManager::PreparePostProcessPass(WGPUCommandEncoder encoder, WGPUTex
                                              const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation,
                                              uint32_t viewportW, uint32_t viewportH, float deltaTime,
                                              float elapsedTime) {
+    WGPUTextureView aoOverride = rtPass_.IsAoActive(rtScene_) ? rtPass_.GetAoView() : nullptr;
+    const bool suppressSsr = rtPass_.IsReflectionsActive(rtScene_) || rtPass_.IsPathTracingActive(rtScene_);
     postProcessPass_.Prepare(encoder, hdrResolveView, depthReadView, sampleCount, viewProj, projMatrix, cameraPos,
-                             lightDir, envRotation, viewportW, viewportH, deltaTime, elapsedTime);
+                             lightDir, envRotation, viewportW, viewportH, deltaTime, elapsedTime, aoOverride,
+                             suppressSsr);
 }
 
 void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGPUTextureView hdrResolveView,
@@ -271,6 +274,11 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
         return;
     }
+    WGPUTextureView expectedRtShadow =
+        rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
+    if (expectedRtShadow && expectedRtShadow != cachedRtShadowView_) {
+        RebuildSceneGlobalsBindGroup();
+    }
     PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
                       zFar);
     EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
@@ -283,11 +291,106 @@ void PipelineManager::RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene
                                         const glm::mat4& viewMatrix, const glm::mat4& projMatrix, uint32_t viewportW,
                                         uint32_t viewportH, float zNear, float zFar) {
     if (!pass || !initialized_ || !sceneGlobalsBindGroup_) {
+        framePreparedByRtPrePass_ = false;
         return;
     }
+    WGPUTextureView expectedRtShadow =
+        rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
+    if (expectedRtShadow && expectedRtShadow != cachedRtShadowView_) {
+        RebuildSceneGlobalsBindGroup();
+    }
+    if (!framePreparedByRtPrePass_) {
+        PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
+                          zFar);
+    }
+    framePreparedByRtPrePass_ = false;
+    EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
+}
+
+void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene::Scene& scene, const glm::mat4& viewProj,
+                                              const glm::vec3& cameraPos, const glm::vec3& lightDir,
+                                              const scene::Quadtree* spatialIndex, const glm::mat4& viewMatrix,
+                                              const glm::mat4& projMatrix, uint32_t viewportW, uint32_t viewportH,
+                                              float zNear, float zFar) {
+    framePreparedByRtPrePass_ = false;
+    if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady() || !rtPass_.GetConfig().enabled ||
+        rtPass_.GetConfig().pathTracing) {
+        return;
+    }
+
+    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
+                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
+    const float c{std::cos(-envRotation_)};
+    const float s{std::sin(-envRotation_)};
+    currentLightDir_ =
+        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    currentLightViewProj_ = ShadowPass::ComputeDirectionalLightMatrix(scene.sceneAABB, currentLightDir_);
+
+    rtScene_.UpdateTlas(scene);
     PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
                       zFar);
-    EncodeDrawRange(pass, scene, viewProj, wireframe, false, 0, transparentStartIndex_, perDrawRing_);
+    framePreparedByRtPrePass_ = true;
+
+    rtOpaqueItemsScratch_.clear();
+    rtOpaqueItemsScratch_.reserve(transparentStartIndex_);
+    for (size_t i = 0; i < transparentStartIndex_; ++i) {
+        rtOpaqueItemsScratch_.emplace_back(renderItemsScratch_[i].node, renderItemsScratch_[i].primitiveIndex);
+    }
+
+    uint32_t baseFlags{0};
+    if (bumpMappingEnabled_) {
+        baseFlags |= MaterialFlags::EnableBumpMapping;
+    }
+    if (mipmappingEnabled_) {
+        baseFlags |= MaterialFlags::EnableMipmapping;
+    }
+    if (parallaxEnabled_) {
+        baseFlags |= MaterialFlags::EnableParallaxOcclusion;
+    }
+
+    rtPass_.ExecutePrePass(encoder, rtScene_, scene, sceneGlobalsBindGroup_.Get(), rtOpaqueItemsScratch_, viewProj,
+                           currentLightViewProj_, cameraPos, currentLightDir_, solarElevation_, envRotation_,
+                           baseFlags, skinFrameId_, aoIntensity_, viewportW, viewportH);
+
+    WGPUTextureView activeRtShadowView =
+        rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
+    if (activeRtShadowView != cachedRtShadowView_) {
+        RebuildSceneGlobalsBindGroup();
+    }
+}
+
+void PipelineManager::RenderRayTracingPostOpaque(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView,
+                                                 const glm::mat4& viewProj, const glm::vec3& cameraPos,
+                                                 const glm::vec3& lightDir, uint32_t viewportW, uint32_t viewportH) {
+    if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady()) {
+        return;
+    }
+    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
+                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
+    const float c{std::cos(-envRotation_)};
+    const float s{std::sin(-envRotation_)};
+    const glm::vec3 rotSun =
+        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    rtPass_.ExecutePostOpaque(encoder, rtScene_, hdrResolveView, viewProj, cameraPos, rotSun, solarElevation_,
+                              envRotation_, viewportW, viewportH);
+}
+
+void PipelineManager::RenderPathTracePass(WGPUCommandEncoder encoder, scene::Scene& scene,
+                                          WGPUTextureView hdrResolveView, const glm::mat4& viewProj,
+                                          const glm::vec3& cameraPos, const glm::vec3& lightDir, uint32_t viewportW,
+                                          uint32_t viewportH) {
+    if (!desktopRtSupported_ || !rtPass_.IsInitialized() || !rtScene_.IsReady()) {
+        return;
+    }
+    const glm::vec3 baseDir{glm::length(lightDir) > 1e-5f ? glm::normalize(lightDir)
+                                                          : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f})};
+    const float c{std::cos(-envRotation_)};
+    const float s{std::sin(-envRotation_)};
+    const glm::vec3 rotSun =
+        glm::normalize(glm::vec3{c * baseDir.x + s * baseDir.z, baseDir.y, -s * baseDir.x + c * baseDir.z});
+    rtScene_.UpdateTlas(scene);
+    rtPass_.ExecutePathTrace(encoder, rtScene_, scene, hdrResolveView, viewProj, cameraPos, rotSun, solarElevation_,
+                             envRotation_, viewportW, viewportH);
 }
 
 void PipelineManager::RenderTransparentScene(WGPURenderPassEncoder pass, scene::Scene& scene, const glm::mat4& viewProj,
@@ -475,6 +578,12 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
     }
     if (parallaxEnabled_) {
         baseGlobalFlags |= MaterialFlags::EnableParallaxOcclusion;
+    }
+    if (rtPass_.IsShadowActive(rtScene_)) {
+        baseGlobalFlags |= MaterialFlags::UseRtShadows;
+    }
+    if (rtPass_.IsReflectionsActive(rtScene_)) {
+        baseGlobalFlags |= MaterialFlags::UseRtReflections;
     }
     baseGlobalFlags |= ((static_cast<uint32_t>(debugViewMode_) & 7u) << MaterialFlags::DebugViewShift);
 

@@ -89,6 +89,26 @@ void Engine::Impl::ApplySettings() {
         pipelineManager_.SetWindStrength(n.windStrength);
     if (changed(n.debugView, p.debugView))
         pipelineManager_.SetDebugViewMode(static_cast<gpu::DebugViewMode>(n.debugView));
+    if (changed(n.rayTracing, p.rayTracing))
+        pipelineManager_.SetRayTracingEnabled(n.rayTracing);
+    if (changed(n.rtShadows, p.rtShadows))
+        pipelineManager_.SetRtShadowsEnabled(n.rtShadows);
+    if (changed(n.rtAmbientOcclusion, p.rtAmbientOcclusion))
+        pipelineManager_.SetRtAoEnabled(n.rtAmbientOcclusion);
+    if (changed(n.rtReflections, p.rtReflections))
+        pipelineManager_.SetRtReflectionsEnabled(n.rtReflections);
+    if (changed(n.rtPathTracing, p.rtPathTracing))
+        pipelineManager_.SetRtPathTracingEnabled(n.rtPathTracing);
+    if (changed(n.rtHalfRes, p.rtHalfRes))
+        pipelineManager_.SetRtHalfResEnabled(n.rtHalfRes);
+    if (changed(n.rtAoRadius, p.rtAoRadius))
+        pipelineManager_.SetRtAoRadius(n.rtAoRadius);
+    if (changed(n.rtShadowSoftness, p.rtShadowSoftness))
+        pipelineManager_.SetRtShadowSoftness(n.rtShadowSoftness);
+    if (changed(n.rtReflectionIntensity, p.rtReflectionIntensity))
+        pipelineManager_.SetRtReflectionIntensity(n.rtReflectionIntensity);
+    if (changed(n.rtPathBounces, p.rtPathBounces))
+        pipelineManager_.SetRtPathBounces(n.rtPathBounces);
 
     applied_ = settings_;
     settingsApplied_ = true;

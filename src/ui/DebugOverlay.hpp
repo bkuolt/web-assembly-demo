@@ -61,6 +61,19 @@ struct OverlayStats {
     bool gamepadConnected{false};
     bool isDualSense{false};
     std::string gamepadName{"None"};
+
+    // Desktop Ray Tracing Telemetry
+    bool rtSupported{false};
+    bool rtActive{false};
+    bool rtShadowsActive{false};
+    bool rtAoActive{false};
+    bool rtReflectionsActive{false};
+    bool rtPathTracingActive{false};
+    bool rtBindlessActive{false};
+    uint32_t rtPathSamples{0};
+    uint32_t rtTriangles{0};
+    uint32_t rtBlasNodes{0};
+    float rtGpuMs{0.0f};
 };
 
 /**

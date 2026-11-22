@@ -252,6 +252,7 @@ private:
     void DrawSelectionFloatingBadge(uint32_t vpW, uint32_t vpH);
     void DrawModelSelectorSection(bool showLoadingUi);
     void DrawCameraSceneSection();
+    void DrawRayTracingSection();
     void DrawPostProcessSection();
     void DrawAtmosphereWeatherSection();
     void DrawEngineThemeSection();

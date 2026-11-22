@@ -11,6 +11,10 @@
 #include <cmath>
 #include <cstring>
 
+#if defined(BGL_PLATFORM_NATIVE)
+#include <webgpu/wgpu.h>
+#endif
+
 namespace bgl::gpu {
 
 namespace {

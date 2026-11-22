@@ -609,6 +609,10 @@ void PipelineManager::PrepareScene(scene::Scene& scene) {
 
     RebuildMaterialBindGroups(scene);
     shadowPass_.MarkDirty();
+    if (desktopRtSupported_ && rtScene_.IsInitialized()) {
+        rtScene_.BuildFromScene(scene);
+        rtPass_.ResetPathAccumulation();
+    }
 }
 
 void PipelineManager::RetranscodeKtxTextures(scene::Scene& scene, scene::KtxTranscodeTarget target) {

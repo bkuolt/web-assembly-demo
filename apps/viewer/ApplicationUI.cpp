@@ -64,6 +64,7 @@ void Application::UpdateSettingsUI() {
     const float sectionsMaxH = std::max(240.0f, static_cast<float>(vpH) - 240.0f);
     bgl::ui::UI::BeginScrollArea("studio_sections_scroll", sectionsMaxH);
     DrawCameraSceneSection();
+    DrawRayTracingSection();
     DrawPostProcessSection();
     DrawAtmosphereWeatherSection();
     DrawEngineThemeSection();
@@ -182,6 +183,87 @@ void Application::DrawCameraSceneSection() {
             }
         }
         bgl::ui::UI::EndScrollArea();
+    }
+}
+
+void Application::DrawRayTracingSection() {
+    if (!bgl::ui::UI::CollapsingHeader("Desktop Ray Tracing", true)) {
+        return;
+    }
+    if (!pipelineManager_.IsDesktopRayTracingSupported()) {
+        bgl::ui::UI::Label("Unavailable on this WebGPU adapter", settingsUi_.Style().textMuted);
+        return;
+    }
+
+    const auto rtStats = pipelineManager_.GetRtPassStats();
+    bgl::ui::UI::Label(std::format("BVH: {} tris, {} BLAS, {:.2f} ms", rtStats.sceneStats.triangleCount,
+                                   rtStats.sceneStats.blasCount, rtStats.lastGpuMs),
+                       glm::vec4{0.42f, 0.88f, 0.98f, 1.0f});
+
+    bool rtOn = pipelineManager_.IsRayTracingEnabled();
+    if (bgl::ui::UI::Checkbox("Enable Hybrid Ray Tracing [Ctrl+R]", rtOn)) {
+        pipelineManager_.SetRayTracingEnabled(rtOn);
+    }
+    if (!rtOn) {
+        return;
+    }
+
+    bool ptOn = pipelineManager_.IsRtPathTracingEnabled();
+    if (bgl::ui::UI::Checkbox("Path Tracer GI Mode [Ctrl+P]", ptOn)) {
+        pipelineManager_.SetRtPathTracingEnabled(ptOn);
+    }
+    bgl::ui::UI::Tooltip("Progressive multi-bounce compute path tracer (accumulates when camera is still)");
+
+    if (ptOn) {
+        bgl::ui::UI::Label(std::format("Path Samples: {} spp ({})", rtStats.pathSamples,
+                                       rtStats.bindlessActive ? "Bindless Tex" : "Material Factors"),
+                           glm::vec4{0.35f, 0.92f, 0.72f, 1.0f});
+        float bouncesF = static_cast<float>(pipelineManager_.GetRtPathBounces());
+        if (bgl::ui::UI::SliderFloat("Max Bounces", bouncesF, 1.0f, 6.0f, "{:.0f}")) {
+            pipelineManager_.SetRtPathBounces(static_cast<uint32_t>(std::lround(bouncesF)));
+        }
+        if (bgl::ui::UI::Button("Reset Path Accumulation")) {
+            pipelineManager_.ResetRtPathAccumulation();
+        }
+        return;
+    }
+
+    bool rtHalf = pipelineManager_.IsRtHalfResEnabled();
+    if (bgl::ui::UI::Checkbox("Half-Res Trace + Bilateral Denoise", rtHalf)) {
+        pipelineManager_.SetRtHalfResEnabled(rtHalf);
+    }
+
+    bool rtShd = pipelineManager_.IsRtShadowsEnabled();
+    if (bgl::ui::UI::Checkbox("Ray-Traced Soft Shadows", rtShd)) {
+        pipelineManager_.SetRtShadowsEnabled(rtShd);
+    }
+    if (rtShd) {
+        float soft = pipelineManager_.GetRtShadowSoftness();
+        if (bgl::ui::UI::SliderFloat("Sun Penumbra Softness", soft, 0.0f, 0.12f, "{:.3f}")) {
+            pipelineManager_.SetRtShadowSoftness(soft);
+        }
+    }
+
+    bool rtAo = pipelineManager_.IsRtAoEnabled();
+    if (bgl::ui::UI::Checkbox("Ray-Traced Ambient Occlusion", rtAo)) {
+        pipelineManager_.SetRtAoEnabled(rtAo);
+    }
+    if (rtAo) {
+        float rad = pipelineManager_.GetRtAoRadius();
+        if (bgl::ui::UI::SliderFloat("RTAO World Radius", rad, 0.1f, 3.0f, "{:.2f}m")) {
+            pipelineManager_.SetRtAoRadius(rad);
+        }
+    }
+
+    bool rtRefl = pipelineManager_.IsRtReflectionsEnabled();
+    if (bgl::ui::UI::Checkbox("Ray-Traced GGX Reflections", rtRefl)) {
+        pipelineManager_.SetRtReflectionsEnabled(rtRefl);
+    }
+    if (rtRefl) {
+        float rInt = pipelineManager_.GetRtReflectionIntensity();
+        if (bgl::ui::UI::SliderFloat("RT Reflection Intensity", rInt, 0.0f, 2.0f, "{:.2f}")) {
+            pipelineManager_.SetRtReflectionIntensity(rInt);
+        }
     }
 }
 

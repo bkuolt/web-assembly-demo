@@ -19,6 +19,7 @@ struct ProgressReporter {
     float base{0.0f};
     float span{1.0f};
     std::mutex mutex{};
+    float maxReportedFrac{0.0f};
     std::atomic<bool> cancelled{false};
 
     [[nodiscard]] bool IsCancelled() const noexcept { return cancelled.load(std::memory_order_acquire); }
@@ -32,7 +33,11 @@ struct ProgressReporter {
         }
         const float globalFrac = std::clamp(base + std::clamp(localFraction, 0.0f, 1.0f) * span, 0.0f, 0.96f);
         std::scoped_lock lock(mutex);
-        if (!callback(LoadProgressInfo{.fraction = globalFrac, .status = std::move(status)})) {
+        if (IsCancelled()) {
+            return false;
+        }
+        maxReportedFrac = std::max(maxReportedFrac, globalFrac);
+        if (!callback(LoadProgressInfo{.fraction = maxReportedFrac, .status = std::move(status)})) {
             cancelled.store(true, std::memory_order_release);
             return false;
         }

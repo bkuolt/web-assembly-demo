@@ -24,6 +24,13 @@ PipelineManager::~PipelineManager() {
 }
 
 void PipelineManager::Shutdown() noexcept {
+    rtPass_.Shutdown();
+    rtScene_.Shutdown();
+    desktopRtSupported_ = false;
+    cachedRtShadowView_ = nullptr;
+    framePreparedByRtPrePass_ = false;
+    rtOpaqueItemsScratch_.clear();
+
     postProcessPass_.Shutdown();
     shadowPass_.Shutdown();
     aabbRenderer_.Shutdown();
@@ -136,7 +143,7 @@ core::Result<void> PipelineManager::CreateSharedBindGroupLayouts() {
     // @group(1) PerDrawDynamic: 256-byte dynamic-offset PerDrawUniforms ring
     // @group(2) MaterialStatic: 256-byte MaterialUniforms + Sampler + 8 Textures + MorphDeltas SSBO
     // @group(3) SkinStorage: JointMatrices SSBO (reused across Shadow & Main passes)
-    std::array<WGPUBindGroupLayoutEntry, 6> sgEntries{};
+    std::array<WGPUBindGroupLayoutEntry, 7> sgEntries{};
     sgEntries[0] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     sgEntries[0].binding = 0;
     sgEntries[0].visibility = WGPUShaderStage_Fragment;
@@ -175,6 +182,13 @@ core::Result<void> PipelineManager::CreateSharedBindGroupLayouts() {
     sgEntries[5].texture.sampleType = WGPUTextureSampleType_Float;
     sgEntries[5].texture.viewDimension = WGPUTextureViewDimension_2D;
     sgEntries[5].texture.multisampled = WGPU_FALSE;
+
+    sgEntries[6] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    sgEntries[6].binding = 6;
+    sgEntries[6].visibility = WGPUShaderStage_Fragment;
+    sgEntries[6].texture.sampleType = WGPUTextureSampleType_Float;
+    sgEntries[6].texture.viewDimension = WGPUTextureViewDimension_2D;
+    sgEntries[6].texture.multisampled = WGPU_FALSE;
 
     WGPUBindGroupLayoutDescriptor sgBglDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
     sgBglDesc.entryCount = sgEntries.size();
@@ -449,13 +463,44 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     return {};
 }
 
+core::Result<void> PipelineManager::InitializeDesktopRayTracing(bool supportsDesktopRt, bool supportsBindlessTextures,
+                                                                bool supportsTimestampQueries) {
+    desktopRtSupported_ = false;
+    if (!supportsDesktopRt || !initialized_ || !device_ || !queue_) {
+        return {};
+    }
+    if (auto res = rtScene_.Initialize(device_, queue_, supportsBindlessTextures, defaultWhiteTextureView_.Get(),
+                                       defaultSampler_.Get());
+        !res) {
+        return res;
+    }
+    if (auto res = rtPass_.Initialize(device_, queue_, mainPipelineLayout_.Get(), perDrawBgl_.Get(),
+                                      dummySkinBindGroup_.Get(), rtScene_, envCubemapView_.Get(),
+                                      defaultSampler_.Get(), defaultWhiteTextureView_.Get(), supportsTimestampQueries);
+        !res) {
+        rtScene_.Shutdown();
+        return res;
+    }
+    rtPass_.SetEnvironmentCubemap(envCubemapView_.Get(), envMipLevels_);
+    desktopRtSupported_ = true;
+    return {};
+}
+
 void PipelineManager::RebuildSceneGlobalsBindGroup() {
     if (!device_ || !sceneGlobalsBgl_ || !sceneLightingBuffer_ || !envCubemapView_ || !shadowPass_.IsInitialized() ||
         !defaultWhiteTextureView_) {
         return;
     }
 
-    std::array<WGPUBindGroupEntry, 6> sgEntries{};
+    if (rtPass_.IsInitialized()) {
+        rtPass_.SetEnvironmentCubemap(envCubemapView_.Get(), envMipLevels_);
+    }
+
+    WGPUTextureView activeRtShadowView =
+        rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
+    cachedRtShadowView_ = activeRtShadowView;
+
+    std::array<WGPUBindGroupEntry, 7> sgEntries{};
     sgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
     sgEntries[0].binding = 0;
     sgEntries[0].buffer = sceneLightingBuffer_.Get();
@@ -481,6 +526,10 @@ void PipelineManager::RebuildSceneGlobalsBindGroup() {
     sgEntries[5] = WGPU_BIND_GROUP_ENTRY_INIT;
     sgEntries[5].binding = 5;
     sgEntries[5].textureView = opaqueColorCopyView_ ? opaqueColorCopyView_.Get() : defaultWhiteTextureView_.Get();
+
+    sgEntries[6] = WGPU_BIND_GROUP_ENTRY_INIT;
+    sgEntries[6].binding = 6;
+    sgEntries[6].textureView = activeRtShadowView;
 
     WGPUBindGroupDescriptor sgBgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
     sgBgDesc.layout = sceneGlobalsBgl_.Get();
@@ -680,6 +729,9 @@ core::Result<void> PipelineManager::ReloadShaders(std::span<const std::string> m
     }
     if (needGpuRayPick) {
         checkRes(gpuRayPicker_.ReloadShader(), "gpu_ray_pick.wgsl");
+    }
+    if (rtPass_.IsInitialized()) {
+        checkRes(rtPass_.ReloadShaders(modifiedVirtualPaths), "raytracing");
     }
 
     if (!firstError.empty()) {

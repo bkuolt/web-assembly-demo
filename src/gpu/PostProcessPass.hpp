@@ -67,7 +67,8 @@ public:
     void Prepare(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView, WGPUTextureView depthReadView,
                  uint32_t sampleCount, const glm::mat4& viewProj, const glm::mat4& projMatrix,
                  const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation, uint32_t viewportW,
-                 uint32_t viewportH, float deltaTime, float elapsedTime);
+                 uint32_t viewportH, float deltaTime, float elapsedTime, WGPUTextureView aoOverrideView = nullptr,
+                 bool suppressSsr = false);
 
     /**
      * @brief Records final swapchain pass (FXAA edge antialiasing when active, else fullscreen Tonemap).
@@ -276,6 +277,8 @@ private:
     bool preparedLdrThisFrame_{false};
     bool preparedDepthThisFrame_{false};
     bool preparedGtaoThisFrame_{false};
+    WGPUTextureView externalAoView_{nullptr};
+    bool suppressSsr_{false};
 
     float exposure_{1.0f};
     bool enableAutoExposure_{false};

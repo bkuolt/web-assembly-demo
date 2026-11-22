@@ -68,8 +68,14 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         BGL_LOG_INFO("Toggled Directional Shadow Mapping (PCF): {}", pipelineManager_.IsShadowsEnabled());
         break;
     case SDLK_r:
-        ToggleReflections();
-        BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+        if ((keyMod & KMOD_CTRL) != 0) {
+            pipelineManager_.SetRayTracingEnabled(!pipelineManager_.IsRayTracingEnabled());
+            BGL_LOG_INFO("Toggled Desktop Ray Tracing: {}",
+                         pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
+        } else {
+            ToggleReflections();
+            BGL_LOG_INFO("Toggled Environment Cubemap Reflections (IBL): {}", pipelineManager_.IsReflectionsEnabled());
+        }
         break;
     case SDLK_u:
         ToggleAmbientOcclusion();
@@ -99,8 +105,17 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         BGL_LOG_INFO("Switched Skybox Mode: {}", skybox_.GetModeName(skybox_.GetMode()));
         break;
     case SDLK_p:
-        ToggleParallaxOcclusion();
-        BGL_LOG_INFO("Toggled Parallax Occlusion Mapping (POM): {}", pipelineManager_.IsParallaxEnabled());
+        if ((keyMod & KMOD_CTRL) != 0) {
+            if (!pipelineManager_.IsRayTracingEnabled()) {
+                pipelineManager_.SetRayTracingEnabled(true);
+            }
+            pipelineManager_.SetRtPathTracingEnabled(!pipelineManager_.IsRtPathTracingEnabled());
+            BGL_LOG_INFO("Toggled Desktop Compute Path Tracer: {}",
+                         pipelineManager_.IsRtPathTracingEnabled() ? "ON" : "OFF");
+        } else {
+            ToggleParallaxOcclusion();
+            BGL_LOG_INFO("Toggled Parallax Occlusion Mapping (POM): {}", pipelineManager_.IsParallaxEnabled());
+        }
         break;
     case SDLK_j:
         ToggleLensFlare();

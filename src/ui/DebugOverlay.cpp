@@ -95,8 +95,8 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
     // --------------------------------------------------------------------------
     const float panelX = 16.0f;
     const float panelY = 16.0f;
-    const float panelW = 490.0f;
-    const float panelH = 226.0f;
+    const float panelW = 510.0f;
+    const float panelH = 248.0f;
 
     // 1. Translucent slate background card (#0a0f1d at 92% alpha)
     const glm::vec4 bgColor(0.04f, 0.06f, 0.11f, 0.92f);
@@ -193,17 +193,37 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
                     currentStats_.debugViewName, currentStats_.quadtreeNodes);
     textRenderer_.DrawText(camDetailText, textX, panelY + 158.0f, glm::vec4(0.75f, 0.82f, 0.90f, 1.0f));
 
-    // Separator line 3
-    textRenderer_.DrawRect(panelX + 10.0f, panelY + 180.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
+    // 10. Row 7: Desktop Ray Tracing Telemetry
+    std::string rtText;
+    glm::vec4 rtColor(0.55f, 0.60f, 0.68f, 0.85f);
+    if (!currentStats_.rtSupported) {
+        rtText = "RT: Unavailable on this backend (Raster Fallback)";
+    } else if (!currentStats_.rtActive) {
+        rtText = std::format("RT: OFF ({} tris BVH ready) | [Ctrl+R] Enable", currentStats_.rtTriangles);
+    } else if (currentStats_.rtPathTracingActive) {
+        rtText = std::format("RT: PathTracer ({} spp) | {} tris | {:.2f}ms", currentStats_.rtPathSamples,
+                             currentStats_.rtTriangles, currentStats_.rtGpuMs);
+        rtColor = glm::vec4(0.32f, 0.92f, 0.72f, 1.0f);
+    } else {
+        rtText = std::format("RT: Shd:{} AO:{} Refl:{} {}| {:.2f}ms", currentStats_.rtShadowsActive ? "ON" : "OFF",
+                             currentStats_.rtAoActive ? "ON" : "OFF",
+                             currentStats_.rtReflectionsActive ? "ON" : "OFF",
+                             currentStats_.rtBindlessActive ? "[Bindless] " : "", currentStats_.rtGpuMs);
+        rtColor = glm::vec4(0.28f, 0.88f, 0.98f, 1.0f);
+    }
+    textRenderer_.DrawText(rtText, textX, panelY + 180.0f, rtColor);
 
-    // 10. Bottom Navigation Bar Strip
+    // Separator line 3
+    textRenderer_.DrawRect(panelX + 10.0f, panelY + 202.0f, panelW - 20.0f, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.07f));
+
+    // 11. Bottom Navigation Bar Strip
     const float footerH = 24.0f;
     const float footerY = panelY + panelH - footerH;
     textRenderer_.DrawRect(panelX, footerY, panelW, footerH, glm::vec4(0.02f, 0.04f, 0.07f, 0.75f));
     textRenderer_.DrawRect(panelX, footerY, panelW, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 0.05f));
 
-    textRenderer_.DrawText("[O] Cycle HUD  |  [F] Focus  |  [T] Turntable  |  [C] Fly/Orbit", textX, footerY + 5.0f,
-                           glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
+    textRenderer_.DrawText("[O] HUD | [F] Focus | [Ctrl+R] RT | [Ctrl+P] PathTrace | [C] Fly", textX,
+                           footerY + 5.0f, glm::vec4(0.55f, 0.62f, 0.72f, 0.95f));
 
     // Flush GPU draw call
     textRenderer_.Render(pass, viewportWidth, viewportHeight);
