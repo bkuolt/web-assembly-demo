@@ -218,6 +218,36 @@ void PopHover() {
     }
 }
 
+void PushId(std::string_view id) {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->PushId(id);
+    }
+}
+
+void PushId(int intId) {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->PushId(intId);
+    }
+}
+
+void PopId() {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->PopId();
+    }
+}
+
+void BeginDisabled(bool disabled) {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->BeginDisabled(disabled);
+    }
+}
+
+void EndDisabled() {
+    if (engine::g_currentGui) {
+        engine::g_currentGui->EndDisabled();
+    }
+}
+
 bool IsHovered() {
     return engine::g_currentGui ? engine::g_currentGui->IsItemHovered() : false;
 }

@@ -829,3 +829,54 @@ TEST(ImmediateUILayoutAndControlsTest, ContainerPanelGroupToggleBoxAndOptionsWor
     uiNoHover.EndPanel();
     uiNoHover.EndFrame();
 }
+
+TEST(ImmediateUIScopingAndDisabledTest, ScopedIdsHiddenSuffixAndDisabledBlockWorkCleanly) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+
+    // Measure rects for two scoped buttons with identical visible text ("Apply") + disabled button
+    ui.BeginFrame(bgl::ui::UiInputState{}, 800, 600, 0.016f);
+    ui.BeginPanel("ScopePanel", 10.0f, 10.0f, 260.0f, 0.0f, "Scope Test##Panel");
+
+    ui.PushId("First");
+    ui.Button("Apply##btn");
+    const bgl::ui::UiRect firstBtn = ui.GetLastItemRect();
+    ui.PopId();
+
+    ui.PushId(2);
+    ui.BeginDisabled(true);
+    EXPECT_TRUE(ui.IsDisabled());
+    ui.Button("Apply##btn");
+    const bgl::ui::UiRect disabledBtn = ui.GetLastItemRect();
+    ui.EndDisabled();
+    EXPECT_FALSE(ui.IsDisabled());
+    ui.PopId();
+
+    ui.EndPanel();
+    const bgl::ui::UiRect panelRect = ui.GetLastItemRect();
+    ui.EndFrame();
+
+    EXPECT_GT(disabledBtn.y, firstBtn.y);
+
+    // Click inside disabledBtn -> must NOT click or report hovered; panel hover still works on EndPanel()
+    bgl::ui::UiInputState clickDisabled{};
+    clickDisabled.mouseX = disabledBtn.x + disabledBtn.w * 0.5f;
+    clickDisabled.mouseY = disabledBtn.y + disabledBtn.h * 0.5f;
+    clickDisabled.mouseReleased = true;
+
+    ui.BeginFrame(clickDisabled, 800, 600, 0.016f);
+    ui.BeginPanel("ScopePanel", 10.0f, 10.0f, 260.0f, 0.0f, "Scope Test##Panel");
+    ui.PushId("First");
+    EXPECT_FALSE(ui.Button("Apply##btn"));
+    ui.PopId();
+    ui.PushId(2);
+    ui.BeginDisabled(true);
+    EXPECT_FALSE(ui.Button("Apply##btn"));
+    EXPECT_FALSE(ui.IsItemHovered());
+    ui.EndDisabled();
+    ui.PopId();
+    ui.EndPanel();
+    EXPECT_TRUE(ui.IsItemHovered());
+    EXPECT_NEAR(ui.GetLastItemRect().h, panelRect.h, 0.1f);
+    ui.EndFrame();
+}

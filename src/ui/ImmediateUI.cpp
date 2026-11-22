@@ -66,13 +66,61 @@ float ImmediateUI::EffectiveTextScale(float relativeScale) const noexcept {
     return relativeScale * (24.0f / std::max(8.0f, atlasSize));
 }
 
-uint64_t ImmediateUI::HashId(std::string_view label) noexcept {
-    uint64_t h = 14695981039346656037ULL;
+uint64_t ImmediateUI::HashId(std::string_view label) const noexcept {
+    uint64_t h = idStack_.empty() ? 14695981039346656037ULL : idStack_.back();
     for (unsigned char c : label) {
         h ^= c;
         h *= 1099511628211ULL;
     }
     return h == 0 ? 1 : h;
+}
+
+std::string_view ImmediateUI::SplitDisplayLabel(std::string_view label) noexcept {
+    const size_t sep = label.find("##");
+    return (sep == std::string_view::npos) ? label : label.substr(0, sep);
+}
+
+void ImmediateUI::PushScopeHash(uint64_t scopeHash) {
+    uint64_t seed = idStack_.empty() ? 14695981039346656037ULL : idStack_.back();
+    seed ^= scopeHash + 0x9E3779B97F4A7C15ULL + (seed << 6u) + (seed >> 2u);
+    idStack_.push_back(seed == 0 ? 1 : seed);
+}
+
+void ImmediateUI::PopScopeHash() {
+    if (!idStack_.empty()) {
+        idStack_.pop_back();
+    }
+}
+
+void ImmediateUI::PushId(std::string_view id) {
+    uint64_t h = 14695981039346656037ULL;
+    for (unsigned char c : id) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    PushScopeHash(h);
+}
+
+void ImmediateUI::PushId(int intId) {
+    PushScopeHash(static_cast<uint64_t>(static_cast<uint32_t>(intId)) * 0x9E3779B97F4A7C15ULL);
+}
+
+void ImmediateUI::PopId() {
+    PopScopeHash();
+}
+
+void ImmediateUI::BeginDisabled(bool disabled) {
+    disabledStack_.push_back(IsDisabled() || disabled);
+}
+
+void ImmediateUI::EndDisabled() {
+    if (!disabledStack_.empty()) {
+        disabledStack_.pop_back();
+    }
+}
+
+bool ImmediateUI::IsDisabled() const noexcept {
+    return !disabledStack_.empty() && disabledStack_.back();
 }
 
 bool ImmediateUI::HasOpenModal() const noexcept {
@@ -95,8 +143,9 @@ bool ImmediateUI::AreHoverEffectsEnabled() const noexcept {
 
 ImmediateUI::HoverEval ImmediateUI::EvalHover(uint64_t id, const UiRect& rect, bool allowInteraction, bool trackHit,
                                               bool ignoreModalBlock) {
+    const bool disabled = IsDisabled();
     const bool blocked = ignoreModalBlock ? popupConsumedInputThisFrame_ : (IsBlockedByPopup() || !IsMouseInClipArea());
-    const bool hovered = allowInteraction && !blocked && rect.Contains(input_.mouseX, input_.mouseY);
+    const bool hovered = allowInteraction && !disabled && !blocked && rect.Contains(input_.mouseX, input_.mouseY);
 
     lastItemRect_ = rect;
     lastItemHovered_ = hovered;
@@ -104,7 +153,7 @@ ImmediateUI::HoverEval ImmediateUI::EvalHover(uint64_t id, const UiRect& rect, b
         hitRects_.push_back(rect);
     }
 
-    if (!AreHoverEffectsEnabled()) {
+    if (!AreHoverEffectsEnabled() || disabled) {
         hoverAmounts_.erase(id);
         return HoverEval{.hovered = hovered, .mix = 0.0f};
     }
@@ -320,6 +369,8 @@ void ImmediateUI::BeginFrame(const UiInputState& input, uint32_t viewportWidth, 
     activeFontSlot_ = 0;
     batchFontSlot_ = 0;
     hoverOverrideStack_.clear();
+    disabledStack_.clear();
+    idStack_.clear();
 
     input_ = input;
     viewportWidth_ = std::max(1u, viewportWidth);
@@ -382,6 +433,8 @@ void ImmediateUI::EndFrame() {
     if (inWindow_) {
         EndWindow();
     }
+    disabledStack_.clear();
+    idStack_.clear();
     while (!fontStack_.empty()) {
         PopFont();
     }
@@ -563,7 +616,9 @@ void ImmediateUI::EmitText(std::pmr::vector<UiVertex>& verts, std::pmr::vector<u
     if (!slot.ready || !slot.atlas || text.empty()) {
         return;
     }
-    const text::TextLayout layout = text::TextShaper::Shape(*slot.atlas, text, x, y, color, EffectiveTextScale(scale));
+    const glm::vec4 effectiveColor = IsDisabled() ? WithAlpha(color, color.a * 0.45f) : color;
+    const text::TextLayout layout =
+        text::TextShaper::Shape(*slot.atlas, text, x, y, effectiveColor, EffectiveTextScale(scale));
     for (const auto& q : layout.quads) {
         EmitQuad(verts, idxs, q.posMin.x, q.posMin.y, q.posMax.x - q.posMin.x, q.posMax.y - q.posMin.y, q.uvMin,
                  q.uvMax, q.color, 1.0f);

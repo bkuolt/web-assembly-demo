@@ -298,6 +298,34 @@ void PushHover(bool enabled);
 void PopHover();
 
 /**
+ * @brief Pushes a scoped string or integer ID onto the widget ID stack to avoid label collisions.
+ * @param id Scoped identifier mixed into subsequent widget hashes until `PopId()`.
+ */
+void PushId(std::string_view id);
+
+/**
+ * @brief Pushes a scoped integer ID onto the widget ID stack.
+ * @param intId Scoped integer identifier mixed into subsequent widget hashes until `PopId()`.
+ */
+void PushId(int intId);
+
+/**
+ * @brief Pops the most recent scoped ID pushed by `PushId()`.
+ */
+void PopId();
+
+/**
+ * @brief Disables interaction and visually dims subsequent widgets until `EndDisabled()`.
+ * @param disabled True to disable widgets in this block; false leaves parent disabled state unchanged.
+ */
+void BeginDisabled(bool disabled = true);
+
+/**
+ * @brief Ends the active `BeginDisabled()` scope.
+ */
+void EndDisabled();
+
+/**
  * @brief Returns `true` if the most recently emitted widget is currently hovered by the mouse cursor.
  * @return Hover state of the preceding element.
  */

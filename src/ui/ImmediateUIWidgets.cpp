@@ -97,13 +97,15 @@ void ImmediateUI::BeginWindow(std::string_view title, float x, float y, float wi
                    headerMix > 0.01f ? 1.0f : 0.0f, false);
     EmitRoundedBox(vertices_, indices_, ax + 6.0f, ay + 7.0f, 3.0f, style_.headerHeight - 14.0f, 1.5f, style_.accent,
                    glm::vec4{0.0f}, 0.0f, false);
-    EmitText(vertices_, indices_, title, ax + style_.padding + 4.0f, ay + 6.0f, style_.textPrimary, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(title), ax + style_.padding + 4.0f, ay + 6.0f, style_.textPrimary,
+             style_.textScale);
 
     if (activeDragWindowId_ == currentWindowId_) {
         hitRects_.push_back(UiRect{ax, ay, width, style_.headerHeight});
     }
     lastItemRect_ = UiRect{ax, ay, width, style_.headerHeight};
     lastItemHovered_ = hdrHover.hovered;
+    PushScopeHash(currentWindowId_);
 }
 
 void ImmediateUI::EndWindow() {
@@ -128,6 +130,7 @@ void ImmediateUI::EndWindow() {
 
     lastCompletedWindowRect_ = currentWindowRect_;
     hitRects_.push_back(currentWindowRect_);
+    PopScopeHash();
     inWindow_ = false;
 }
 
@@ -144,7 +147,7 @@ void ImmediateUI::Label(std::string_view text, const glm::vec4& color) {
             ? glm::mix(color, glm::vec4{style_.textPrimary.r, style_.textPrimary.g, style_.textPrimary.b, color.a},
                        hv.mix * 0.35f)
             : color;
-    EmitText(vertices_, indices_, text, cursorX_, cursorY_ + 2.0f, effectiveColor, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(text), cursorX_, cursorY_ + 2.0f, effectiveColor, style_.textScale);
     AdvanceCursor(h + style_.itemSpacing);
 }
 
@@ -182,7 +185,8 @@ bool ImmediateUI::CollapsingHeader(std::string_view label, bool defaultOpen) {
     const glm::vec4 chevronCol = isOpen ? style_.accent : glm::mix(style_.textMuted, style_.accent, hv.mix * 0.8f);
     EmitText(vertices_, indices_, isOpen ? "v" : ">", rect.x + 9.0f, rect.y + 4.0f, chevronCol,
              style_.textScale * 0.9f);
-    EmitText(vertices_, indices_, label, rect.x + 22.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), rect.x + 22.0f, rect.y + 4.0f, style_.textPrimary,
+             style_.textScale);
 
     AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return isOpen;
@@ -224,7 +228,8 @@ bool ImmediateUI::Button(std::string_view label) {
         EmitRect(vertices_, indices_, rect.x + 3.0f, rect.y + 1.5f, std::max(0.0f, rect.w - 6.0f), 1.0f,
                  glm::vec4{1.0f, 1.0f, 1.0f, 0.14f * hv.mix});
     }
-    EmitText(vertices_, indices_, label, rect.x + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), rect.x + 8.0f, rect.y + 4.0f, style_.textPrimary,
+             style_.textScale);
 
     AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return clicked;
@@ -254,7 +259,8 @@ bool ImmediateUI::Checkbox(std::string_view label, bool& state) {
         EmitRoundedBox(vertices_, indices_, rect.x + 3.5f, boxY + 3.5f, boxSize - 7.0f, boxSize - 7.0f, 2.0f,
                        style_.textPrimary, glm::vec4{0.0f}, 0.0f, false);
     }
-    EmitText(vertices_, indices_, label, rect.x + boxSize + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), rect.x + boxSize + 8.0f, rect.y + 4.0f, style_.textPrimary,
+             style_.textScale);
 
     AdvanceCursor(style_.rowHeight + style_.itemSpacing);
     return clicked;
@@ -272,7 +278,8 @@ bool ImmediateUI::SliderFloat(std::string_view label, float& value, float minVal
     FormatFloatLabel(valBuf, sizeof(valBuf), valueFormat, value);
     const float valW = MeasureTextWidth(valBuf, style_.textScale * 0.9f);
 
-    EmitText(vertices_, indices_, label, cursorX_, cursorY_, style_.textMuted, style_.textScale * 0.9f);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), cursorX_, cursorY_, style_.textMuted,
+             style_.textScale * 0.9f);
     EmitText(vertices_, indices_, valBuf, cursorX_ + std::max(0.0f, contentWidth_ - valW), cursorY_, style_.textPrimary,
              style_.textScale * 0.9f);
     cursorY_ += 17.0f;
@@ -412,7 +419,8 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
         EmitHoverHighlight(vertices_, indices_, UiRect{rowRect.x - 3.0f, rowRect.y, rowRect.w + 6.0f, rowRect.h},
                            rowHover.mix * 0.8f, style_.widgetRadius);
     }
-    EmitText(vertices_, indices_, label, rowRect.x, rowRect.y + 4.0f, style_.textPrimary, style_.textScale);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), rowRect.x, rowRect.y + 4.0f, style_.textPrimary,
+             style_.textScale);
     const glm::vec4 swatchBorder = glm::mix(style_.windowBorder, style_.accent, nowOpen ? 1.0f : swatchHover.mix);
     EmitRoundedBox(vertices_, indices_, swatchRect.x, swatchRect.y, swatchRect.w, swatchRect.h, 4.0f,
                    glm::vec4{color, 1.0f}, swatchBorder, 1.25f + 0.5f * (nowOpen ? 1.0f : swatchHover.mix), false);
@@ -524,7 +532,8 @@ void ImmediateUI::Sparkline(std::string_view label, std::span<const float> value
     char valBuf[32]{};
     std::snprintf(valBuf, sizeof(valBuf), "%.1f", static_cast<double>(displayVal));
     const float valW = MeasureTextWidth(valBuf, style_.textScale * 0.9f);
-    EmitText(vertices_, indices_, label, cursorX_, labelY, style_.textMuted, style_.textScale * 0.9f);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), cursorX_, labelY, style_.textMuted,
+             style_.textScale * 0.9f);
     EmitText(vertices_, indices_, valBuf, cursorX_ + std::max(0.0f, contentWidth_ - valW), labelY, lineColor,
              style_.textScale * 0.9f);
 

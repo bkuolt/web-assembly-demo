@@ -128,6 +128,7 @@ void ImmediateUI::BeginContainer(std::string_view id, const ContainerOptions& op
     }
 
     containerStack_.push_back(c);
+    PushScopeHash(c.id);
 }
 
 void ImmediateUI::EndContainer() {
@@ -135,6 +136,7 @@ void ImmediateUI::EndContainer() {
         return;
     }
 
+    PopScopeHash();
     ActiveContainer c = containerStack_.back();
     containerStack_.pop_back();
 
@@ -147,8 +149,10 @@ void ImmediateUI::EndContainer() {
     cursorY_ = c.savedCursorY;
     contentWidth_ = c.savedContentWidth;
 
+    bool containerHovered = false;
     if (c.hasBackground) {
         const HoverEval hv = EvalHover(c.id, c.boxRect, c.options.hoverable, false);
+        containerHovered = hv.hovered;
         const float glow = std::clamp(hv.mix * style_.hoverGlowStrength, 0.0f, 1.0f);
         const glm::vec4 baseBg = (c.options.backgroundColor.a > 0.001f)
                                      ? c.options.backgroundColor
@@ -163,9 +167,13 @@ void ImmediateUI::EndContainer() {
         const float radius = (c.options.cornerRadius >= 0.0f) ? c.options.cornerRadius : style_.widgetRadius;
         PatchBoxGeometry(c.bgVertexOffset, c.boxRect.x, c.boxRect.y, c.boxRect.w, c.boxRect.h, 1.5f, radius, borderW,
                          &fill, &border);
+    } else {
+        containerHovered = !IsDisabled() && !IsBlockedByPopup() && IsMouseInClipArea() &&
+                           c.boxRect.Contains(input_.mouseX, input_.mouseY);
     }
 
     lastItemRect_ = c.boxRect;
+    lastItemHovered_ = containerHovered;
     const float parentSpacing = containerStack_.empty() ? style_.itemSpacing : containerStack_.back().options.spacing;
     AdvanceCursor(finalH + parentSpacing);
 }
@@ -216,9 +224,10 @@ bool ImmediateUI::PushPanelInternal(std::string_view idKey, float x, float y, fl
                      glm::mix(style_.textMuted, style_.accent, hdrHv.mix), style_.textScale * 0.9f);
         }
 
+        const std::string_view displayTitle = SplitDisplayLabel(title);
         const float titleX = x + (options.collapsible ? 28.0f : 15.0f);
         const std::string titleClipped =
-            EllipsizeText(title, std::max(24.0f, width - (titleX - x) - 10.0f), style_.textScale);
+            EllipsizeText(displayTitle, std::max(24.0f, width - (titleX - x) - 10.0f), style_.textScale);
         EmitText(vertices_, indices_, titleClipped, titleX, y + 6.0f, style_.textPrimary, style_.textScale);
         cursorY_ = y + style_.headerHeight + options.padding;
     } else {
@@ -229,6 +238,7 @@ bool ImmediateUI::PushPanelInternal(std::string_view idKey, float x, float y, fl
     cursorX_ = x + options.padding;
     contentWidth_ = std::max(24.0f, width - 2.0f * options.padding);
     panelStack_.push_back(p);
+    PushScopeHash(p.id);
     return isOpen;
 }
 
@@ -246,6 +256,7 @@ void ImmediateUI::EndPanel() {
         return;
     }
 
+    PopScopeHash();
     ActivePanel p = panelStack_.back();
     panelStack_.pop_back();
 
@@ -273,6 +284,7 @@ void ImmediateUI::EndPanel() {
                      1.0f + 0.35f * glow, nullptr, &border);
 
     lastItemRect_ = p.boxRect;
+    lastItemHovered_ = hv.hovered;
     if (p.standalone) {
         lastCompletedWindowRect_ = p.boxRect;
     } else {
@@ -294,9 +306,10 @@ void ImmediateUI::BeginGroup(std::string_view label, bool border) {
                    style_.groupBg, border ? style_.windowBorder : glm::vec4{0.0f}, border ? 1.0f : 0.0f, false);
 
     constexpr float kPad = 8.0f;
-    if (!label.empty()) {
+    const std::string_view displayLabel = SplitDisplayLabel(label);
+    if (!displayLabel.empty()) {
         const std::string titleClipped =
-            EllipsizeText(label, std::max(24.0f, g.boxRect.w - 2.0f * kPad), style_.textScale * 0.9f);
+            EllipsizeText(displayLabel, std::max(24.0f, g.boxRect.w - 2.0f * kPad), style_.textScale * 0.9f);
         EmitText(vertices_, indices_, titleClipped, g.boxRect.x + kPad, g.boxRect.y + 5.0f, style_.accent,
                  style_.textScale * 0.9f);
         cursorY_ = g.boxRect.y + 24.0f;
@@ -307,6 +320,7 @@ void ImmediateUI::BeginGroup(std::string_view label, bool border) {
     cursorX_ = g.boxRect.x + kPad;
     contentWidth_ = std::max(24.0f, g.boxRect.w - 2.0f * kPad);
     groupStack_.push_back(g);
+    PushScopeHash(g.id);
 }
 
 void ImmediateUI::EndGroup() {
@@ -314,6 +328,7 @@ void ImmediateUI::EndGroup() {
         return;
     }
 
+    PopScopeHash();
     ActiveGroup g = groupStack_.back();
     groupStack_.pop_back();
 
@@ -333,6 +348,7 @@ void ImmediateUI::EndGroup() {
                      borderW, nullptr, &border);
 
     lastItemRect_ = g.boxRect;
+    lastItemHovered_ = hv.hovered;
     AdvanceCursor(finalH + style_.itemSpacing);
 }
 
@@ -375,7 +391,7 @@ bool ImmediateUI::ToggleBox(std::string_view label, bool& state, std::string_vie
                    glm::vec4{0.0f}, 0.0f, false);
 
     const float textMaxW = std::max(24.0f, (pillX - rect.x) - 16.0f);
-    const std::string titleClipped = EllipsizeText(label, textMaxW, style_.textScale);
+    const std::string titleClipped = EllipsizeText(SplitDisplayLabel(label), textMaxW, style_.textScale);
     EmitText(vertices_, indices_, titleClipped, rect.x + 10.0f, rect.y + (hasDesc ? 6.0f : 8.0f), style_.textPrimary,
              style_.textScale);
     if (hasDesc) {
@@ -415,7 +431,7 @@ bool ImmediateUI::EmitRadioRow(uint64_t id, const UiRect& rect, std::string_view
     }
 
     const float textMaxW = std::max(20.0f, rect.w - kRingSize - 22.0f);
-    const std::string clipped = EllipsizeText(label, textMaxW, style_.textScale);
+    const std::string clipped = EllipsizeText(SplitDisplayLabel(label), textMaxW, style_.textScale);
     EmitText(vertices_, indices_, clipped, rx + kRingSize + 8.0f, rect.y + 4.0f, style_.textPrimary, style_.textScale);
     return clicked;
 }
@@ -438,8 +454,9 @@ bool ImmediateUI::OptionGroup(std::string_view label, std::span<const std::strin
     }
 
     float curY = cursorY_;
-    if (!label.empty()) {
-        EmitText(vertices_, indices_, label, cursorX_, curY, style_.textMuted, style_.textScale * 0.9f);
+    const std::string_view displayLabel = SplitDisplayLabel(label);
+    if (!displayLabel.empty()) {
+        EmitText(vertices_, indices_, displayLabel, cursorX_, curY, style_.textMuted, style_.textScale * 0.9f);
         curY += 17.0f;
     }
 
@@ -467,7 +484,8 @@ bool ImmediateUI::OptionGroup(std::string_view label, std::span<const std::strin
             EmitRoundedBox(vertices_, indices_, segRect.x, segRect.y, segRect.w, segRect.h, style_.widgetRadius, fill,
                            border, 1.0f + 0.3f * glow, false);
 
-            const std::string lbl = EllipsizeText(options[i], std::max(12.0f, segW - 8.0f), style_.textScale * 0.92f);
+            const std::string lbl =
+                EllipsizeText(SplitDisplayLabel(options[i]), std::max(12.0f, segW - 8.0f), style_.textScale * 0.92f);
             const float lblW = MeasureTextWidth(lbl, style_.textScale * 0.92f);
             EmitText(vertices_, indices_, lbl, segRect.x + (segW - lblW) * 0.5f, segRect.y + 4.0f, style_.textPrimary,
                      style_.textScale * 0.92f);

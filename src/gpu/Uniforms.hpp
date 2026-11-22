@@ -40,6 +40,8 @@ constexpr uint32_t LodLevelShift = 19u;
 constexpr uint32_t LodLevelMask = 3u << 19;
 constexpr uint32_t DebugViewShift = 21u;
 constexpr uint32_t DebugViewMask = 7u << 21;
+constexpr uint32_t UseRtShadows = 1u << 24;
+constexpr uint32_t UseRtReflections = 1u << 25;
 } // namespace MaterialFlags
 
 /**

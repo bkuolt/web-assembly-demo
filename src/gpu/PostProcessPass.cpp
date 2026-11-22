@@ -150,6 +150,8 @@ void PostProcessPass::MoveFrom(PostProcessPass& other) noexcept {
     invProjMatrix_ = other.invProjMatrix_;
     elapsedTime_ = other.elapsedTime_;
     preparedLdrThisFrame_ = other.preparedLdrThisFrame_;
+    preparedDepthThisFrame_ = other.preparedDepthThisFrame_;
+    preparedGtaoThisFrame_ = other.preparedGtaoThisFrame_;
 
     exposure_ = other.exposure_;
     enableAutoExposure_ = other.enableAutoExposure_;

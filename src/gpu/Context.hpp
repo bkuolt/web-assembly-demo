@@ -63,6 +63,14 @@ public:
     [[nodiscard]] bool SupportsBC() const noexcept { return supportsBC_; }
     [[nodiscard]] bool SupportsASTC() const noexcept { return supportsASTC_; }
     [[nodiscard]] bool SupportsETC2() const noexcept { return supportsETC2_; }
+    [[nodiscard]] bool SupportsDesktopRayTracing() const noexcept { return supportsDesktopRayTracing_; }
+    [[nodiscard]] bool SupportsBindlessTextures() const noexcept { return supportsBindlessTextures_; }
+    [[nodiscard]] bool SupportsSubgroups() const noexcept { return supportsSubgroups_; }
+    [[nodiscard]] bool SupportsTimestampQueries() const noexcept { return supportsTimestampQueries_; }
+    [[nodiscard]] uint32_t GetMaxStorageBuffersPerShaderStage() const noexcept {
+        return maxStorageBuffersPerShaderStage_;
+    }
+    [[nodiscard]] uint32_t GetMaxBindingArrayElements() const noexcept { return maxBindingArrayElements_; }
 
     /**
      * @brief Reconfigures swapchain surface and recreates multisampled HDR buffers upon window resize.
@@ -137,6 +145,12 @@ private:
     bool supportsBC_{false};
     bool supportsASTC_{false};
     bool supportsETC2_{false};
+    bool supportsDesktopRayTracing_{false};
+    bool supportsBindlessTextures_{false};
+    bool supportsSubgroups_{false};
+    bool supportsTimestampQueries_{false};
+    uint32_t maxStorageBuffersPerShaderStage_{4};
+    uint32_t maxBindingArrayElements_{0};
     uint32_t width_{1280};
     uint32_t height_{720};
     uint32_t sampleCount_{4};

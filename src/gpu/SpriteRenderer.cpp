@@ -496,9 +496,10 @@ WGPUBindGroup SpriteRenderer::ResolveTextureBindGroup(const std::shared_ptr<cons
     wgpuQueueWriteTexture(queue_, &dst, pxPtr, pxSize, &layout, &writeExtent);
 
     entry.view = wgpuTextureCreateView(entry.texture.Get(), nullptr);
+    if (!entry.view) {
+        return nullptr;
+    }
     entry.nearestFilter = nearest;
-    entry.trackedBytes = pxSize;
-    core::MemoryTracker::Instance().TrackTextureAlloc(entry.trackedBytes);
 
     std::array<WGPUBindGroupEntry, 2> bgEntries{};
     bgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -514,6 +515,12 @@ WGPUBindGroup SpriteRenderer::ResolveTextureBindGroup(const std::shared_ptr<cons
     bgDesc.entryCount = bgEntries.size();
     bgDesc.entries = bgEntries.data();
     entry.bindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+    if (!entry.bindGroup) {
+        return nullptr;
+    }
+
+    entry.trackedBytes = pxSize;
+    core::MemoryTracker::Instance().TrackTextureAlloc(entry.trackedBytes);
 
     auto& stored = textureCache_[key];
     if (stored.trackedBytes > 0) {

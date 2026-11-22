@@ -135,6 +135,15 @@ void Context::Shutdown() noexcept {
     surface_.Reset();
     adapter_.Reset();
     instance_.Reset();
+    supportsBC_ = false;
+    supportsASTC_ = false;
+    supportsETC2_ = false;
+    supportsDesktopRayTracing_ = false;
+    supportsBindlessTextures_ = false;
+    supportsSubgroups_ = false;
+    supportsTimestampQueries_ = false;
+    maxStorageBuffersPerShaderStage_ = 4;
+    maxBindingArrayElements_ = 0;
 #endif
     initialized_ = false;
     BGL_LOG_INFO("Native WebGPU Context cleanly shut down.");
@@ -290,7 +299,7 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     wgpuAdapterInfoFreeMembers(adapterInfo);
 #endif
 
-    // 4. Query Hardware Texture Compression Features (BC7 / ASTC / ETC2) & Request Device
+    // 4. Query Hardware Texture Compression Features (BC7 / ASTC / ETC2) & Desktop RayTracing Capabilities
     std::vector<WGPUFeatureName> requestedFeatures{};
     if (wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TextureCompressionBC)) {
         requestedFeatures.push_back(WGPUFeatureName_TextureCompressionBC);
@@ -304,6 +313,25 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         requestedFeatures.push_back(WGPUFeatureName_TextureCompressionETC2);
         supportsETC2_ = true;
     }
+
+    const bool hasTimestampQuery = wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TimestampQuery);
+    if (hasTimestampQuery) {
+        requestedFeatures.push_back(WGPUFeatureName_TimestampQuery);
+        supportsTimestampQueries_ = true;
+    }
+    const auto subgroupFeat = static_cast<WGPUFeatureName>(WGPUNativeFeature_Subgroup);
+    if (wgpuAdapterHasFeature(adapter_, subgroupFeat)) {
+        requestedFeatures.push_back(subgroupFeat);
+        supportsSubgroups_ = true;
+    }
+
+    const auto texArrayFeat = static_cast<WGPUFeatureName>(WGPUNativeFeature_TextureBindingArray);
+    const auto nonUniformFeat =
+        static_cast<WGPUFeatureName>(WGPUNativeFeature_SampledTextureAndStorageBufferArrayNonUniformIndexing);
+    const auto partialArrayFeat = static_cast<WGPUFeatureName>(WGPUNativeFeature_PartiallyBoundBindingArray);
+    const bool hasBindlessBase =
+        wgpuAdapterHasFeature(adapter_, texArrayFeat) && wgpuAdapterHasFeature(adapter_, nonUniformFeat);
+    const bool hasPartialBind = wgpuAdapterHasFeature(adapter_, partialArrayFeat);
 
     BGL_LOG_INFO("WebGPU Hardware Texture Compression Support: BC7={} | ASTC_4x4={} | ETC2={}",
                  supportsBC_ ? "YES" : "NO", supportsASTC_ ? "YES" : "NO", supportsETC2_ ? "YES" : "NO");
@@ -321,11 +349,12 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
                  scene::TextureDecoder::GetKtxTargetName(scene::TextureDecoder::GetDefaultKtxTarget()));
 
     WGPULimits supportedLimits = WGPU_LIMITS_INIT;
+    WGPUNativeLimits supportedNativeLimits = WGPU_NATIVE_LIMITS_INIT;
+    supportedLimits.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&supportedNativeLimits);
+
     WGPULimits requiredLimits = WGPU_LIMITS_INIT;
-    WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
-    devDesc.label = ToWgpuStringView("BglDevice");
-    devDesc.requiredFeatureCount = requestedFeatures.size();
-    devDesc.requiredFeatures = requestedFeatures.empty() ? nullptr : requestedFeatures.data();
+    WGPUNativeLimits requiredNativeLimits = WGPU_NATIVE_LIMITS_INIT;
+
     if (wgpuAdapterGetLimits(adapter_, &supportedLimits) == WGPUStatus_Success) {
         if (supportedLimits.maxBindGroups >= 4u) {
             requiredLimits.maxBindGroups = 4u;
@@ -334,13 +363,52 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
             requiredLimits.maxDynamicUniformBuffersPerPipelineLayout = 2u;
         }
         if (supportedLimits.maxStorageBuffersPerShaderStage >= 4u) {
-            requiredLimits.maxStorageBuffersPerShaderStage = 4u;
+            maxStorageBuffersPerShaderStage_ = std::min(supportedLimits.maxStorageBuffersPerShaderStage, 10u);
+            requiredLimits.maxStorageBuffersPerShaderStage = maxStorageBuffersPerShaderStage_;
+        }
+        if (supportedLimits.maxStorageTexturesPerShaderStage >= 4u) {
+            requiredLimits.maxStorageTexturesPerShaderStage =
+                std::min(supportedLimits.maxStorageTexturesPerShaderStage, 8u);
+        }
+        if (supportedLimits.maxStorageBufferBindingSize >= (128ull * 1024ull * 1024ull)) {
+            requiredLimits.maxStorageBufferBindingSize =
+                std::min<uint64_t>(supportedLimits.maxStorageBufferBindingSize, 256ull * 1024ull * 1024ull);
+        }
+        if (supportedLimits.maxBufferSize >= (256ull * 1024ull * 1024ull)) {
+            requiredLimits.maxBufferSize =
+                std::min<uint64_t>(supportedLimits.maxBufferSize, 512ull * 1024ull * 1024ull);
         }
         if (supportedLimits.minUniformBufferOffsetAlignment <= 256u) {
             requiredLimits.minUniformBufferOffsetAlignment = 256u;
         }
-        devDesc.requiredLimits = &requiredLimits;
+
+        if (hasBindlessBase &&
+            supportedNativeLimits.maxBindingArrayElementsPerShaderStage != WGPU_LIMIT_U32_UNDEFINED &&
+            supportedNativeLimits.maxBindingArrayElementsPerShaderStage >= 128u) {
+            maxBindingArrayElements_ = 128u;
+            requiredNativeLimits.maxBindingArrayElementsPerShaderStage = maxBindingArrayElements_;
+            requiredLimits.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&requiredNativeLimits);
+            requestedFeatures.push_back(texArrayFeat);
+            requestedFeatures.push_back(nonUniformFeat);
+            if (hasPartialBind) {
+                requestedFeatures.push_back(partialArrayFeat);
+            }
+            supportsBindlessTextures_ = true;
+        }
     }
+
+    WGPUDeviceDescriptor devDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
+    devDesc.label = ToWgpuStringView("BglDevice");
+    devDesc.requiredFeatureCount = requestedFeatures.size();
+    devDesc.requiredFeatures = requestedFeatures.empty() ? nullptr : requestedFeatures.data();
+    devDesc.requiredLimits = &requiredLimits;
+
+    supportsDesktopRayTracing_ = (maxStorageBuffersPerShaderStage_ >= 6u);
+    BGL_LOG_INFO("Desktop RayTracing Capabilities: ComputeBVH={} (StorageSlots={}) | BindlessTextures={} ({} slots) "
+                 "| Subgroups={} | TimestampQuery={}",
+                 supportsDesktopRayTracing_ ? "YES" : "NO", maxStorageBuffersPerShaderStage_,
+                 supportsBindlessTextures_ ? "YES" : "NO", maxBindingArrayElements_, supportsSubgroups_ ? "YES" : "NO",
+                 supportsTimestampQueries_ ? "YES" : "NO");
 
     struct DeviceData {
         WGPUDevice device = nullptr;

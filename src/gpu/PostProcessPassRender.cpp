@@ -146,6 +146,7 @@ void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPU
     wgpuQueueWriteBuffer(queue_, depthLinUniformBuffer_.Get(), 0, &dlData, sizeof(dlData));
     WGPURenderPipeline dlPipe = (sampleCount > 1) ? depthLinMsaaPipeline_.Get() : depthLin1xPipeline_.Get();
     DrawFullscreenPass(encoder, linearDepthView_.Get(), dlPipe, depthLinBindGroup_.Get(), "Pass_DepthLinearize");
+    preparedDepthThisFrame_ = true;
 
     if (enableSsao_ && gtaoRawView_ && gtaoBlurView_ && gtaoBindGroup_ && gtaoBlurBindGroup_) {
         const GtaoUniformData gtaoUbo{
@@ -159,6 +160,7 @@ void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPU
         DrawFullscreenPass(encoder, gtaoRawView_.Get(), gtaoPipeline_.Get(), gtaoBindGroup_.Get(), "Pass_GTAO");
         DrawFullscreenPass(encoder, gtaoBlurView_.Get(), gtaoBlurPipeline_.Get(), gtaoBlurBindGroup_.Get(),
                            "Pass_GTAOBlur");
+        preparedGtaoThisFrame_ = true;
     }
 }
 
@@ -302,12 +304,14 @@ void PostProcessPass::Prepare(WGPUCommandEncoder encoder, WGPUTextureView hdrRes
                               const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation,
                               uint32_t viewportW, uint32_t viewportH, float deltaTime, float elapsedTime) {
     preparedLdrThisFrame_ = false;
+    preparedDepthThisFrame_ = false;
+    preparedGtaoThisFrame_ = false;
     if (!encoder || !hdrResolveView || !tonemapPipeline_ || viewportW == 0 || viewportH == 0) {
         return;
     }
 
     projMatrix_ = projMatrix;
-    invProjMatrix_ = glm::inverse(projMatrix);
+    invProjMatrix_ = (std::abs(glm::determinant(projMatrix)) > 1e-8f) ? glm::inverse(projMatrix) : glm::mat4{1.0f};
     elapsedTime_ = elapsedTime;
     EnsureResolutionTargets(viewportW, viewportH);
 
@@ -338,10 +342,12 @@ void PostProcessPass::Render(WGPURenderPassEncoder swapchainPass, WGPUTextureVie
         return;
     }
 
-    WGPUTextureView activeDepthView = linearDepthView_ ? linearDepthView_.Get() : fallbackDepthView_.Get();
+    WGPUTextureView activeDepthView =
+        (preparedDepthThisFrame_ && linearDepthView_) ? linearDepthView_.Get() : fallbackDepthView_.Get();
     WGPUTextureView activeBloomView =
         (enableBloom_ && bloomMipViews_[0]) ? bloomMipViews_[0].Get() : fallbackBlackView_.Get();
-    WGPUTextureView activeGtaoView = (enableSsao_ && gtaoBlurView_) ? gtaoBlurView_.Get() : fallbackWhiteView_.Get();
+    WGPUTextureView activeGtaoView =
+        (enableSsao_ && preparedGtaoThisFrame_ && gtaoBlurView_) ? gtaoBlurView_.Get() : fallbackWhiteView_.Get();
 
     EnsureTonemapBindGroup(hdrResolveView, activeDepthView, activeBloomView, activeGtaoView);
     if (!tonemapBindGroup_) {

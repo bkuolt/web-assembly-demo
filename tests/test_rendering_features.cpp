@@ -754,6 +754,15 @@ TEST(RenderingFeaturesTest, ClusteredForwardGridBoundsValidation) {
         EXPECT_EQ(uvec.z, 0u);
         EXPECT_EQ(uvec.w, 0u);
     }
+
+    // Passing > 32 lights must safely clamp at 32 without undefined shift behavior
+    std::array<gpu::GpuPunctualLight, 40> manyLights{};
+    for (size_t i = 0; i < manyLights.size(); ++i) {
+        manyLights[i].posOrDir = glm::vec4{0.0f, 1.0f, 0.0f, 0.0f};
+        manyLights[i].colorInt = glm::vec4{1.0f, 1.0f, 1.0f, 10.0f};
+    }
+    gpu::PipelineManager::BuildClusteredLightGrid(manyLights, 40, view, proj, 0.1f, 100.0f, clusterMasks);
+    EXPECT_EQ(clusterMasks[0].x, 0xFFFFFFFFu);
 }
 
 TEST(RenderingFeaturesTest, SphericalHarmonicsDiffuseReconstruction) {

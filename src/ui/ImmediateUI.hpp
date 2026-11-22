@@ -405,6 +405,20 @@ public:
     void PopHoverEnabled();
     [[nodiscard]] bool AreHoverEffectsEnabled() const noexcept;
 
+    /**
+     * @brief Pushes/pops a scoped widget ID onto the ID stack to prevent label collisions across panels or loops.
+     */
+    void PushId(std::string_view id);
+    void PushId(int intId);
+    void PopId();
+
+    /**
+     * @brief Disables interaction and dims subsequent widgets until the matching `EndDisabled()`.
+     */
+    void BeginDisabled(bool disabled = true);
+    void EndDisabled();
+    [[nodiscard]] bool IsDisabled() const noexcept;
+
     /** @brief Returns true if the most recently emitted widget/element is hovered this frame. */
     [[nodiscard]] bool IsItemHovered() const noexcept { return lastItemHovered_; }
 
@@ -592,7 +606,10 @@ private:
     [[nodiscard]] std::string EllipsizeText(std::string_view text, float maxWidth, float scale);
     [[nodiscard]] bool IsBlockedByPopup() const noexcept;
     [[nodiscard]] bool IsMouseInClipArea() const noexcept;
-    [[nodiscard]] static uint64_t HashId(std::string_view label) noexcept;
+    [[nodiscard]] uint64_t HashId(std::string_view label) const noexcept;
+    [[nodiscard]] static std::string_view SplitDisplayLabel(std::string_view label) noexcept;
+    void PushScopeHash(uint64_t scopeHash);
+    void PopScopeHash();
 
     WGPUDevice device_{nullptr};
     WGPUQueue queue_{nullptr};
@@ -647,6 +664,8 @@ private:
     UiRect lastItemRect_{};
     bool lastItemHovered_{false};
     std::vector<bool> hoverOverrideStack_{};
+    std::vector<bool> disabledStack_{};
+    std::vector<uint64_t> idStack_{};
     std::string pendingTooltip_{};
     float cursorX_{0.0f};
     float cursorY_{0.0f};
@@ -785,6 +804,11 @@ void BeginScrollArea(std::string_view id, float maxHeight);
 void EndScrollArea();
 void PushHover(bool enabled);
 void PopHover();
+void PushId(std::string_view id);
+void PushId(int intId);
+void PopId();
+void BeginDisabled(bool disabled = true);
+void EndDisabled();
 [[nodiscard]] bool IsHovered() noexcept;
 void Tooltip(std::string_view text);
 bool PushFont(std::string_view slotName);

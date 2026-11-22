@@ -245,7 +245,7 @@ void SignalActionHandler(int sig, siginfo_t* info, void* /*ucontext*/) {
                   << std::stacktrace::current()
                   << "--------------------------------------------------------------------------------\n";
     } catch (...) {
-        // Guard against any memory failure during crash
+        SafeWriteStderr("[std::stacktrace unavailable during crash]\n");
     }
 #endif
 
@@ -333,7 +333,9 @@ void PrintStackTrace(std::string_view reason) noexcept {
 #if defined(BGL_HAS_STD_STACKTRACE)
     try {
         std::cerr << "C++23 std::stacktrace:\n" << std::stacktrace::current() << "\n";
-    } catch (...) {}
+    } catch (...) {
+        SafeWriteStderr("[std::stacktrace unavailable]\n");
+    }
 #endif
 #endif
 }

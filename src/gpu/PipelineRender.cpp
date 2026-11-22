@@ -45,7 +45,7 @@ void PipelineManager::BuildClusteredLightGrid(std::span<const GpuPunctualLight> 
                                               const glm::mat4& viewMatrix, const glm::mat4& projMatrix, float zNear,
                                               float zFar, std::array<glm::uvec4, 256>& outClusterMasks) noexcept {
     outClusterMasks.fill(glm::uvec4{0u});
-    const uint32_t count{std::min<uint32_t>(lightCount, static_cast<uint32_t>(lights.size()))};
+    const uint32_t count{std::min<uint32_t>({lightCount, static_cast<uint32_t>(lights.size()), 32u})};
     if (count == 0) {
         return;
     }

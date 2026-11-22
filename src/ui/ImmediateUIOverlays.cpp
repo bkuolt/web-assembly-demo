@@ -64,7 +64,8 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
 
     const uint64_t id = HashId(label);
 
-    EmitText(vertices_, indices_, label, cursorX_, cursorY_, style_.textMuted, style_.textScale * 0.9f);
+    EmitText(vertices_, indices_, SplitDisplayLabel(label), cursorX_, cursorY_, style_.textMuted,
+             style_.textScale * 0.9f);
     cursorY_ += 17.0f;
 
     const UiRect anchorRect{cursorX_, cursorY_, contentWidth_, style_.rowHeight};
@@ -528,6 +529,36 @@ void PushHover(bool enabled) {
 void PopHover() {
     if (g_activeUiContext) {
         g_activeUiContext->PopHoverEnabled();
+    }
+}
+
+void PushId(std::string_view id) {
+    if (g_activeUiContext) {
+        g_activeUiContext->PushId(id);
+    }
+}
+
+void PushId(int intId) {
+    if (g_activeUiContext) {
+        g_activeUiContext->PushId(intId);
+    }
+}
+
+void PopId() {
+    if (g_activeUiContext) {
+        g_activeUiContext->PopId();
+    }
+}
+
+void BeginDisabled(bool disabled) {
+    if (g_activeUiContext) {
+        g_activeUiContext->BeginDisabled(disabled);
+    }
+}
+
+void EndDisabled() {
+    if (g_activeUiContext) {
+        g_activeUiContext->EndDisabled();
     }
 }
 

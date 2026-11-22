@@ -155,7 +155,12 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
         bgl::gui::Button("B");
         bgl::gui::EndContainer();
         bgl::gui::BeginGroup("Display", true);
+        bgl::gui::PushId(1);
         bgl::gui::Toggle("EnableFX", toggleVal, "Public toggle switch");
+        bgl::gui::PopId();
+        bgl::gui::BeginDisabled(true);
+        bgl::gui::Button("LockedAction");
+        bgl::gui::EndDisabled();
         bgl::gui::OptionGroup("NavMode", kModeOpts, optionIdx, true);
         bgl::gui::EndGroup();
     }

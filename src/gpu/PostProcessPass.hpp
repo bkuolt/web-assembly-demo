@@ -274,6 +274,8 @@ private:
     glm::mat4 invProjMatrix_{1.0f};
     float elapsedTime_{0.0f};
     bool preparedLdrThisFrame_{false};
+    bool preparedDepthThisFrame_{false};
+    bool preparedGtaoThisFrame_{false};
 
     float exposure_{1.0f};
     bool enableAutoExposure_{false};

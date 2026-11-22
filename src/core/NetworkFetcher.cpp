@@ -180,8 +180,8 @@ int CurlXferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, cu
 [[nodiscard]] Result<std::vector<uint8_t>> ReadLocalFileBytes(const std::filesystem::path& filePath,
                                                               const FetchProgressCallback& progressCb = {}) {
     std::error_code ec{};
-    if (!std::filesystem::exists(filePath, ec) || std::filesystem::is_directory(filePath, ec)) {
-        return std::unexpected("File does not exist: " + filePath.string());
+    if (!std::filesystem::exists(filePath, ec) || !std::filesystem::is_regular_file(filePath, ec)) {
+        return std::unexpected("File does not exist or is not a regular file: " + filePath.string());
     }
 
     std::ifstream file{filePath, std::ios::binary | std::ios::ate};
@@ -504,6 +504,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         curl_easy_setopt(curl.get(), CURLOPT_ACCEPT_ENCODING, "");
         curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, 15L);
         curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 120L);
+        curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1024L);
+        curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_TIME, 30L);
 
         CurlProgressContext progressCtx{&progressCb, false, std::chrono::steady_clock::now()};
         if (progressCb) {

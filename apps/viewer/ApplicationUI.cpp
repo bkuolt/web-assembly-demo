@@ -47,6 +47,7 @@ void Application::UpdateSettingsUI() {
 
     settingsUi_.BeginWindow("bgl-Engine Studio", std::max(16.0f, static_cast<float>(vpW) - 356.0f), 14.0f, 340.0f);
 
+    bgl::ui::UI::BeginGroup("Telemetry", true);
     const double totalMb = static_cast<double>(lastVramBytes_) / (1024.0 * 1024.0);
     const double texMb = static_cast<double>(lastTextureVramBytes_) / (1024.0 * 1024.0);
     bgl::ui::UI::Label(std::format("VRAM: {:.1f} MB (Tex: {:.1f} MB)", totalMb, texMb),
@@ -55,14 +56,18 @@ void Application::UpdateSettingsUI() {
         bgl::ui::UI::Sparkline("Frame Rate (FPS)", std::span<const float>{fpsHistory_.data(), fpsHistoryCount_}, 0.0f,
                                0.0f, 34.0f, glm::vec4{uiAccentColor_, 1.0f});
     }
+    bgl::ui::UI::EndGroup();
 
     DrawModelSelectorSection(showLoadingUi);
     bgl::ui::UI::Separator();
 
+    const float sectionsMaxH = std::max(240.0f, static_cast<float>(vpH) - 240.0f);
+    bgl::ui::UI::BeginScrollArea("studio_sections_scroll", sectionsMaxH);
     DrawCameraSceneSection();
     DrawPostProcessSection();
     DrawAtmosphereWeatherSection();
     DrawEngineThemeSection();
+    bgl::ui::UI::EndScrollArea();
 
     settingsUi_.EndWindow();
     settingsUi_.EndFrame();
@@ -132,15 +137,22 @@ void Application::DrawCameraSceneSection() {
         pipelineManager_.SetDebugViewMode(static_cast<gpu::DebugViewMode>(viewIdx));
     }
 
-    if (bgl::ui::UI::Button("Frame All / Reset View")) {
+    bgl::ui::UI::BeginContainer(
+        "cam_quick_actions",
+        bgl::ui::ContainerOptions{
+            .layout = bgl::ui::ContainerLayout::Horizontal, .padding = 0.0f, .spacing = 6.0f, .columns = 2});
+    if (bgl::ui::UI::Button("Frame All [F]")) {
         FrameAll();
     }
-    bool turntable = turntableActive_;
-    if (bgl::ui::UI::Checkbox("Auto Turntable", turntable)) {
-        turntableActive_ = turntable;
+    bgl::ui::UI::Tooltip("Reset camera to fit the entire scene");
+    if (bgl::ui::UI::Button(turntableActive_ ? "Stop Orbit [T]" : "Turntable [T]")) {
+        turntableActive_ = !turntableActive_;
     }
+    bgl::ui::UI::Tooltip("Toggle automatic orbital turntable camera");
+    bgl::ui::UI::EndContainer();
+
     bool wf = wireframeMode_;
-    if (bgl::ui::UI::Checkbox("Wireframe Overlay [F1]", wf)) {
+    if (bgl::ui::UI::ToggleBox("Wireframe Overlay [F1]", wf)) {
         wireframeMode_ = wf;
     }
     bool aabbs = showBoundingBoxes_;
@@ -179,9 +191,9 @@ void Application::DrawPostProcessSection() {
     }
     auto& pp = pipelineManager_.GetPostProcessPass();
 
-    static constexpr const char* kTonemapNames[] = {"Khronos PBR Neutral", "AgX Cinema", "ACES Filmic"};
+    static constexpr const char* kTonemapNames[] = {"Neutral", "AgX", "ACES"};
     size_t tmIdx = static_cast<size_t>(std::to_underlying(pp.GetToneMapOperator()));
-    if (bgl::ui::UI::Dropdown("Tone Mapper", kTonemapNames, tmIdx)) {
+    if (bgl::ui::UI::OptionGroup("Tone Mapper", kTonemapNames, tmIdx, true)) {
         pp.SetToneMapOperator(static_cast<gpu::ToneMapOperator>(tmIdx));
     }
 
@@ -196,16 +208,16 @@ void Application::DrawPostProcessSection() {
         pp.SetExposure(exposure);
     }
     bool autoExp = pp.IsAutoExposureEnabled();
-    if (bgl::ui::UI::Checkbox("GPU Auto-Exposure", autoExp)) {
+    if (bgl::ui::UI::ToggleBox("GPU Auto-Exposure", autoExp, "Histogram luminance adaptation")) {
         pp.SetAutoExposureEnabled(autoExp);
     }
     bool fxaa = pp.IsFxaaEnabled();
-    if (bgl::ui::UI::Checkbox("FXAA Edge AA", fxaa)) {
+    if (bgl::ui::UI::ToggleBox("FXAA Edge AA", fxaa)) {
         pp.SetFxaaEnabled(fxaa);
     }
 
     bool bloom = pp.IsBloomEnabled();
-    if (bgl::ui::UI::Checkbox("5-Mip HDR Bloom [Z]", bloom)) {
+    if (bgl::ui::UI::ToggleBox("5-Mip HDR Bloom [Z]", bloom)) {
         pp.SetBloomEnabled(bloom);
     }
     if (bloom) {
@@ -329,7 +341,7 @@ void Application::DrawEngineThemeSection() {
     }
     bgl::ui::UI::Tooltip("Smooth cascaded directional shadows with Poisson disk sampling");
     bool hoverEffects = settingsUi_.Style().enableHoverEffects;
-    if (bgl::ui::UI::Checkbox("UI Hover Effects", hoverEffects)) {
+    if (bgl::ui::UI::ToggleBox("UI Hover Effects", hoverEffects, "Smooth hover highlights across widgets")) {
         settingsUi_.Style().enableHoverEffects = hoverEffects;
     }
     bgl::ui::UI::Tooltip("Toggle animated hover highlights across all UI widgets");
