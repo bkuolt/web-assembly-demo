@@ -11,10 +11,6 @@ namespace bgl::ui {
 
 namespace {
 
-[[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
-    return glm::vec4{c.r, c.g, c.b, alpha};
-}
-
 void FormatFloatLabel(char* dst, size_t dstSize, std::string_view fmt, float value) noexcept {
     int precision = 2;
     std::string_view suffix;
@@ -112,7 +108,7 @@ void ImmediateUI::EndWindow() {
     if (!inWindow_) {
         return;
     }
-    if (inScrollArea_) {
+    while (!scrollStack_.empty()) {
         EndScrollArea();
     }
 
@@ -211,7 +207,7 @@ bool ImmediateUI::IsBlockedByPopup() const noexcept {
 }
 
 bool ImmediateUI::IsMouseInClipArea() const noexcept {
-    return !inScrollArea_ || scrollRect_.Contains(input_.mouseX, input_.mouseY);
+    return scrollStack_.empty() || scrollStack_.back().effectiveClip.Contains(input_.mouseX, input_.mouseY);
 }
 
 bool ImmediateUI::Button(std::string_view label) {
@@ -270,6 +266,9 @@ bool ImmediateUI::SliderFloat(std::string_view label, float& value, float minVal
                               std::string_view valueFormat) {
     if (maxVal <= minVal) {
         maxVal = minVal + 1e-4f;
+    }
+    if (!std::isfinite(value)) {
+        value = minVal;
     }
     value = std::clamp(value, minVal, maxVal);
     const uint64_t id = HashId(label);
@@ -332,7 +331,9 @@ bool ImmediateUI::SliderFloat(std::string_view label, float& value, float minVal
 }
 
 bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
-    color = glm::clamp(color, glm::vec3{0.0f}, glm::vec3{1.0f});
+    color.r = std::isfinite(color.r) ? std::clamp(color.r, 0.0f, 1.0f) : 0.0f;
+    color.g = std::isfinite(color.g) ? std::clamp(color.g, 0.0f, 1.0f) : 0.0f;
+    color.b = std::isfinite(color.b) ? std::clamp(color.b, 0.0f, 1.0f) : 0.0f;
     const uint64_t id = HashId(label);
     const UiRect rowRect{cursorX_, cursorY_, contentWidth_, style_.rowHeight};
     const float swatchW = 48.0f;
@@ -381,6 +382,8 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
             } else if (!popupRect.Contains(input_.mouseX, input_.mouseY) && !swatchHover.hovered) {
                 openColorId_ = 0;
                 colorToggledThisFrame_ = true;
+                popupConsumedInputThisFrame_ = true;
+                hasActivePopupRect_ = false;
             }
         }
         if (activeColorSvId_ == id && (input_.mouseDown || input_.mouseReleased)) {
@@ -426,6 +429,7 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
                    glm::vec4{color, 1.0f}, swatchBorder, 1.25f + 0.5f * (nowOpen ? 1.0f : swatchHover.mix), false);
 
     if (nowOpen) {
+        openColorSeenThisFrame_ = true;
         hasPendingColorOverlay_ = true;
         hasActivePopupRect_ = true;
         activePopupRect_ = popupRect;
@@ -436,6 +440,8 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
                                                    .hueRect = hueRect,
                                                    .hsv = storedHsv,
                                                    .rgb = color};
+    } else if (isOpen) {
+        hasActivePopupRect_ = false;
     }
 
     lastItemRect_ = rowRect;
@@ -447,16 +453,29 @@ bool ImmediateUI::ColorEdit3(std::string_view label, glm::vec3& color) {
 void ImmediateUI::Sparkline(std::string_view label, std::span<const float> values, float minVal, float maxVal,
                             float height, const glm::vec4& lineColor) {
     float curVal = 0.0f;
-    float lo = minVal;
-    float hi = maxVal;
+    float lo = std::isfinite(minVal) ? minVal : 0.0f;
+    float hi = std::isfinite(maxVal) ? maxVal : 0.0f;
+    auto safeVal = [lo](float v) noexcept { return std::isfinite(v) ? v : lo; };
     if (!values.empty()) {
-        curVal = values.back();
+        curVal = std::isfinite(values.back()) ? values.back() : 0.0f;
         if (hi <= lo) {
-            lo = values.front();
-            hi = values.front();
+            bool foundFinite = false;
             for (float v : values) {
-                lo = std::min(lo, v);
-                hi = std::max(hi, v);
+                if (!std::isfinite(v)) {
+                    continue;
+                }
+                if (!foundFinite) {
+                    lo = v;
+                    hi = v;
+                    foundFinite = true;
+                } else {
+                    lo = std::min(lo, v);
+                    hi = std::max(hi, v);
+                }
+            }
+            if (!foundFinite) {
+                lo = 0.0f;
+                hi = 1.0f;
             }
             const float padSpan = std::max(1.0f, (hi - lo) * 0.15f);
             lo = std::max(0.0f, lo - padSpan * 0.25f);
@@ -494,8 +513,8 @@ void ImmediateUI::Sparkline(std::string_view label, std::span<const float> value
         for (size_t i = 0; i + 1 < values.size(); ++i) {
             const float t0 = static_cast<float>(i) / static_cast<float>(values.size() - 1);
             const float t1 = static_cast<float>(i + 1) / static_cast<float>(values.size() - 1);
-            const float n0 = std::clamp((values[i] - lo) / span, 0.0f, 1.0f);
-            const float n1 = std::clamp((values[i + 1] - lo) / span, 0.0f, 1.0f);
+            const float n0 = std::clamp((safeVal(values[i]) - lo) / span, 0.0f, 1.0f);
+            const float n1 = std::clamp((safeVal(values[i + 1]) - lo) / span, 0.0f, 1.0f);
             const glm::vec2 p0{plotX + t0 * plotW, bottomY - n0 * plotH};
             const glm::vec2 p1{plotX + t1 * plotW, bottomY - n1 * plotH};
 
@@ -518,7 +537,7 @@ void ImmediateUI::Sparkline(std::string_view label, std::span<const float> value
             const float relX = std::clamp((input_.mouseX - plotX) / plotW, 0.0f, 1.0f);
             const size_t nearestIdx = std::min(
                 values.size() - 1, static_cast<size_t>(std::lround(relX * static_cast<float>(values.size() - 1))));
-            displayVal = values[nearestIdx];
+            displayVal = safeVal(values[nearestIdx]);
             const float normV = std::clamp((displayVal - lo) / span, 0.0f, 1.0f);
             const float snapX =
                 plotX + (static_cast<float>(nearestIdx) / static_cast<float>(values.size() - 1)) * plotW;

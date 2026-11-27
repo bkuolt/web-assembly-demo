@@ -48,10 +48,17 @@ void DebugOverlay::Toggle() noexcept {
 void DebugOverlay::Update(float deltaTime, const OverlayStats& stats) {
     currentStats_ = stats;
 
-    float currentMs = deltaTime * 1000.0f;
+    const float safeDt = (std::isfinite(deltaTime) && deltaTime > 0.0f) ? deltaTime : 0.016f;
+    const float currentMs = safeDt * 1000.0f;
+    if (!std::isfinite(smoothedFrameTimeMs_)) {
+        smoothedFrameTimeMs_ = 16.67f;
+    }
     smoothedFrameTimeMs_ = smoothedFrameTimeMs_ * 0.92f + currentMs * 0.08f;
 
-    float currentFps = (deltaTime > 0.00001f) ? (1.0f / deltaTime) : 60.0f;
+    const float currentFps = std::clamp(1.0f / std::max(safeDt, 0.0001f), 0.0f, 9999.0f);
+    if (!std::isfinite(smoothedFps_)) {
+        smoothedFps_ = 60.0f;
+    }
     smoothedFps_ = smoothedFps_ * 0.92f + currentFps * 0.08f;
 }
 
@@ -83,7 +90,7 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
         const float ramMb = static_cast<float>(currentStats_.residentRamBytes) / (1024.0f * 1024.0f);
         std::string minText =
             std::format("bgl v{} | {:.0f} FPS ({:.1f}ms) | RAM {:.0f}M | {} [O:Expand]", bgl::kEngineVersion,
-                        smoothedFps_, smoothedFrameTimeMs_, ramMb, currentStats_.sceneName);
+                        smoothedFps_, smoothedFrameTimeMs_, ramMb, core::SanitizeForLog(currentStats_.sceneName));
         textRenderer_.DrawText(minText, pillX + 12.0f, pillY + 6.0f, glm::vec4(0.92f, 0.95f, 0.98f, 1.0f));
 
         textRenderer_.Render(pass, viewportWidth, viewportHeight);
@@ -136,15 +143,16 @@ void DebugOverlay::Render(WGPURenderPassEncoder pass, uint32_t viewportWidth, ui
 
     std::string padText =
         currentStats_.gamepadConnected
-            ? (currentStats_.isDualSense ? "Pad: PS5 DualSense"
-                                         : std::format("Pad: {}", currentStats_.gamepadName.substr(0, 12)))
+            ? (currentStats_.isDualSense
+                   ? "Pad: PS5 DualSense"
+                   : std::format("Pad: {}", core::SanitizeForLog(currentStats_.gamepadName).substr(0, 12)))
             : "Pad: Disconnected";
     glm::vec4 padColor =
         currentStats_.gamepadConnected ? glm::vec4(0.25f, 0.88f, 0.65f, 1.0f) : glm::vec4(0.55f, 0.60f, 0.68f, 0.75f);
     textRenderer_.DrawText(padText, panelX + 310.0f, panelY + 39.0f, padColor);
 
     // 5. Row 2: Active Scene & Primitives
-    std::string sceneText = std::format("Scene: {} ({} prims, {} verts)", currentStats_.sceneName,
+    std::string sceneText = std::format("Scene: {} ({} prims, {} verts)", core::SanitizeForLog(currentStats_.sceneName),
                                         currentStats_.primitiveCount, currentStats_.vertexCount);
     textRenderer_.DrawText(sceneText, textX, panelY + 61.0f, glm::vec4(0.95f, 0.97f, 0.99f, 1.0f));
 

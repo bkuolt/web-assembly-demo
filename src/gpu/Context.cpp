@@ -5,6 +5,8 @@
 #include "gpu/Context.hpp"
 #include "core/Log.hpp"
 #include "scene/TextureDecoder.hpp"
+#include <atomic>
+#include <memory>
 #include <vector>
 
 #if defined(BGL_PLATFORM_NATIVE)
@@ -70,25 +72,34 @@ void CreateRenderTarget(WGPUDevice device, uint32_t width, uint32_t height, WGPU
     }
 }
 
+[[nodiscard]] std::string_view StringViewFromWgpu(WGPUStringView sv, std::string_view fallback) noexcept {
+    if (!sv.data) {
+        return fallback;
+    }
+    if (sv.length == WGPU_STRLEN) {
+        return std::string_view{sv.data};
+    }
+    return std::string_view{sv.data, sv.length};
+}
+
+[[nodiscard]] bool IsHdrPassTargetCompatible(uint32_t sampleCount, WGPUTextureView msaaView,
+                                             WGPUTextureView hdrResolveView, WGPUTextureView depthView) noexcept {
+    if (!depthView || !hdrResolveView) {
+        return false;
+    }
+    return sampleCount <= 1u || msaaView != nullptr;
+}
+
 [[nodiscard]] WGPURenderPassColorAttachment BuildHdrColorAttachment(uint32_t sampleCount, WGPUTextureView msaaView,
-                                                                    WGPUTextureView hdrResolveView,
-                                                                    WGPUTextureView swapchainView, WGPULoadOp loadOp,
+                                                                    WGPUTextureView hdrResolveView, WGPULoadOp loadOp,
                                                                     bool preserveMsaa) noexcept {
     WGPURenderPassColorAttachment attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
     if (sampleCount > 1 && msaaView && hdrResolveView) {
         attachment.view = msaaView;
         attachment.resolveTarget = hdrResolveView;
         attachment.storeOp = preserveMsaa ? WGPUStoreOp_Store : WGPUStoreOp_Discard;
-    } else if (hdrResolveView) {
-        attachment.view = hdrResolveView;
-        attachment.resolveTarget = nullptr;
-        attachment.storeOp = WGPUStoreOp_Store;
-    } else if (sampleCount > 1 && msaaView) {
-        attachment.view = msaaView;
-        attachment.resolveTarget = swapchainView;
-        attachment.storeOp = WGPUStoreOp_Discard;
     } else {
-        attachment.view = swapchainView;
+        attachment.view = hdrResolveView;
         attachment.resolveTarget = nullptr;
         attachment.storeOp = WGPUStoreOp_Store;
     }
@@ -149,7 +160,7 @@ void Context::Shutdown() noexcept {
     BGL_LOG_INFO("Native WebGPU Context cleanly shut down.");
 }
 
-void Context::CreateRenderBuffers() {
+bool Context::CreateRenderBuffers() {
 #if defined(BGL_PLATFORM_NATIVE)
     hdrResolveView_.Reset();
     hdrResolveTexture_.Reset();
@@ -164,32 +175,49 @@ void Context::CreateRenderBuffers() {
         CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_RGBA16Float,
                            WGPUTextureUsage_RenderAttachment, sampleCount_, "HDR_MSAAColorTexture_RGBA16F",
                            msaaColorTexture_, msaaColorView_);
+        if (!msaaColorTexture_ || !msaaColorView_) {
+            BGL_LOG_ERROR("Failed to create {}x MSAA HDR color render target ({}x{})", sampleCount_, width_, height_);
+            return false;
+        }
     }
 
     // 1b. Create 1x Linear HDR (RGBA16Float) Resolve & Sampled Texture for Tonemapping Post-Process
     CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_RGBA16Float,
                        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc,
                        1, "HDR_ResolveTexture_RGBA16F", hdrResolveTexture_, hdrResolveView_);
+    if (!hdrResolveTexture_ || !hdrResolveView_) {
+        BGL_LOG_ERROR("Failed to create HDR resolve render target ({}x{})", width_, height_);
+        return false;
+    }
 
     // 2. Create Depth Buffer (with matching sample count + TextureBinding for depth-based post-processing)
     CreateRenderTarget(device_.Get(), width_, height_, WGPUTextureFormat_Depth24Plus,
                        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding, sampleCount_, "DepthBuffer",
                        depthTexture_, depthView_);
-    if (depthTexture_) {
-        WGPUTextureViewDescriptor readViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
-        readViewDesc.format = WGPUTextureFormat_Depth24Plus;
-        readViewDesc.dimension = WGPUTextureViewDimension_2D;
-        readViewDesc.baseMipLevel = 0;
-        readViewDesc.mipLevelCount = 1;
-        readViewDesc.baseArrayLayer = 0;
-        readViewDesc.arrayLayerCount = 1;
-        readViewDesc.aspect = WGPUTextureAspect_DepthOnly;
-        readViewDesc.label = ToWgpuStringView("DepthBuffer_ReadOnlyView");
-        depthReadView_ = wgpuTextureCreateView(depthTexture_.Get(), &readViewDesc);
+    if (!depthTexture_ || !depthView_) {
+        BGL_LOG_ERROR("Failed to create Depth24Plus render target ({}x{})", width_, height_);
+        return false;
+    }
+    WGPUTextureViewDescriptor readViewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    readViewDesc.format = WGPUTextureFormat_Depth24Plus;
+    readViewDesc.dimension = WGPUTextureViewDimension_2D;
+    readViewDesc.baseMipLevel = 0;
+    readViewDesc.mipLevelCount = 1;
+    readViewDesc.baseArrayLayer = 0;
+    readViewDesc.arrayLayerCount = 1;
+    readViewDesc.aspect = WGPUTextureAspect_DepthOnly;
+    readViewDesc.label = ToWgpuStringView("DepthBuffer_ReadOnlyView");
+    depthReadView_ = wgpuTextureCreateView(depthTexture_.Get(), &readViewDesc);
+    if (!depthReadView_) {
+        BGL_LOG_ERROR("Failed to create read-only depth view ({}x{})", width_, height_);
+        return false;
     }
 
     BGL_LOG_INFO("WebGPU HDR Render Buffers created ({}x{}, Color: RGBA16Float, Depth: Depth24Plus, MSAA: {}x)", width_,
                  height_, sampleCount_);
+    return true;
+#else
+    return true;
 #endif
 }
 
@@ -255,45 +283,46 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     adapterOpts.compatibleSurface = surface_;
     adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
 
-    struct AdapterData {
-        WGPUAdapter adapter = nullptr;
-        bool done = false;
-    } adapterData;
+    struct AdapterState {
+        WGPUAdapter adapter{nullptr};
+        std::atomic<bool> done{false};
+    };
+    auto* adapterState = new AdapterState{};
 
     auto onAdapter = [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView msg, void* userdata1,
                         void* userdata2) {
         (void)userdata2;
-        auto* data = static_cast<AdapterData*>(userdata1);
+        auto* data = static_cast<AdapterState*>(userdata1);
         if (status == WGPURequestAdapterStatus_Success) {
             data->adapter = adapter;
         } else {
-            BGL_LOG_ERROR("Request adapter failed: {}", msg.data ? msg.data : "Unknown");
+            BGL_LOG_ERROR("Request adapter failed: {}", StringViewFromWgpu(msg, "Unknown"));
         }
-        data->done = true;
+        data->done.store(true, std::memory_order_release);
     };
 
     WGPURequestAdapterCallbackInfo cbInfo = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
     cbInfo.mode = WGPUCallbackMode_AllowProcessEvents;
     cbInfo.callback = onAdapter;
-    cbInfo.userdata1 = &adapterData;
+    cbInfo.userdata1 = adapterState;
 
     wgpuInstanceRequestAdapter(instance_, &adapterOpts, cbInfo);
-    if (!adapterData.adapter) {
+    for (int iter = 0; !adapterState->done.load(std::memory_order_acquire) && iter < 1000; ++iter) {
+        wgpuInstanceProcessEvents(instance_);
+    }
+    WGPUAdapter acquiredAdapter = adapterState->done.load(std::memory_order_acquire) ? adapterState->adapter : nullptr;
+    if (adapterState->done.load(std::memory_order_acquire)) {
+        delete adapterState;
+    }
+    if (!acquiredAdapter) {
         return std::unexpected("Failed to acquire suitable hardware WebGPU adapter");
     }
-    adapter_ = adapterData.adapter;
+    adapter_ = acquiredAdapter;
 
     WGPUAdapterInfo adapterInfo = WGPU_ADAPTER_INFO_INIT;
     wgpuAdapterGetInfo(adapter_, &adapterInfo);
-    auto stringViewFromWgpu = [](WGPUStringView sv, std::string_view fallback) -> std::string_view {
-        if (!sv.data)
-            return fallback;
-        if (sv.length == WGPU_STRLEN)
-            return std::string_view{sv.data};
-        return std::string_view{sv.data, sv.length};
-    };
-    const auto gpuDeviceName = stringViewFromWgpu(adapterInfo.device, "Unknown GPU");
-    const auto gpuDriverDesc = stringViewFromWgpu(adapterInfo.description, "Unknown Driver");
+    const auto gpuDeviceName = StringViewFromWgpu(adapterInfo.device, "Unknown GPU");
+    const auto gpuDriverDesc = StringViewFromWgpu(adapterInfo.description, "Unknown Driver");
     BGL_LOG_INFO("WebGPU Adapter: {} (Driver: {}, Backend: {})", gpuDeviceName, gpuDriverDesc,
                  static_cast<int>(adapterInfo.backendType));
 #if defined(BGL_PLATFORM_NATIVE)
@@ -426,33 +455,41 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
                  supportsBindlessTextures_ ? "YES" : "NO", maxBindingArrayElements_, supportsSubgroups_ ? "YES" : "NO",
                  supportsTimestampQueries_ ? "YES" : "NO");
 
-    struct DeviceData {
-        WGPUDevice device = nullptr;
-        bool done = false;
-    } devData;
+    struct DeviceState {
+        WGPUDevice device{nullptr};
+        std::atomic<bool> done{false};
+    };
+    auto* devState = new DeviceState{};
 
     auto onDevice = [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView msg, void* userdata1,
                        void* userdata2) {
         (void)userdata2;
-        auto* data = static_cast<DeviceData*>(userdata1);
+        auto* data = static_cast<DeviceState*>(userdata1);
         if (status == WGPURequestDeviceStatus_Success) {
             data->device = device;
         } else {
-            BGL_LOG_ERROR("Request device failed: {}", msg.data ? msg.data : "Unknown");
+            BGL_LOG_ERROR("Request device failed: {}", StringViewFromWgpu(msg, "Unknown"));
         }
-        data->done = true;
+        data->done.store(true, std::memory_order_release);
     };
 
     WGPURequestDeviceCallbackInfo devCbInfo = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     devCbInfo.mode = WGPUCallbackMode_AllowProcessEvents;
     devCbInfo.callback = onDevice;
-    devCbInfo.userdata1 = &devData;
+    devCbInfo.userdata1 = devState;
 
     wgpuAdapterRequestDevice(adapter_, &devDesc, devCbInfo);
-    if (!devData.device) {
+    for (int iter = 0; !devState->done.load(std::memory_order_acquire) && iter < 1000; ++iter) {
+        wgpuInstanceProcessEvents(instance_);
+    }
+    WGPUDevice acquiredDevice = devState->done.load(std::memory_order_acquire) ? devState->device : nullptr;
+    if (devState->done.load(std::memory_order_acquire)) {
+        delete devState;
+    }
+    if (!acquiredDevice) {
         return std::unexpected("Failed to create WebGPU logical device");
     }
-    device_ = devData.device;
+    device_ = acquiredDevice;
     queue_ = wgpuDeviceGetQueue(device_);
 
     // 5. Configure Swapchain Surface
@@ -470,7 +507,10 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
         BGL_LOG_INFO("WebGPU Surface configured ({}x{}, format: {})", width_, height_, static_cast<int>(format_));
     }
 
-    CreateRenderBuffers();
+    if (!CreateRenderBuffers()) {
+        Shutdown();
+        return std::unexpected("Failed to allocate WebGPU HDR/Depth render targets");
+    }
 #endif
 
     initialized_ = true;
@@ -487,7 +527,7 @@ void Context::Resize(uint32_t width, uint32_t height) {
     if (surface_ && device_ && adapter_) {
         ConfigureSwapchainSurface(surface_.Get(), adapter_.Get(), device_.Get(), format_, width_, height_);
     }
-    CreateRenderBuffers();
+    (void)CreateRenderBuffers();
 #endif
     BGL_LOG_INFO("WebGPU Surface resized to {}x{}", width, height);
 }
@@ -501,29 +541,35 @@ bool Context::PrepareFrame() {
 
     surfaceTexture_ = {};
     wgpuSurfaceGetCurrentTexture(surface_, &surfaceTexture_);
+    auto releaseSurfaceTex = [&]() noexcept {
+        if (surfaceTexture_.texture) {
+            wgpuTextureRelease(surfaceTexture_.texture);
+            surfaceTexture_.texture = nullptr;
+        }
+    };
     if (surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Timeout ||
         surfaceTexture_.status == WGPUSurfaceGetCurrentTextureStatus_Outdated) {
+        releaseSurfaceTex();
         ConfigureSwapchainSurface(surface_.Get(), adapter_.Get(), device_.Get(), format_, width_, height_);
         return false;
     }
 
     if (surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
         surfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+        releaseSurfaceTex();
         return false;
     }
 
     currentView_ = wgpuTextureCreateView(surfaceTexture_.texture, nullptr);
     if (!currentView_) {
-        wgpuTextureRelease(surfaceTexture_.texture);
-        surfaceTexture_.texture = nullptr;
+        releaseSurfaceTex();
         return false;
     }
 
     encoder_ = wgpuDeviceCreateCommandEncoder(device_, nullptr);
     if (!encoder_) {
         currentView_.Reset();
-        wgpuTextureRelease(surfaceTexture_.texture);
-        surfaceTexture_.texture = nullptr;
+        releaseSurfaceTex();
         return false;
     }
     return true;
@@ -537,10 +583,13 @@ WGPURenderPassEncoder Context::BeginFrame() {
     if (!encoder_ && !PrepareFrame()) {
         return nullptr;
     }
+    if (!IsHdrPassTargetCompatible(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), depthView_.Get())) {
+        AbortFrame();
+        return nullptr;
+    }
 
-    WGPURenderPassColorAttachment colorAttachment =
-        BuildHdrColorAttachment(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), currentView_.Get(),
-                                WGPULoadOp_Clear, /*preserveMsaa=*/true);
+    WGPURenderPassColorAttachment colorAttachment = BuildHdrColorAttachment(
+        sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), WGPULoadOp_Clear, /*preserveMsaa=*/true);
     colorAttachment.clearValue = WGPUColor{0.04, 0.06, 0.09, 1.0}; // Linear HDR dark studio slate
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
@@ -602,13 +651,13 @@ void Context::SnapshotOpaqueToCopy(WGPURenderPassEncoder opaquePass, WGPUTexture
 
 WGPURenderPassEncoder Context::OpenTransparentPass() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (!encoder_) {
+    if (!encoder_ ||
+        !IsHdrPassTargetCompatible(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), depthView_.Get())) {
         return nullptr;
     }
 
-    WGPURenderPassColorAttachment colorAttachment =
-        BuildHdrColorAttachment(sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), currentView_.Get(),
-                                WGPULoadOp_Load, /*preserveMsaa=*/false);
+    WGPURenderPassColorAttachment colorAttachment = BuildHdrColorAttachment(
+        sampleCount_, msaaColorView_.Get(), hdrResolveView_.Get(), WGPULoadOp_Load, /*preserveMsaa=*/false);
 
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.colorAttachmentCount = 1;

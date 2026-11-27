@@ -22,42 +22,6 @@ constexpr size_t kMaxInstancesPerNode{1'000'000u};
 constexpr size_t kMaxSkinJoints{4096u};
 constexpr size_t kMaxAnimKeyframes{2'000'000u};
 
-[[nodiscard]] bool ValidateBuilderAccessor(const fastgltf::Asset& asset, size_t accIdx, size_t minElemBytes,
-                                           size_t maxCount) noexcept {
-    if (accIdx >= asset.accessors.size()) {
-        return false;
-    }
-    const auto& acc = asset.accessors[accIdx];
-    if (acc.count == 0 || acc.count > maxCount) {
-        return false;
-    }
-    if (acc.sparse.has_value()) {
-        const auto& sp = *acc.sparse;
-        if (sp.count == 0 || sp.count > acc.count || sp.indicesBufferView >= asset.bufferViews.size() ||
-            sp.valuesBufferView >= asset.bufferViews.size()) {
-            return false;
-        }
-        if (acc.bufferViewIndex.has_value() && *acc.bufferViewIndex < asset.bufferViews.size()) {
-            const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
-            if (acc.byteOffset > bv.byteLength) {
-                return false;
-            }
-            const size_t avail = bv.byteLength - acc.byteOffset;
-            return minElemBytes == 0 || acc.count <= (avail / minElemBytes);
-        }
-        return true;
-    }
-    if (!acc.bufferViewIndex.has_value() || *acc.bufferViewIndex >= asset.bufferViews.size()) {
-        return false;
-    }
-    const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
-    if (acc.byteOffset > bv.byteLength) {
-        return false;
-    }
-    const size_t avail = bv.byteLength - acc.byteOffset;
-    return minElemBytes == 0 || acc.count <= (avail / minElemBytes);
-}
-
 [[nodiscard]] constexpr std::string_view AccessorTypeToString(fastgltf::AccessorType type) noexcept {
     switch (type) {
     case fastgltf::AccessorType::Scalar:
@@ -113,11 +77,14 @@ void ParseInstancingTransforms(const fastgltf::Asset& asset, const fastgltf::Nod
     auto scaleIt = gltfNode.findInstancingAttribute("SCALE");
 
     const bool validTrans = (transIt != gltfNode.instancingAttributes.cend() &&
-                             ValidateBuilderAccessor(asset, transIt->second, sizeof(float) * 3u, kMaxInstancesPerNode));
+                             ValidateAccessor(asset, transIt->second, sizeof(float) * 3u, kMaxInstancesPerNode,
+                                              fastgltf::AccessorType::Vec3));
     const bool validRot = (rotIt != gltfNode.instancingAttributes.cend() &&
-                           ValidateBuilderAccessor(asset, rotIt->second, sizeof(uint8_t) * 4u, kMaxInstancesPerNode));
+                           ValidateAccessor(asset, rotIt->second, sizeof(uint8_t) * 4u, kMaxInstancesPerNode,
+                                            fastgltf::AccessorType::Vec4));
     const bool validScale = (scaleIt != gltfNode.instancingAttributes.cend() &&
-                             ValidateBuilderAccessor(asset, scaleIt->second, sizeof(float) * 3u, kMaxInstancesPerNode));
+                             ValidateAccessor(asset, scaleIt->second, sizeof(float) * 3u, kMaxInstancesPerNode,
+                                              fastgltf::AccessorType::Vec3));
 
     if (validTrans) {
         instCount = std::max(instCount, asset.accessors[transIt->second].count);
@@ -226,7 +193,8 @@ void ParseSkins(const fastgltf::Asset& asset, Scene& scene) {
         }
 
         if (gltfSkin.inverseBindMatrices.has_value() &&
-            ValidateBuilderAccessor(asset, *gltfSkin.inverseBindMatrices, sizeof(float) * 16u, kMaxSkinJoints)) {
+            ValidateAccessor(asset, *gltfSkin.inverseBindMatrices, sizeof(float) * 16u, kMaxSkinJoints,
+                             fastgltf::AccessorType::Mat4)) {
             const auto& ibmAccessor = asset.accessors[*gltfSkin.inverseBindMatrices];
             skin.inverseBindMatrices.reserve(std::min(ibmAccessor.count, jointCount));
             fastgltf::iterateAccessor<glm::mat4>(asset, ibmAccessor, [&](glm::mat4 ibm) {
@@ -270,7 +238,8 @@ void ParseAnimations(const fastgltf::Asset& asset, Scene& scene) {
                 break;
             }
 
-            if (ValidateBuilderAccessor(asset, gltfSampler.inputAccessor, sizeof(float), kMaxAnimKeyframes)) {
+            if (ValidateAccessor(asset, gltfSampler.inputAccessor, sizeof(float), kMaxAnimKeyframes,
+                                 fastgltf::AccessorType::Scalar)) {
                 const auto& inputAcc = asset.accessors[gltfSampler.inputAccessor];
                 sampler.timestamps.reserve(inputAcc.count);
                 float lastT{0.0f};
@@ -280,11 +249,34 @@ void ParseAnimations(const fastgltf::Asset& asset, Scene& scene) {
                     sampler.timestamps.push_back(lastT);
                 });
             }
-            if (ValidateBuilderAccessor(asset, gltfSampler.outputAccessor, sizeof(uint8_t), kMaxAnimKeyframes * 12u)) {
+            if (ValidateAccessor(asset, gltfSampler.outputAccessor, sizeof(uint8_t), kMaxAnimKeyframes * 12u)) {
                 const auto& outputAcc = asset.accessors[gltfSampler.outputAccessor];
-                sampler.keyframeValues.reserve(std::min(outputAcc.count * 4u, kMaxAnimKeyframes * 12u));
-                fastgltf::iterateAccessor<float>(
-                    asset, outputAcc, [&](float v) { sampler.keyframeValues.push_back(std::isfinite(v) ? v : 0.0f); });
+                auto pushFinite = [&](float v) { sampler.keyframeValues.push_back(std::isfinite(v) ? v : 0.0f); };
+                if (outputAcc.type == fastgltf::AccessorType::Scalar) {
+                    sampler.keyframeValues.reserve(std::min(outputAcc.count, kMaxAnimKeyframes * 12u));
+                    fastgltf::iterateAccessor<float>(asset, outputAcc, pushFinite);
+                } else if (outputAcc.type == fastgltf::AccessorType::Vec2) {
+                    sampler.keyframeValues.reserve(std::min(outputAcc.count * 2u, kMaxAnimKeyframes * 12u));
+                    fastgltf::iterateAccessor<glm::vec2>(asset, outputAcc, [&](glm::vec2 v) {
+                        pushFinite(v.x);
+                        pushFinite(v.y);
+                    });
+                } else if (outputAcc.type == fastgltf::AccessorType::Vec3) {
+                    sampler.keyframeValues.reserve(std::min(outputAcc.count * 3u, kMaxAnimKeyframes * 12u));
+                    fastgltf::iterateAccessor<glm::vec3>(asset, outputAcc, [&](glm::vec3 v) {
+                        pushFinite(v.x);
+                        pushFinite(v.y);
+                        pushFinite(v.z);
+                    });
+                } else if (outputAcc.type == fastgltf::AccessorType::Vec4) {
+                    sampler.keyframeValues.reserve(std::min(outputAcc.count * 4u, kMaxAnimKeyframes * 12u));
+                    fastgltf::iterateAccessor<glm::vec4>(asset, outputAcc, [&](glm::vec4 v) {
+                        pushFinite(v.x);
+                        pushFinite(v.y);
+                        pushFinite(v.z);
+                        pushFinite(v.w);
+                    });
+                }
             }
             anim.samplers.push_back(std::move(sampler));
         }
@@ -320,7 +312,8 @@ void ParseAnimations(const fastgltf::Asset& asset, Scene& scene) {
         scene.animationPlaying = true;
         scene.animationTime = 0.0f;
         BGL_LOG_INFO("[glTF Loader] Successfully parsed {} glTF animation(s) (Active: '{}', Duration: {:.2f}s)",
-                     scene.animations.size(), scene.animations[0].name, scene.animations[0].duration);
+                     scene.animations.size(), core::SanitizeForLog(scene.animations[0].name),
+                     scene.animations[0].duration);
     }
 }
 
@@ -469,8 +462,8 @@ void ParseMaterialsAndLogStructure(const fastgltf::Asset& asset, Scene& scene) {
         BGL_LOG_DEBUG(
             "  * Material #{}: '{}' | baseColorFactor=[{:.2f}, {:.2f}, {:.2f}, {:.2f}], metal={:.2f}, rough={:.2f}, "
             "baseColorTex={}, normalTex={}, emissiveTex={}{}",
-            mIdx, sceneMat.name, sceneMat.baseColorFactor.r, sceneMat.baseColorFactor.g, sceneMat.baseColorFactor.b,
-            sceneMat.baseColorFactor.a, sceneMat.metallicFactor, sceneMat.roughnessFactor,
+            mIdx, core::SanitizeForLog(sceneMat.name), sceneMat.baseColorFactor.r, sceneMat.baseColorFactor.g,
+            sceneMat.baseColorFactor.b, sceneMat.baseColorFactor.a, sceneMat.metallicFactor, sceneMat.roughnessFactor,
             sceneMat.baseColorTextureIndex >= 0 ? std::to_string(sceneMat.baseColorTextureIndex) : "None",
             sceneMat.normalTextureIndex >= 0 ? std::to_string(sceneMat.normalTextureIndex) : "None",
             sceneMat.emissiveTextureIndex >= 0 ? std::to_string(sceneMat.emissiveTextureIndex) : "None", extDesc);
@@ -490,7 +483,8 @@ void ParseMaterialsAndLogStructure(const fastgltf::Asset& asset, Scene& scene) {
     for (size_t mIdx = 0; mIdx < asset.meshes.size(); ++mIdx) {
         const auto& mesh = asset.meshes[mIdx];
         const std::string meshName = mesh.name.empty() ? ("Mesh_" + std::to_string(mIdx)) : std::string(mesh.name);
-        BGL_LOG_DEBUG("  * Mesh #{}: '{}' ({} primitives)", mIdx, meshName, mesh.primitives.size());
+        BGL_LOG_DEBUG("  * Mesh #{}: '{}' ({} primitives)", mIdx, core::SanitizeForLog(meshName),
+                      mesh.primitives.size());
 
         for (size_t pIdx = 0; pIdx < mesh.primitives.size(); ++pIdx) {
             const auto& prim = mesh.primitives[pIdx];
@@ -500,18 +494,24 @@ void ParseMaterialsAndLogStructure(const fastgltf::Asset& asset, Scene& scene) {
                                             : "Default";
 
             size_t vertCount = 0;
-            if (auto posIt = prim.findAttribute("POSITION"); posIt != prim.attributes.end()) {
+            if (auto posIt = prim.findAttribute("POSITION");
+                posIt != prim.attributes.end() && posIt->second < asset.accessors.size()) {
                 vertCount = asset.accessors[posIt->second].count;
             }
-            const size_t idxCount = prim.indicesAccessor.has_value() ? asset.accessors[*prim.indicesAccessor].count : 0;
+            const size_t idxCount = (prim.indicesAccessor.has_value() && *prim.indicesAccessor < asset.accessors.size())
+                                        ? asset.accessors[*prim.indicesAccessor].count
+                                        : 0;
             const size_t triCount = idxCount > 0 ? (idxCount / 3) : (vertCount / 3);
 
             BGL_LOG_DEBUG("    - Prim #{}: Material #{} ('{}') | {} vertices, {} indices ({} tris)", pIdx, matIdx,
-                          matName, vertCount, idxCount, triCount);
+                          core::SanitizeForLog(matName), vertCount, idxCount, triCount);
 
             for (const auto& [attrName, accIdx] : prim.attributes) {
+                if (accIdx >= asset.accessors.size()) {
+                    continue;
+                }
                 const auto& acc = asset.accessors[accIdx];
-                BGL_LOG_DEBUG("      + Attr {}: Acc #{}, {} {}, count={}", attrName, accIdx,
+                BGL_LOG_DEBUG("      + Attr {}: Acc #{}, {} {}, count={}", core::SanitizeForLog(attrName), accIdx,
                               AccessorTypeToString(acc.type), ComponentTypeToString(acc.componentType), acc.count);
             }
         }
@@ -550,7 +550,7 @@ void ParsePunctualLights(const fastgltf::Asset& asset, Scene& scene) {
             gltfLight.outerConeAngle.has_value() ? static_cast<float>(*gltfLight.outerConeAngle) : 0.785398163f;
 
         BGL_LOG_INFO("  * Light #{}: '{}' Type={} Color=[{:.2f}, {:.2f}, {:.2f}] Intensity={:.2f} Range={:.2f}", lIdx,
-                     pLight.name,
+                     core::SanitizeForLog(pLight.name),
                      pLight.type == LightType::Directional ? "Directional"
                                                            : (pLight.type == LightType::Point ? "Point" : "Spot"),
                      pLight.color.r, pLight.color.g, pLight.color.b, pLight.intensity, pLight.range);

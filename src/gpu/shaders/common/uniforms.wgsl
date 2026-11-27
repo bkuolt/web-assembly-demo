@@ -78,3 +78,8 @@ fn transformUvDeriv(d : vec2<f32>, scaleOffset : vec4<f32>, rot : f32) -> vec2<f
     return vec2<f32>(c * sd.x + s * sd.y, -s * sd.x + c * sd.y);
 }
 
+fn safeNormalize(v : vec3<f32>, fallback : vec3<f32>) -> vec3<f32> {
+    let lenSq = dot(v, v);
+    return select(fallback, v * inverseSqrt(lenSq), lenSq > 1e-12);
+}
+

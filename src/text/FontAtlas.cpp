@@ -198,7 +198,7 @@ core::Result<void> FontAtlas::InitializeWithQuery(const FontQuery& query, uint32
             if (auto res = InitializeFromFile(found->path, pixelSize, atlasDim, useSdf, found->faceIndex); res) {
                 return {};
             } else if (!allowEmbeddedFallback) {
-                return res;
+                return std::unexpected(res.error());
             }
         } else if (!allowEmbeddedFallback) {
             return std::unexpected("Resolved font has empty path");
@@ -326,13 +326,16 @@ void FontAtlas::RasterizeAndPack(FT_Face face, uint32_t faceGlyphIndex, uint32_t
     const uint32_t glyphW = bitmap.width + 2u * padding;
     const uint32_t glyphH = bitmap.rows + 2u * padding;
 
-    if (packX_ + glyphW > atlasDim_) {
-        packX_ = 0;
-        packY_ += rowHeight_;
-        rowHeight_ = 0;
+    uint32_t nextX = packX_;
+    uint32_t nextY = packY_;
+    uint32_t nextRowH = rowHeight_;
+    if (nextX + glyphW > atlasDim_) {
+        nextX = 0;
+        nextY += nextRowH;
+        nextRowH = 0;
     }
 
-    if (packY_ + glyphH > atlasDim_) {
+    if (glyphW > atlasDim_ || nextY + glyphH > atlasDim_) {
         BGL_LOG_ERROR("Font Atlas ({}x{}) overflowed while packing glyph index {}", atlasDim_, atlasDim_,
                       faceGlyphIndex);
         info.size = glm::vec2{0.0f};
@@ -341,8 +344,8 @@ void FontAtlas::RasterizeAndPack(FT_Face face, uint32_t faceGlyphIndex, uint32_t
         return;
     }
 
-    const uint32_t targetX = packX_ + padding;
-    const uint32_t targetY = packY_ + padding;
+    const uint32_t targetX = nextX + padding;
+    const uint32_t targetY = nextY + padding;
 
     for (uint32_t y = 0; y < bitmap.rows; ++y) {
         const uint32_t srcRow = (bitmap.pitch >= 0) ? y : (bitmap.rows - 1u - y);
@@ -378,8 +381,9 @@ void FontAtlas::RasterizeAndPack(FT_Face face, uint32_t faceGlyphIndex, uint32_t
     info.uvMax = glm::vec2(static_cast<float>(targetX + bitmap.width) / static_cast<float>(atlasDim_),
                            static_cast<float>(targetY + bitmap.rows) / static_cast<float>(atlasDim_));
 
-    packX_ += glyphW;
-    rowHeight_ = std::max(rowHeight_, glyphH);
+    packX_ = nextX + glyphW;
+    packY_ = nextY;
+    rowHeight_ = std::max(nextRowH, glyphH);
     isDirty_ = true;
 }
 
@@ -434,6 +438,12 @@ void FontAtlas::SyncGPU(WGPUDevice device, WGPUQueue queue) {
         sampDesc.minFilter = WGPUFilterMode_Linear;
         sampDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
         gpuSampler_ = wgpuDeviceCreateSampler(device, &sampDesc);
+        if (!gpuTextureView_ || !gpuSampler_) {
+            gpuSampler_.Reset();
+            gpuTextureView_.Reset();
+            gpuTexture_.Reset();
+            return;
+        }
 
         ++gpuGeneration_;
         isDirty_ = true;

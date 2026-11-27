@@ -41,7 +41,7 @@ struct SahSplit {
 };
 
 [[nodiscard]] inline float SurfaceArea(const core::AABB& b) noexcept {
-    if (b.minBound.x > b.maxBound.x) {
+    if (!b.IsValid()) {
         return 0.0f;
     }
     const glm::vec3 e = glm::max(b.maxBound - b.minBound, glm::vec3{0.0f});

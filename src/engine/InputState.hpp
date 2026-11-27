@@ -43,6 +43,15 @@ public:
 
     void AddWheel(float y) noexcept { wheel_ += y; }
 
+    void ClearButtons() noexcept {
+        keys_.fill(false);
+        previousKeys_.fill(false);
+        mouse_.fill(false);
+        previousMouse_.fill(false);
+        mouseDelta_ = glm::vec2{0.0f};
+        wheel_ = 0.0f;
+    }
+
     [[nodiscard]] bool IsKeyDown(Key k) const noexcept { return Get(keys_, Index(k)); }
     [[nodiscard]] bool IsKeyPressed(Key k) const noexcept {
         return Get(keys_, Index(k)) && !Get(previousKeys_, Index(k));

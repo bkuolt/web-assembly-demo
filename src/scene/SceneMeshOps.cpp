@@ -34,8 +34,13 @@ namespace {
 
     std::vector<CellSample> samples(vertices.size());
     for (size_t i{0}; i < vertices.size(); ++i) {
-        const glm::vec3 normPos{
-            glm::clamp((vertices[i].position - box.minBound) / boxSize, glm::vec3{0.0f}, glm::vec3{0.99999f})};
+        const glm::vec3 rawNormPos{(vertices[i].position - box.minBound) / boxSize};
+        const glm::vec3 safeRaw{
+            std::isfinite(rawNormPos.x) ? rawNormPos.x : 0.0f,
+            std::isfinite(rawNormPos.y) ? rawNormPos.y : 0.0f,
+            std::isfinite(rawNormPos.z) ? rawNormPos.z : 0.0f,
+        };
+        const glm::vec3 normPos{glm::clamp(safeRaw, glm::vec3{0.0f}, glm::vec3{0.99999f})};
         const uint32_t ix{static_cast<uint32_t>(normPos.x * static_cast<float>(gx))};
         const uint32_t iy{static_cast<uint32_t>(normPos.y * static_cast<float>(gy))};
         const uint32_t iz{static_cast<uint32_t>(normPos.z * static_cast<float>(gz))};
@@ -104,6 +109,10 @@ namespace {
         float areaSq{0.0f};
     };
     const size_t srcTris{src.size() / 3};
+    keepTris = std::min(keepTris, srcTris);
+    if (keepTris == 0) {
+        return {};
+    }
     std::vector<TriArea> areas(srcTris);
     for (size_t t{0}; t < srcTris; ++t) {
         const uint32_t a{src[t * 3]};
@@ -259,7 +268,10 @@ void MeshPrimitive::GenerateLODs() {
     }
 
     core::AABB box{boundingBox};
-    if (box.minBound.x > box.maxBound.x) {
+    if (box.minBound.x > box.maxBound.x || box.minBound.y > box.maxBound.y || box.minBound.z > box.maxBound.z ||
+        !std::isfinite(box.minBound.x) || !std::isfinite(box.minBound.y) || !std::isfinite(box.minBound.z) ||
+        !std::isfinite(box.maxBound.x) || !std::isfinite(box.maxBound.y) || !std::isfinite(box.maxBound.z)) {
+        box = core::AABB{};
         for (const auto& v : vertices) {
             box.Expand(v.position);
         }
@@ -328,7 +340,7 @@ void MeshPrimitive::ApplyMorphTargets(std::span<const float> weights) {
     const size_t numTargets = std::min(morphTargets.size(), weights.size());
     for (size_t t = 0; t < numTargets; ++t) {
         const float w = weights[t];
-        if (std::abs(w) < 1e-6f) {
+        if (!std::isfinite(w) || std::abs(w) < 1e-6f) {
             continue;
         }
         const auto& target = morphTargets[t];
@@ -349,8 +361,10 @@ void MeshPrimitive::ApplyMorphTargets(std::span<const float> weights) {
 
     for (auto& v : vertices) {
         const float len = glm::length(v.normal);
-        if (len > 1e-6f) {
+        if (std::isfinite(len) && len > 1e-6f) {
             v.normal /= len;
+        } else {
+            v.normal = glm::vec3{0.0f, 1.0f, 0.0f};
         }
         boundingBox.Expand(v.position);
     }

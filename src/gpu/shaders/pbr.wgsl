@@ -168,12 +168,12 @@ fn vs_main(in : VertexInput) -> VertexOutput {
 }
 
 fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>, dp1 : vec3<f32>, dp2 : vec3<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> mat3x3<f32> {
-    let N = normalize(geomNormal);
+    let N = safeNormalize(geomNormal, vec3<f32>(0.0, 1.0, 0.0));
     let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
     let orthoLenSq = dot(orthoT, orthoT);
     if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-6) {
         let T = orthoT * inverseSqrt(orthoLenSq);
-        let B = normalize(cross(N, T) * sign(tangent.w));
+        let B = safeNormalize(cross(N, T) * sign(tangent.w), vec3<f32>(0.0, 1.0, 0.0));
         return mat3x3<f32>(T, B, N);
     }
     let dp2perp = cross(dp2, N);
@@ -183,11 +183,12 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent 
     let maxLenSq = max(dot(T, T), dot(B, B));
     if (maxLenSq > 1e-18) {
         let invmax = inverseSqrt(maxLenSq);
-        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+        return mat3x3<f32>(safeNormalize(T * invmax, vec3<f32>(1.0, 0.0, 0.0)),
+                           safeNormalize(B * invmax, vec3<f32>(0.0, 1.0, 0.0)), N);
     }
     let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
-    let fallbackT = normalize(cross(up, N));
-    let fallbackB = normalize(cross(N, fallbackT));
+    let fallbackT = safeNormalize(cross(up, N), vec3<f32>(1.0, 0.0, 0.0));
+    let fallbackB = safeNormalize(cross(N, fallbackT), vec3<f32>(0.0, 1.0, 0.0));
     return mat3x3<f32>(fallbackT, fallbackB, N);
 }
 
@@ -219,6 +220,9 @@ fn computePCFShadow(worldPos : vec3<f32>, N : vec3<f32>, L : vec3<f32>, fragCoor
     let NdotL = max(dot(N, L), 0.0);
     let normalOffset = N * clamp(shadowBias * 4.0, 0.002, 0.015) * (1.0 - NdotL);
     let lightClip = drawUbo.lightViewProj * vec4<f32>(worldPos + normalOffset, 1.0);
+    if (abs(lightClip.w) < 1e-6) {
+        return 1.0;
+    }
     let projCoords = lightClip.xyz / lightClip.w;
 
     let uv = vec2<f32>(projCoords.x * 0.5 + 0.5, 0.5 - projCoords.y * 0.5);
@@ -379,7 +383,7 @@ fn evaluateDirectLobe(
     var sssContrib = vec3<f32>(0.0);
     if (sssFactor > 0.001) {
         let wrapDiffuse = max(0.0, (rawNdotL + 0.35) / 1.35);
-        let backH = normalize(L + N * 0.35);
+        let backH = safeNormalize(L + N * 0.35, N);
         let backV = pow(clamp(dot(V, -backH), 0.0, 1.0), 3.0);
         sssContrib = sssTint * (wrapDiffuse * 0.25 + backV * 0.65) * radiance * sssFactor;
     }
@@ -387,7 +391,7 @@ fn evaluateDirectLobe(
     if (NdotL <= 0.0) {
         return sssContrib;
     }
-    let H = normalize(L + V);
+    let H = safeNormalize(L + V, N);
     let NdotH = max(dot(N, H), 0.0);
     let VdotH = max(dot(V, H), 0.0);
 
@@ -573,10 +577,10 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let duvEm1 = transformUvDeriv(rawDuv1, matUbo.emissiveUvTransform, matUbo.uvRotations1.x);
     let duvEm2 = transformUvDeriv(rawDuv2, matUbo.emissiveUvTransform, matUbo.uvRotations1.x);
 
-    var geomN = normalize(in.normal);
+    var geomN = safeNormalize(in.normal, vec3<f32>(0.0, 1.0, 0.0));
     let camToFrag = sceneLighting.cameraPos.xyz - in.worldPos;
     let viewDist = length(camToFrag);
-    let viewDir = camToFrag / max(viewDist, 1e-6);
+    let viewDir = select(vec3<f32>(0.0, 0.0, 1.0), camToFrag / viewDist, viewDist > 1e-6);
     if ((flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
         geomN = -geomN;
     }
@@ -591,7 +595,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     );
 
     let envRot = sceneLighting.envParams.x;
-    let sunL = normalize(sceneLighting.lightDir.xyz);
+    let sunL = safeNormalize(sceneLighting.lightDir.xyz, vec3<f32>(0.35, 1.0, 0.25));
 
     let lodLevel = (flags >> 19u) & 3u;
     let debugViewMode = (flags >> 21u) & 7u;
@@ -601,10 +605,11 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
     var pomShadow = 1.0;
     let pomDistFade = 1.0 - smoothstep(10.0, 22.0, viewDist);
-    if (lodLevel == 0u && pomDistFade > 0.02 && (flags & 32768u) != 0u && (flags & 1024u) != 0u) {
-        let isNormalMapped = (flags & 4u) != 0u;
-        let baseScale = select(0.035, 0.005, isNormalMapped);
-        let pomScale = max(matUbo.bumpScale * baseScale, 0.001) * pomDistFade;
+    let isNormalMapped = (flags & 4u) != 0u;
+    let parallaxSetting = max(drawUbo.drawParams.y, 0.0);
+    let baseScale = select(parallaxSetting, parallaxSetting * (0.005 / 0.035), isNormalMapped);
+    let pomScale = max(matUbo.bumpScale * baseScale, 0.0) * pomDistFade;
+    if (lodLevel == 0u && pomDistFade > 0.02 && pomScale > 0.0005 && (flags & 32768u) != 0u && (flags & 1024u) != 0u) {
         uv = parallaxOcclusionMapping(in.uv, V_tangent, rawDuv1, rawDuv2, pomScale);
 
         let L_tangent = vec3<f32>(
@@ -646,8 +651,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var N = geomN;
     if ((flags & 4u) != 0u) {
         let normTex = normTexSample.xyz * 2.0 - 1.0;
-        let scaledNorm = normalize(vec3<f32>(normTex.xy * matUbo.normalScale, normTex.z));
-        N = normalize(tbn * scaledNorm);
+        let scaledNorm = safeNormalize(vec3<f32>(normTex.xy * matUbo.normalScale, normTex.z), vec3<f32>(0.0, 0.0, 1.0));
+        N = safeNormalize(tbn * scaledNorm, geomN);
     } else if ((flags & 1024u) != 0u && ((flags & 1u) != 0u || (flags & 16u) != 0u)) {
         let texDims = vec2<f32>(textureDimensions(baseColorTexture, 0));
         let texelStep = 1.0 / clamp(texDims, vec2<f32>(64.0), vec2<f32>(2048.0));
@@ -668,8 +673,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
             dHdU = dHdU + (occR - occL) * 0.75;
             dHdV = dHdV + (occU - occD) * 0.75;
         }
-        let bumpNorm = normalize(vec3<f32>(vec2<f32>(-dHdU, -dHdV) * (2.0 * matUbo.bumpScale), 1.0));
-        N = normalize(tbn * bumpNorm);
+        let bumpNorm = safeNormalize(vec3<f32>(vec2<f32>(-dHdU, -dHdV) * (2.0 * matUbo.bumpScale), 1.0), vec3<f32>(0.0, 0.0, 1.0));
+        N = safeNormalize(tbn * bumpNorm, geomN);
     }
 
     // Weather Parameters & Surface Normal Perturbation (Rain Ripples & Snow Accumulation)
@@ -684,11 +689,11 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let rippleTan = calculateRainRipples(uvBase * 5.0 + in.worldPos.xz * 2.5, weatherTime);
         let baseWeight = smoothstep(0.15, 0.75, geomN.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
         let rippleWeight = max(baseWeight, puddleMask * 0.85);
-        let flatWaterN = normalize(mix(vec3<f32>(0.0, 1.0, 0.0), tbn * rippleTan, 0.45));
-        N = normalize(mix(N, mix(tbn * rippleTan, flatWaterN, puddleMask), rippleWeight));
+        let flatWaterN = safeNormalize(mix(vec3<f32>(0.0, 1.0, 0.0), tbn * rippleTan, 0.45), vec3<f32>(0.0, 1.0, 0.0));
+        N = safeNormalize(mix(N, mix(tbn * rippleTan, flatWaterN, puddleMask), rippleWeight), N);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomN.y > 0.2) {
         let snowAccum = smoothstep(0.2, 0.75, geomN.y) * clamp(weatherIntensity, 0.0, 1.5);
-        N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
+        N = safeNormalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6), N);
     }
 
     var roughness = matUbo.roughnessFactor;
@@ -726,8 +731,8 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     let anisoRot = matUbo.uvRotations1.w;
     let cosAniso = cos(anisoRot);
     let sinAniso = sin(anisoRot);
-    let anisoT = normalize(cosAniso * tbn[0] + sinAniso * tbn[1]);
-    let anisoB = normalize(cross(N, anisoT));
+    let anisoT = safeNormalize(cosAniso * tbn[0] + sinAniso * tbn[1], tbn[0]);
+    let anisoB = safeNormalize(cross(N, anisoT), tbn[1]);
 
     // KHR_materials_iridescence spectral thin-film F0
     let iridFactor = clamp(matUbo.specularColorFactor.w, 0.0, 1.0);
@@ -838,7 +843,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
             if (lightType == 0u) {
                 // Directional light (always active across all clusters)
-                L_p = normalize(light.posOrDir.xyz);
+                L_p = safeNormalize(light.posOrDir.xyz, vec3<f32>(0.0, 1.0, 0.0));
             } else {
                 // Point or Spot light: check Forward+ 3D cluster mask first
                 if ((clusterMask & (1u << li)) == 0u) {
@@ -861,7 +866,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 
                 if (lightType == 2u) {
                     // Spot light angular falloff (KHR_lights_punctual spec)
-                    let spotDir = normalize(light.spotParams.xyz);
+                    let spotDir = safeNormalize(light.spotParams.xyz, vec3<f32>(0.0, -1.0, 0.0));
                     let cd = dot(spotDir, -L_p);
                     let angleScale = sceneLighting.spotAngles[li].x;
                     let angleOffset = sceneLighting.spotAngles[li].y;
@@ -895,9 +900,9 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
     var bentN = N;
     if (anisoStrength > 0.001) {
         let anisoTangent = cross(anisoB, V);
-        let bentAnisoN = normalize(cross(anisoTangent, anisoB));
+        let bentAnisoN = safeNormalize(cross(anisoTangent, anisoB), N);
         let bentWeight = anisoStrength * clamp(1.0 - roughness * 0.65, 0.0, 1.0);
-        bentN = normalize(mix(N, bentAnisoN, bentWeight * 0.65));
+        bentN = safeNormalize(mix(N, bentAnisoN, bentWeight * 0.65), N);
     }
     let R = rotateY(reflect(-V, bentN), envRot);
 
@@ -951,7 +956,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         let eta = 1.0 / refrIor;
         let viewPos = sceneLighting.viewMatrix * vec4<f32>(in.worldPos, 1.0);
         let viewZ = max(-viewPos.z, 0.1);
-        let N_view = normalize((sceneLighting.viewMatrix * vec4<f32>(N, 0.0)).xyz);
+        let N_view = safeNormalize((sceneLighting.viewMatrix * vec4<f32>(N, 0.0)).xyz, vec3<f32>(0.0, 0.0, 1.0));
         let thickness = max(matUbo.thicknessFactor, 0.05);
 
         // Chromatic dispersion & roughness-aware frosted glass mip sampling
@@ -1016,7 +1021,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
         // Stylized 3-Band Toon / Cel Shader with crisp ink silhouette rim
         let ndl = dot(N, sunL);
         let celBand = smoothstep(-0.04, 0.02, ndl) * 0.45 + smoothstep(0.45, 0.52, ndl) * 0.55;
-        let celSpec = smoothstep(0.86, 0.90, max(dot(N, normalize(sunL + V)), 0.0)) * (1.0 - roughness * 0.6);
+        let celSpec = smoothstep(0.86, 0.90, max(dot(N, safeNormalize(sunL + V, N)), 0.0)) * (1.0 - roughness * 0.6);
         let inkRim = smoothstep(0.28, 0.16, NdotV);
         let toonBase = baseColor.rgb * (0.22 + 0.78 * celBand) + vec3<f32>(celSpec * 0.65);
         finalColor = mix(toonBase, vec3<f32>(0.02, 0.03, 0.05), inkRim);

@@ -232,6 +232,8 @@ public:
     [[nodiscard]] WGPUTextureView GetShadowView() const noexcept { return shadowFinalView_.Get(); }
     /** @brief Returns the denoised full-resolution RTAO factor texture view. */
     [[nodiscard]] WGPUTextureView GetAoView() const noexcept { return aoFinalView_.Get(); }
+    /** @brief Monotonic generation counter incremented whenever RT offscreen targets are allocated/released. */
+    [[nodiscard]] uint64_t GetTargetGeneration() const noexcept { return targetGeneration_; }
     /** @brief Returns true if RT shadows are active for `rtScene` in the current mode. */
     [[nodiscard]] bool IsShadowActive(const RayTracingScene& rtScene) const noexcept {
         return initialized_ && config_.enabled && !config_.pathTracing && config_.shadows && rtScene.IsReady() &&
@@ -340,6 +342,7 @@ private:
     uint32_t traceWidth_{0};
     uint32_t traceHeight_{0};
     bool lastHalfRes_{true};
+    uint64_t targetGeneration_{0};
 
     uint32_t frameIndex_{0};
     uint32_t currHistIdx_{0};

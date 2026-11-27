@@ -16,6 +16,7 @@
 #include <limits>
 #include <memory_resource>
 #include <span>
+#include <unordered_set>
 #include <utility>
 
 namespace bgl::gpu {
@@ -105,15 +106,28 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
         break;
     }
 
+    if (img.width == 0 || img.height == 0 || img.width > 16384u || img.height > 16384u) {
+        return;
+    }
+
     uint32_t validMips{0};
     for (const auto& mip : img.mipLevels) {
-        if ((mip.width % 4u) != 0u || (mip.height % 4u) != 0u || mip.data.empty()) {
+        if (mip.width == 0 || mip.height == 0 || (mip.width % 4u) != 0u || (mip.height % 4u) != 0u) {
+            break;
+        }
+        const uint64_t bx{std::max<uint64_t>(1u, (static_cast<uint64_t>(mip.width) + 3u) / 4u)};
+        const uint64_t by{std::max<uint64_t>(1u, (static_cast<uint64_t>(mip.height) + 3u) / 4u)};
+        const uint64_t requiredBytes{bx * by * 16ULL};
+        if (mip.data.size() < requiredBytes) {
             break;
         }
         ++validMips;
     }
     if (validMips == 0u) {
-        if ((img.width % 4u) != 0u || (img.height % 4u) != 0u || img.rgba.empty()) {
+        const uint64_t bx{std::max<uint64_t>(1u, (static_cast<uint64_t>(img.width) + 3u) / 4u)};
+        const uint64_t by{std::max<uint64_t>(1u, (static_cast<uint64_t>(img.height) + 3u) / 4u)};
+        const uint64_t requiredBytes{bx * by * 16ULL};
+        if ((img.width % 4u) != 0u || (img.height % 4u) != 0u || img.rgba.size() < requiredBytes) {
             return;
         }
         validMips = 1u;
@@ -129,9 +143,6 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
     texDesc.label = ToWgpuStringView("glTF_KTX2_CompressedTexture");
     WGPUTexture tex = wgpuDeviceCreateTexture(device, &texDesc);
     if (!tex) {
-        return;
-    }
-    if (!tex) {
         BGL_LOG_WARN("[WebGPU Upload] Failed to create compressed 2D texture #{} ({}x{})", idx, img.width, img.height);
         return;
     }
@@ -144,12 +155,12 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
             (level < img.mipLevels.size())
                 ? std::span<const uint8_t>{img.mipLevels[level].data.data(), img.mipLevels[level].data.size()}
                 : std::span<const uint8_t>{img.rgba.data(), img.rgba.size()}};
-        if (mipBytes.empty()) {
-            break;
-        }
-
         const uint32_t blocksX{std::max(1u, (mipW + 3u) / 4u)};
         const uint32_t blocksY{std::max(1u, (mipH + 3u) / 4u)};
+        const uint64_t requiredBytes{static_cast<uint64_t>(blocksX) * blocksY * 16ULL};
+        if (mipBytes.size() < requiredBytes) {
+            break;
+        }
 
         WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
         copyDst.texture = tex;
@@ -164,11 +175,16 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
 
         WGPUExtent3D writeSize{mipW, mipH, 1};
         wgpuQueueWriteTexture(queue, &copyDst, mipBytes.data(), mipBytes.size(), &dataLayout, &writeSize);
-        compressedVramBytes += static_cast<size_t>(blocksX) * blocksY * 16u;
+        compressedVramBytes += static_cast<size_t>(requiredBytes);
     }
 
+    WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
+    if (!view) {
+        wgpuTextureRelease(tex);
+        return;
+    }
     dstTex.texture = tex;
-    dstTex.view = wgpuTextureCreateView(tex, nullptr);
+    dstTex.view = view;
     dstTex.sampler = defaultSampler;
     dstTex.width = img.width;
     dstTex.height = img.height;
@@ -190,8 +206,9 @@ void UploadRgbaSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSampler defa
     texDesc.mipLevelCount = mipLevels;
     texDesc.sampleCount = 1;
     texDesc.label = ToWgpuStringView("glTF_Texture");
-    const size_t requiredRgbaBytes{static_cast<size_t>(img.width) * static_cast<size_t>(img.height) * 4u};
-    if (img.width == 0 || img.height == 0 || img.rgba.size() < requiredRgbaBytes) {
+    const uint64_t requiredRgbaBytes{static_cast<uint64_t>(img.width) * static_cast<uint64_t>(img.height) * 4ULL};
+    if (img.width == 0 || img.height == 0 || img.width > 16384u || img.height > 16384u ||
+        requiredRgbaBytes > std::numeric_limits<size_t>::max() || img.rgba.size() < requiredRgbaBytes) {
         BGL_LOG_WARN("[WebGPU Upload] Skipped RGBA texture #{} due to invalid dimensions or buffer size", idx);
         return;
     }
@@ -209,11 +226,18 @@ void UploadRgbaSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSampler defa
 
     WGPUTexelCopyBufferLayout dataLayout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
     dataLayout.offset = 0;
-    dataLayout.bytesPerRow = img.width * 4;
+    dataLayout.bytesPerRow = img.width * 4u;
     dataLayout.rowsPerImage = img.height;
 
     WGPUExtent3D writeSize{img.width, img.height, 1};
-    wgpuQueueWriteTexture(queue, &copyDst, img.rgba.data(), img.rgba.size(), &dataLayout, &writeSize);
+    wgpuQueueWriteTexture(queue, &copyDst, img.rgba.data(), static_cast<size_t>(requiredRgbaBytes), &dataLayout,
+                          &writeSize);
+
+    WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
+    if (!view) {
+        wgpuTextureRelease(tex);
+        return;
+    }
 
     if (mipLevels > 1) {
         pendingMips.push_back(PendingGpuMipGen{
@@ -226,21 +250,21 @@ void UploadRgbaSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSampler defa
         });
     }
 
-    size_t rgbaVramBytes{0};
+    uint64_t rgbaVramBytes{0};
     uint32_t mw{img.width};
     uint32_t mh{img.height};
     for (uint32_t m{0}; m < mipLevels; ++m) {
-        rgbaVramBytes += static_cast<size_t>(mw) * mh * 4u;
+        rgbaVramBytes += static_cast<uint64_t>(mw) * static_cast<uint64_t>(mh) * 4ULL;
         mw = std::max(1u, mw / 2u);
         mh = std::max(1u, mh / 2u);
     }
 
     dstTex.texture = tex;
-    dstTex.view = wgpuTextureCreateView(tex, nullptr);
+    dstTex.view = view;
     dstTex.sampler = defaultSampler;
     dstTex.width = img.width;
     dstTex.height = img.height;
-    dstTex.vramBytes = rgbaVramBytes;
+    dstTex.vramBytes = static_cast<size_t>(std::min<uint64_t>(rgbaVramBytes, std::numeric_limits<size_t>::max()));
     dstTex.format = scene::KtxTranscodeTarget::Rgba32;
     BGL_LOG_DEBUG("[WebGPU Upload] Texture #{}: Created 2D Texture ({}x{}, {}, {} Mip Levels, NormalMap={}), wrote "
                   "{} bytes mip0 ({:.2f} KB VRAM)",
@@ -347,6 +371,7 @@ void UploadSceneSkins(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout sk
         skin.cachedFrameId = 0;
         skin.cachedUploadedFrameId = 0;
         skin.cachedMeshNode = nullptr;
+        skin.SetGpuContext(device, skinBgl);
         if (skin.joints.empty() || skin.gpuJointBuffer) {
             continue;
         }
@@ -369,7 +394,40 @@ void UploadSceneSkins(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout sk
             bgDesc.entries = &bgEntry;
             bgDesc.label = ToWgpuStringView("SkinStorage_BindGroup");
             skin.gpuBindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
+            if (!skin.gpuBindGroup) {
+                skin.ReleaseGpu();
+            }
         }
+    }
+
+    // Pre-allocate isolated per-node GPU joint buffers when multiple nodes share the same skin index.
+    std::unordered_set<const scene::SceneNode*> visitedNodes;
+    auto prebindNode = [&](const scene::SceneNode* nodePtr) {
+        if (!nodePtr || !visitedNodes.insert(nodePtr).second) {
+            return;
+        }
+        if (nodePtr->skinIndex >= 0 && static_cast<size_t>(nodePtr->skinIndex) < scene.skins.size()) {
+            WGPUBuffer outBuf{nullptr};
+            WGPUBindGroup outBg{nullptr};
+            bool outNeeds{false};
+            scene.skins[static_cast<size_t>(nodePtr->skinIndex)].ResolveNodeGpuBinding(nodePtr, 0, outBuf, outBg,
+                                                                                       outNeeds);
+        }
+    };
+    for (const auto& node : scene.allNodes) {
+        prebindNode(node.get());
+    }
+    auto walkRoots = [&](auto& self, const scene::SceneNode* nodePtr, uint32_t depth) -> void {
+        if (!nodePtr || depth >= 256u) {
+            return;
+        }
+        prebindNode(nodePtr);
+        for (const auto& ch : nodePtr->children) {
+            self(self, ch.get(), depth + 1u);
+        }
+    };
+    for (const auto& root : scene.rootNodes) {
+        walkRoots(walkRoots, root.get(), 0u);
     }
 }
 

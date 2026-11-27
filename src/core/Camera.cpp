@@ -26,7 +26,10 @@ namespace {
 
 } // namespace
 
-Camera::Camera(glm::vec3 target, float distance) : target_{target}, distance_{distance} {
+Camera::Camera(glm::vec3 target, float distance)
+    : target_{(std::isfinite(target.x) && std::isfinite(target.y) && std::isfinite(target.z)) ? target
+                                                                                              : glm::vec3{0.0f}},
+      distance_{std::isfinite(distance) ? std::clamp(distance, 0.001f, 50000.0f) : 5.0f} {
     Update(16.0f / 9.0f);
 }
 
@@ -95,20 +98,25 @@ void Camera::Zoom(float deltaZoom) noexcept {
         return;
     }
     const float nextDist = distance_ - deltaZoom;
-    distance_ = std::isfinite(nextDist) ? std::clamp(nextDist, 0.001f, 10000.0f) : 5.0f;
+    distance_ = std::isfinite(nextDist) ? std::clamp(nextDist, 0.001f, 50000.0f) : 5.0f;
 }
 
 void Camera::FocusOnBounds(const AABB& bounds, float margin) noexcept {
-    if (bounds.minBound.x > bounds.maxBound.x)
+    if (!std::isfinite(bounds.minBound.x) || !std::isfinite(bounds.minBound.y) || !std::isfinite(bounds.minBound.z) ||
+        !std::isfinite(bounds.maxBound.x) || !std::isfinite(bounds.maxBound.y) || !std::isfinite(bounds.maxBound.z) ||
+        bounds.minBound.x > bounds.maxBound.x || bounds.minBound.y > bounds.maxBound.y ||
+        bounds.minBound.z > bounds.maxBound.z || !std::isfinite(margin) || margin <= 0.0f) {
         return;
+    }
     const glm::vec3 center = bounds.Center();
     const glm::vec3 extents = bounds.Extents();
-    const float radius = std::max(glm::length(extents), 0.1f);
+    const float radiusRaw = glm::length(extents);
+    const float radius = std::isfinite(radiusRaw) ? std::max(radiusRaw, 0.1f) : 1.0f;
     const float halfFov = std::max(fovY_ * 0.5f, 0.01f);
     const float fitDistance = (radius / std::sin(halfFov)) * margin;
 
     target_ = center;
-    distance_ = std::clamp(fitDistance, 0.05f, 50000.0f);
+    distance_ = std::isfinite(fitDistance) ? std::clamp(fitDistance, 0.05f, 50000.0f) : 5.0f;
     mode_ = CameraMode::Orbit;
     Update(16.0f / 9.0f);
 }
@@ -130,9 +138,14 @@ bool Camera::RestoreBookmark(size_t slot) noexcept {
     if (slot >= bookmarks_.size() || !bookmarks_[slot].valid)
         return false;
     const auto& b = bookmarks_[slot];
+    if (!std::isfinite(b.position.x) || !std::isfinite(b.position.y) || !std::isfinite(b.position.z) ||
+        !std::isfinite(b.target.x) || !std::isfinite(b.target.y) || !std::isfinite(b.target.z) ||
+        !std::isfinite(b.distance) || !std::isfinite(b.yaw) || !std::isfinite(b.pitch)) {
+        return false;
+    }
     position_ = b.position;
     target_ = b.target;
-    distance_ = b.distance;
+    distance_ = std::clamp(b.distance, 0.001f, 50000.0f);
     yaw_ = b.yaw;
     pitch_ = b.pitch;
     mode_ = b.mode;
@@ -217,11 +230,20 @@ Ray Camera::ScreenPointToRay(float screenX, float screenY, float screenWidth, fl
 
     const float ndcX{(2.0f * screenX) / screenWidth - 1.0f};
     const float ndcY{1.0f - (2.0f * screenY) / screenHeight};
+    if (!std::isfinite(ndcX) || !std::isfinite(ndcY)) {
+        return ray;
+    }
 
-    const glm::mat4 invVP{glm::inverse(projMatrix_ * viewMatrix_)};
+    const glm::mat4 vp{projMatrix_ * viewMatrix_};
+    const float det{glm::determinant(vp)};
+    if (!std::isfinite(det) || std::abs(det) <= 1e-12f) {
+        return ray;
+    }
+    const glm::mat4 invVP{glm::inverse(vp)};
     glm::vec4 nearPoint{invVP * glm::vec4{ndcX, ndcY, 0.0f, 1.0f}};
     glm::vec4 farPoint{invVP * glm::vec4{ndcX, ndcY, 1.0f, 1.0f}};
-    if (std::abs(nearPoint.w) <= 1e-6f || std::abs(farPoint.w) <= 1e-6f) {
+    if (!std::isfinite(nearPoint.w) || !std::isfinite(farPoint.w) || std::abs(nearPoint.w) <= 1e-6f ||
+        std::abs(farPoint.w) <= 1e-6f) {
         return ray;
     }
 

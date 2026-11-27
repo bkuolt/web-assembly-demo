@@ -16,8 +16,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     bgl::scene::AssetManager assetMgr;
     bgl::scene::FastGltfLoader loader(assetMgr);
 
-    // Fuzz LoadFromMemory with an explicit remote-like base URI so local files are never probed
-    (void)loader.LoadFromMemory(span, "https://fuzz.invalid/fuzz_input.glb");
+    // Fuzz LoadFromMemory with a memory:// base URI so external local/network fetches are never triggered
+    (void)loader.LoadFromMemory(span, "memory://fuzz_input.glb");
 
     return 0;
 }

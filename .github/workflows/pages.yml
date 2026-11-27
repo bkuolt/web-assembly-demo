@@ -30,18 +30,6 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Validate Client JavaScript & Web Suites
-      run: |
-        node --check web/js/core.js
-        node --check web/js/gltf.js
-        node --check web/js/math.js
-        node --check web/js/shaders.js
-        node --check web/js/renderer.js
-        node --check web/app.js
-        node --check web/gltf_worker.js
-        node tests/test_web_unit.js
-        node tests/test_webgpu_path.js
-
     - name: Setup Emscripten SDK
       uses: mymindstorm/setup-emsdk@v14
       with:
@@ -75,6 +63,18 @@ jobs:
           --export=bgl_gamepad_state \
           /tmp/wasm_bridge.o -o web/dist/bgl_engine.wasm
         node -e "const fs = require('fs'); const m = new WebAssembly.Module(fs.readFileSync('web/dist/bgl_engine.wasm')); const imp = WebAssembly.Module.imports(m); if (imp.length !== 1 || imp[0].module !== 'env' || imp[0].name !== 'memory') throw new Error('Unexpected WASM imports');"
+
+    - name: Validate Client JavaScript & Web Suites
+      run: |
+        node --check web/js/core.js
+        node --check web/js/gltf.js
+        node --check web/js/math.js
+        node --check web/js/shaders.js
+        node --check web/js/renderer.js
+        node --check web/app.js
+        node --check web/gltf_worker.js
+        node tests/test_web_unit.js
+        node tests/test_webgpu_path.js
 
     - name: Install Doxygen & Graphviz
       run: |

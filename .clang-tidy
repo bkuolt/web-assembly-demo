@@ -18,7 +18,7 @@ Checks: >
   -bugprone-branch-clone,
   -bugprone-argument-comment,
   -performance-enum-size
-WarningsAsErrors: ''
+WarningsAsErrors: '*'
 HeaderFilterRegex: '^(src|tests)/'
 FormatStyle: file
 ...

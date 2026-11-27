@@ -98,6 +98,7 @@ void RayTracingPass::EnsureResolutionTargets(uint32_t fullW, uint32_t fullH) {
     traceWidth_ = nextTraceW;
     traceHeight_ = nextTraceH;
     lastHalfRes_ = config_.halfRes;
+    ++targetGeneration_;
     frameIndex_ = 0;
     pathSampleIndex_ = 0;
 
@@ -180,88 +181,114 @@ void RayTracingPass::EnsureResolutionTargets(uint32_t fullW, uint32_t fullH) {
 
 void RayTracingPass::RebuildPassBindGroups() {
 #if defined(BGL_PLATFORM_NATIVE)
-    if (!device_ || !gbufferDepthView_ || !passUniformBuffer_ || !envCubemapView_ || !defaultSampler_ ||
+    shadowTraceBg_.Reset();
+    aoTraceBg_.Reset();
+    reflTraceBg_.Reset();
+    pathTraceBg_.Reset();
+    compositeReflBg_.Reset();
+    pathPresentBg_.Reset();
+    shadowBgs_.Reset();
+    aoBgs_.Reset();
+    reflBgs_.Reset();
+
+    if (!device_ || !passUniformBuffer_ || !compositeUniformBuffer_ || !envCubemapView_ || !defaultSampler_ ||
         !linearSampler_ || !pathAccumBuffer_) {
         return;
     }
 
     const WGPUBindGroupEntry dynUbo = MakeUniformBgEntry(0, passUniformBuffer_.Get(), sizeof(RtPassUniforms));
-    const WGPUBindGroupEntry depthEntry = MakeTexBgEntry(1, gbufferDepthView_.Get());
-    const WGPUBindGroupEntry normRoughEntry = MakeTexBgEntry(2, gbufferNormalRoughnessView_.Get());
 
-    // Trace8 bind groups (Shadow & AO)
-    shadowTraceBg_ = MakeBindGroup(
-        device_, trace8Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 4>{dynUbo, depthEntry, normRoughEntry, MakeTexBgEntry(3, shadowRawView_.Get())},
-        "RT_ShadowTrace_BG");
-    aoTraceBg_ = MakeBindGroup(
-        device_, trace8Bgl_.Get(),
-        std::array<WGPUBindGroupEntry, 4>{dynUbo, depthEntry, normRoughEntry, MakeTexBgEntry(3, aoRawView_.Get())},
-        "RT_AoTrace_BG");
+    if (gbufferDepthView_ && gbufferNormalRoughnessView_) {
+        const WGPUBindGroupEntry depthEntry = MakeTexBgEntry(1, gbufferDepthView_.Get());
+        const WGPUBindGroupEntry normRoughEntry = MakeTexBgEntry(2, gbufferNormalRoughnessView_.Get());
 
-    // Reflections trace bind group
-    reflTraceBg_ = MakeBindGroup(device_, reflBgl_.Get(),
-                                 std::array<WGPUBindGroupEntry, 7>{dynUbo, depthEntry, normRoughEntry,
-                                                                   MakeTexBgEntry(3, gbufferAlbedoMetallicView_.Get()),
-                                                                   MakeSamplerBgEntry(4, defaultSampler_),
-                                                                   MakeTexBgEntry(5, envCubemapView_),
-                                                                   MakeTexBgEntry(6, reflRawView_.Get())},
-                                 "RT_ReflTrace_BG");
+        if (trace8Bgl_) {
+            if (shadowRawView_) {
+                shadowTraceBg_ =
+                    MakeBindGroup(device_, trace8Bgl_.Get(),
+                                  std::array<WGPUBindGroupEntry, 4>{dynUbo, depthEntry, normRoughEntry,
+                                                                    MakeTexBgEntry(3, shadowRawView_.Get())},
+                                  "RT_ShadowTrace_BG");
+            }
+            if (aoRawView_) {
+                aoTraceBg_ = MakeBindGroup(device_, trace8Bgl_.Get(),
+                                           std::array<WGPUBindGroupEntry, 4>{dynUbo, depthEntry, normRoughEntry,
+                                                                             MakeTexBgEntry(3, aoRawView_.Get())},
+                                           "RT_AoTrace_BG");
+            }
+        }
 
-    // PathTrace bind group
-    pathTraceBg_ = MakeBindGroup(device_, pathTraceBgl_.Get(),
-                                 std::array<WGPUBindGroupEntry, 4>{
-                                     dynUbo, MakeSamplerBgEntry(1, defaultSampler_), MakeTexBgEntry(2, envCubemapView_),
-                                     MakeUniformBgEntry(3, pathAccumBuffer_.Get(), pathAccumBytes_)},
-                                 "RT_PathTrace_BG");
+        if (reflBgl_ && gbufferAlbedoMetallicView_ && reflRawView_) {
+            reflTraceBg_ = MakeBindGroup(device_, reflBgl_.Get(),
+                                         std::array<WGPUBindGroupEntry, 7>{
+                                             dynUbo, depthEntry, normRoughEntry,
+                                             MakeTexBgEntry(3, gbufferAlbedoMetallicView_.Get()),
+                                             MakeSamplerBgEntry(4, defaultSampler_), MakeTexBgEntry(5, envCubemapView_),
+                                             MakeTexBgEntry(6, reflRawView_.Get())},
+                                         "RT_ReflTrace_BG");
+        }
 
-    // Unified Denoise bind group builder for 8-bit (Shadow/AO) and 16-bit HDR (Reflections)
-    auto buildDenoiseSet = [&](WGPUBindGroupLayout bgl, WGPUTextureView rawV, WGPUTextureView scratchV,
-                               const std::array<TextureViewHandle, 2>& histV, WGPUTextureView finalV, const char* tag,
-                               DenoiseBindGroupSet& outSet) {
-        auto makeStep = [&](WGPUTextureView srcV, WGPUTextureView histPrevV, WGPUTextureView dstV, const char* step) {
-            const std::string lbl = std::string{"RT_"} + tag + step;
-            return MakeBindGroup(
-                device_, bgl,
-                std::array<WGPUBindGroupEntry, 6>{dynUbo, depthEntry, normRoughEntry, MakeTexBgEntry(3, srcV),
-                                                  MakeTexBgEntry(4, histPrevV), MakeTexBgEntry(5, dstV)},
-                lbl.c_str());
+        // Unified Denoise bind group builder for 8-bit (Shadow/AO) and 16-bit HDR (Reflections)
+        auto buildDenoiseSet = [&](WGPUBindGroupLayout bgl, WGPUTextureView rawV, WGPUTextureView scratchV,
+                                   const std::array<TextureViewHandle, 2>& histV, WGPUTextureView finalV,
+                                   const char* tag, DenoiseBindGroupSet& outSet) {
+            if (!bgl || !rawV || !scratchV || !histV[0] || !histV[1]) {
+                return;
+            }
+            auto makeStep = [&](WGPUTextureView srcV, WGPUTextureView histPrevV, WGPUTextureView dstV,
+                                const char* step) {
+                const std::string lbl = std::string{"RT_"} + tag + step;
+                return MakeBindGroup(
+                    device_, bgl,
+                    std::array<WGPUBindGroupEntry, 6>{dynUbo, depthEntry, normRoughEntry, MakeTexBgEntry(3, srcV),
+                                                      MakeTexBgEntry(4, histPrevV), MakeTexBgEntry(5, dstV)},
+                    lbl.c_str());
+            };
+            for (uint32_t h = 0; h < 2u; ++h) {
+                const uint32_t prevH = 1u - h;
+                outSet.temporal[h] = makeStep(rawV, histV[prevH].Get(), histV[h].Get(), "_Temporal");
+                outSet.atrousStep1[h] = makeStep(histV[h].Get(), histV[h].Get(), rawV, "_Atrous1");
+            }
+            outSet.atrousStep2 = makeStep(rawV, rawV, scratchV, "_Atrous2");
+            outSet.atrousStep3 = makeStep(scratchV, scratchV, rawV, "_Atrous3");
+            if (finalV) {
+                outSet.upsample = makeStep(rawV, rawV, finalV, "_Upsample");
+            }
         };
-        for (uint32_t h = 0; h < 2u; ++h) {
-            const uint32_t prevH = 1u - h;
-            outSet.temporal[h] = makeStep(rawV, histV[prevH].Get(), histV[h].Get(), "_Temporal");
-            outSet.atrousStep1[h] = makeStep(histV[h].Get(), histV[h].Get(), rawV, "_Atrous1");
-        }
-        outSet.atrousStep2 = makeStep(rawV, rawV, scratchV, "_Atrous2");
-        outSet.atrousStep3 = makeStep(scratchV, scratchV, rawV, "_Atrous3");
-        if (finalV) {
-            outSet.upsample = makeStep(rawV, rawV, finalV, "_Upsample");
-        } else {
-            outSet.upsample.Reset();
-        }
-    };
 
-    buildDenoiseSet(denoise8Bgl_.Get(), shadowRawView_.Get(), shadowScratchView_.Get(), shadowHistoryView_,
-                    shadowFinalView_.Get(), "Shadow8", shadowBgs_);
-    buildDenoiseSet(denoise8Bgl_.Get(), aoRawView_.Get(), aoScratchView_.Get(), aoHistoryView_, aoFinalView_.Get(),
-                    "Ao8", aoBgs_);
-    buildDenoiseSet(denoise16Bgl_.Get(), reflRawView_.Get(), reflScratchView_.Get(), reflHistoryView_, nullptr,
-                    "Refl16", reflBgs_);
+        buildDenoiseSet(denoise8Bgl_.Get(), shadowRawView_.Get(), shadowScratchView_.Get(), shadowHistoryView_,
+                        shadowFinalView_.Get(), "Shadow8", shadowBgs_);
+        buildDenoiseSet(denoise8Bgl_.Get(), aoRawView_.Get(), aoScratchView_.Get(), aoHistoryView_, aoFinalView_.Get(),
+                        "Ao8", aoBgs_);
+        buildDenoiseSet(denoise16Bgl_.Get(), reflRawView_.Get(), reflScratchView_.Get(), reflHistoryView_, nullptr,
+                        "Refl16", reflBgs_);
 
-    // Composite & PathTrace Present bind groups
-    const std::array<WGPUBindGroupEntry, 5> compEntries{
-        MakeUniformBgEntry(0, compositeUniformBuffer_.Get(), sizeof(RtCompositeUniforms)),
-        MakeSamplerBgEntry(1, linearSampler_.Get()),
-        MakeTexBgEntry(2, reflRawView_.Get()),
-        MakeTexBgEntry(3, gbufferDepthView_.Get()),
-        MakeUniformBgEntry(4, pathAccumBuffer_.Get(), pathAccumBytes_),
-    };
-    compositeReflBg_ = MakeBindGroup(device_, compositeBgl_.Get(), compEntries, "RT_CompositeRefl_BG");
-    pathPresentBg_ = MakeBindGroup(device_, compositeBgl_.Get(), compEntries, "RT_PathPresent_BG");
+        if (compositeBgl_ && reflRawView_) {
+            const std::array<WGPUBindGroupEntry, 5> compEntries{
+                MakeUniformBgEntry(0, compositeUniformBuffer_.Get(), sizeof(RtCompositeUniforms)),
+                MakeSamplerBgEntry(1, linearSampler_.Get()),
+                MakeTexBgEntry(2, reflRawView_.Get()),
+                MakeTexBgEntry(3, gbufferDepthView_.Get()),
+                MakeUniformBgEntry(4, pathAccumBuffer_.Get(), pathAccumBytes_),
+            };
+            compositeReflBg_ = MakeBindGroup(device_, compositeBgl_.Get(), compEntries, "RT_CompositeRefl_BG");
+            pathPresentBg_ = MakeBindGroup(device_, compositeBgl_.Get(), compEntries, "RT_PathPresent_BG");
+        }
+    }
+
+    if (pathTraceBgl_) {
+        pathTraceBg_ =
+            MakeBindGroup(device_, pathTraceBgl_.Get(),
+                          std::array<WGPUBindGroupEntry, 4>{
+                              dynUbo, MakeSamplerBgEntry(1, defaultSampler_), MakeTexBgEntry(2, envCubemapView_),
+                              MakeUniformBgEntry(3, pathAccumBuffer_.Get(), pathAccumBytes_)},
+                          "RT_PathTrace_BG");
+    }
 #endif
 }
 
 void RayTracingPass::ReleaseResolutionTargets() noexcept {
+    ++targetGeneration_;
     shadowTraceBg_.Reset();
     aoTraceBg_.Reset();
     reflTraceBg_.Reset();

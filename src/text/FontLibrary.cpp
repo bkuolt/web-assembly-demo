@@ -107,6 +107,9 @@ void ScanDirectories(std::span<const std::filesystem::path> dirs, std::vector<Fo
     size_t filesScanned = 0;
 
     for (const auto& dir : dirs) {
+        if (filesScanned >= kMaxScannedFontFiles) {
+            break;
+        }
         if (dir.empty()) {
             continue;
         }
@@ -359,7 +362,11 @@ core::Result<FontDescriptor> FontLibrary::Find(const FontQuery& query) {
             if (std::filesystem::is_regular_file(rel, ec)) {
                 auto facesRes = InspectFile(rel);
                 if (facesRes && !facesRes->empty()) {
-                    return facesRes->front();
+                    const auto& faces = *facesRes;
+                    const size_t idx = (query.faceIndex >= 0 && static_cast<size_t>(query.faceIndex) < faces.size())
+                                           ? static_cast<size_t>(query.faceIndex)
+                                           : size_t{0};
+                    return faces[idx];
                 }
             }
         }

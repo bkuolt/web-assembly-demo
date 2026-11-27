@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <span>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -83,19 +84,24 @@ inline void CollectUniquePrimitives(scene::Scene& scene, std::vector<scene::Mesh
             }
         }
     }
-    auto collectNode = [&](auto& self, scene::SceneNode& node) -> void {
+    std::unordered_set<const scene::SceneNode*> visitedNodes;
+    constexpr uint32_t kMaxTraversalDepth{256u};
+    auto collectNode = [&](auto& self, scene::SceneNode& node, uint32_t depth) -> void {
+        if (depth >= kMaxTraversalDepth || !visitedNodes.insert(&node).second) {
+            return;
+        }
         for (auto& prim : node.GetPrimitives()) {
             outPrims.push_back(&prim);
         }
         for (auto& child : node.children) {
             if (child) {
-                self(self, *child);
+                self(self, *child, depth + 1u);
             }
         }
     };
     for (auto& root : scene.rootNodes) {
         if (root) {
-            collectNode(collectNode, *root);
+            collectNode(collectNode, *root, 0u);
         }
     }
     std::sort(outPrims.begin(), outPrims.end());

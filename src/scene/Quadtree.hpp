@@ -8,6 +8,7 @@
 #include "core/Types.hpp"
 #include "scene/Scene.hpp"
 #include <array>
+#include <atomic>
 #include <glm/glm.hpp>
 #include <memory>
 #include <span>
@@ -98,6 +99,7 @@ public:
 
     [[nodiscard]] const core::AABB& GetBounds() const noexcept { return bounds_; }
     [[nodiscard]] const core::AABB& GetLooseBounds() const noexcept { return looseBounds_; }
+    [[nodiscard]] size_t CountSubtreeItems() const noexcept;
     [[nodiscard]] std::span<const QuadtreeItem> GetItems() const noexcept { return items_; }
     [[nodiscard]] bool IsLeaf() const noexcept { return isLeaf_; }
     [[nodiscard]] const std::array<std::unique_ptr<QuadtreeNode>, 4>& GetChildren() const noexcept { return children_; }
@@ -225,13 +227,14 @@ public:
     /**
      * @brief Returns the number of primitives discarded by occlusion culling in the previous query.
      */
-    [[nodiscard]] size_t GetLastOccludedCount() const noexcept { return lastOccludedCount_; }
+    [[nodiscard]] size_t GetLastOccludedCount() const noexcept {
+        return lastOccludedCount_.load(std::memory_order_relaxed);
+    }
 
 private:
     core::AABB worldBounds_{};
     std::unique_ptr<QuadtreeNode> root_{nullptr};
-    mutable OcclusionBuffer occlusionBuffer_{};
-    mutable size_t lastOccludedCount_{0};
+    mutable std::atomic<size_t> lastOccludedCount_{0};
 };
 
 } // namespace bgl::scene

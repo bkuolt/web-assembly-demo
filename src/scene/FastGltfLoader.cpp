@@ -26,6 +26,9 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
             return std::unexpected("Loading cancelled");
         }
         auto& buf = asset.buffers[bIdx];
+        if (buf.byteLength > std::numeric_limits<size_t>::max() - outTotalBufferBytes) {
+            return std::unexpected("glTF buffer byte sizes exceed platform limits");
+        }
         outTotalBufferBytes += buf.byteLength;
         const char* typeStr{"Unknown"};
         if (std::holds_alternative<fastgltf::sources::Array>(buf.data)) {
@@ -44,7 +47,8 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
                                        "': " + resolvedRes.error());
             }
             const std::string resolvedUri{std::move(*resolvedRes)};
-            BGL_LOG_INFO("  * Buffer #{}: Resolving external URI '{}' -> '{}'", bIdx, rawUriStr, resolvedUri);
+            BGL_LOG_INFO("  * Buffer #{}: Resolving external URI '{}' -> '{}'", bIdx, core::SanitizeForLog(rawUriStr),
+                         core::SanitizeForLog(resolvedUri));
 
             auto fetchRes =
                 core::NetworkFetcher::FetchSync(resolvedUri, [reporter](const core::FetchProgress&) -> bool {
@@ -57,11 +61,22 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
             externalBufferStorage[bIdx] = std::move(*fetchRes);
             const size_t offset{std::min(uriSource.fileByteOffset, externalBufferStorage[bIdx].size())};
             const size_t avail{externalBufferStorage[bIdx].size() - offset};
+            if (avail < buf.byteLength) {
+                return std::unexpected("External glTF buffer '" + resolvedUri + "' is shorter (" +
+                                       std::to_string(avail) + " bytes) than declared byteLength (" +
+                                       std::to_string(buf.byteLength) + " bytes)");
+            }
             buf.data = fastgltf::sources::ByteView{
                 .bytes =
                     fastgltf::span<const std::byte>{
                         reinterpret_cast<const std::byte*>(externalBufferStorage[bIdx].data() + offset), avail},
                 .mimeType = uriSource.mimeType};
+        }
+        const auto contiguousBytes = detail::ExtractContiguousSourceBytes(buf.data);
+        if (buf.byteLength > 0 && contiguousBytes.size() < buf.byteLength) {
+            return std::unexpected("glTF buffer #" + std::to_string(bIdx) + " payload truncated (" +
+                                   std::to_string(contiguousBytes.size()) + " < " + std::to_string(buf.byteLength) +
+                                   " bytes)");
         }
 
         BGL_LOG_DEBUG("  * Buffer #{}: {} bytes ({:.2f} MB), Source: {}", bIdx, buf.byteLength,
@@ -106,7 +121,7 @@ void LogSceneSummary(const fastgltf::Asset& asset, const Scene& scene, size_t to
             nodeInfo += " [Mesh: " + std::to_string(prims.size()) + " prims, " + std::to_string(totalVerts) +
                         " verts, " + std::to_string(totalIndices / 3) + " tris]";
         }
-        BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", nodeInfo);
+        BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", core::SanitizeForLog(nodeInfo));
         for (size_t c{0}; c < n->children.size(); ++c) {
             const bool childLast{c + 1 == n->children.size()};
             self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast, depth + 1u);
@@ -173,7 +188,7 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
                                                                            float baseProgress) {
     BGL_LOG_INFO("================================================================================");
     BGL_LOG_INFO("[glTF Loader] Starting Ingestion of Asset: '{}' (Total size: {} bytes / {:.2f} MB)",
-                 baseUri.empty() ? "In-Memory Stream" : baseUri, totalBytes,
+                 baseUri.empty() ? std::string{"In-Memory Stream"} : core::SanitizeForLog(baseUri), totalBytes,
                  static_cast<double>(totalBytes) / (1024.0 * 1024.0));
     BGL_LOG_INFO("================================================================================");
 

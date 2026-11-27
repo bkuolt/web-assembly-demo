@@ -805,6 +805,8 @@ private:
     bool framePreparedByRtPrePass_{false};
     bool desktopRtSupported_{false};
     WGPUTextureView cachedRtShadowView_{nullptr};
+    uint64_t cachedRtShadowTargetGen_{0};
+    uint64_t cachedPostRtTargetGen_{0};
     std::vector<std::pair<const scene::SceneNode*, size_t>> rtOpaqueItemsScratch_{};
     std::vector<scene::QuadtreeItem> visibleItemsScratch_{};
     std::vector<RenderItem> renderItemsScratch_{};

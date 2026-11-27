@@ -28,6 +28,8 @@ void PipelineManager::Shutdown() noexcept {
     rtScene_.Shutdown();
     desktopRtSupported_ = false;
     cachedRtShadowView_ = nullptr;
+    cachedRtShadowTargetGen_ = 0;
+    cachedPostRtTargetGen_ = 0;
     framePreparedByRtPrePass_ = false;
     rtOpaqueItemsScratch_.clear();
 
@@ -342,6 +344,9 @@ void PipelineManager::CreateFallbackTextures() {
         texDesc.sampleCount = 1;
         texDesc.label = WGPUStringView{label.data(), label.size()};
         WGPUTexture tex = wgpuDeviceCreateTexture(device_, &texDesc);
+        if (!tex) {
+            return {nullptr, nullptr};
+        }
 
         WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
         copyDst.texture = tex;
@@ -358,6 +363,10 @@ void PipelineManager::CreateFallbackTextures() {
         wgpuQueueWriteTexture(queue_, &copyDst, rgba.data(), rgba.size(), &dataLayout, &writeSize);
 
         WGPUTextureView view = wgpuTextureCreateView(tex, nullptr);
+        if (!view) {
+            wgpuTextureRelease(tex);
+            return {nullptr, nullptr};
+        }
         return {tex, view};
     };
 
@@ -426,6 +435,10 @@ core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queu
     SetEnvironmentPreset(EnvironmentPreset::MediterraneanCourtyard, nullptr);
 
     CreateFallbackTextures();
+    if (!defaultWhiteTextureView_ || !defaultNormalTextureView_ || !defaultBlackTextureView_) {
+        Shutdown();
+        return std::unexpected("Failed to create default fallback WebGPU textures");
+    }
 
     if (auto res = postProcessPass_.Initialize(device_, queue_, surfaceFormat_); !res) {
         Shutdown();
@@ -500,6 +513,7 @@ void PipelineManager::RebuildSceneGlobalsBindGroup() {
     WGPUTextureView activeRtShadowView =
         rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
     cachedRtShadowView_ = activeRtShadowView;
+    cachedRtShadowTargetGen_ = rtPass_.GetTargetGeneration();
 
     std::array<WGPUBindGroupEntry, 7> sgEntries{};
     sgEntries[0] = WGPU_BIND_GROUP_ENTRY_INIT;

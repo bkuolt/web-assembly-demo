@@ -9,14 +9,6 @@
 
 namespace bgl::ui {
 
-namespace {
-
-[[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
-    return glm::vec4{c.r, c.g, c.b, alpha};
-}
-
-} // namespace
-
 void ImmediateUI::PatchBoxGeometry(size_t vOff, float rx, float ry, float rw, float rh, float pad, float radius,
                                    float param4, const glm::vec4* fillOverride, const glm::vec4* borderOverride) {
     if (vOff + 4 > vertices_.size()) {

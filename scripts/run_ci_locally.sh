@@ -90,16 +90,15 @@ if command -v clang-tidy >/dev/null 2>&1; then
 fi
 
 # Step 5: Compilation
-echo "[Step 5/7] Building native libraries and viewer..."
+echo "[Step 5/7] Building and staging native libraries and viewer..."
 cmake --build "${BUILD_DIR}" -j"$(nproc)"
-
-mkdir -p build-native
-cp -f "${BUILD_DIR}/bgl_viewer" build-native/
-cp -f "${BUILD_DIR}/bgl_unit_tests" build-native/
-cp -f "${BUILD_DIR}"/sample_* build-native/ 2>/dev/null || true
-cp -f "${BUILD_DIR}"/libbgl_*.so build-native/
-if [[ -f "third_party/wgpu-native/lib/libwgpu_native.so" ]]; then
-  cp -f third_party/wgpu-native/lib/libwgpu_native.so build-native/
+rm -rf build-native
+cmake --install "${BUILD_DIR}" --prefix build-native
+cp -f "${BUILD_DIR}/bgl_unit_tests" build-native/bin/
+cp -f "${BUILD_DIR}"/sample_* build-native/bin/ 2>/dev/null || true
+if [[ -f "assets/ToyCar.glb" ]]; then
+  mkdir -p build-native/bin/assets
+  cp -f assets/ToyCar.glb build-native/bin/assets/
 fi
 
 # Step 6: Unit Tests (GTest & Node WebGPU Suites)

@@ -232,7 +232,7 @@ public:
 
     [[nodiscard]] bool IsLoadingScene() const noexcept;
     [[nodiscard]] float GetLoadingProgress() const noexcept;
-    [[nodiscard]] std::string GetLoadingStatus() const;
+    [[nodiscard]] const std::string& GetLoadingStatus() const noexcept;
 
     [[nodiscard]] ui::DebugOverlay& GetDebugOverlay() noexcept { return debugOverlay_; }
     [[nodiscard]] ui::ImmediateUI& GetImmediateUI() noexcept { return settingsUi_; }
@@ -259,6 +259,7 @@ private:
     void PollAsyncSceneLoad(float deltaTime);
     void RetireActiveLoadAsync() noexcept;
     void CancelPendingSceneLoads() noexcept;
+    void ShutdownImpl();
     void SyncModelSelectionFromUri(std::string_view sourceUri);
     void SetLoadingSucceededState();
     void SetLoadingFailedState(std::string_view titleName, std::string_view errorMsg, bool revertSelection);

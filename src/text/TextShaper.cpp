@@ -20,17 +20,24 @@ namespace {
     if (b0 < 0x80u) {
         return b0;
     }
-    auto cont = [&](size_t idx) -> uint32_t { return static_cast<unsigned char>(text[idx]) & 0x3Fu; };
-    if ((b0 & 0xE0u) == 0xC0u && offset + 1 < text.size()) {
-        return ((b0 & 0x1Fu) << 6u) | cont(offset + 1);
+    auto isCont = [&](size_t idx) noexcept -> bool {
+        return idx < text.size() && (static_cast<unsigned char>(text[idx]) & 0xC0u) == 0x80u;
+    };
+    auto cont = [&](size_t idx) noexcept -> uint32_t { return static_cast<unsigned char>(text[idx]) & 0x3Fu; };
+    if ((b0 & 0xE0u) == 0xC0u && isCont(offset + 1)) {
+        const uint32_t cp = ((b0 & 0x1Fu) << 6u) | cont(offset + 1);
+        return (cp >= 0x80u) ? cp : 0xFFFDu;
     }
-    if ((b0 & 0xF0u) == 0xE0u && offset + 2 < text.size()) {
-        return ((b0 & 0x0Fu) << 12u) | (cont(offset + 1) << 6u) | cont(offset + 2);
+    if ((b0 & 0xF0u) == 0xE0u && isCont(offset + 1) && isCont(offset + 2)) {
+        const uint32_t cp = ((b0 & 0x0Fu) << 12u) | (cont(offset + 1) << 6u) | cont(offset + 2);
+        return (cp >= 0x800u && (cp < 0xD800u || cp > 0xDFFFu)) ? cp : 0xFFFDu;
     }
-    if ((b0 & 0xF8u) == 0xF0u && offset + 3 < text.size()) {
-        return ((b0 & 0x07u) << 18u) | (cont(offset + 1) << 12u) | (cont(offset + 2) << 6u) | cont(offset + 3);
+    if ((b0 & 0xF8u) == 0xF0u && isCont(offset + 1) && isCont(offset + 2) && isCont(offset + 3)) {
+        const uint32_t cp =
+            ((b0 & 0x07u) << 18u) | (cont(offset + 1) << 12u) | (cont(offset + 2) << 6u) | cont(offset + 3);
+        return (cp >= 0x10000u && cp <= 0x10FFFFu) ? cp : 0xFFFDu;
     }
-    return b0;
+    return 0xFFFDu;
 }
 
 [[nodiscard]] glm::vec2 ShapeInternal(FontAtlas& fontAtlas, std::string_view text, float startX, float startY,
@@ -204,22 +211,30 @@ std::vector<std::string> TextShaper::WrapText(FontAtlas& fontAtlas, std::string_
                     current.assign(word);
                 } else {
                     // Break oversized single token cleanly along UTF-8 codepoint boundaries
-                    size_t cut = 0;
-                    while (cut < word.size()) {
-                        size_t nextCut = cut + 1;
-                        while (nextCut < word.size() && (static_cast<unsigned char>(word[nextCut]) & 0xC0u) == 0x80u) {
-                            ++nextCut;
-                        }
-                        if (Measure(fontAtlas, word.substr(0, nextCut), scale).x > maxWidth && cut > 0) {
-                            lines.emplace_back(word.substr(0, cut));
-                            const std::string_view rest = word.substr(cut);
-                            current.assign(rest);
+                    std::string_view rem = word;
+                    while (!rem.empty()) {
+                        if (Measure(fontAtlas, rem, scale).x <= maxWidth) {
+                            current.assign(rem);
                             break;
                         }
-                        cut = nextCut;
-                    }
-                    if (cut >= word.size()) {
-                        current.assign(word);
+                        size_t cut = 0;
+                        while (cut < rem.size()) {
+                            size_t nextCut = cut + 1;
+                            while (nextCut < rem.size() &&
+                                   (static_cast<unsigned char>(rem[nextCut]) & 0xC0u) == 0x80u) {
+                                ++nextCut;
+                            }
+                            if (cut > 0 && Measure(fontAtlas, rem.substr(0, nextCut), scale).x > maxWidth) {
+                                break;
+                            }
+                            cut = nextCut;
+                        }
+                        if (cut >= rem.size()) {
+                            current.assign(rem);
+                            break;
+                        }
+                        lines.emplace_back(rem.substr(0, cut));
+                        rem.remove_prefix(cut);
                     }
                 }
                 pos = wordEnd;

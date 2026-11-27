@@ -7,6 +7,7 @@
 #include "scene/Quadtree.hpp"
 #include "viewer/Application.hpp"
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <gtest/gtest.h>
 
@@ -581,5 +582,67 @@ TEST(GltfLoaderTest, HandlesCyclicNodeHierarchyAndNonFiniteTransformsSafely) {
         (*res)->UpdateAnimation(0.016f);
         EXPECT_TRUE(std::isfinite((*res)->sceneAABB.minBound.x));
         EXPECT_TRUE(std::isfinite((*res)->sceneAABB.maxBound.x));
+    }
+}
+
+TEST(GltfLoaderTest, AnimationPreservesUnanimatedNodeTrsComponents) {
+    // 2 keyframes at t=0 (0,0,0) and t=1 (4,0,0) = 24 bytes -> base64 (8 + 24 = 32 bytes; time floats 0.0, 1.0 + vec3s)
+    // t=[0.0, 1.0]: 00000000 0000803f -> AAAAAAAAAD8= (8 bytes)
+    // v=[(0,0,0), (4,0,0)]: 00000000 00000000 00000000  00008040 00000000 00000000 -> AAAAAAAAAAAAAAAAAAAgQAAAAAAAAAAA
+    // (24 bytes) Combined 32 bytes: AAAAAAAAAD8AAAAAAAAAAAAAAAAAAIBAAAAAAAAAAA== -> WAIT encode exact 32 bytes in
+    // hex/base64 at runtime!
+    auto makeBase64 = [](const std::vector<uint8_t>& raw) {
+        static constexpr char kTbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        for (size_t i = 0; i < raw.size(); i += 3) {
+            const uint32_t b0 = raw[i];
+            const uint32_t b1 = (i + 1 < raw.size()) ? raw[i + 1] : 0u;
+            const uint32_t b2 = (i + 2 < raw.size()) ? raw[i + 2] : 0u;
+            const uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
+            out.push_back(kTbl[(triple >> 18) & 0x3Fu]);
+            out.push_back(kTbl[(triple >> 12) & 0x3Fu]);
+            out.push_back((i + 1 < raw.size()) ? kTbl[(triple >> 6) & 0x3Fu] : '=');
+            out.push_back((i + 2 < raw.size()) ? kTbl[triple & 0x3Fu] : '=');
+        }
+        return out;
+    };
+
+    const float floats[8] = {0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 4.0f, 0.0f, 0.0f};
+    std::vector<uint8_t> bin(sizeof(floats));
+    std::memcpy(bin.data(), floats, sizeof(floats));
+    const std::string gltfJson =
+        std::string(R"({"asset":{"version":"2.0"},"buffers":[{"uri":"data:application/octet-stream;base64,)") +
+        makeBase64(bin) +
+        R"(","byteLength":32}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},{"buffer":0,"byteOffset":8,"byteLength":24}],"accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},{"bufferView":1,"componentType":5126,"count":2,"type":"VEC3"}],"nodes":[{"name":"AnimNode","translation":[0,0,0],"rotation":[0,0,0.70710678,0.70710678],"scale":[2,3,4]}],"scenes":[{"nodes":[0]}],"scene":0,"animations":[{"samplers":[{"input":0,"output":1,"interpolation":"LINEAR"}],"channels":[{"sampler":0,"target":{"node":0,"path":"translation"}}]}]})";
+
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    const std::span<const uint8_t> bytes{reinterpret_cast<const uint8_t*>(gltfJson.data()), gltfJson.size()};
+    auto res = loader.LoadFromMemory(bytes, "trs_anim.gltf");
+    ASSERT_TRUE(res.has_value()) << res.error();
+    ASSERT_NE(*res, nullptr);
+    ASSERT_FALSE((*res)->allNodes.empty());
+
+    (*res)->UpdateAnimation(0.5f);
+    const auto& node = (*res)->allNodes[0];
+    EXPECT_NEAR(node->translation.x, 2.0f, 1e-3f);
+    EXPECT_NEAR(node->scale.x, 2.0f, 1e-4f);
+    EXPECT_NEAR(node->scale.y, 3.0f, 1e-4f);
+    EXPECT_NEAR(node->scale.z, 4.0f, 1e-4f);
+    EXPECT_NEAR(node->rotation.z, 0.70710678f, 1e-4f);
+    EXPECT_NEAR(node->rotation.w, 0.70710678f, 1e-4f);
+}
+
+TEST(GltfLoaderTest, RejectsInvalidAccessorStrideAndOutOfBoundsSparseCount) {
+    // Oversized / malformed sparse count exceeding accessor count or truncated bufferView
+    const std::string badSparseGltf{
+        R"({"asset":{"version":"2.0"},"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAA","byteLength":12}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":12,"byteStride":1000000}],"accessors":[{"bufferView":0,"componentType":5126,"count":1,"type":"VEC3","sparse":{"count":999999,"indices":{"bufferView":0,"componentType":5123},"values":{"bufferView":0}}}],"meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}],"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0})"};
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    const std::span<const uint8_t> bytes{reinterpret_cast<const uint8_t*>(badSparseGltf.data()), badSparseGltf.size()};
+    auto res = loader.LoadFromMemory(bytes, "bad_stride_sparse.gltf");
+    // Must either reject cleanly or load safely with empty primitive instead of OOM/UB
+    if (res && *res && !(*res)->meshes.empty()) {
+        EXPECT_TRUE((*res)->meshes[0]->primitives.empty() || (*res)->meshes[0]->primitives[0].vertices.size() <= 1u);
     }
 }

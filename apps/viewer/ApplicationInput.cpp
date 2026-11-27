@@ -25,10 +25,14 @@ struct SimpleKeyAction {
 } // namespace
 
 void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
-    // 1. Camera bookmarks: Ctrl+1..9 saves, 1..9 restores
-    if (keySym >= SDLK_1 && keySym <= SDLK_9) {
+    const bool hasCtrl = (keyMod & KMOD_CTRL) != 0;
+    const bool hasAlt = (keyMod & KMOD_ALT) != 0;
+    const bool hasShift = (keyMod & KMOD_SHIFT) != 0;
+
+    // 1. Camera bookmarks: Ctrl+1..9 saves, 1..9 restores (never trigger on Alt combinations)
+    if (!hasAlt && keySym >= SDLK_1 && keySym <= SDLK_9) {
         const size_t slot = static_cast<size_t>(keySym - SDLK_1);
-        if ((keyMod & KMOD_CTRL) != 0) {
+        if (hasCtrl) {
             camera_.SaveBookmark(slot);
             BGL_LOG_INFO("Saved camera bookmark to slot #{}", slot + 1);
         } else if (camera_.RestoreBookmark(slot)) {
@@ -37,19 +41,23 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         return;
     }
 
-    const bool hasCtrl = (keyMod & KMOD_CTRL) != 0;
-    const bool hasShift = (keyMod & KMOD_SHIFT) != 0;
-
     // 2. Modifier-sensitive shortcuts (Ctrl+R/P, +/- exposure vs zoom, exit, wireframe)
     switch (keySym) {
     case SDLK_ESCAPE:
-        running_ = false;
+        if (!hasCtrl && !hasAlt) {
+            running_ = false;
+        }
         return;
     case SDLK_F1:
-        wireframeMode_ = !wireframeMode_;
-        BGL_LOG_INFO("Wireframe overlay: {}", wireframeMode_ ? "ON" : "OFF");
+        if (!hasCtrl && !hasAlt) {
+            wireframeMode_ = !wireframeMode_;
+            BGL_LOG_INFO("Wireframe overlay: {}", wireframeMode_ ? "ON" : "OFF");
+        }
         return;
     case SDLK_r:
+        if (hasAlt) {
+            return;
+        }
         if (hasCtrl) {
             pipelineManager_.SetRayTracingEnabled(!pipelineManager_.IsRayTracingEnabled());
             BGL_LOG_INFO("Desktop Ray Tracing: {}", pipelineManager_.IsRayTracingEnabled() ? "ON" : "OFF");
@@ -59,6 +67,9 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         }
         return;
     case SDLK_p:
+        if (hasAlt) {
+            return;
+        }
         if (hasCtrl) {
             if (!pipelineManager_.IsRayTracingEnabled()) {
                 pipelineManager_.SetRayTracingEnabled(true);
@@ -71,16 +82,23 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         }
         return;
     case SDLK_z:
-        pipelineManager_.ToggleBloom();
-        BGL_LOG_INFO("Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
+        if (!hasCtrl && !hasAlt) {
+            pipelineManager_.ToggleBloom();
+            BGL_LOG_INFO("Emissive HDR Bloom: {}", pipelineManager_.IsBloomEnabled());
+        }
         return;
     case SDLK_g:
-        pipelineManager_.ToggleSSAO();
-        BGL_LOG_INFO("SSAO/GTAO: {}", pipelineManager_.IsSsaoEnabled());
+        if (!hasCtrl && !hasAlt) {
+            pipelineManager_.ToggleSSAO();
+            BGL_LOG_INFO("SSAO/GTAO: {}", pipelineManager_.IsSsaoEnabled());
+        }
         return;
     case SDLK_PLUS:
     case SDLK_KP_PLUS:
     case SDLK_EQUALS:
+        if (hasCtrl || hasAlt) {
+            return;
+        }
         if (hasShift) {
             AdjustExposure(0.15f);
             BGL_LOG_INFO("Exposure: {:.2f}", pipelineManager_.GetExposure());
@@ -90,6 +108,9 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         return;
     case SDLK_MINUS:
     case SDLK_KP_MINUS:
+        if (hasCtrl || hasAlt) {
+            return;
+        }
         if (hasShift) {
             AdjustExposure(-0.15f);
             BGL_LOG_INFO("Exposure: {:.2f}", pipelineManager_.GetExposure());
@@ -98,27 +119,45 @@ void Application::HandleKeyDown(int32_t keySym, uint16_t keyMod) {
         }
         return;
     case SDLK_SEMICOLON:
+        if (hasCtrl || hasAlt) {
+            return;
+        }
         SetLodBias(pipelineManager_.GetLodBias() - 0.15f);
         BGL_LOG_INFO("LOD bias: {:.2f}x", pipelineManager_.GetLodBias());
         return;
     case SDLK_QUOTE:
+        if (hasCtrl || hasAlt) {
+            return;
+        }
         SetLodBias(pipelineManager_.GetLodBias() + 0.15f);
         BGL_LOG_INFO("LOD bias: {:.2f}x", pipelineManager_.GetLodBias());
         return;
     case SDLK_COMMA:
-        SetTimeOfDay(timeOfDay_ - 0.5f);
+        if (!hasCtrl && !hasAlt) {
+            SetTimeOfDay(timeOfDay_ - 0.5f);
+        }
         return;
     case SDLK_PERIOD:
-        SetTimeOfDay(timeOfDay_ + 0.5f);
+        if (!hasCtrl && !hasAlt) {
+            SetTimeOfDay(timeOfDay_ + 0.5f);
+        }
         return;
     case SDLK_LEFTBRACKET:
-        RotateEnvironment(-0.0872665f);
+        if (!hasCtrl && !hasAlt) {
+            RotateEnvironment(-0.0872665f);
+        }
         return;
     case SDLK_RIGHTBRACKET:
-        RotateEnvironment(0.0872665f);
+        if (!hasCtrl && !hasAlt) {
+            RotateEnvironment(0.0872665f);
+        }
         return;
     default:
         break;
+    }
+
+    if (hasCtrl || hasAlt) {
+        return;
     }
 
     // 3. Zero-argument toggle and cycle hotkeys

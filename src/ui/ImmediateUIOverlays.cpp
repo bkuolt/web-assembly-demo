@@ -13,8 +13,12 @@ namespace {
 
 thread_local ImmediateUI* g_activeUiContext = nullptr;
 
-[[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
-    return glm::vec4{c.r, c.g, c.b, alpha};
+[[nodiscard]] constexpr UiRect IntersectRect(const UiRect& a, const UiRect& b) noexcept {
+    const float x0 = std::max(a.x, b.x);
+    const float y0 = std::max(a.y, b.y);
+    const float x1 = std::min(a.x + a.w, b.x + b.w);
+    const float y1 = std::min(a.y + a.h, b.y + b.h);
+    return UiRect{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
 }
 
 } // namespace
@@ -74,7 +78,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
 
     bool selectionChanged = false;
 
-    const float itemH = style_.rowHeight;
+    const float itemH = std::max(16.0f, style_.rowHeight);
     const float rawPopupH = itemH * static_cast<float>(options.size());
     const float maxPopupH = std::max(itemH * 3.0f, std::min(264.0f, static_cast<float>(viewportHeight_) - 24.0f));
     const float popupH = std::min(rawPopupH, maxPopupH);
@@ -167,6 +171,7 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
              glm::mix(style_.textMuted, style_.accent, nowOpen ? 1.0f : anchorHover.mix), style_.textScale * 0.85f);
 
     if (nowOpen) {
+        openDropdownSeenThisFrame_ = true;
         hasPendingOverlay_ = true;
         hasActivePopupRect_ = true;
         activePopupRect_ = popupRect;
@@ -207,7 +212,7 @@ void ImmediateUI::ProgressBar(float fraction, std::string_view statusText, float
 
     EmitProgressTrack(vertices_, indices_, trackRect, fraction, barColor, 1.0f, hv.mix);
 
-    if (fraction >= 0.0f) {
+    if (std::isfinite(fraction) && fraction >= 0.0f) {
         char pctBuf[16]{};
         const int pct = static_cast<int>(std::lround(std::clamp(fraction, 0.0f, 1.0f) * 100.0f));
         std::snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
@@ -221,28 +226,25 @@ void ImmediateUI::ProgressBar(float fraction, std::string_view statusText, float
 }
 
 void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
-    if (inScrollArea_) {
-        EndScrollArea();
-    }
     const uint64_t hash = HashId(id);
     const float clampedH = std::max(40.0f, maxHeight);
-    scrollRect_ = UiRect{cursorX_, cursorY_, contentWidth_, clampedH};
+    const UiRect rect{cursorX_, cursorY_, contentWidth_, clampedH};
+    const UiRect effectiveClip = scrollStack_.empty() ? rect : IntersectRect(scrollStack_.back().effectiveClip, rect);
 
-    const HoverEval areaHover = EvalHover(hash ^ 0x534352ULL, scrollRect_, true, false);
+    const HoverEval areaHover = EvalHover(hash ^ 0x534352ULL, effectiveClip, true, false);
 
     float& scrollOffset = scrollOffsets_[hash];
     const float prevContentH = scrollContentHeights_[hash];
     const float maxScroll = std::max(0.0f, prevContentH - clampedH);
 
-    if (!IsBlockedByPopup() && scrollRect_.Contains(input_.mouseX, input_.mouseY) &&
+    if (!IsBlockedByPopup() && effectiveClip.Contains(input_.mouseX, input_.mouseY) &&
         std::abs(input_.wheelDelta) > 1e-4f) {
         scrollOffset -= input_.wheelDelta * 26.0f;
     }
 
-    const UiRect trackRect{scrollRect_.x + scrollRect_.w - 8.0f, scrollRect_.y + 2.0f, 6.0f,
-                           std::max(12.0f, clampedH - 4.0f)};
+    const UiRect trackRect{rect.x + rect.w - 8.0f, rect.y + 2.0f, 6.0f, std::max(12.0f, clampedH - 4.0f)};
     if (maxScroll > 1.0f && activeScrollbarId_ == 0 && activeDragWindowId_ == 0 && !IsBlockedByPopup() &&
-        input_.mousePressed && trackRect.Contains(input_.mouseX, input_.mouseY)) {
+        input_.mousePressed && trackRect.Contains(input_.mouseX, input_.mouseY) && IsMouseInClipArea()) {
         activeScrollbarId_ = hash;
     }
     if (activeScrollbarId_ == hash) {
@@ -257,59 +259,63 @@ void ImmediateUI::BeginScrollArea(std::string_view id, float maxHeight) {
     scrollOffset = std::clamp(scrollOffset, 0.0f, maxScroll);
 
     const glm::vec4 boxBorder = glm::mix(WithAlpha(style_.windowBorder, 0.55f), style_.accent, areaHover.mix * 0.7f);
-    EmitRoundedBox(vertices_, indices_, scrollRect_.x, scrollRect_.y, scrollRect_.w, scrollRect_.h, style_.widgetRadius,
+    EmitRoundedBox(vertices_, indices_, rect.x, rect.y, rect.w, rect.h, style_.widgetRadius,
                    glm::vec4{0.055f, 0.065f, 0.088f, 0.85f}, boxBorder, 1.0f, false);
 
-    FlushDrawCommand(false, UiRect{});
+    FlushDrawCommand(!scrollStack_.empty(), scrollStack_.empty() ? UiRect{} : scrollStack_.back().effectiveClip);
 
-    inScrollArea_ = true;
-    activeScrollId_ = hash;
-    scrollSavedCursorX_ = cursorX_;
-    scrollSavedCursorY_ = cursorY_;
-    scrollSavedContentW_ = contentWidth_;
-    scrollAppliedOffset_ = scrollOffset;
+    ActiveScroll active{};
+    active.id = hash;
+    active.rect = rect;
+    active.effectiveClip = effectiveClip;
+    active.savedCursorX = cursorX_;
+    active.savedCursorY = cursorY_;
+    active.savedContentWidth = contentWidth_;
+    active.contentStartY = rect.y + 4.0f;
+    active.appliedOffset = scrollOffset;
+    scrollStack_.push_back(active);
 
-    cursorX_ = scrollRect_.x + 6.0f;
-    cursorY_ = scrollRect_.y + 4.0f - scrollOffset;
-    contentWidth_ = std::max(30.0f, scrollRect_.w - 18.0f);
-    scrollContentStartY_ = scrollRect_.y + 4.0f;
+    cursorX_ = rect.x + 6.0f;
+    cursorY_ = rect.y + 4.0f - scrollOffset;
+    contentWidth_ = std::max(30.0f, rect.w - 18.0f);
 }
 
 void ImmediateUI::EndScrollArea() {
-    if (!inScrollArea_) {
+    if (scrollStack_.empty()) {
         return;
     }
 
-    FlushDrawCommand(true, scrollRect_);
+    const ActiveScroll active = scrollStack_.back();
+    FlushDrawCommand(true, active.effectiveClip);
+    scrollStack_.pop_back();
 
-    const float measuredContentH = std::max(0.0f, (cursorY_ + scrollAppliedOffset_) - scrollContentStartY_ + 6.0f);
-    scrollContentHeights_[activeScrollId_] = measuredContentH;
+    const float measuredContentH = std::max(0.0f, (cursorY_ + active.appliedOffset) - active.contentStartY + 6.0f);
+    scrollContentHeights_[active.id] = measuredContentH;
 
-    cursorX_ = scrollSavedCursorX_;
-    cursorY_ = scrollRect_.y + scrollRect_.h + style_.itemSpacing;
-    contentWidth_ = scrollSavedContentW_;
-    inScrollArea_ = false;
+    cursorX_ = active.savedCursorX;
+    cursorY_ = active.rect.y + active.rect.h + style_.itemSpacing;
+    contentWidth_ = active.savedContentWidth;
 
-    const float maxScroll = std::max(0.0f, measuredContentH - scrollRect_.h);
+    const float maxScroll = std::max(0.0f, measuredContentH - active.rect.h);
     if (maxScroll > 1.0f) {
-        const float trackX = scrollRect_.x + scrollRect_.w - 7.0f;
-        const float trackY = scrollRect_.y + 4.0f;
-        const float trackH = std::max(12.0f, scrollRect_.h - 8.0f);
+        const float trackX = active.rect.x + active.rect.w - 7.0f;
+        const float trackY = active.rect.y + 4.0f;
+        const float trackH = std::max(12.0f, active.rect.h - 8.0f);
         EmitRoundedBox(vertices_, indices_, trackX, trackY, 4.0f, trackH, 2.0f, style_.sliderTrack, glm::vec4{0.0f},
                        0.0f, false);
-        const float visibleRatio = std::clamp(scrollRect_.h / std::max(scrollRect_.h, measuredContentH), 0.12f, 1.0f);
+        const float visibleRatio = std::clamp(active.rect.h / std::max(active.rect.h, measuredContentH), 0.12f, 1.0f);
         const float thumbH = std::max(14.0f, trackH * visibleRatio);
-        const float scrollFrac = std::clamp(scrollAppliedOffset_ / maxScroll, 0.0f, 1.0f);
+        const float scrollFrac = std::clamp(active.appliedOffset / maxScroll, 0.0f, 1.0f);
         const float thumbY = trackY + scrollFrac * std::max(0.0f, trackH - thumbH);
         const UiRect thumbRect{trackX - 2.0f, thumbY, 8.0f, thumbH};
-        const HoverEval thumbHover = EvalHover(activeScrollId_ ^ 0x54484DULL, thumbRect, true, false);
-        const float thumbMix = (activeScrollbarId_ == activeScrollId_) ? 1.0f : thumbHover.mix;
+        const HoverEval thumbHover = EvalHover(active.id ^ 0x54484DULL, thumbRect, true, false);
+        const float thumbMix = (activeScrollbarId_ == active.id) ? 1.0f : thumbHover.mix;
         EmitRoundedBox(vertices_, indices_, trackX, thumbY, 4.0f, thumbH, 2.0f,
                        glm::mix(style_.windowBorder, style_.accent, thumbMix), glm::vec4{0.0f}, 0.0f, false);
     }
 
-    hitRects_.push_back(scrollRect_);
-    lastItemRect_ = scrollRect_;
+    hitRects_.push_back(active.rect);
+    lastItemRect_ = active.rect;
 }
 
 void ImmediateUI::EmitColorPickerOverlay() {

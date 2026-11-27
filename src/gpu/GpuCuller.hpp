@@ -76,6 +76,8 @@ public:
 
     [[nodiscard]] size_t GetPrimitiveCount() const noexcept { return primitiveCount_; }
     [[nodiscard]] bool IsInitialized() const noexcept { return computePipeline_ != nullptr; }
+    [[nodiscard]] WGPUBuffer GetBoundsBuffer() const noexcept { return boundsStorageBuffer_.Get(); }
+    [[nodiscard]] uint64_t GetBoundsGeneration() const noexcept { return boundsGeneration_; }
     [[nodiscard]] WGPUBuffer GetIndirectArgsBuffer() const noexcept { return indirectArgsBuffer_.Get(); }
     [[nodiscard]] WGPUBuffer GetVisibilityBuffer() const noexcept { return visibilityStorageBuffer_.Get(); }
     [[nodiscard]] WGPUBuffer GetAtomicCounterBuffer() const noexcept { return atomicCounterBuffer_.Get(); }
@@ -99,6 +101,7 @@ private:
     BufferHandle indirectArgsBuffer_{};
 
     size_t primitiveCount_{0};
+    uint64_t boundsGeneration_{0};
     size_t boundsBufferSize_{0};
     size_t visibilityBufferSize_{0};
     size_t indirectArgsBufferSize_{0};

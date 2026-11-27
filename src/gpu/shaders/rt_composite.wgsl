@@ -41,6 +41,9 @@ fn fs_rt_pathtrace_present(in : VsOut) -> @location(0) vec4<f32> {
     let h = max(u32(compUbo.params.y), 1u);
     let px = clamp(vec2<u32>(in.pos.xy), vec2<u32>(0u), vec2<u32>(w - 1u, h - 1u));
     let idx = px.y * w + px.x;
+    if (idx >= arrayLength(&pathAccum)) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
     let accum = pathAccum[idx];
     let col = accum.rgb / max(accum.a, 1.0);
     return vec4<f32>(max(col, vec3<f32>(0.0)), 1.0);

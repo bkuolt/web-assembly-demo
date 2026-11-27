@@ -353,14 +353,25 @@ void Application::DrawAtmosphereWeatherSection() {
     if (!bgl::ui::UI::CollapsingHeader("Atmosphere & Weather", false)) {
         return;
     }
-    static constexpr const char* kEnvNames[] = {"Mediterranean Courtyard", "Sunset Studio", "Overcast Atelier",
-                                                "Night Neon"};
-    size_t envIdx =
-        std::min(static_cast<size_t>(std::to_underlying(pipelineManager_.GetEnvironmentPreset())), size_t{3});
-    if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNames, envIdx)) {
-        pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
-        skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(),
-                                      pipelineManager_.GetDefaultSampler());
+    const gpu::EnvironmentPreset activePreset = pipelineManager_.GetEnvironmentPreset();
+    if (activePreset == gpu::EnvironmentPreset::CustomHdr) {
+        static constexpr const char* kEnvNamesCustom[] = {"Mediterranean Courtyard", "Sunset Studio",
+                                                          "Overcast Atelier", "Night Neon", "Custom HDR"};
+        size_t envIdx = 4;
+        if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNamesCustom, envIdx) && envIdx < 4) {
+            pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
+            skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(),
+                                          pipelineManager_.GetDefaultSampler());
+        }
+    } else {
+        static constexpr const char* kEnvNames[] = {"Mediterranean Courtyard", "Sunset Studio", "Overcast Atelier",
+                                                    "Night Neon"};
+        size_t envIdx = std::min(static_cast<size_t>(std::to_underlying(activePreset)), size_t{3});
+        if (bgl::ui::UI::Dropdown("Environment Preset", kEnvNames, envIdx)) {
+            pipelineManager_.SetEnvironmentPreset(static_cast<gpu::EnvironmentPreset>(envIdx), activeScene_.get());
+            skybox_.SetEnvironmentCubemap(pipelineManager_.GetEnvironmentCubemapView(),
+                                          pipelineManager_.GetDefaultSampler());
+        }
     }
 
     float tod = timeOfDay_;
@@ -429,8 +440,12 @@ void Application::DrawEngineThemeSection() {
     bgl::ui::UI::Tooltip("Toggle animated hover highlights across all UI widgets");
     static constexpr const char* kFontLabels[]{"Embedded (Mono)", "System Sans", "System Mono", "System Serif"};
     static constexpr const char* kFontQueries[]{"embedded", "sans", "mono", "serif"};
-    if (bgl::ui::UI::Dropdown("UI Font", kFontLabels, selectedUiFontIdx_)) {
-        settingsUi_.SetDefaultFont(kFontQueries[selectedUiFontIdx_], 24.0f);
+    size_t candidateFontIdx = selectedUiFontIdx_;
+    if (bgl::ui::UI::Dropdown("UI Font", kFontLabels, candidateFontIdx)) {
+        if (candidateFontIdx < std::size(kFontQueries) &&
+            settingsUi_.SetDefaultFont(kFontQueries[candidateFontIdx], 24.0f)) {
+            selectedUiFontIdx_ = candidateFontIdx;
+        }
     }
     bgl::ui::UI::Tooltip("Discover and apply installed OS fonts via FontLibrary");
     bgl::ui::UI::ColorEdit3("UI Accent Color", uiAccentColor_);

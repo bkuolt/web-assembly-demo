@@ -25,8 +25,14 @@ void EngineCore::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_
     CacheSceneMetrics();
     pipelineManager_.PrepareScene(*activeScene_);
 
-    const glm::vec3 center{activeScene_->sceneAABB.Center()};
-    const float radius{glm::length(activeScene_->sceneAABB.Extents())};
+    const auto& aabb = activeScene_->sceneAABB;
+    const bool validAabb =
+        std::isfinite(aabb.minBound.x) && std::isfinite(aabb.minBound.y) && std::isfinite(aabb.minBound.z) &&
+        std::isfinite(aabb.maxBound.x) && std::isfinite(aabb.maxBound.y) && std::isfinite(aabb.maxBound.z) &&
+        aabb.minBound.x <= aabb.maxBound.x && aabb.minBound.y <= aabb.maxBound.y && aabb.minBound.z <= aabb.maxBound.z;
+    const glm::vec3 center{validAabb ? aabb.Center() : glm::vec3{0.0f}};
+    const float rawRadius{validAabb ? glm::length(aabb.Extents()) : 1.0f};
+    const float radius{std::isfinite(rawRadius) ? rawRadius : 1.0f};
 
     if (sourceUri.find("Sponza") != std::string_view::npos || sourceUri.find("sponza") != std::string_view::npos) {
         const glm::vec3 courtyardCenter{center.x, 2.0f, center.z};
@@ -40,10 +46,11 @@ void EngineCore::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_
         camera_ = core::Camera{center, targetDistance};
         camera_.Orbit(0.8f, 0.4f);
         BGL_LOG_INFO("Scene '{}' activated: center=[{:.4f}, {:.4f}, {:.4f}], radius={:.4f}, camDistance={:.4f}",
-                     currentModelName_, center.x, center.y, center.z, radius, targetDistance);
+                     core::SanitizeForLog(currentModelName_), center.x, center.y, center.z, radius, targetDistance);
     }
 
-    core::AABB worldBounds{activeScene_->sceneAABB};
+    core::AABB worldBounds{validAabb ? aabb
+                                     : core::AABB{.minBound = glm::vec3{-100.0f}, .maxBound = glm::vec3{100.0f}}};
     const glm::vec3 margin{glm::max(glm::vec3{10.0f}, worldBounds.Extents() * 0.1f)};
     worldBounds.minBound -= margin;
     worldBounds.maxBound += margin;
@@ -55,7 +62,8 @@ void EngineCore::ActivateScene(std::shared_ptr<scene::Scene> scene, std::string_
     if (!activeScene_->animations.empty()) {
         activeScene_->SetAnimation(0);
         BGL_LOG_INFO("Activated default glTF animation 0 ('{}', duration: {:.2f}s)",
-                     activeScene_->animations[0].name.empty() ? "unnamed" : activeScene_->animations[0].name,
+                     activeScene_->animations[0].name.empty() ? std::string{"unnamed"}
+                                                              : core::SanitizeForLog(activeScene_->animations[0].name),
                      activeScene_->animations[0].duration);
     }
 }
@@ -156,7 +164,6 @@ void EngineCore::SelectNodeByIndex(int index) noexcept {
 }
 
 void EngineCore::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) noexcept {
-    selectedNode_ = std::move(node);
     selectedNodeIndex_ = index;
     if (index < 0 && node && activeScene_) {
         for (size_t i = 0; i < activeScene_->allNodes.size(); ++i) {
@@ -166,6 +173,7 @@ void EngineCore::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) n
             }
         }
     }
+    selectedNode_ = std::move(node);
     if (selectedNode_) {
         if (selectedNode_->worldAABB.minBound.x <= selectedNode_->worldAABB.maxBound.x) {
             const float distToNode = glm::length(camera_.GetPosition() - selectedNode_->worldAABB.Center());
@@ -194,8 +202,8 @@ int EngineCore::PickNodeAt(float screenX, float screenY, float screenWidth, floa
                     BGL_LOG_DEBUG("Audio pick cue skipped: {}", audioRes.error());
                 }
             }
-            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)", hit->hitNode->name,
-                         hit->hitNode->nodeIndex, hit->distance);
+            BGL_LOG_INFO("[RayPicker] Hit Node '{}' (index #{}, distance {:.3f}m)",
+                         core::SanitizeForLog(hit->hitNode->name), hit->hitNode->nodeIndex, hit->distance);
             return hit->hitNode->nodeIndex;
         }
     }
@@ -212,8 +220,8 @@ void EngineCore::SelectCamera(int cameraIndex) noexcept {
     activeCameraIndex_ = cameraIndex;
     const auto& sc = activeScene_->cameras[cameraIndex];
     camera_.SetFromTransform(sc.worldTransform, sc.yfov, sc.znear, sc.zfar);
-    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})", cameraIndex, sc.name,
-                 glm::degrees(sc.yfov), sc.znear, sc.zfar);
+    BGL_LOG_INFO("Activated glTF camera #{}: '{}' (fovY={:.1f}deg, near={:.2f}, far={:.2f})", cameraIndex,
+                 core::SanitizeForLog(sc.name), glm::degrees(sc.yfov), sc.znear, sc.zfar);
 }
 
 void EngineCore::CycleCamera() noexcept {
@@ -239,6 +247,9 @@ std::string_view EngineCore::GetCameraName(int index) const noexcept {
 }
 
 void EngineCore::SetTimeOfDay(float hour) noexcept {
+    if (!std::isfinite(hour)) {
+        return;
+    }
     float wrapped = std::fmod(hour, 24.0f);
     if (wrapped < 0.0f) {
         wrapped += 24.0f;
@@ -255,6 +266,9 @@ void EngineCore::SetTimeOfDay(float hour) noexcept {
 }
 
 void EngineCore::SetSunAzimuthElevation(float azimuthRad, float elevationRad) noexcept {
+    if (!std::isfinite(azimuthRad) || !std::isfinite(elevationRad)) {
+        return;
+    }
     sunAzimuth_ = azimuthRad;
     sunElevation_ = std::clamp(elevationRad, 0.02f, 1.57f);
     UpdateSunDirection();

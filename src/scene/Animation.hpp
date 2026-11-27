@@ -13,6 +13,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <webgpu/webgpu.h>
 
@@ -90,6 +91,13 @@ struct Animation {
  * @brief Skeletal skin binding joints and inverse bind matrices.
  */
 struct Skin {
+    struct NodeGpuBinding {
+        WGPUBuffer jointBuffer{nullptr};
+        uint64_t jointBufferSize{0};
+        WGPUBindGroup bindGroup{nullptr};
+        uint64_t uploadedFrameId{0};
+    };
+
     std::string name{};
     std::vector<glm::mat4> inverseBindMatrices{};
     int skeletonRootNodeIndex{-1};
@@ -102,6 +110,10 @@ struct Skin {
     mutable uint64_t cachedUploadedFrameId{0};
     mutable const SceneNode* cachedMeshNode{nullptr};
     mutable uint32_t cachedJointCount{0};
+    mutable const SceneNode* primaryGpuNode{nullptr};
+    mutable std::unordered_map<const SceneNode*, NodeGpuBinding> extraNodeGpuBindings_{};
+    WGPUDevice gpuDevice_{nullptr};
+    WGPUBindGroupLayout gpuBindGroupLayout_{nullptr};
 
     Skin() = default;
     Skin(const Skin& other);
@@ -111,6 +123,15 @@ struct Skin {
     ~Skin();
 
     void ReleaseGpu() noexcept;
+
+    void SetGpuContext(WGPUDevice device, WGPUBindGroupLayout skinBgl) noexcept {
+        gpuDevice_ = device;
+        gpuBindGroupLayout_ = skinBgl;
+    }
+
+    void ResolveNodeGpuBinding(const SceneNode* meshNode, uint64_t frameId, WGPUBuffer& outBuffer,
+                               WGPUBindGroup& outBindGroup, bool& outNeedsUpload) const noexcept;
+    void MarkNodeGpuUploaded(uint64_t frameId, const SceneNode* meshNode) const noexcept;
 
     [[nodiscard]] bool NeedsGpuUpload(uint64_t frameId, const SceneNode* meshNode) const noexcept {
         return frameId == 0 || cachedUploadedFrameId != frameId || cachedMeshNode != meshNode;

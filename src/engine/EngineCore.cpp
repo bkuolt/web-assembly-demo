@@ -123,13 +123,14 @@ void EngineCore::SyncCameraAndListener() noexcept {
 }
 
 void EngineCore::UpdateSimulation(float deltaTime) {
-    lastDeltaTime_ = std::clamp(deltaTime, 0.0005f, 0.25f);
+    const float safeDt = std::isfinite(deltaTime) ? std::clamp(deltaTime, 0.0005f, 0.25f) : 0.016f;
+    lastDeltaTime_ = safeDt;
     elapsedTime_ += lastDeltaTime_;
 
-    PollShaderHotReload(deltaTime);
+    PollShaderHotReload(safeDt);
 
     if (activeScene_) {
-        activeScene_->UpdateAnimation(deltaTime);
+        activeScene_->UpdateAnimation(safeDt);
         if (quadtree_ && activeScene_->transformVersion_ != lastQuadtreeTransformVersion_) {
             quadtree_->Refit();
             cachedQuadtreeNodeCount_ = quadtree_->GetNodeCount();
@@ -137,10 +138,10 @@ void EngineCore::UpdateSimulation(float deltaTime) {
         }
     }
 
-    pipelineManager_.AdvanceWeatherTime(deltaTime);
-    pipelineManager_.UpdateAutoLod(deltaTime);
+    pipelineManager_.AdvanceWeatherTime(safeDt);
+    pipelineManager_.UpdateAutoLod(safeDt);
     if (dayNightCycleActive_) {
-        SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * deltaTime);
+        SetTimeOfDay(timeOfDay_ + dayNightSpeed_ * safeDt);
     }
 
     SyncCameraAndListener();
@@ -177,6 +178,7 @@ void EngineCore::Render() {
         OnPrepareOverlay();
         WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
         if (!swapchainPass) {
+            gpuContext_.AbortFrame();
             return;
         }
         pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(), vp, camPos, sunDir,

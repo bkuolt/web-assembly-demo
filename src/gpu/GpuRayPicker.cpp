@@ -40,6 +40,7 @@ void GpuRayPicker::MoveFrom(GpuRayPicker& other) noexcept {
     resultBuffer_ = std::move(other.resultBuffer_);
     cachedBoundsBuffer_ = std::exchange(other.cachedBoundsBuffer_, nullptr);
     cachedPrimitiveCount_ = std::exchange(other.cachedPrimitiveCount_, 0);
+    cachedBoundsGeneration_ = std::exchange(other.cachedBoundsGeneration_, 0);
 }
 
 void GpuRayPicker::Shutdown() noexcept {
@@ -58,6 +59,7 @@ void GpuRayPicker::Shutdown() noexcept {
     bindGroupLayout_.Reset();
     cachedBoundsBuffer_ = nullptr;
     cachedPrimitiveCount_ = 0;
+    cachedBoundsGeneration_ = 0;
     device_ = nullptr;
     queue_ = nullptr;
 }
@@ -197,14 +199,16 @@ core::Result<void> GpuRayPicker::Initialize(WGPUDevice device, WGPUQueue queue) 
 }
 
 void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount,
-                            const core::Ray& ray) {
+                            const core::Ray& ray, uint64_t boundsGeneration) {
     if (!encoder || !computePipeline_ || !resolvePipeline_ || !boundsBuffer || !uniformBuffer_ || !resultBuffer_ ||
         primitiveCount == 0)
         return;
 
-    if (cachedBoundsBuffer_ != boundsBuffer || cachedPrimitiveCount_ != primitiveCount || !bindGroup_) {
+    if (cachedBoundsBuffer_ != boundsBuffer || cachedPrimitiveCount_ != primitiveCount ||
+        cachedBoundsGeneration_ != boundsGeneration || !bindGroup_) {
         cachedBoundsBuffer_ = boundsBuffer;
         cachedPrimitiveCount_ = primitiveCount;
+        cachedBoundsGeneration_ = boundsGeneration;
         bindGroup_.Reset();
 
         std::array<WGPUBindGroupEntry, 3> bgEntries{};
@@ -234,6 +238,7 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
         bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
         if (!bindGroup_) {
             cachedBoundsBuffer_ = nullptr;
+            cachedBoundsGeneration_ = 0;
             return;
         }
     }

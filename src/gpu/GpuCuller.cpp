@@ -75,6 +75,7 @@ void GpuCuller::MoveFrom(GpuCuller& other) noexcept {
     boundsBufferSize_ = std::exchange(other.boundsBufferSize_, 0);
     visibilityBufferSize_ = std::exchange(other.visibilityBufferSize_, 0);
     indirectArgsBufferSize_ = std::exchange(other.indirectArgsBufferSize_, 0);
+    boundsGeneration_ = std::exchange(other.boundsGeneration_, 0);
     cpuBounds_ = std::move(other.cpuBounds_);
     cpuIndirectArgs_ = std::move(other.cpuIndirectArgs_);
 }
@@ -252,7 +253,7 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         auto prims = node.GetPrimitives();
         for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
             const auto& prim = prims[pIdx];
-            if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+            if (prim.boundingBox.IsValid()) {
                 core::AABB worldBox{};
                 if (node.instanceTransforms.empty()) {
                     worldBox = prim.boundingBox.Transformed(worldMat);
@@ -319,9 +320,11 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
                                    WGPUBufferUsage_Storage | WGPUBufferUsage_Indirect | WGPUBufferUsage_CopyDst |
                                        WGPUBufferUsage_CopySrc,
                                    "GpuCull_IndirectArgs")) {
+            ++boundsGeneration_;
             primitiveCount_ = 0;
             return;
         }
+        ++boundsGeneration_;
 
         bindGroup_.Reset();
 
@@ -362,6 +365,10 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         bgDesc.entries = bgEntries.data();
         bgDesc.label = ToWgpuStringView("GpuCull_BindGroup");
         bindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        if (!bindGroup_) {
+            primitiveCount_ = 0;
+            return;
+        }
     }
 
     wgpuQueueWriteBuffer(queue_, boundsStorageBuffer_.Get(), 0, cpuBounds_.data(), neededBytes);

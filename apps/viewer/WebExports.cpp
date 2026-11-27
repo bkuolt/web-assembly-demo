@@ -22,8 +22,15 @@ static std::string_view SafeCStringView(const char* ptr, size_t maxBytes = 8192u
 }
 
 static void EmscriptenMainLoop() {
+    static double s_lastMs = emscripten_get_now();
+    const double nowMs = emscripten_get_now();
+    float dt = static_cast<float>((nowMs - s_lastMs) * 0.001);
+    s_lastMs = nowMs;
+    if (!std::isfinite(dt) || dt <= 0.0f || dt > 0.25f) {
+        dt = 1.0f / 60.0f;
+    }
     if (g_pApp) {
-        g_pApp->Update(1.0f / 60.0f);
+        g_pApp->Update(dt);
         g_pApp->Render();
     }
 }

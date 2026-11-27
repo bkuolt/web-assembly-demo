@@ -64,9 +64,11 @@ fn fs_gtao(in : VsOut) -> @location(0) vec4<f32> {
 
     let ddx = select(dRight, dLeft, abs(pL.w - centerZ) < abs(pR.w - centerZ));
     let ddy = select(dDown, dUp, abs(pU.w - centerZ) < abs(pD.w - centerZ));
-    let nLenSq = dot(cross(ddx, ddy), cross(ddx, ddy));
-    let viewNormal = select(vec3<f32>(0.0, 0.0, 1.0), normalize(cross(ddy, ddx)), nLenSq > 1e-8);
-    let viewDir = normalize(-centerPos);
+    let rawNorm = cross(ddy, ddx);
+    let nLenSq = dot(rawNorm, rawNorm);
+    let viewNormal = select(vec3<f32>(0.0, 0.0, 1.0), rawNorm * inverseSqrt(nLenSq), nLenSq > 1e-8);
+    let vDistSq = dot(centerPos, centerPos);
+    let viewDir = select(vec3<f32>(0.0, 0.0, 1.0), -centerPos * inverseSqrt(vDistSq), vDistSq > 1e-10);
 
     // Screen-space radius proportional to world radius & camera distance
     let worldRadius = clamp(ubo.params.x * 20.0, 0.15, 2.5);

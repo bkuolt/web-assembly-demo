@@ -69,6 +69,15 @@ void PostProcessPass::UploadTonemapUniforms(const glm::mat4& viewProj, const glm
 
 void PostProcessPass::EnsureTonemapBindGroup(WGPUTextureView hdrResolveView, WGPUTextureView depthView,
                                              WGPUTextureView bloomView, WGPUTextureView gtaoView) {
+    if (!hdrResolveView || !depthView || !bloomView || !gtaoView || !tonemapBindGroupLayout_ ||
+        !tonemapUniformBuffer_ || !extraUniformBuffer_ || !exposureStateBuffer_ || !linearSampler_) {
+        tonemapBindGroup_.Reset();
+        cachedHdrResolveView_ = nullptr;
+        cachedLinearDepthView_ = nullptr;
+        cachedBloomView_ = nullptr;
+        cachedGtaoView_ = nullptr;
+        return;
+    }
     if (hdrResolveView == cachedHdrResolveView_ && depthView == cachedLinearDepthView_ &&
         bloomView == cachedBloomView_ && gtaoView == cachedGtaoView_ && tonemapBindGroup_) {
         return;
@@ -118,10 +127,14 @@ void PostProcessPass::EnsureTonemapBindGroup(WGPUTextureView hdrResolveView, WGP
 
 void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPUTextureView depthReadView,
                                                 uint32_t sampleCount) {
-    if (!depthReadView || !linearDepthView_) {
+    if (!depthReadView || !linearDepthView_ || !depthLinUniformBuffer_) {
         return;
     }
 
+    WGPUBindGroupLayout dlBgl = (sampleCount > 1) ? depthLinMsaaBgl_.Get() : depthLin1xBgl_.Get();
+    if (!dlBgl) {
+        return;
+    }
     if (depthReadView != cachedDepthReadView_ || sampleCount != cachedDepthSampleCount_ || !depthLinBindGroup_) {
         cachedDepthReadView_ = depthReadView;
         cachedDepthSampleCount_ = sampleCount;
@@ -134,10 +147,13 @@ void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPU
         e[1].binding = 1;
         e[1].textureView = depthReadView;
         WGPUBindGroupDescriptor desc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-        desc.layout = (sampleCount > 1) ? depthLinMsaaBgl_.Get() : depthLin1xBgl_.Get();
+        desc.layout = dlBgl;
         desc.entryCount = e.size();
         desc.entries = e.data();
         depthLinBindGroup_ = wgpuDeviceCreateBindGroup(device_, &desc);
+    }
+    if (!depthLinBindGroup_) {
+        return;
     }
 
     const DepthLinearizeUniformData dlData{
@@ -166,7 +182,8 @@ void PostProcessPass::PrepareDepthAndGtaoPasses(WGPUCommandEncoder encoder, WGPU
 }
 
 void PostProcessPass::PrepareBloomAndBackdropPasses(WGPUCommandEncoder encoder, WGPUTextureView hdrResolveView) {
-    if (bloomMipCount_ == 0 || !bloomMipViews_[0]) {
+    if (bloomMipCount_ == 0 || !bloomMipViews_[0] || !hdrResolveView || !bloomBgl_ || !bloomUniformBuffer_ ||
+        !linearSampler_) {
         return;
     }
 
@@ -175,12 +192,33 @@ void PostProcessPass::PrepareBloomAndBackdropPasses(WGPUCommandEncoder encoder, 
         bloomBindGroups_[0] = CreateBloomPassBindGroup(device_, bloomBgl_.Get(), bloomUniformBuffer_.Get(),
                                                        linearSampler_.Get(), hdrResolveView);
     }
+    if (!bloomBindGroups_[0]) {
+        return;
+    }
+
+    // Always run at least 3 downsamples so Mip 2 gives ImmediateUI its blurred frosted glass backdrop
+    const uint32_t downMips = enableBloom_ ? bloomMipCount_ : std::min(bloomMipCount_, 3u);
+    const bool runUpsample = enableBloom_ && bloomMipCount_ > 1;
+    if (!bloomDownPipeline_ || (runUpsample && !bloomUpPipeline_)) {
+        return;
+    }
+    for (uint32_t m = 0; m < downMips; ++m) {
+        if (!bloomMipViews_[m] || !bloomBindGroups_[m]) {
+            return;
+        }
+    }
+    if (runUpsample) {
+        for (int m = static_cast<int>(bloomMipCount_) - 2; m >= 0; --m) {
+            const uint32_t idx = static_cast<uint32_t>(m);
+            if (!bloomMipViews_[idx] || !bloomBindGroups_[kMaxBloomMips + idx]) {
+                return;
+            }
+        }
+    }
 
     std::array<uint8_t, kMaxBloomUniformSlots * kPostUniformSlotStride> slotBytes{};
     uint32_t slotIdx = 0;
     const float activeThresh = enableBloom_ ? bloomThreshold_ : 0.0f;
-    // Always run at least 3 downsamples so Mip 2 gives ImmediateUI its blurred frosted glass backdrop
-    const uint32_t downMips = enableBloom_ ? bloomMipCount_ : std::min(bloomMipCount_, 3u);
 
     uint32_t srcW = targetWidth_;
     uint32_t srcH = targetHeight_;
@@ -197,7 +235,7 @@ void PostProcessPass::PrepareBloomAndBackdropPasses(WGPUCommandEncoder encoder, 
         ++slotIdx;
     }
 
-    if (enableBloom_ && bloomMipCount_ > 1) {
+    if (runUpsample) {
         for (int m = static_cast<int>(bloomMipCount_) - 2; m >= 0; --m) {
             const uint32_t upW = std::max(1u, targetWidth_ >> (static_cast<uint32_t>(m) + 2u));
             const uint32_t upH = std::max(1u, targetHeight_ >> (static_cast<uint32_t>(m) + 2u));
@@ -219,7 +257,7 @@ void PostProcessPass::PrepareBloomAndBackdropPasses(WGPUCommandEncoder encoder, 
                            "Pass_BloomDownsample", false, &dynOffset);
         ++dispatchSlot;
     }
-    if (enableBloom_ && bloomMipCount_ > 1) {
+    if (runUpsample) {
         for (int m = static_cast<int>(bloomMipCount_) - 2; m >= 0; --m) {
             const uint32_t dynOffset = dispatchSlot * kPostUniformSlotStride;
             DrawFullscreenPass(encoder, bloomMipViews_[static_cast<uint32_t>(m)].Get(), bloomUpPipeline_.Get(),

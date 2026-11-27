@@ -270,11 +270,22 @@ suite('Vector & Matrix Mathematics (BglWebGpuRenderer.mat4)', () => {
 
     mat4.perspective(proj, fov, aspect, near, far);
     const expectedF = 1.0 / Math.tan(fov / 2.0);
+    const nf = 1.0 / (near - far);
 
     assert(approxEq(proj[0], expectedF / aspect), 'X scale should be f / aspect');
     assert(approxEq(proj[5], expectedF), 'Y scale should be f');
+    assert(approxEq(proj[10], far * nf), 'Element [10] must match WebGPU [0, 1] depth');
     assert.strictEqual(proj[11], -1.0, 'Perspective division W term must be -1');
+    assert(approxEq(proj[14], far * near * nf), 'Element [14] must match WebGPU [0, 1] depth');
     assert.strictEqual(proj[15], 0.0, 'Element [15] must be 0 for perspective');
+
+    // Verify z_view = -near maps to z_ndc = 0.0 and z_view = -far maps to z_ndc = 1.0
+    const zNearClip = proj[10] * (-near) + proj[14];
+    const wNearClip = proj[11] * (-near);
+    const zFarClip = proj[10] * (-far) + proj[14];
+    const wFarClip = proj[11] * (-far);
+    assert(approxEq(zNearClip / wNearClip, 0.0, 1e-5), 'Near plane must map to NDC z = 0');
+    assert(approxEq(zFarClip / wFarClip, 1.0, 1e-5), 'Far plane must map to NDC z = 1');
   });
 
   test('mat4.lookAt(): produces orthogonal view transformation with proper camera offset', () => {
@@ -483,7 +494,7 @@ suite('Physically Based Rendering (PBR) & Cook-Torrance Mathematics', () => {
     const offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
     let c = color.map(v => v - offset);
     const peak = Math.max(c[0], Math.max(c[1], c[2]));
-    if (peak < startCompression) return color;
+    if (peak < startCompression) return c;
     const d = 1.0 - startCompression;
     const newPeak = 1.0 - (d * d) / (peak + d - startCompression);
     c = c.map(v => v * (newPeak / peak));
@@ -534,11 +545,12 @@ suite('Physically Based Rendering (PBR) & Cook-Torrance Mathematics', () => {
     assert.strictEqual(kD[2], 0.0);
   });
 
-  test('Khronos PBR Neutral Tonemapper: identity preservation for low-dynamic-range colors', () => {
+  test('Khronos PBR Neutral Tonemapper: exact toe offset for low-dynamic-range colors', () => {
     const ldrColor = [0.3, 0.5, 0.7];
+    const expected = [0.26, 0.46, 0.66];
     const tonemapped = tonemapKhronosPbrNeutral(ldrColor);
     for (let i = 0; i < 3; i++) {
-      assert(approxEq(tonemapped[i], ldrColor[i], 0.01), `LDR component ${i} should be preserved`);
+      assert(approxEq(tonemapped[i], expected[i], 1e-4), `LDR component ${i} should match Khronos toe offset`);
     }
   });
 
@@ -1395,14 +1407,15 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
     assert.strictEqual(BglState.debugViewMode, 0);
   });
 
-  test('Camera frustum plane extraction culls behind-camera spheres and keeps front spheres', () => {
-    const proj = mat4.perspective(mat4.create(), Math.PI / 3, 16 / 9, 0.1, 100.0);
+  test('Camera frustum plane extraction culls behind-camera and near-clipped spheres and keeps front spheres', () => {
+    const proj = mat4.perspective(mat4.create(), Math.PI / 3, 16 / 9, 1.0, 100.0);
     const view = mat4.lookAt(mat4.create(), [0, 0, 5], [0, 0, 0], [0, 1, 0]);
     const vp = mat4.multiply(mat4.create(), proj, view);
     const planes = mat4.extractFrustumPlanes(new Float32Array(24), vp);
 
     assert.strictEqual(mat4.isSphereInFrustum(planes, 0, 0, 0, 0.5), true, 'Origin sphere in front of camera must be visible');
     assert.strictEqual(mat4.isSphereInFrustum(planes, 0, 0, 20, 0.5), false, 'Sphere behind camera must be culled');
+    assert.strictEqual(mat4.isSphereInFrustum(planes, 0, 0, 4.7, 0.1), false, 'Sphere closer than near=1.0 must be culled');
     assert.strictEqual(mat4.isSphereInFrustum(planes, 500, 0, 0, 1.0), false, 'Sphere far outside right frustum plane must be culled');
   });
 
@@ -1527,6 +1540,63 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
       window.BglFrameScheduler._safeCall(() => { throw new Error('Simulated frame error'); }, 16);
     });
   });
+  test('Regression: Khronos PBR Neutral toe, GLB v2 validation, URL traversal, WASM & UI guards', () => {
+    // 1. WGSL PBR neutral shader returns offset-compressed color `c` below startCompression
+    const wgsl = BglWebGpuRenderer.getShaderWgsl();
+    const fnStart = wgsl.indexOf('fn tonemapKhronosPbrNeutral(');
+    const fnEnd = wgsl.indexOf('fn hash31(', fnStart);
+    const fnBody = wgsl.slice(fnStart, fnEnd);
+    assert(fnBody.includes('return c;'), 'WGSL tonemapKhronosPbrNeutral must return `c` when peak < startCompression');
+
+    // 2. Reject non-v2 GLB and invalid totalLength
+    const v1Glb = new ArrayBuffer(24);
+    const v1Dv = new DataView(v1Glb);
+    v1Dv.setUint32(0, 0x46546C67, true);
+    v1Dv.setUint32(4, 1, true); // version 1 unsupported
+    v1Dv.setUint32(8, 24, true);
+    v1Dv.setUint32(12, 4, true);
+    v1Dv.setUint32(16, 0x4E4F534A, true);
+    assert.throws(() => BglGltf.extractJson(v1Glb), /Unsupported GLB version/i);
+
+    const badLenGlb = new ArrayBuffer(24);
+    const blDv = new DataView(badLenGlb);
+    blDv.setUint32(0, 0x46546C67, true);
+    blDv.setUint32(4, 2, true);
+    blDv.setUint32(8, 128, true); // exceeds actual byteLength
+    blDv.setUint32(12, 4, true);
+    blDv.setUint32(16, 0x4E4F534A, true);
+    assert.throws(() => BglGltf.extractJson(badLenGlb), /invalid GLB length/i);
+
+    // 3. Traversal regex catches leading .. and URL-encoded %2e%2e
+    const net = globalThis.BglNetwork;
+    assert.strictEqual(net.validateAssetUrl('../secret.glb').ok, false);
+    assert.strictEqual(net.validateAssetUrl('assets/%2e%2e/secret.glb').ok, false);
+
+    // 4. sendBufferToWasm safely returns false if free or bgl_load_file_buffer is absent
+    const prevExports = BglState.wasmExports;
+    try {
+      BglState.wasmExports = { malloc: () => 16 };
+      assert.strictEqual(globalThis.BglWasmBridge.sendBufferToWasm('x.glb', new ArrayBuffer(8)), false);
+    } finally {
+      BglState.wasmExports = prevExports;
+    }
+
+    // 5. toggleFeaturesSection restores flex column layout instead of grid
+    const feat = document.getElementById('features-chips-container');
+    feat.style.display = 'flex';
+    window.toggleFeaturesSection();
+    assert.strictEqual(feat.style.display, 'none');
+    window.toggleFeaturesSection();
+    assert.strictEqual(feat.style.display, 'flex');
+
+    // 6. Small scale matrix inversion works below 1e-12 determinant threshold
+    const tinyScale = mat4.create();
+    tinyScale[0] = 0.0005; tinyScale[5] = 0.0005; tinyScale[10] = 0.0005; // det = 1.25e-10
+    const tinyUltra = mat4.create();
+    tinyUltra[0] = 0.00005; tinyUltra[5] = 0.00005; tinyUltra[10] = 0.00005; // det = 1.25e-13
+    const invUltra = mat4.invert(mat4.create(), tinyUltra);
+    assert(approxEq(invUltra[0], 20000.0, 1e-1), 'Invert must support small non-singular determinants down to 1e-30');
+  });
 });
 
 // ============================================================================
@@ -1631,6 +1701,84 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
       assert.strictEqual(rejectedOversize, true, 'Spoofed oversized Content-Length must reject');
       assert.strictEqual(passedOpts.credentials, 'omit', 'fetchWithProgress must set credentials: omit');
       assert.strictEqual(passedOpts.referrerPolicy, 'no-referrer', 'fetchWithProgress must set no-referrer');
+
+      // Local data: URI decoding in fetchWithProgress without calling network fetch()
+      let fetchCalledForData = false;
+      global.fetch = async () => {
+        fetchCalledForData = true;
+        throw new Error('Must not call fetch() for data: URI');
+      };
+      const dataBuf = await window.BglNetwork.fetchWithProgress('data:application/octet-stream;base64,SGVsbG8=');
+      assert.strictEqual(fetchCalledForData, false, 'fetchWithProgress must decode data: URIs locally');
+      assert.strictEqual(new TextDecoder().decode(new Uint8Array(dataBuf)), 'Hello');
+
+      // BglModelCache normalizes relative vs resolved keys
+      const prevCaches = global.caches;
+      global.caches = undefined;
+      try {
+        await BglModelCache.put('assets/CacheNorm.glb', new Uint8Array([1, 2, 3, 4]).buffer);
+        assert.strictEqual(await BglModelCache.has('assets/CacheNorm.glb'), true);
+        assert.strictEqual(await BglModelCache.has('https://localhost:8080/web/assets/CacheNorm.glb'), true);
+        const got = await BglModelCache.get('https://localhost:8080/web/assets/CacheNorm.glb');
+        assert(got && got.byteLength === 4);
+        BglModelCache.memoryFallback.clear();
+      } finally {
+        global.caches = prevCaches;
+      }
+
+      // Unindexed primitive computes localCenter/localRadius, non-triangle mode is skipped,
+      // malformed node.matrix is safely ignored, and shared skins allocate distinct per-node bindings
+      const skinnedBuf = new ArrayBuffer(128);
+      // 3 positions: (10, 0, 0), (12, 0, 0), (10, 2, 0) = 36 bytes at offset 0
+      new Float32Array(skinnedBuf, 0, 9).set([10, 0, 0, 12, 0, 0, 10, 2, 0]);
+      // 3 JOINTS_0 (UNSIGNED_SHORT vec4 = 24 bytes at offset 36)
+      new Uint16Array(skinnedBuf, 36, 12).set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      // 3 WEIGHTS_0 (FLOAT vec4 = 48 bytes at offset 60)
+      new Float32Array(skinnedBuf, 60, 12).set([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
+      BglWebGpuRenderer.skinBindGroupLayout = {};
+      BglWebGpuRenderer.skinnedPipeline = {};
+      BglWebGpuRenderer.loadModel({
+        asset: { version: '2.0' },
+        buffers: [{ byteLength: 128 }],
+        bufferViews: [
+          { buffer: 0, byteOffset: 0, byteLength: 36 },
+          { buffer: 0, byteOffset: 36, byteLength: 24 },
+          { buffer: 0, byteOffset: 60, byteLength: 48 }
+        ],
+        accessors: [
+          { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' },
+          { bufferView: 1, componentType: 5123, count: 3, type: 'VEC4' },
+          { bufferView: 2, componentType: 5126, count: 3, type: 'VEC4' }
+        ],
+        skins: [{ joints: [0] }],
+        meshes: [
+          { primitives: [{ attributes: { POSITION: 0, JOINTS_0: 1, WEIGHTS_0: 2 } }] },
+          { primitives: [{ mode: 1, attributes: { POSITION: 0 } }] } // LINES skipped
+        ],
+        nodes: [
+          { mesh: 0, skin: 0, translation: [0, 0, 0] },
+          { mesh: 0, skin: 0, translation: [5, 0, 0] },
+          { mesh: 1, matrix: [1, 2, 3] } // invalid matrix length + mode 1 skipped
+        ],
+        scenes: [{ nodes: [0, 1, 2] }]
+      }, skinnedBuf, 'multi_skin_unindexed.glb');
+      assert.strictEqual(BglWebGpuRenderer.primitives.length, 2, 'Expected 2 triangle primitives and skipped LINES mode=1');
+      assert.strictEqual(BglWebGpuRenderer.primitives[0].hasIndices, false);
+      assert(approxEq(BglWebGpuRenderer.primitives[0].localCenter[0], 11.0, 1e-4), 'Unindexed primitive must compute localCenter from positions');
+      assert.strictEqual(BglWebGpuRenderer.nodes[2].matrix, null, 'Corrupt node matrix length !== 16 must fall back to null');
+      assert.strictEqual(BglWebGpuRenderer.skins[0].nodeBindings.size, 2, 'Shared skin across 2 nodes must have 2 independent GPU bindings');
+
+      // clearResources() and empty loadModel() reset modelBounds
+      BglWebGpuRenderer.loadModel({
+        asset: { version: '2.0' },
+        meshes: [],
+        nodes: []
+      }, new ArrayBuffer(0), 'empty.gltf');
+      assert.strictEqual(BglWebGpuRenderer.modelBounds, null, 'Empty loadModel must reset stale modelBounds');
+
+      BglWebGpuRenderer.clearResources();
+      assert.strictEqual(BglWebGpuRenderer.isActive, false, 'clearResources must deactivate renderer');
+      assert.strictEqual(BglWebGpuRenderer.primitives.length, 0);
     } finally {
       Object.assign(BglWebGpuRenderer, prevState);
       global.fetch = prevFetch;

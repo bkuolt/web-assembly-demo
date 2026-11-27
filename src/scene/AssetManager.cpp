@@ -16,7 +16,7 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
         std::shared_lock lock(mutex_);
         auto it = pathCache_.find(pathKey);
         if (it != pathCache_.end()) {
-            BGL_LOG_DEBUG("AssetManager: Texture path cache hit for '{}'", path);
+            BGL_LOG_DEBUG("AssetManager: Texture path cache hit for '{}'", core::SanitizeForLog(path));
             return it->second;
         }
     }
@@ -36,7 +36,8 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
         }
     }
     if (contentMatch) {
-        BGL_LOG_DEBUG("AssetManager: Content hash deduplication hit for '{}' (hash: {:x})", path, contentHash);
+        BGL_LOG_DEBUG("AssetManager: Content hash deduplication hit for '{}' (hash: {:x})", core::SanitizeForLog(path),
+                      contentHash);
         std::unique_lock writeLock(mutex_);
         if (pathCache_.size() < kMaxCachedTextures) {
             pathCache_.try_emplace(pathKey, contentMatch);
@@ -61,8 +62,8 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
         pathCache_[pathKey] = sharedImg;
         textureCache_[contentHash] = sharedImg;
     }
-    BGL_LOG_INFO("AssetManager: Cached new texture '{}' ({}x{}) with content hash {:x}", path, sharedImg->width,
-                 sharedImg->height, contentHash);
+    BGL_LOG_INFO("AssetManager: Cached new texture '{}' ({}x{}) with content hash {:x}", core::SanitizeForLog(path),
+                 sharedImg->width, sharedImg->height, contentHash);
     return sharedImg;
 }
 

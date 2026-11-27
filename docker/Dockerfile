@@ -2,7 +2,6 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CONAN_HOME=/tmp/conan_home
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -23,12 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1-mesa-dev \
     libvulkan-dev \
     vulkan-tools \
-    libpng-dev \
-    libjpeg-dev \
-    libwebp-dev \
-    libgtest-dev \
-    libglm-dev \
-    libspdlog-dev \
+    nodejs \
+    xvfb \
     pkg-config \
     curl \
     ca-certificates \

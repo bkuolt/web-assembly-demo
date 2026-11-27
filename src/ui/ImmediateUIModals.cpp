@@ -10,14 +10,6 @@
 
 namespace bgl::ui {
 
-namespace {
-
-[[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
-    return glm::vec4{c.r, c.g, c.b, alpha};
-}
-
-} // namespace
-
 glm::vec4 ImmediateUI::GetMessageAccentColor(MessageBoxType type) const noexcept {
     switch (type) {
     case MessageBoxType::Warning:
@@ -293,8 +285,9 @@ int ImmediateUI::DrawMessageBoxInternal(std::string_view id, std::string_view ti
     EmitRect(overlayVertices_, overlayIndices_, cardX + pad, sepY, innerW, 1.0f, WithAlpha(style_.windowBorder, 0.45f));
 
     const float btnGap = 8.0f;
-    const float maxBtnW = std::min(128.0f, (innerW - btnGap * static_cast<float>(resolvedButtons.size() - 1)) /
-                                               static_cast<float>(resolvedButtons.size()));
+    const float maxBtnW = std::clamp((innerW - btnGap * static_cast<float>(resolvedButtons.size() - 1)) /
+                                         static_cast<float>(resolvedButtons.size()),
+                                     36.0f, 128.0f);
     const float totalBtnsW = maxBtnW * static_cast<float>(resolvedButtons.size()) +
                              btnGap * static_cast<float>(resolvedButtons.size() > 0 ? resolvedButtons.size() - 1 : 0);
     float bx = cardX + cardW - pad - totalBtnsW;

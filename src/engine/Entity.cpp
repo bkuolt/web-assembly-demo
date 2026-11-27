@@ -18,6 +18,10 @@ struct Entity::Impl {
 
 namespace {
 
+[[nodiscard]] bool IsFiniteVec3(const glm::vec3& v) noexcept {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
 template <typename Fn>
 void WithNodeAndScene(const std::shared_ptr<Entity::Impl>& impl, Fn&& fn) {
     if (!impl) {
@@ -73,6 +77,9 @@ std::string Entity::Name() const {
 }
 
 void Entity::SetPosition(const glm::vec3& position) {
+    if (!IsFiniteVec3(position)) {
+        return;
+    }
     WithNodeAndScene(impl_, [&](scene::SceneNode& node, scene::Scene& scene) {
         node.translation = position;
         CommitTransform(node, scene);
@@ -89,6 +96,9 @@ glm::vec3 Entity::Position() const {
 }
 
 void Entity::SetRotationEuler(const glm::vec3& degrees) {
+    if (!IsFiniteVec3(degrees)) {
+        return;
+    }
     SetRotation(glm::quat(glm::radians(degrees)));
 }
 
@@ -111,6 +121,9 @@ glm::quat Entity::Rotation() const {
 }
 
 void Entity::SetScale(const glm::vec3& scale) {
+    if (!IsFiniteVec3(scale)) {
+        return;
+    }
     WithNodeAndScene(impl_, [&](scene::SceneNode& node, scene::Scene& scene) {
         node.scale = scale;
         CommitTransform(node, scene);
@@ -146,11 +159,13 @@ void Entity::AddLight(const LightDesc& desc) {
         scene::PunctualLight light{};
         light.name = node.name;
         light.type = static_cast<scene::LightType>(desc.type);
-        light.color = desc.color;
-        light.intensity = desc.intensity;
-        light.range = desc.range;
-        light.innerConeAngle = desc.innerConeAngle;
-        light.outerConeAngle = desc.outerConeAngle;
+        light.color = IsFiniteVec3(desc.color) ? glm::max(desc.color, glm::vec3{0.0f}) : glm::vec3{1.0f};
+        light.intensity = std::isfinite(desc.intensity) ? std::max(desc.intensity, 0.0f) : 1.0f;
+        light.range = (std::isfinite(desc.range) && desc.range >= 0.0f) ? desc.range : 0.0f;
+        light.innerConeAngle = std::isfinite(desc.innerConeAngle) ? std::clamp(desc.innerConeAngle, 0.0f, 1.57f) : 0.0f;
+        light.outerConeAngle = std::isfinite(desc.outerConeAngle)
+                                   ? std::clamp(desc.outerConeAngle, light.innerConeAngle, 1.5707f)
+                                   : 0.7854f;
         engine::AttachLight(scene, node, light);
     });
 }

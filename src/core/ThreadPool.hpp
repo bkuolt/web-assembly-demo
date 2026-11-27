@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -122,13 +123,12 @@ public:
             ~DepthGuard() noexcept { --depth; }
         } depthGuard{t_parallelDepth};
 
-        ParallelState state{};
+        auto state = std::make_shared<ParallelState>();
         const size_t workersToSpawn = maxTasks - 1;
-        state.activeWorkers.store(workersToSpawn, std::memory_order_relaxed);
 
-        auto runWorkerLoop = [&]() {
+        auto runWorkerLoop = [state, func, start, end, totalWork, grainSize]() {
             while (true) {
-                const size_t offset = state.nextOffset.fetch_add(grainSize, std::memory_order_relaxed);
+                const size_t offset = state->nextOffset.fetch_add(grainSize, std::memory_order_relaxed);
                 if (offset >= totalWork) {
                     break;
                 }
@@ -140,78 +140,102 @@ public:
             }
         };
 
-        bool pushOk = true;
+        std::vector<std::function<void()>> stagedTasks;
+        bool prepOk = true;
         try {
-            std::unique_lock<std::mutex> lock(queueMutex_);
-            if (stop_.load(std::memory_order_relaxed)) {
-                pushOk = false;
-            } else {
-                for (size_t w = 0; w < workersToSpawn; ++w) {
-                    tasks_.emplace([&state, &runWorkerLoop]() {
-                        DepthGuard workerDepth{t_parallelDepth};
-                        try {
-                            runWorkerLoop();
-                        } catch (...) {
-                            std::lock_guard<std::mutex> exLock(state.exceptionMutex);
-                            if (!state.firstException) {
-                                state.firstException = std::current_exception();
-                            }
+            stagedTasks.reserve(workersToSpawn);
+            for (size_t w = 0; w < workersToSpawn; ++w) {
+                stagedTasks.emplace_back([state, runWorkerLoop]() {
+                    DepthGuard workerDepth{t_parallelDepth};
+                    try {
+                        runWorkerLoop();
+                    } catch (...) {
+                        std::lock_guard<std::mutex> exLock(state->exceptionMutex);
+                        if (!state->firstException) {
+                            state->firstException = std::current_exception();
                         }
-                        {
-                            std::lock_guard<std::mutex> doneLock(state.doneMutex);
-                            if (state.activeWorkers.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                                state.doneCv.notify_all();
-                            }
+                    }
+                    {
+                        std::lock_guard<std::mutex> doneLock(state->doneMutex);
+                        if (state->activeWorkers.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                            state->doneCv.notify_all();
                         }
-                    });
-                }
+                    }
+                });
             }
         } catch (...) {
-            pushOk = false;
+            prepOk = false;
+            stagedTasks.clear();
         }
 
-        if (!pushOk) {
-            state.activeWorkers.store(0, std::memory_order_release);
+        size_t pushedWorkers = 0;
+        if (prepOk) {
+            try {
+                std::unique_lock<std::mutex> lock(queueMutex_);
+                if (!stop_.load(std::memory_order_relaxed)) {
+                    for (auto& t : stagedTasks) {
+                        tasks_.emplace(std::move(t));
+                        ++pushedWorkers;
+                    }
+                }
+            } catch (...) {
+                // Only pushedWorkers tasks were inserted into tasks_.
+            }
+        }
+        state->activeWorkers.store(pushedWorkers, std::memory_order_release);
+
+        if (pushedWorkers == 0) {
             for (size_t i = start; i < end; ++i) {
                 func(i);
             }
             return;
         }
 
-        for (size_t w = 0; w < workersToSpawn; ++w) {
+        for (size_t w = 0; w < pushedWorkers; ++w) {
             cv_.notify_one();
         }
+
+        struct WorkerJoinGuard {
+            std::shared_ptr<ParallelState> st;
+            bool isWorker;
+            ThreadPool* pool;
+            ~WorkerJoinGuard() {
+                if (!st) {
+                    return;
+                }
+                if (isWorker) {
+                    while (true) {
+                        {
+                            std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                            if (st->activeWorkers.load(std::memory_order_acquire) == 0) {
+                                break;
+                            }
+                        }
+                        if (!pool->TryExecuteOneTask()) {
+                            std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                            st->doneCv.wait_for(doneLock, std::chrono::microseconds(100), [&]() {
+                                return st->activeWorkers.load(std::memory_order_acquire) == 0;
+                            });
+                        }
+                    }
+                } else {
+                    std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                    st->doneCv.wait(doneLock, [&]() { return st->activeWorkers.load(std::memory_order_acquire) == 0; });
+                }
+            }
+        } joinGuard{state, t_isWorkerThread, this};
 
         try {
             runWorkerLoop();
         } catch (...) {
-            std::lock_guard<std::mutex> exLock(state.exceptionMutex);
-            if (!state.firstException) {
-                state.firstException = std::current_exception();
+            std::lock_guard<std::mutex> exLock(state->exceptionMutex);
+            if (!state->firstException) {
+                state->firstException = std::current_exception();
             }
         }
 
-        if (t_isWorkerThread) {
-            while (true) {
-                {
-                    std::unique_lock<std::mutex> doneLock(state.doneMutex);
-                    if (state.activeWorkers.load(std::memory_order_acquire) == 0) {
-                        break;
-                    }
-                }
-                if (!TryExecuteOneTask()) {
-                    std::unique_lock<std::mutex> doneLock(state.doneMutex);
-                    state.doneCv.wait_for(doneLock, std::chrono::microseconds(100),
-                                          [&]() { return state.activeWorkers.load(std::memory_order_acquire) == 0; });
-                }
-            }
-        } else {
-            std::unique_lock<std::mutex> doneLock(state.doneMutex);
-            state.doneCv.wait(doneLock, [&]() { return state.activeWorkers.load(std::memory_order_acquire) == 0; });
-        }
-
-        if (state.firstException) {
-            std::rethrow_exception(state.firstException);
+        if (state->firstException) {
+            std::rethrow_exception(state->firstException);
         }
     }
 

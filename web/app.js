@@ -29,25 +29,16 @@
     defOpt.value = '-1';
     defOpt.textContent = 'Default Interactive Camera';
     select.appendChild(defOpt);
-    if (BglState.wasmExports && BglState.wasmExports.bgl_get_camera_count) {
-      const count = BglState.wasmExports.bgl_get_camera_count();
-      for (let i = 0; i < count; ++i) {
-        const opt = document.createElement('option');
-        opt.value = String(i);
-        let name = `glTF Camera #${i}`;
-        if (gltf && gltf.cameras && gltf.cameras[i] && gltf.cameras[i].name) {
-          name = gltf.cameras[i].name;
-        }
-        opt.textContent = name;
-        select.appendChild(opt);
-      }
-    } else if (gltf && gltf.cameras && gltf.cameras.length > 0) {
-      gltf.cameras.forEach((cam, i) => {
-        const opt = document.createElement('option');
-        opt.value = String(i);
-        opt.textContent = cam.name || `glTF Camera #${i}`;
-        select.appendChild(opt);
-      });
+    const wasmCount = (BglState.wasmExports && BglState.wasmExports.bgl_get_camera_count)
+      ? BglState.wasmExports.bgl_get_camera_count()
+      : 0;
+    const cameras = (gltf && Array.isArray(gltf.cameras)) ? gltf.cameras : [];
+    const count = wasmCount > 0 ? wasmCount : cameras.length;
+    for (let i = 0; i < count; ++i) {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = (cameras[i] && cameras[i].name) ? cameras[i].name : `glTF Camera #${i}`;
+      select.appendChild(opt);
     }
   }
 
@@ -131,18 +122,19 @@
     BglLogger.timeStart('Model-Ingest');
     BglLogger.log('glTF', `Ingesting 3D model '${name}' (${arrayBuffer.byteLength.toLocaleString()} bytes)...`);
 
-    // 1. Pass to WebAssembly C++ engine
-    BglWasmBridge.sendBufferToWasm(name, arrayBuffer);
-
-    // 2. Parse glTF (via Web Worker when available) for live inspector & telemetry
+    // Parse glTF first (via Web Worker when available) before mutating engine/WASM/GPU state
     try {
       const gltf = BglGltf.extractJsonAsync ? await BglGltf.extractJsonAsync(arrayBuffer) : BglGltf.extractJson(arrayBuffer);
       if (reqId !== null && reqId !== activeModelRequestId) {
         return false;
       }
+
       BglState.currentGltf = gltf;
       BglState.currentModelBuffer = arrayBuffer;
       BglState.currentModelName = name;
+
+      // Forward validated model buffer to WebAssembly C++ engine
+      BglWasmBridge.sendBufferToWasm(name, arrayBuffer);
 
       const modelLabel = BglUI.modelNameLabel || document.getElementById('model-name-label');
       const countBadge = BglUI.nodeCountBadge || document.getElementById('node-count-badge');
@@ -326,6 +318,8 @@
           await ingestModel(file.name, evt.target.result, reqId);
         } catch (err) {
           BglNotifier.error('File Ingestion Error', `Could not ingest '${file.name}': ${err.message}`);
+        } finally {
+          event.target.value = '';
         }
       };
       reader.onerror = () => {
@@ -1174,7 +1168,7 @@
     const chevron = document.getElementById('features-chevron');
     if (!container) return;
     const isHidden = container.style.display === 'none';
-    container.style.display = isHidden ? 'grid' : 'none';
+    container.style.display = isHidden ? 'flex' : 'none';
     if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
   }
   window.toggleFeaturesSection = toggleFeaturesSection;
@@ -1353,9 +1347,10 @@
     ]);
 
     window.addEventListener('keydown', (e) => {
-      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+      const activeTag = document.activeElement ? document.activeElement.tagName : '';
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
 
-      if (e.key >= '1' && e.key <= '9') {
+      if (!e.altKey && !e.metaKey && e.key >= '1' && e.key <= '9') {
         const slot = parseInt(e.key, 10) - 1;
         if (e.ctrlKey) {
           e.preventDefault();
@@ -1442,6 +1437,15 @@
         activeNavKeys.delete(e.code);
       }
     });
+
+    window.addEventListener('blur', () => {
+      activeNavKeys.clear();
+    });
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) activeNavKeys.clear();
+      });
+    }
 
     // High frequency smooth keyboard navigation loop (WASD & Arrows & Zoom)
     let lastNavTime = performance.now();

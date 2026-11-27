@@ -21,8 +21,8 @@
       const nf = 1.0 / (near - far);
       out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
       out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
-      out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
-      out[12] = 0; out[13] = 0; out[14] = (2 * far * near) * nf; out[15] = 0;
+      out[8] = 0; out[9] = 0; out[10] = far * nf; out[11] = -1;
+      out[12] = 0; out[13] = 0; out[14] = far * near * nf; out[15] = 0;
       return out;
     },
     lookAt(out, eye, target, up) {
@@ -103,7 +103,7 @@
       const b21 = a21 * a10 - a11 * a20;
 
       let det = a00 * b01 + a01 * b11 + a02 * b21;
-      if (!det) {
+      if (!Number.isFinite(det) || Math.abs(det) < 1e-30) {
         out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
         out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
         out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
@@ -153,7 +153,7 @@
       const b11 = a22 * a33 - a23 * a32;
 
       let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-      if (!det || Math.abs(det) < 1e-12) {
+      if (!Number.isFinite(det) || Math.abs(det) < 1e-30) {
         out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
         out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
         out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
@@ -220,7 +220,8 @@
       setPlane(1, m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]);
       setPlane(2, m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]);
       setPlane(3, m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]);
-      setPlane(4, m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]);
+      // WebGPU depth NDC is [0, 1], so the near plane is z_clip >= 0 (row 2)
+      setPlane(4, m[2], m[6], m[10], m[14]);
       setPlane(5, m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]);
       return out;
     },

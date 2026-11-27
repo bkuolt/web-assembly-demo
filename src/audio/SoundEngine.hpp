@@ -9,7 +9,9 @@
 #include <functional>
 #include <glm/glm.hpp>
 #include <memory>
+#if defined(BGL_ENABLE_AUDIO)
 #include <miniaudio.h>
+#endif
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -81,8 +83,10 @@ private:
     };
 
     bool initialized_{false};
+#if defined(BGL_ENABLE_AUDIO)
     ma_engine engine_{};
     std::unordered_map<std::string, std::unique_ptr<ma_sound>, TransparentStringHash, std::equal_to<>> activeSounds_{};
+#endif
 };
 
 } // namespace bgl::audio

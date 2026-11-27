@@ -165,7 +165,7 @@ void UpdateTransformsImpl(SceneNode& node, const glm::mat4& parentTransform,
     node.worldTransform = parentTransform * node.localTransform;
     node.worldAABB = core::AABB{};
     for (const auto& prim : node.GetPrimitives()) {
-        if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+        if (prim.boundingBox.IsValid()) {
             if (node.instanceTransforms.empty()) {
                 node.worldAABB.Expand(prim.boundingBox.Transformed(node.worldTransform));
             } else {
@@ -258,35 +258,59 @@ void Scene::EvaluateAnimation(size_t animIndex, float time) {
 
         switch (channel.path) {
         case AnimationPath::Translation: {
-            std::array<float, 3> val{};
+            std::array<float, 3> val{targetNode->translation.x, targetNode->translation.y, targetNode->translation.z};
             sampler.Sample(time, 3, channel.path, val);
-            targetNode->translation = glm::vec3(val[0], val[1], val[2]);
+            if (std::isfinite(val[0]) && std::isfinite(val[1]) && std::isfinite(val[2])) {
+                targetNode->translation = glm::vec3(val[0], val[1], val[2]);
+            }
             break;
         }
         case AnimationPath::Rotation: {
-            std::array<float, 4> val{};
+            std::array<float, 4> val{targetNode->rotation.x, targetNode->rotation.y, targetNode->rotation.z,
+                                     targetNode->rotation.w};
             sampler.Sample(time, 4, channel.path, val);
-            targetNode->rotation = glm::quat(val[3], val[0], val[1], val[2]);
+            if (std::isfinite(val[0]) && std::isfinite(val[1]) && std::isfinite(val[2]) && std::isfinite(val[3])) {
+                const glm::quat rawQ(val[3], val[0], val[1], val[2]);
+                const float lenSq = glm::dot(rawQ, rawQ);
+                targetNode->rotation = (lenSq > 1e-10f) ? glm::normalize(rawQ) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+            }
             break;
         }
         case AnimationPath::Scale: {
-            std::array<float, 3> val{};
+            std::array<float, 3> val{targetNode->scale.x, targetNode->scale.y, targetNode->scale.z};
             sampler.Sample(time, 3, channel.path, val);
-            targetNode->scale = glm::vec3(val[0], val[1], val[2]);
+            if (std::isfinite(val[0]) && std::isfinite(val[1]) && std::isfinite(val[2])) {
+                targetNode->scale = glm::vec3(val[0], val[1], val[2]);
+            }
             break;
         }
         case AnimationPath::Weights: {
             size_t count = targetNode->morphWeights.size();
-            if (count == 0 && targetNode->mesh && !targetNode->mesh->primitives.empty()) {
-                count = targetNode->mesh->primitives[0].morphTargets.size();
-                targetNode->morphWeights.resize(count, 0.0f);
-            }
-            if (count > 0) {
-                if (targetNode->morphWeights.size() < count) {
+            if (count == 0 && targetNode->mesh) {
+                for (const auto& p : targetNode->mesh->primitives) {
+                    count = std::max(count, p.morphTargets.size());
+                }
+                if (count > 0) {
                     targetNode->morphWeights.resize(count, 0.0f);
                 }
-                sampler.Sample(time, count, channel.path, targetNode->morphWeights);
-                targetNode->ApplyMorphWeights();
+            }
+            if (count > 0 && !sampler.timestamps.empty()) {
+                const size_t keyFactor = (sampler.interpolation == AnimationInterpolation::CubicSpline) ? 3u : 1u;
+                const size_t denom = sampler.timestamps.size() * keyFactor;
+                const size_t samplerStride = (denom > 0 && (sampler.keyframeValues.size() % denom) == 0)
+                                                 ? (sampler.keyframeValues.size() / denom)
+                                                 : count;
+                if (samplerStride > 0) {
+                    if (samplerStride == targetNode->morphWeights.size()) {
+                        sampler.Sample(time, samplerStride, channel.path, targetNode->morphWeights);
+                    } else {
+                        std::vector<float> tmpWeights(samplerStride, 0.0f);
+                        sampler.Sample(time, samplerStride, channel.path, tmpWeights);
+                        const size_t copyN = std::min(samplerStride, targetNode->morphWeights.size());
+                        std::copy_n(tmpWeights.data(), copyN, targetNode->morphWeights.data());
+                    }
+                    targetNode->ApplyMorphWeights();
+                }
             }
             break;
         }
@@ -311,7 +335,8 @@ void Scene::SetAnimation(int index) noexcept {
 Skin::Skin(const Skin& other)
     : name{other.name}, inverseBindMatrices{other.inverseBindMatrices},
       skeletonRootNodeIndex{other.skeletonRootNodeIndex}, joints{other.joints}, gpuJointBuffer{nullptr},
-      gpuJointBufferSize{0}, gpuBindGroup{nullptr} {}
+      gpuJointBufferSize{0}, gpuBindGroup{nullptr}, primaryGpuNode{nullptr}, gpuDevice_{nullptr},
+      gpuBindGroupLayout_{nullptr} {}
 
 Skin& Skin::operator=(const Skin& other) {
     if (this != &other) {
@@ -326,6 +351,7 @@ Skin& Skin::operator=(const Skin& other) {
         cachedUploadedFrameId = 0;
         cachedMeshNode = nullptr;
         cachedJointCount = 0;
+        primaryGpuNode = nullptr;
     }
     return *this;
 }
@@ -339,7 +365,13 @@ Skin::Skin(Skin&& other) noexcept
       cachedJointMatrices{std::move(other.cachedJointMatrices)}, cachedFrameId{std::exchange(other.cachedFrameId, 0)},
       cachedUploadedFrameId{std::exchange(other.cachedUploadedFrameId, 0)},
       cachedMeshNode{std::exchange(other.cachedMeshNode, nullptr)},
-      cachedJointCount{std::exchange(other.cachedJointCount, 0)} {}
+      cachedJointCount{std::exchange(other.cachedJointCount, 0)},
+      primaryGpuNode{std::exchange(other.primaryGpuNode, nullptr)},
+      extraNodeGpuBindings_{std::move(other.extraNodeGpuBindings_)},
+      gpuDevice_{std::exchange(other.gpuDevice_, nullptr)},
+      gpuBindGroupLayout_{std::exchange(other.gpuBindGroupLayout_, nullptr)} {
+    other.extraNodeGpuBindings_.clear();
+}
 
 Skin& Skin::operator=(Skin&& other) noexcept {
     if (this != &other) {
@@ -356,6 +388,11 @@ Skin& Skin::operator=(Skin&& other) noexcept {
         cachedUploadedFrameId = std::exchange(other.cachedUploadedFrameId, 0);
         cachedMeshNode = std::exchange(other.cachedMeshNode, nullptr);
         cachedJointCount = std::exchange(other.cachedJointCount, 0);
+        primaryGpuNode = std::exchange(other.primaryGpuNode, nullptr);
+        extraNodeGpuBindings_ = std::move(other.extraNodeGpuBindings_);
+        other.extraNodeGpuBindings_.clear();
+        gpuDevice_ = std::exchange(other.gpuDevice_, nullptr);
+        gpuBindGroupLayout_ = std::exchange(other.gpuBindGroupLayout_, nullptr);
     }
     return *this;
 }
@@ -368,13 +405,91 @@ void Skin::ReleaseGpu() noexcept {
     if (auto bg = std::exchange(gpuBindGroup, nullptr)) {
         wgpuBindGroupRelease(bg);
     }
-    if (auto b = std::exchange(gpuJointBuffer, nullptr)) {
-        if (gpuJointBufferSize > 0) {
-            core::MemoryTracker::Instance().TrackBufferFree(gpuJointBufferSize);
+    ReleaseTrackedGpuBuffer(gpuJointBuffer, gpuJointBufferSize);
+    for (auto& [nodePtr, slot] : extraNodeGpuBindings_) {
+        if (auto bg = std::exchange(slot.bindGroup, nullptr)) {
+            wgpuBindGroupRelease(bg);
         }
-        wgpuBufferRelease(b);
+        ReleaseTrackedGpuBuffer(slot.jointBuffer, slot.jointBufferSize);
     }
-    gpuJointBufferSize = 0;
+    extraNodeGpuBindings_.clear();
+    primaryGpuNode = nullptr;
+    cachedFrameId = 0;
+    cachedUploadedFrameId = 0;
+    cachedMeshNode = nullptr;
+    gpuDevice_ = nullptr;
+    gpuBindGroupLayout_ = nullptr;
+}
+
+void Skin::ResolveNodeGpuBinding(const SceneNode* meshNode, uint64_t frameId, WGPUBuffer& outBuffer,
+                                 WGPUBindGroup& outBindGroup, bool& outNeedsUpload) const noexcept {
+    outBuffer = nullptr;
+    outBindGroup = nullptr;
+    outNeedsUpload = false;
+    if (joints.empty() || !gpuJointBuffer || !gpuBindGroup) {
+        return;
+    }
+    if (!meshNode || primaryGpuNode == nullptr || primaryGpuNode == meshNode) {
+        if (meshNode) {
+            primaryGpuNode = meshNode;
+        }
+        outBuffer = gpuJointBuffer;
+        outBindGroup = gpuBindGroup;
+        outNeedsUpload = (frameId == 0 || cachedUploadedFrameId != frameId);
+        return;
+    }
+
+    auto it = extraNodeGpuBindings_.find(meshNode);
+    if (it == extraNodeGpuBindings_.end() && gpuDevice_ && gpuBindGroupLayout_) {
+        const size_t jointCount{std::max<size_t>(1, joints.size())};
+        const uint64_t bufSize{static_cast<uint64_t>(jointCount) * sizeof(glm::mat4)};
+        WGPUBufferDescriptor bufDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+        bufDesc.size = bufSize;
+        bufDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        bufDesc.label = WGPUStringView{"SkinNodeJointMatrices_SSBO", 26};
+        if (WGPUBuffer buf{wgpuDeviceCreateBuffer(gpuDevice_, &bufDesc)}) {
+            core::MemoryTracker::Instance().TrackBufferAlloc(bufSize);
+            WGPUBindGroupEntry bgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
+            bgEntry.binding = 0;
+            bgEntry.buffer = buf;
+            bgEntry.offset = 0;
+            bgEntry.size = bufSize;
+
+            WGPUBindGroupDescriptor bgDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+            bgDesc.layout = gpuBindGroupLayout_;
+            bgDesc.entryCount = 1;
+            bgDesc.entries = &bgEntry;
+            bgDesc.label = WGPUStringView{"SkinNodeStorage_BindGroup", 25};
+            if (WGPUBindGroup bg{wgpuDeviceCreateBindGroup(gpuDevice_, &bgDesc)}) {
+                it = extraNodeGpuBindings_
+                         .emplace(meshNode, NodeGpuBinding{.jointBuffer = buf,
+                                                           .jointBufferSize = bufSize,
+                                                           .bindGroup = bg,
+                                                           .uploadedFrameId = 0})
+                         .first;
+            } else {
+                uint64_t freeSize{bufSize};
+                ReleaseTrackedGpuBuffer(buf, freeSize);
+            }
+        }
+    }
+
+    if (it != extraNodeGpuBindings_.end() && it->second.jointBuffer && it->second.bindGroup) {
+        outBuffer = it->second.jointBuffer;
+        outBindGroup = it->second.bindGroup;
+        outNeedsUpload = (frameId == 0 || it->second.uploadedFrameId != frameId);
+    }
+}
+
+void Skin::MarkNodeGpuUploaded(uint64_t frameId, const SceneNode* meshNode) const noexcept {
+    if (!meshNode || primaryGpuNode == meshNode) {
+        cachedUploadedFrameId = frameId;
+        cachedMeshNode = meshNode;
+        return;
+    }
+    if (auto it = extraNodeGpuBindings_.find(meshNode); it != extraNodeGpuBindings_.end()) {
+        it->second.uploadedFrameId = frameId;
+    }
 }
 
 uint32_t Skin::ComputeJointMatrices(const glm::mat4& meshNodeWorldTransform,

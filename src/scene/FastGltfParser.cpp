@@ -26,50 +26,6 @@ constexpr size_t kMaxPrimitiveIndices{15'000'000u};
 constexpr size_t kMaxMorphTargetsPerPrimitive{64u};
 constexpr size_t kMaxTotalMorphVertices{2'000'000u};
 
-[[nodiscard]] bool ValidateBufferSliceBytes(const fastgltf::Asset& asset, size_t bvIdx, size_t byteOffset,
-                                            size_t minElemBytes, size_t count) noexcept {
-    if (bvIdx >= asset.bufferViews.size()) {
-        return false;
-    }
-    const auto& bv = asset.bufferViews[bvIdx];
-    if (byteOffset > bv.byteLength) {
-        return false;
-    }
-    const size_t availBytes{bv.byteLength - byteOffset};
-    return minElemBytes == 0 || count <= (availBytes / minElemBytes);
-}
-
-[[nodiscard]] bool ValidateAccessorBounds(const fastgltf::Asset& asset, const fastgltf::Accessor& acc,
-                                          size_t minElemBytes, size_t maxAllowedCount) noexcept {
-    if (acc.count == 0 || acc.count > maxAllowedCount) {
-        return false;
-    }
-    if (acc.sparse.has_value()) {
-        const auto& sp = *acc.sparse;
-        if (sp.count == 0 || sp.count > acc.count) {
-            return false;
-        }
-        size_t spIdxBytes{1u};
-        if (sp.indexComponentType == fastgltf::ComponentType::UnsignedShort) {
-            spIdxBytes = 2u;
-        } else if (sp.indexComponentType == fastgltf::ComponentType::UnsignedInt) {
-            spIdxBytes = 4u;
-        }
-        if (!ValidateBufferSliceBytes(asset, sp.indicesBufferView, sp.indicesByteOffset, spIdxBytes, sp.count) ||
-            !ValidateBufferSliceBytes(asset, sp.valuesBufferView, sp.valuesByteOffset, minElemBytes, sp.count)) {
-            return false;
-        }
-        if (acc.bufferViewIndex.has_value()) {
-            return ValidateBufferSliceBytes(asset, *acc.bufferViewIndex, acc.byteOffset, minElemBytes, acc.count);
-        }
-        return true;
-    }
-    if (!acc.bufferViewIndex.has_value()) {
-        return false;
-    }
-    return ValidateBufferSliceBytes(asset, *acc.bufferViewIndex, acc.byteOffset, minElemBytes, acc.count);
-}
-
 [[nodiscard]] std::span<const uint8_t> ExtractSafeSlice(const void* basePtr, size_t totalSize, size_t offset,
                                                         size_t length) noexcept {
     if (!basePtr || offset > totalSize || length > (totalSize - offset)) {
@@ -94,20 +50,17 @@ constexpr size_t kMaxTotalMorphVertices{2'000'000u};
 }
 
 [[nodiscard]] std::pair<std::span<const uint8_t>, std::string>
-ExtractContiguousSourceBytes(const fastgltf::DataSource& data) {
+ExtractSourceBytesAndMime(const fastgltf::DataSource& data) {
+    const auto bytes = ExtractContiguousSourceBytes(data);
+    fastgltf::MimeType mime = fastgltf::MimeType::None;
     if (std::holds_alternative<fastgltf::sources::Array>(data)) {
-        const auto& arr = std::get<fastgltf::sources::Array>(data);
-        return {{reinterpret_cast<const uint8_t*>(arr.bytes.data()), arr.bytes.size()}, MimeTypeToString(arr.mimeType)};
+        mime = std::get<fastgltf::sources::Array>(data).mimeType;
+    } else if (std::holds_alternative<fastgltf::sources::ByteView>(data)) {
+        mime = std::get<fastgltf::sources::ByteView>(data).mimeType;
+    } else if (std::holds_alternative<fastgltf::sources::Vector>(data)) {
+        mime = std::get<fastgltf::sources::Vector>(data).mimeType;
     }
-    if (std::holds_alternative<fastgltf::sources::ByteView>(data)) {
-        const auto& bv = std::get<fastgltf::sources::ByteView>(data);
-        return {{reinterpret_cast<const uint8_t*>(bv.bytes.data()), bv.bytes.size()}, MimeTypeToString(bv.mimeType)};
-    }
-    if (std::holds_alternative<fastgltf::sources::Vector>(data)) {
-        const auto& vec = std::get<fastgltf::sources::Vector>(data);
-        return {{reinterpret_cast<const uint8_t*>(vec.bytes.data()), vec.bytes.size()}, MimeTypeToString(vec.mimeType)};
-    }
-    return {};
+    return {bytes, MimeTypeToString(mime)};
 }
 
 void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
@@ -153,15 +106,14 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
     }
 
-    if (auto posIt = prim.findAttribute("POSITION");
-        posIt != prim.attributes.end() && posIt->second < asset.accessors.size()) {
-        const auto& posAccessor = asset.accessors[posIt->second];
-        if (!ValidateAccessorBounds(asset, posAccessor, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
-            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized POSITION accessor (count={})",
-                         posAccessor.count);
+    if (auto posIt = prim.findAttribute("POSITION"); posIt != prim.attributes.end()) {
+        if (!ValidateAccessor(asset, posIt->second, sizeof(float) * 3u, kMaxPrimitiveVertices,
+                              fastgltf::AccessorType::Vec3)) {
+            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized POSITION accessor");
             outNeedsTangents = false;
             return meshPrim;
         }
+        const auto& posAccessor = asset.accessors[posIt->second];
         meshPrim.vertices.resize(posAccessor.count);
         fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor, [&](glm::vec3 pos, size_t idx) {
             const glm::vec3 safePos{
@@ -172,74 +124,70 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
     }
 
     auto normIt = prim.findAttribute("NORMAL");
-    if (normIt != prim.attributes.end() && normIt->second < asset.accessors.size()) {
+    if (normIt != prim.attributes.end() && ValidateAccessor(asset, normIt->second, sizeof(float) * 3u,
+                                                            kMaxPrimitiveVertices, fastgltf::AccessorType::Vec3)) {
         const auto& normAccessor = asset.accessors[normIt->second];
-        if (ValidateAccessorBounds(asset, normAccessor, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
-            fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
-                if (idx < meshPrim.vertices.size() && std::isfinite(norm.x) && std::isfinite(norm.y) &&
-                    std::isfinite(norm.z)) {
-                    meshPrim.vertices[idx].normal = norm;
-                }
-            });
-        }
+        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
+            if (idx < meshPrim.vertices.size() && std::isfinite(norm.x) && std::isfinite(norm.y) &&
+                std::isfinite(norm.z)) {
+                meshPrim.vertices[idx].normal = norm;
+            }
+        });
     }
 
     if (auto uvIt = prim.findAttribute("TEXCOORD_0");
-        uvIt != prim.attributes.end() && uvIt->second < asset.accessors.size()) {
+        uvIt != prim.attributes.end() && ValidateAccessor(asset, uvIt->second, sizeof(uint8_t) * 2u,
+                                                          kMaxPrimitiveVertices, fastgltf::AccessorType::Vec2)) {
         const auto& uvAccessor = asset.accessors[uvIt->second];
-        if (ValidateAccessorBounds(asset, uvAccessor, sizeof(uint8_t) * 2u, kMaxPrimitiveVertices)) {
-            fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
-                if (idx < meshPrim.vertices.size() && std::isfinite(uv.x) && std::isfinite(uv.y)) {
-                    meshPrim.vertices[idx].uv = uv;
-                }
-            });
-        }
+        fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
+            if (idx < meshPrim.vertices.size() && std::isfinite(uv.x) && std::isfinite(uv.y)) {
+                meshPrim.vertices[idx].uv = uv;
+            }
+        });
     }
 
     auto tanIt = prim.findAttribute("TANGENT");
-    const bool hasExplicitTangents = (tanIt != prim.attributes.end() && tanIt->second < asset.accessors.size());
+    const bool hasExplicitTangents =
+        (tanIt != prim.attributes.end() && ValidateAccessor(asset, tanIt->second, sizeof(float) * 4u,
+                                                            kMaxPrimitiveVertices, fastgltf::AccessorType::Vec4));
     if (hasExplicitTangents) {
         const auto& tanAccessor = asset.accessors[tanIt->second];
-        if (ValidateAccessorBounds(asset, tanAccessor, sizeof(float) * 4u, kMaxPrimitiveVertices)) {
-            fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
-                if (idx < meshPrim.vertices.size() && std::isfinite(tan.x) && std::isfinite(tan.y) &&
-                    std::isfinite(tan.z) && std::isfinite(tan.w)) {
-                    meshPrim.vertices[idx].tangent = tan;
-                }
-            });
-        }
+        fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
+            if (idx < meshPrim.vertices.size() && std::isfinite(tan.x) && std::isfinite(tan.y) &&
+                std::isfinite(tan.z) && std::isfinite(tan.w)) {
+                meshPrim.vertices[idx].tangent = tan;
+            }
+        });
     }
 
     if (auto jointsIt = prim.findAttribute("JOINTS_0");
-        jointsIt != prim.attributes.end() && jointsIt->second < asset.accessors.size()) {
+        jointsIt != prim.attributes.end() && ValidateAccessor(asset, jointsIt->second, sizeof(uint8_t) * 4u,
+                                                              kMaxPrimitiveVertices, fastgltf::AccessorType::Vec4)) {
         const auto& jAccessor = asset.accessors[jointsIt->second];
-        if (ValidateAccessorBounds(asset, jAccessor, sizeof(uint8_t) * 4u, kMaxPrimitiveVertices)) {
-            fastgltf::iterateAccessorWithIndex<glm::uvec4>(asset, jAccessor, [&](glm::uvec4 j, size_t idx) {
-                if (idx < meshPrim.vertices.size()) {
-                    meshPrim.vertices[idx].joints = j;
-                }
-            });
-        }
+        fastgltf::iterateAccessorWithIndex<glm::uvec4>(asset, jAccessor, [&](glm::uvec4 j, size_t idx) {
+            if (idx < meshPrim.vertices.size()) {
+                meshPrim.vertices[idx].joints = j;
+            }
+        });
     }
 
     if (auto weightsIt = prim.findAttribute("WEIGHTS_0");
-        weightsIt != prim.attributes.end() && weightsIt->second < asset.accessors.size()) {
+        weightsIt != prim.attributes.end() && ValidateAccessor(asset, weightsIt->second, sizeof(uint8_t) * 4u,
+                                                               kMaxPrimitiveVertices, fastgltf::AccessorType::Vec4)) {
         const auto& wAccessor = asset.accessors[weightsIt->second];
-        if (ValidateAccessorBounds(asset, wAccessor, sizeof(uint8_t) * 4u, kMaxPrimitiveVertices)) {
-            fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, wAccessor, [&](glm::vec4 w, size_t idx) {
-                if (idx < meshPrim.vertices.size()) {
-                    if (!std::isfinite(w.x) || !std::isfinite(w.y) || !std::isfinite(w.z) || !std::isfinite(w.w)) {
-                        meshPrim.vertices[idx].weights = glm::vec4{1.0f, 0.0f, 0.0f, 0.0f};
-                        return;
-                    }
-                    const float sum = w.x + w.y + w.z + w.w;
-                    if (sum > 1e-6f && std::isfinite(sum)) {
-                        w /= sum;
-                    }
-                    meshPrim.vertices[idx].weights = w;
+        fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, wAccessor, [&](glm::vec4 w, size_t idx) {
+            if (idx < meshPrim.vertices.size()) {
+                if (!std::isfinite(w.x) || !std::isfinite(w.y) || !std::isfinite(w.z) || !std::isfinite(w.w)) {
+                    meshPrim.vertices[idx].weights = glm::vec4{1.0f, 0.0f, 0.0f, 0.0f};
+                    return;
                 }
-            });
-        }
+                const float sum = w.x + w.y + w.z + w.w;
+                if (sum > 1e-6f && std::isfinite(sum)) {
+                    w /= sum;
+                }
+                meshPrim.vertices[idx].weights = w;
+            }
+        });
     }
 
     if (!prim.targets.empty() && !meshPrim.vertices.empty()) {
@@ -258,15 +206,15 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
 
             auto loadDelta = [&](const char* attr, std::vector<glm::vec3>& dst) {
                 if (auto it = prim.findTargetAttribute(tIdx, attr);
-                    it != prim.targets[tIdx].cend() && it->second < asset.accessors.size()) {
+                    it != prim.targets[tIdx].cend() &&
+                    ValidateAccessor(asset, it->second, sizeof(float) * 3u, kMaxPrimitiveVertices,
+                                     fastgltf::AccessorType::Vec3)) {
                     const auto& acc = asset.accessors[it->second];
-                    if (ValidateAccessorBounds(asset, acc, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
-                        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
-                            if (idx < dst.size() && std::isfinite(d.x) && std::isfinite(d.y) && std::isfinite(d.z)) {
-                                dst[idx] = d;
-                            }
-                        });
-                    }
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
+                        if (idx < dst.size() && std::isfinite(d.x) && std::isfinite(d.y) && std::isfinite(d.z)) {
+                            dst[idx] = d;
+                        }
+                    });
                 }
             };
             loadDelta("POSITION", mt.positionDeltas);
@@ -276,15 +224,14 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         meshPrim.baseVertices = meshPrim.vertices;
     }
 
-    if (prim.indicesAccessor.has_value() && *prim.indicesAccessor < asset.accessors.size() &&
-        !meshPrim.vertices.empty()) {
-        const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
-        if (!ValidateAccessorBounds(asset, idxAccessor, sizeof(uint8_t), kMaxPrimitiveIndices)) {
-            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized indices accessor (count={})",
-                         idxAccessor.count);
+    if (prim.indicesAccessor.has_value() && !meshPrim.vertices.empty()) {
+        if (!ValidateAccessor(asset, *prim.indicesAccessor, sizeof(uint8_t), kMaxPrimitiveIndices,
+                              fastgltf::AccessorType::Scalar)) {
+            BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized indices accessor");
             outNeedsTangents = false;
             return meshPrim;
         }
+        const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
         meshPrim.indices.resize(idxAccessor.count);
         const size_t vertexCount{meshPrim.vertices.size()};
         bool hasInvalidIndices{false};
@@ -342,6 +289,14 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
         std::string decodeHint{};
         size_t sourceBvIdx{0};
 
+        auto reportImageProgress = [&]() {
+            if (reporter && numImages > 0) {
+                const size_t done = completedImages.fetch_add(1, std::memory_order_relaxed) + 1;
+                const float localFrac = 0.12f + (static_cast<float>(done) / static_cast<float>(numImages)) * 0.43f;
+                (void)reporter->ReportLocal(localFrac, std::format("Decoding textures ({} / {})...", done, numImages));
+            }
+        };
+
         if (std::holds_alternative<fastgltf::sources::BufferView>(image.data)) {
             const auto& bvSource = std::get<fastgltf::sources::BufferView>(image.data);
             decodeHint = MimeTypeToString(bvSource.mimeType);
@@ -349,14 +304,12 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
             if (bvSource.bufferViewIndex < asset.bufferViews.size()) {
                 const auto& bufferView = asset.bufferViews[bvSource.bufferViewIndex];
                 if (bufferView.bufferIndex < asset.buffers.size()) {
-                    const auto [bufBytes, unusedHint] =
-                        ExtractContiguousSourceBytes(asset.buffers[bufferView.bufferIndex].data);
-                    (void)unusedHint;
+                    const auto bufBytes = ExtractContiguousSourceBytes(asset.buffers[bufferView.bufferIndex].data);
                     rawBytes = ExtractSafeSlice(bufBytes.data(), bufBytes.size(), bufferView.byteOffset,
                                                 bufferView.byteLength);
                 }
             }
-        } else if (auto [srcBytes, srcHint] = ExtractContiguousSourceBytes(image.data); !srcBytes.empty()) {
+        } else if (auto [srcBytes, srcHint] = ExtractSourceBytesAndMime(image.data); !srcBytes.empty()) {
             rawBytes = srcBytes;
             decodeHint = std::move(srcHint);
         } else if (std::holds_alternative<fastgltf::sources::URI>(image.data)) {
@@ -368,12 +321,13 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
             }
             auto resolvedRes{core::NetworkFetcher::ResolveExternalAssetUri(baseUri, rawUriStr)};
             if (!resolvedRes) {
-                BGL_LOG_WARN("  * Image #{}: Blocked or invalid external image URI '{}': {}", imgIdx, rawUriStr,
-                             resolvedRes.error());
+                BGL_LOG_WARN("  * Image #{}: Blocked or invalid external image URI '{}': {}", imgIdx,
+                             core::SanitizeForLog(rawUriStr), core::SanitizeForLog(resolvedRes.error()));
+                reportImageProgress();
                 return;
             }
             const std::string resolvedUri{std::move(*resolvedRes)};
-            BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, resolvedUri);
+            BGL_LOG_INFO("  * Image #{}: Fetching external URI '{}'...", imgIdx, core::SanitizeForLog(resolvedUri));
             auto fetchRes =
                 core::NetworkFetcher::FetchSync(resolvedUri, [reporter](const core::FetchProgress&) -> bool {
                     return !reporter || !reporter->IsCancelled();
@@ -383,8 +337,8 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
                 const size_t offset{std::min(uriSource.fileByteOffset, fetchedUriBytes.size())};
                 rawBytes = std::span<const uint8_t>{fetchedUriBytes.data() + offset, fetchedUriBytes.size() - offset};
             } else {
-                BGL_LOG_ERROR("  * Image #{}: Failed to fetch external image URI '{}': {}", imgIdx, resolvedUri,
-                              fetchRes.error());
+                BGL_LOG_ERROR("  * Image #{}: Failed to fetch external image URI '{}': {}", imgIdx,
+                              core::SanitizeForLog(resolvedUri), core::SanitizeForLog(fetchRes.error()));
             }
         }
 
@@ -399,47 +353,56 @@ void DecodeImagesAndTextures(const fastgltf::Asset& asset, std::string_view base
 
         if (rawBytes.empty()) {
             BGL_LOG_WARN("  * Image #{}: Raw byte stream is empty", imgIdx);
+            reportImageProgress();
             return;
         }
 
-        const uint64_t contentHash = Fnv1a64(rawBytes);
-        if (auto cached = assetManager.GetCachedTexture(contentHash)) {
+        const bool isKtx2 = TextureDecoder::IsKtx2Data(rawBytes);
+        uint64_t cacheKey = Fnv1a64(rawBytes);
+        if (isKtx2) {
+            cacheKey ^= 0x9E3779B97F4A7C15ULL +
+                        static_cast<uint64_t>(TextureDecoder::GetDefaultKtxTarget()) * 0xBF58476D1CE4E5B9ULL;
+        }
+        if (auto cached = assetManager.GetCachedTexture(cacheKey)) {
             decodedImages[imgIdx] = CpuImage{.width = cached->width,
                                              .height = cached->height,
                                              .rgba = cached->rgbaData,
                                              .isCompressed = cached->isCompressed,
                                              .compressionFormat = cached->compressionFormat,
                                              .mipLevels = cached->mipLevels};
-            BGL_LOG_DEBUG("  * Image #{} ('{}') hit asset cache (content hash {:x})", imgIdx, imgName, contentHash);
+            if (isKtx2) {
+                decodedImages[imgIdx]->ktx2SourceBytes.assign(rawBytes.begin(), rawBytes.end());
+            }
+            BGL_LOG_DEBUG("  * Image #{} ('{}') hit asset cache (content hash {:x})", imgIdx,
+                          core::SanitizeForLog(imgName), cacheKey);
+            reportImageProgress();
             return;
         }
 
         auto decoded = TextureDecoder::DecodeAuto(rawBytes, decodeHint);
         if (!decoded) {
-            BGL_LOG_ERROR("  * Image #{}: Failed to decode: {}", imgIdx, decoded.error());
+            BGL_LOG_ERROR("  * Image #{}: Failed to decode: {}", imgIdx, core::SanitizeForLog(decoded.error()));
+            reportImageProgress();
             return;
         }
 
         auto sharedImg = std::make_shared<DecodedImage>(*decoded);
-        assetManager.InsertTexture(contentHash, sharedImg);
+        assetManager.InsertTexture(cacheKey, sharedImg);
         decodedImages[imgIdx] = CpuImage{.width = decoded->width,
                                          .height = decoded->height,
                                          .rgba = std::move(decoded->rgbaData),
                                          .isCompressed = decoded->isCompressed,
                                          .compressionFormat = decoded->compressionFormat,
                                          .mipLevels = std::move(decoded->mipLevels)};
-        if (TextureDecoder::IsKtx2Data(rawBytes)) {
+        if (isKtx2) {
             decodedImages[imgIdx]->ktx2SourceBytes.assign(rawBytes.begin(), rawBytes.end());
         }
         BGL_LOG_DEBUG("  * Image #{} (BufferView #{}): '{}' -> Decoded {} {}x{} (Mips: {}, Payload: {:.2f} MB)", imgIdx,
-                      sourceBvIdx, imgName, TextureDecoder::GetKtxTargetName(decodedImages[imgIdx]->compressionFormat),
-                      decoded->width, decoded->height, std::max<size_t>(1, decodedImages[imgIdx]->mipLevels.size()),
+                      sourceBvIdx, core::SanitizeForLog(imgName),
+                      TextureDecoder::GetKtxTargetName(decodedImages[imgIdx]->compressionFormat), decoded->width,
+                      decoded->height, std::max<size_t>(1, decodedImages[imgIdx]->mipLevels.size()),
                       static_cast<double>(decodedImages[imgIdx]->rgba.size()) / (1024.0 * 1024.0));
-        if (reporter && numImages > 0) {
-            const size_t done = completedImages.fetch_add(1, std::memory_order_relaxed) + 1;
-            const float localFrac = 0.12f + (static_cast<float>(done) / static_cast<float>(numImages)) * 0.43f;
-            (void)reporter->ReportLocal(localFrac, std::format("Decoding textures ({} / {})...", done, numImages));
-        }
+        reportImageProgress();
     });
 
     for (size_t texIdx{0}; texIdx < numTextures; ++texIdx) {

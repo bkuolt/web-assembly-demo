@@ -371,6 +371,9 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     if (width == 0 || height == 0 || width > kMaxTextureDimension || height > kMaxTextureDimension) {
         return std::unexpected("KTX texture contains invalid dimensions");
     }
+    if (kTexture->isArray || kTexture->numFaces != 1u || kTexture->numDimensions != 2u) {
+        return std::unexpected("KTX array, cubemap, and 3D textures are not supported");
+    }
 
     // Block-compressed formats require 4x4 block alignment on base mip dimensions in WebGPU
     KtxTranscodeTarget effectiveTarget{target};
@@ -380,6 +383,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
 
     // Check if transcoding is needed for Basis Universal KTX2 textures (UASTC / ETC1S)
     bool transcodedCompressed{false};
+    bool swapRedBlue{false};
+    uint32_t expectedUncompressedChannels{0};
     if (kTexture->classId == ktxTexture2_c) {
         auto* ktx2{reinterpret_cast<ktxTexture2*>(kTexture.get())};
         if (ktxTexture2_NeedsTranscoding(ktx2)) {
@@ -411,9 +416,45 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
             }
             transcodedCompressed = (effectiveTarget != KtxTranscodeTarget::Rgba32);
         } else {
+            if (kTexture->isCompressed) {
+                return std::unexpected("Pre-compressed non-Basis KTX2 textures are not supported");
+            }
+            switch (ktx2->vkFormat) {
+            case 9:  // VK_FORMAT_R8_UNORM
+            case 15: // VK_FORMAT_R8_SRGB
+                expectedUncompressedChannels = 1;
+                break;
+            case 16: // VK_FORMAT_R8G8_UNORM
+            case 22: // VK_FORMAT_R8G8_SRGB
+                expectedUncompressedChannels = 2;
+                break;
+            case 23: // VK_FORMAT_R8G8B8_UNORM
+            case 29: // VK_FORMAT_R8G8B8_SRGB
+                expectedUncompressedChannels = 3;
+                break;
+            case 30: // VK_FORMAT_B8G8R8_UNORM
+            case 36: // VK_FORMAT_B8G8R8_SRGB
+                expectedUncompressedChannels = 3;
+                swapRedBlue = true;
+                break;
+            case 37: // VK_FORMAT_R8G8B8A8_UNORM
+            case 43: // VK_FORMAT_R8G8B8A8_SRGB
+                expectedUncompressedChannels = 4;
+                break;
+            case 44: // VK_FORMAT_B8G8R8A8_UNORM
+            case 50: // VK_FORMAT_B8G8R8A8_SRGB
+                expectedUncompressedChannels = 4;
+                swapRedBlue = true;
+                break;
+            default:
+                return std::unexpected("Unsupported uncompressed KTX2 VkFormat (expected 8-bit UNORM/SRGB)");
+            }
             effectiveTarget = KtxTranscodeTarget::Rgba32;
         }
     } else {
+        if (kTexture->isCompressed) {
+            return std::unexpected("Compressed KTX1 textures are not supported");
+        }
         effectiveTarget = KtxTranscodeTarget::Rgba32;
     }
 
@@ -469,19 +510,31 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
     const size_t expectedRgbaSize{pixelCount * 4u};
     const size_t expectedRgbSize{pixelCount * 3u};
     const size_t expectedRgSize{pixelCount * 2u};
+    auto matchChannels = [&](uint32_t ch) noexcept {
+        return expectedUncompressedChannels == 0 || expectedUncompressedChannels == ch;
+    };
 
-    if (imageSize == expectedRgbaSize) {
+    if (imageSize == expectedRgbaSize && matchChannels(4u)) {
         img.rgbaData.resize(expectedRgbaSize);
-        std::memcpy(img.rgbaData.data(), imageBytes, expectedRgbaSize);
-    } else if (imageSize == expectedRgbSize) {
+        if (swapRedBlue) {
+            for (size_t i{0}; i < pixelCount; ++i) {
+                img.rgbaData[i * 4 + 0] = imageBytes[i * 4 + 2];
+                img.rgbaData[i * 4 + 1] = imageBytes[i * 4 + 1];
+                img.rgbaData[i * 4 + 2] = imageBytes[i * 4 + 0];
+                img.rgbaData[i * 4 + 3] = imageBytes[i * 4 + 3];
+            }
+        } else {
+            std::memcpy(img.rgbaData.data(), imageBytes, expectedRgbaSize);
+        }
+    } else if (imageSize == expectedRgbSize && matchChannels(3u)) {
         img.rgbaData.resize(expectedRgbaSize);
         for (size_t i{0}; i < pixelCount; ++i) {
-            img.rgbaData[i * 4 + 0] = imageBytes[i * 3 + 0];
+            img.rgbaData[i * 4 + 0] = swapRedBlue ? imageBytes[i * 3 + 2] : imageBytes[i * 3 + 0];
             img.rgbaData[i * 4 + 1] = imageBytes[i * 3 + 1];
-            img.rgbaData[i * 4 + 2] = imageBytes[i * 3 + 2];
+            img.rgbaData[i * 4 + 2] = swapRedBlue ? imageBytes[i * 3 + 0] : imageBytes[i * 3 + 2];
             img.rgbaData[i * 4 + 3] = 255;
         }
-    } else if (imageSize == expectedRgSize) {
+    } else if (imageSize == expectedRgSize && matchChannels(2u)) {
         img.rgbaData.resize(expectedRgbaSize);
         for (size_t i{0}; i < pixelCount; ++i) {
             img.rgbaData[i * 4 + 0] = imageBytes[i * 2 + 0];
@@ -489,7 +542,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
             img.rgbaData[i * 4 + 2] = 0;
             img.rgbaData[i * 4 + 3] = 255;
         }
-    } else if (imageSize == pixelCount) {
+    } else if (imageSize == pixelCount && matchChannels(1u)) {
         img.rgbaData.resize(expectedRgbaSize);
         for (size_t i{0}; i < pixelCount; ++i) {
             const uint8_t v = imageBytes[i];
@@ -499,7 +552,7 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
             img.rgbaData[i * 4 + 3] = 255;
         }
     } else {
-        return std::unexpected("Unsupported uncompressed KTX2 pixel byte layout (size mismatch with RGBA8)");
+        return std::unexpected("Unsupported uncompressed KTX pixel byte layout (channel/stride mismatch with RGBA8)");
     }
 
     return img;
@@ -555,12 +608,8 @@ core::Result<DecodedImage> TextureDecoder::DecodeAuto(std::span<const uint8_t> d
         return DecodeKTX2(data);
     }
 
-    // 3. Fallback attempts
-    auto jpegRes = DecodeJPEG(data);
-    if (jpegRes)
-        return jpegRes;
-
-    return DecodeWebP(data);
+    // 3. No matching magic header or extension hint found
+    return std::unexpected("Unrecognized image format (expected PNG, JPEG, WebP, or KTX2)");
 }
 
 std::vector<std::string_view> TextureDecoder::GetSupportedFormats() {

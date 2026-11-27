@@ -184,11 +184,21 @@ void WasmFree(void* ptr) noexcept {
     }
     auto* const bytePtr = static_cast<unsigned char*>(ptr);
     const uintptr_t addr = reinterpret_cast<uintptr_t>(bytePtr);
-    if (addr < sizeof(BlockHeader) || addr < reinterpret_cast<uintptr_t>(&__heap_base)) {
+    if ((addr % 16u) != 0u || addr < sizeof(BlockHeader) || addr < reinterpret_cast<uintptr_t>(&__heap_base)) {
         return;
     }
     auto* block = reinterpret_cast<BlockHeader*>(bytePtr - sizeof(BlockHeader));
-    if (!IsRangeInWasmMemory(block, sizeof(BlockHeader)) || block->magic != kBlockMagic || block->free != 0u) {
+    if (!IsRangeInWasmMemory(block, sizeof(BlockHeader))) {
+        return;
+    }
+    bool linked = false;
+    for (BlockHeader* cur = gHeapHead; cur != nullptr; cur = cur->next) {
+        if (cur == block) {
+            linked = true;
+            break;
+        }
+    }
+    if (!linked || block->magic != kBlockMagic || block->free != 0u) {
         return;
     }
     block->free = 1u;
@@ -363,14 +373,26 @@ ByteSpan ExtractGltfJsonSlice(const uint8_t* data, size_t len) noexcept {
         return {};
     }
     if (len >= 20u && ReadU32LE(data) == 0x46546C67u) {
+        const uint32_t version = ReadU32LE(data + 4);
+        const uint32_t totalLen = ReadU32LE(data + 8);
+        if (version != 2u || totalLen < 20u || static_cast<size_t>(totalLen) > len) {
+            return {};
+        }
         const uint32_t chunkLen = ReadU32LE(data + 12);
         const uint32_t chunkType = ReadU32LE(data + 16);
-        if (chunkType == 0x4E4F534Au && static_cast<size_t>(chunkLen) <= len - 20u) {
+        if (chunkType == 0x4E4F534Au && static_cast<size_t>(chunkLen) <= static_cast<size_t>(totalLen) - 20u) {
             return {data + 20, static_cast<size_t>(chunkLen)};
         }
         return {};
     }
-    return {data, len};
+    size_t start = 0u;
+    while (start < len && (data[start] == ' ' || data[start] == '\t' || data[start] == '\n' || data[start] == '\r')) {
+        ++start;
+    }
+    if (start >= len || data[start] != '{') {
+        return {};
+    }
+    return {data + start, len - start};
 }
 
 // ============================================================================
@@ -445,7 +467,7 @@ struct EngineState {
     float camTargetX{0.0f};
     float camTargetY{0.0f};
     float camTargetZ{0.0f};
-    std::array<CameraBookmark, 10> bookmarks{};
+    std::array<CameraBookmark, 9> bookmarks{};
 
     // Last gamepad sample
     float padLx{0.0f};
@@ -673,6 +695,10 @@ void bgl_camera_save_bookmark(int slot) {
     if (slot < 0 || slot >= static_cast<int>(gState.bookmarks.size())) {
         return;
     }
+    if (!IsFiniteF(gState.camYaw) || !IsFiniteF(gState.camPitch) || !IsFiniteF(gState.camDistance) ||
+        !IsFiniteF(gState.camTargetX) || !IsFiniteF(gState.camTargetY) || !IsFiniteF(gState.camTargetZ)) {
+        return;
+    }
     auto& bm = gState.bookmarks[static_cast<size_t>(slot)];
     bm.yaw = gState.camYaw;
     bm.pitch = gState.camPitch;
@@ -688,7 +714,8 @@ void bgl_camera_restore_bookmark(int slot) {
         return;
     }
     const auto& bm = gState.bookmarks[static_cast<size_t>(slot)];
-    if (!bm.valid) {
+    if (!bm.valid || !IsFiniteF(bm.yaw) || !IsFiniteF(bm.pitch) || !IsFiniteF(bm.distance) || !IsFiniteF(bm.targetX) ||
+        !IsFiniteF(bm.targetY) || !IsFiniteF(bm.targetZ)) {
         return;
     }
     gState.camYaw = bm.yaw;
@@ -715,8 +742,10 @@ void bgl_camera_zoom(float delta) {
         return;
     }
     gState.camDistance = gState.camDistance - delta * 0.5f;
-    if (gState.camDistance < 0.05f) {
-        gState.camDistance = 0.05f;
+    if (gState.camDistance < 0.001f) {
+        gState.camDistance = 0.001f;
+    } else if (gState.camDistance > 50000.0f) {
+        gState.camDistance = 50000.0f;
     }
 }
 

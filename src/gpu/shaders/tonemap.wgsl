@@ -1,5 +1,5 @@
 // Cinematic Post-Processing Pipeline:
-// Depth of Field, Hi-Z Screen-Space Reflections, Depth-Gated Volumetric Sun God Rays,
+// Depth of Field, View-Space Screen-Space Reflections, Depth-Gated Volumetric Sun God Rays,
 // Multi-Mip Bloom, Half-Res GTAO, GPU Auto-Exposure, Tonemapping (PBR Neutral / AgX / ACES),
 // Radial Chromatic Aberration, Filmic Color Grading Presets, Vignette, and Film Grain / Dither.
 
@@ -208,12 +208,17 @@ fn fs_tonemap(in : VsOut) -> @location(0) vec4<f32> {
         let pD = uvDepthToViewPos(uv + vec2<f32>(0.0, invScreen.y), zD);
         let ddx = select(pR - cPos, cPos - pL, abs(zL - centerZ) < abs(zR - centerZ));
         let ddy = select(pD - cPos, cPos - pU, abs(zU - centerZ) < abs(zD - centerZ));
-        let vNorm = normalize(cross(ddy, ddx));
-        let vDir = normalize(-cPos);
+        let rawNorm = cross(ddy, ddx);
+        let normLenSq = dot(rawNorm, rawNorm);
+        let vNorm = select(vec3<f32>(0.0, 0.0, 1.0), rawNorm * inverseSqrt(normLenSq), normLenSq > 1e-10);
+        let vDistSq = dot(cPos, cPos);
+        let vDir = select(vec3<f32>(0.0, 0.0, 1.0), -cPos * inverseSqrt(vDistSq), vDistSq > 1e-10);
 
         let fresnel = pow(clamp(1.0 - max(dot(vNorm, vDir), 0.0), 0.0, 1.0), 3.2);
         if (fresnel > 0.06) {
-            let reflDir = normalize(reflect(-vDir, vNorm));
+            let rawRefl = reflect(-vDir, vNorm);
+            let reflLenSq = dot(rawRefl, rawRefl);
+            let reflDir = select(vec3<f32>(0.0, 1.0, 0.0), rawRefl * inverseSqrt(reflLenSq), reflLenSq > 1e-10);
             let maxDist = clamp(fxUbo.ssrParams.z, 2.0, 40.0);
             let thickness = clamp(fxUbo.ssrParams.w, 0.05, 1.5);
             let kSteps = 14;
@@ -227,7 +232,10 @@ fn fs_tonemap(in : VsOut) -> @location(0) vec4<f32> {
                     break;
                 }
                 let clip = fxUbo.proj * vec4<f32>(rayPos, 1.0);
-                let ndc = clip.xyz / max(clip.w, 1e-5);
+                if (clip.w <= 1e-4) {
+                    break;
+                }
+                let ndc = clip.xyz / clip.w;
                 let rUv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (rUv.x < 0.0 || rUv.x > 1.0 || rUv.y < 0.0 || rUv.y > 1.0) {
                     break;
@@ -235,13 +243,17 @@ fn fs_tonemap(in : VsOut) -> @location(0) vec4<f32> {
                 let sceneZ = loadLinearDepth(rUv);
                 let rayZ = -rayPos.z;
                 if (rayZ > sceneZ + 0.02 && rayZ < sceneZ + thickness * (1.0 + sceneZ * 0.08)) {
+                    hitUv = rUv;
                     // 3-step binary refinement around hit span
                     var aPos = cPos + reflDir * (f32(s - 1) * stepLen);
                     var bPos = rayPos;
                     for (var b = 0; b < 3; b = b + 1) {
                         let mid = (aPos + bPos) * 0.5;
                         let mc = fxUbo.proj * vec4<f32>(mid, 1.0);
-                        let mNdc = mc.xyz / max(mc.w, 1e-5);
+                        if (mc.w <= 1e-4) {
+                            break;
+                        }
+                        let mNdc = mc.xyz / mc.w;
                         let mUv = vec2<f32>(mNdc.x * 0.5 + 0.5, 0.5 - mNdc.y * 0.5);
                         let mz = loadLinearDepth(clamp(mUv, vec2<f32>(0.001), vec2<f32>(0.999)));
                         if (-mid.z > mz) {

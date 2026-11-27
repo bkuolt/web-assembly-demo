@@ -113,11 +113,12 @@ void Application::Update(float deltaTime) {
     if (!running_)
         return;
 
-    const float clampedDelta = std::clamp(deltaTime, 0.0005f, 0.25f);
+    const float safeDt = (std::isfinite(deltaTime) && deltaTime > 0.0f) ? deltaTime : 0.016f;
+    const float clampedDelta = std::clamp(safeDt, 0.0005f, 0.25f);
     fpsSampleTimer_ += clampedDelta;
     if (fpsSampleTimer_ >= 0.06f) {
         fpsSampleTimer_ = 0.0f;
-        const float instFps = std::clamp(1.0f / std::max(deltaTime, 1e-4f), 1.0f, 360.0f);
+        const float instFps = std::clamp(1.0f / std::max(safeDt, 1e-4f), 1.0f, 360.0f);
         if (fpsHistoryCount_ < fpsHistory_.size()) {
             fpsHistory_[fpsHistoryCount_++] = instFps;
         } else {
@@ -137,6 +138,7 @@ void Application::Update(float deltaTime) {
     float panDx = 0.0f;
     float panDy = 0.0f;
     float wheelDelta = 0.0f;
+    std::string pendingDropUri{};
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (nativeWindow_) {
@@ -150,6 +152,8 @@ void Application::Update(float deltaTime) {
                     gpuContext_.Resize(static_cast<uint32_t>(event.window.data1),
                                        static_cast<uint32_t>(event.window.data2));
                     pipelineManager_.GetPostProcessPass().InvalidateBindGroup();
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    uiInput_.mouseDown = false;
                 }
             } else if (event.type == SDL_KEYDOWN) {
                 HandleKeyDown(event.key.keysym.sym, event.key.keysym.mod);
@@ -187,7 +191,8 @@ void Application::Update(float deltaTime) {
                     panDy += static_cast<float>(event.motion.yrel);
                 }
             } else if (event.type == SDL_MOUSEWHEEL) {
-                wheelDelta += static_cast<float>(event.wheel.y);
+                const float sign = (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) ? -1.0f : 1.0f;
+                wheelDelta += static_cast<float>(event.wheel.y) * sign;
             } else if (event.type == SDL_DROPFILE || event.type == SDL_DROPTEXT) {
                 char* droppedStr{event.drop.file};
                 if (droppedStr) {
@@ -196,11 +201,14 @@ void Application::Update(float deltaTime) {
                         BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
                                      event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE",
                                      core::SanitizeForLog(sanitized));
-                        LoadSceneFromUriAsync(sanitized);
+                        pendingDropUri = sanitized;
                     }
                     SDL_free(droppedStr);
                 }
             }
+        }
+        if (!pendingDropUri.empty()) {
+            LoadSceneFromUriAsync(pendingDropUri);
         }
     }
 
@@ -258,7 +266,7 @@ void Application::Update(float deltaTime) {
 
     // Collect telemetry stats for the in-engine debug HUD overlay
     ui::OverlayStats& stats{cachedOverlayStats_};
-    stats.deltaTime = deltaTime;
+    stats.deltaTime = safeDt;
     stats.cameraPos = camera_.GetPosition();
     stats.cameraTarget = camera_.GetTarget();
     stats.cameraDistance = camera_.GetDistance();
@@ -286,7 +294,7 @@ void Application::Update(float deltaTime) {
     stats.dayNightCycleEnabled = dayNightCycleActive_;
 
     // Memory and Gamepad telemetry
-    memTelemetryTimer_ += deltaTime;
+    memTelemetryTimer_ += safeDt;
     if (memTelemetryTimer_ >= 0.25f) {
         memTelemetryTimer_ = 0.0f;
         cachedMemTelemetry_ = core::MemoryTracker::Instance().Query();
@@ -366,7 +374,7 @@ void Application::Update(float deltaTime) {
         stats.occludedPrimitives = 0;
     }
 
-    debugOverlay_.Update(deltaTime, stats);
+    debugOverlay_.Update(safeDt, stats);
 }
 
 void Application::OnSceneActivated(std::string_view sourceUri) {
@@ -385,6 +393,10 @@ void Application::OnRenderOverlay(WGPURenderPassEncoder swapchainPass) {
 }
 
 void Application::Shutdown() {
+    ShutdownImpl();
+}
+
+void Application::ShutdownImpl() {
     CancelPendingSceneLoads();
     settingsUi_.Shutdown();
     debugOverlay_.Shutdown();

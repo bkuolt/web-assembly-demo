@@ -3,8 +3,26 @@
  * @brief Implementation of centralized ThreadPool worker loop.
  */
 #include "core/ThreadPool.hpp"
+#include "core/Log.hpp"
 
 namespace bgl::core {
+
+namespace {
+
+void ExecuteTaskSafely(const std::function<void()>& task) noexcept {
+    if (!task) {
+        return;
+    }
+    try {
+        task();
+    } catch (const std::exception& ex) {
+        BGL_LOG_ERROR("ThreadPool task threw unhandled exception: {}", ex.what());
+    } catch (...) {
+        BGL_LOG_ERROR("ThreadPool task threw unknown unhandled exception");
+    }
+}
+
+} // namespace
 
 ThreadPool& ThreadPool::Instance() noexcept {
     static ThreadPool instance;
@@ -27,7 +45,7 @@ ThreadPool::ThreadPool(size_t numThreads) {
                     task = std::move(tasks_.front());
                     tasks_.pop();
                 }
-                task();
+                ExecuteTaskSafely(task);
             }
         });
     }
@@ -48,7 +66,7 @@ bool ThreadPool::TryExecuteOneTask() {
         tasks_.pop();
     }
     if (task) {
-        task();
+        ExecuteTaskSafely(task);
         return true;
     }
     return false;

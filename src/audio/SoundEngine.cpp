@@ -2,7 +2,9 @@
  * @file SoundEngine.cpp
  * @brief Implementation of miniaudio 3D spatial audio wrapper.
  */
+#if defined(BGL_ENABLE_AUDIO)
 #define MINIAUDIO_IMPLEMENTATION
+#endif
 #include "audio/SoundEngine.hpp"
 #include "core/Log.hpp"
 #include <cmath>
@@ -17,6 +19,7 @@ SoundEngine::~SoundEngine() {
     Shutdown();
 }
 
+#if defined(BGL_ENABLE_AUDIO)
 core::Result<void> SoundEngine::Initialize() {
     if (initialized_) {
         return {};
@@ -112,7 +115,8 @@ core::Result<void> SoundEngine::PlaySound3D(std::string_view soundId, std::strin
     }
 
     activeSounds_[id] = std::move(sound);
-    BGL_LOG_INFO("Playing 3D sound [{}] from '{}' (loop: {})", id, filePath, loop);
+    BGL_LOG_INFO("Playing 3D sound [{}] from '{}' (loop: {})", core::SanitizeForLog(id), core::SanitizeForLog(filePath),
+                 loop);
     return {};
 }
 
@@ -137,5 +141,17 @@ void SoundEngine::StopSound(std::string_view soundId) {
         activeSounds_.erase(it);
     }
 }
+#else
+core::Result<void> SoundEngine::Initialize() {
+    return std::unexpected("Audio backend is disabled in this build");
+}
+void SoundEngine::Shutdown() {}
+void SoundEngine::UpdateListener(const glm::vec3&, const glm::vec3&) {}
+core::Result<void> SoundEngine::PlaySound3D(std::string_view, std::string_view, const glm::vec3&, bool) {
+    return std::unexpected("Audio backend is disabled in this build");
+}
+void SoundEngine::SetEmitterPosition(std::string_view, const glm::vec3&) {}
+void SoundEngine::StopSound(std::string_view) {}
+#endif
 
 } // namespace bgl::audio

@@ -24,14 +24,13 @@ struct Engine::Impl final : engine::EngineCore {
     std::function<void(std::string_view)> dropCb_{};
     bool guiFrameOpen_{false};
     bool guiWantsMouse_{false};
-    float lastDeltaTime_{0.016f};
 
     void ApplySettings();
     bool PollEvents();
     void Update(float deltaTime);
     void BeginGui();
     void EndGui();
-    void Render();
+    void RenderFrame();
     void Shutdown() override;
 
 protected:

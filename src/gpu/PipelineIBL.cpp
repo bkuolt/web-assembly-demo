@@ -441,7 +441,7 @@ void PipelineManager::InitializeComputeIBLPipelines() {
 }
 
 void PipelineManager::DispatchBrdfLutCompute() {
-    if (!device_ || !queue_ || !brdfLutComputePipeline_ || !brdfLutView_)
+    if (!device_ || !queue_ || !brdfLutComputePipeline_ || !brdfLutComputeBgl_ || !brdfLutView_)
         return;
 
     WGPUBindGroupEntry bgEntry = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -453,24 +453,39 @@ void PipelineManager::DispatchBrdfLutCompute() {
     bgDesc.entryCount = 1;
     bgDesc.entries = &bgEntry;
     BindGroupHandle bindGroup{wgpuDeviceCreateBindGroup(device_, &bgDesc)};
+    if (!bindGroup) {
+        return;
+    }
 
     CommandEncoderHandle enc{wgpuDeviceCreateCommandEncoder(device_, nullptr)};
-    ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(enc, nullptr)};
-    wgpuComputePassEncoderSetPipeline(cpass, brdfLutComputePipeline_);
-    wgpuComputePassEncoderSetBindGroup(cpass, 0, bindGroup, 0, nullptr);
-    wgpuComputePassEncoderDispatchWorkgroups(cpass, (kBrdfLutSize + 7) / 8, (kBrdfLutSize + 7) / 8, 1);
-    wgpuComputePassEncoderEnd(cpass);
+    if (!enc) {
+        return;
+    }
+    if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(enc, nullptr)}) {
+        wgpuComputePassEncoderSetPipeline(cpass, brdfLutComputePipeline_);
+        wgpuComputePassEncoderSetBindGroup(cpass, 0, bindGroup, 0, nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(cpass, (kBrdfLutSize + 7) / 8, (kBrdfLutSize + 7) / 8, 1);
+        wgpuComputePassEncoderEnd(cpass);
+    }
 
-    CommandBufferHandle cmd{wgpuCommandEncoderFinish(enc, nullptr)};
-    WGPUCommandBuffer rawCmd{cmd.Get()};
-    wgpuQueueSubmit(queue_, 1, &rawCmd);
-    BGL_LOG_INFO("Computed 128x128 RGBA16Float Split-Sum BRDF LUT on GPU via WebGPU Compute Shader.");
+    if (CommandBufferHandle cmd{wgpuCommandEncoderFinish(enc, nullptr)}) {
+        WGPUCommandBuffer rawCmd{cmd.Get()};
+        wgpuQueueSubmit(queue_, 1, &rawCmd);
+        BGL_LOG_INFO("Computed 128x128 RGBA16Float Split-Sum BRDF LUT on GPU via WebGPU Compute Shader.");
+    }
 }
 
 void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<float>, 6>& hdrFaces,
                                                    uint32_t faceSize) {
-    if (!device_ || !queue_ || faceSize == 0)
+    if (!device_ || !queue_ || faceSize == 0 || faceSize > 2048u)
         return;
+
+    const size_t expectedFaceFloats{static_cast<size_t>(faceSize) * faceSize * 4u};
+    for (uint32_t face{0}; face < 6; ++face) {
+        if (hdrFaces[face].size() < expectedFaceFloats) {
+            return;
+        }
+    }
 
     // 1. Compute L2 Spherical Harmonics (9 coefficients) on CPU from the linear HDR cubemap faces
     shIrradiance_ = ComputeSphericalHarmonicsL2(hdrFaces, faceSize);
@@ -490,7 +505,12 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
     cubeDesc.mipLevelCount = envMipLevels_;
     cubeDesc.sampleCount = 1;
     cubeDesc.label = ToWgpuStringView("HDR_EnvironmentCubemap_RGBA16F");
-    envCubemapTexture_ = wgpuDeviceCreateTexture(device_, &cubeDesc);
+    TextureHandle nextCubeTex{wgpuDeviceCreateTexture(device_, &cubeDesc)};
+    if (!nextCubeTex) {
+        return;
+    }
+    envCubemapView_.Reset();
+    envCubemapTexture_ = std::move(nextCubeTex);
 
     // 3. Upload Mip 0 (6 faces packed as FP16)
     for (uint32_t face{0}; face < 6; ++face) {
@@ -525,7 +545,7 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
 
     // 5. Batch all GGX Specular Prefilter mip passes (1 .. envMipLevels_ - 1) into a single encoder/submit
     if (ggxPrefilterComputePipeline_ && ggxPrefilterComputeBgl_ && ggxPrefilterUniformBuffer_ && mip0CubeView &&
-        envMipLevels_ > 1) {
+        defaultSampler_ && envMipLevels_ > 1) {
         constexpr uint32_t kParamStride{256u};
         const uint32_t maxMips{std::min(envMipLevels_, 16u)};
         std::array<std::byte, 16u * kParamStride> stagedParams{};
@@ -558,6 +578,9 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
                 dstMipViewDesc.arrayLayerCount = 6;
                 dstMipViewDesc.aspect = WGPUTextureAspect_All;
                 TextureViewHandle dstMipView{wgpuTextureCreateView(envCubemapTexture_, &dstMipViewDesc)};
+                if (!dstMipView) {
+                    continue;
+                }
 
                 std::array<WGPUBindGroupEntry, 4> entries{};
                 entries[0] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -583,6 +606,9 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
                 bgDesc.entryCount = entries.size();
                 bgDesc.entries = entries.data();
                 BindGroupHandle bg{wgpuDeviceCreateBindGroup(device_, &bgDesc)};
+                if (!bg) {
+                    continue;
+                }
 
                 const uint32_t dynOffset{mip * kParamStride};
                 if (ComputePassEncoderHandle cpass{wgpuCommandEncoderBeginComputePass(enc, nullptr)}) {
@@ -613,7 +639,9 @@ void PipelineManager::BuildEnvironmentFromHdrFaces(const std::array<std::vector<
     fullCubeViewDesc.arrayLayerCount = 6;
     fullCubeViewDesc.aspect = WGPUTextureAspect_All;
     envCubemapView_ = wgpuTextureCreateView(envCubemapTexture_, &fullCubeViewDesc);
-    RebuildSceneGlobalsBindGroup();
+    if (envCubemapView_) {
+        RebuildSceneGlobalsBindGroup();
+    }
 }
 
 void PipelineManager::SetEnvironmentPreset(EnvironmentPreset preset, scene::Scene* activeScene) {

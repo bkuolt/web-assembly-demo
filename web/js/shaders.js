@@ -107,13 +107,21 @@ fn fresnelSchlickRoughness(NdotV : f32, F0 : vec3<f32>, roughness : f32) -> vec3
     return F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
 }
 
+fn safeNormalize(v : vec3<f32>, fallback : vec3<f32>) -> vec3<f32> {
+    let lenSq = dot(v, v);
+    if (lenSq > 1e-12) {
+        return v * inverseSqrt(lenSq);
+    }
+    return fallback;
+}
+
 fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent : vec4<f32>, dp1 : vec3<f32>, dp2 : vec3<f32>, duv1 : vec2<f32>, duv2 : vec2<f32>) -> mat3x3<f32> {
-    let N = normalize(geomNormal);
+    let N = safeNormalize(geomNormal, vec3<f32>(0.0, 1.0, 0.0));
     let orthoT = tangent.xyz - N * dot(N, tangent.xyz);
     let orthoLenSq = dot(orthoT, orthoT);
     if (abs(tangent.w) > 0.001 && orthoLenSq > 1e-6) {
         let T = orthoT * inverseSqrt(orthoLenSq);
-        let B = normalize(cross(N, T) * sign(tangent.w));
+        let B = safeNormalize(cross(N, T) * sign(tangent.w), vec3<f32>(0.0, 0.0, 1.0));
         return mat3x3<f32>(T, B, N);
     }
     let dp2perp = cross(dp2, N);
@@ -123,11 +131,11 @@ fn getTBN(worldPos : vec3<f32>, geomNormal : vec3<f32>, uv : vec2<f32>, tangent 
     let maxLenSq = max(dot(T, T), dot(B, B));
     if (maxLenSq > 1e-18) {
         let invmax = inverseSqrt(maxLenSq);
-        return mat3x3<f32>(normalize(T * invmax), normalize(B * invmax), N);
+        return mat3x3<f32>(safeNormalize(T * invmax, vec3<f32>(1.0, 0.0, 0.0)), safeNormalize(B * invmax, vec3<f32>(0.0, 0.0, 1.0)), N);
     }
     let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.999);
-    let fallbackT = normalize(cross(up, N));
-    let fallbackB = normalize(cross(N, fallbackT));
+    let fallbackT = safeNormalize(cross(up, N), vec3<f32>(1.0, 0.0, 0.0));
+    let fallbackB = safeNormalize(cross(N, fallbackT), vec3<f32>(0.0, 0.0, 1.0));
     return mat3x3<f32>(fallbackT, fallbackB, N);
 }
 
@@ -257,7 +265,7 @@ fn tonemapKhronosPbrNeutral(color : vec3<f32>) -> vec3<f32> {
     var c = color - offset;
     let peak = max(c.r, max(c.g, c.b));
     if (peak < startCompression) {
-        return color;
+        return c;
     }
     let d = 1.0 - startCompression;
     let newPeak = 1.0 - d * d / (peak + d - startCompression);
@@ -290,11 +298,12 @@ fn calculateRainRipples(pos : vec2<f32>, time : f32) -> vec3<f32> {
             let center = g + vec2<f32>(0.5) + vec2<f32>(sin(h * 6.28), cos(h * 6.28)) * 0.25;
             let d = length(fuv - center);
             let wave = sin(d * 24.0 - t * 14.0) * exp(-d * 4.5) * (1.0 - t);
-            let dir = normalize(fuv - center + 1e-4);
+            let deltaUv = fuv - center;
+            let dir = select(vec2<f32>(1.0, 0.0), deltaUv * inverseSqrt(dot(deltaUv, deltaUv)), dot(deltaUv, deltaUv) > 1e-8);
             rippleVec = rippleVec + dir * wave * 0.5;
         }
     }
-    return normalize(vec3<f32>(rippleVec, 1.0));
+    return safeNormalize(vec3<f32>(rippleVec, 1.0), vec3<f32>(0.0, 0.0, 1.0));
 }
 
 // Volumetric atmospheric rain streaks
@@ -562,13 +571,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     }
 
     // 1. Initial Geometry Normal & Orthonormal TBN Basis
-    var geomNormal = in.normal;
-    if (dot(geomNormal, geomNormal) > 0.0001) {
-        geomNormal = normalize(geomNormal);
-    } else {
-        geomNormal = vec3<f32>(0.0, 1.0, 0.0);
-    }
-    let V = normalize(ubo.cameraPos.xyz - in.worldPos);
+    var geomNormal = safeNormalize(in.normal, vec3<f32>(0.0, 1.0, 0.0));
+    let V = safeNormalize(ubo.cameraPos.xyz - in.worldPos, vec3<f32>(0.0, 0.0, 1.0));
     if (!frontFacing || (ubo.flags.z != 0u && dot(geomNormal, V) < 0.0)) {
         geomNormal = -geomNormal;
     }
@@ -592,7 +596,7 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         let isNormalMapped = (ubo.flags.x & 4u) != 0u;
         let effPomScale = select(pomScale, pomScale * 0.14, isNormalMapped);
         baseRawUv = parallaxOcclusionMapping(in.uv, V_tangent, rawDuv1, rawDuv2, effPomScale);
-        let L0_tangent = invTBN * normalize(ubo.lightDir.xyz);
+        let L0_tangent = invTBN * safeNormalize(ubo.lightDir.xyz, vec3<f32>(0.0, 1.0, 0.0));
         pomShadow = computeParallaxShadow(baseRawUv, L0_tangent, rawDuv1, rawDuv2, effPomScale);
     }
 
@@ -640,8 +644,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         if ((ubo.flags.x & 4u) != 0u) { // HasNormalTex
             let normalSample = normTexSample.xyz * 2.0 - 1.0;
             let totalScale = ubo.pbrFactors.z * bumpScale;
-            let tangentNormal = normalize(vec3<f32>(normalSample.xy * totalScale, normalSample.z));
-            N = normalize(TBN * tangentNormal);
+            let tangentNormal = safeNormalize(vec3<f32>(normalSample.xy * totalScale, normalSample.z), vec3<f32>(0.0, 0.0, 1.0));
+            N = safeNormalize(TBN * tangentNormal, geomNormal);
         } else if ((ubo.flags.x & 1u) != 0u || (ubo.flags.x & 16u) != 0u) {
             // Surface Gradient Bump Mapping from BaseColor Luminance and Occlusion Cavity
             var dHdU : f32 = 0.0;
@@ -673,8 +677,8 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
             }
 
             let bumpStrength = 2.0 * bumpScale;
-            let tangentBump = normalize(vec3<f32>(-dHdU * bumpStrength, -dHdV * bumpStrength, 1.0));
-            N = normalize(TBN * tangentBump);
+            let tangentBump = safeNormalize(vec3<f32>(-dHdU * bumpStrength, -dHdV * bumpStrength, 1.0), vec3<f32>(0.0, 0.0, 1.0));
+            N = safeNormalize(TBN * tangentBump, geomNormal);
         }
     }
 
@@ -691,11 +695,11 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
         // Rain droplet ripples on upward-facing surfaces
         let rippleTan = calculateRainRipples(in.uv * 5.0 + in.worldPos.xz * 2.5, weatherTime);
         let rippleWeight = smoothstep(0.15, 0.75, geomNormal.y) * clamp(weatherIntensity * 0.55, 0.0, 0.65);
-        N = normalize(mix(N, TBN * rippleTan, rippleWeight));
+        N = safeNormalize(mix(N, TBN * rippleTan, rippleWeight), geomNormal);
     } else if (weatherMode == 2.0 && weatherIntensity > 0.001 && geomNormal.y > 0.2) {
         // Snow settles and flattens crevices upward
         let snowAccum = smoothstep(0.2, 0.75, geomNormal.y) * clamp(weatherIntensity, 0.0, 1.5);
-        N = normalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6));
+        N = safeNormalize(mix(N, vec3<f32>(0.0, 1.0, 0.0), snowAccum * 0.6), geomNormal);
     }
 
     // 6. Metallic & Roughness with Micro-Roughness Relief
@@ -759,14 +763,14 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     let diurnalAmbientScale = evaluateDiurnalAmbientScale(solarElev);
 
     // Light 0: Sun / Moon Key Light
-    let L0 = normalize(ubo.lightDir.xyz);
+    let L0 = safeNormalize(ubo.lightDir.xyz, vec3<f32>(0.0, 1.0, 0.0));
     let NdotL0 = max(dot(N, L0), 0.0);
     let geomNdotL0 = max(dot(geomNormal, L0), 0.0);
     let horizon0 = clamp(geomNdotL0 * 3.0, 0.0, 1.0);
     let light0Shadow = pomShadow * horizon0;
 
     if (NdotL0 > 0.0 && light0Shadow > 0.001) {
-        let H0 = normalize(L0 + V);
+        let H0 = safeNormalize(L0 + V, N);
         let NdotH0 = max(dot(N, H0), 0.0);
         let VdotH0 = max(dot(V, H0), 0.0);
 
@@ -783,13 +787,13 @@ fn fs_main(in : VertexOutput, @builtin(front_facing) frontFacing : bool) -> @loc
     }
 
     // Light 1: Cool Sky Fill Light
-    let L1 = normalize(vec3<f32>(-L0.x * 0.7, 0.5, -L0.z * 0.7));
+    let L1 = safeNormalize(vec3<f32>(-L0.x * 0.7, 0.5, -L0.z * 0.7), vec3<f32>(0.0, 1.0, 0.0));
     let NdotL1 = max(dot(N, L1), 0.0);
     let geomNdotL1 = max(dot(geomNormal, L1), 0.0);
     let horizon1 = clamp(geomNdotL1 * 3.0, 0.0, 1.0);
 
     if (NdotL1 > 0.0 && horizon1 > 0.001) {
-        let H1 = normalize(L1 + V);
+        let H1 = safeNormalize(L1 + V, N);
         let NdotH1 = max(dot(N, H1), 0.0);
         let VdotH1 = max(dot(V, H1), 0.0);
 

@@ -78,7 +78,6 @@ private:
     size_t aabbFrameByteOffset_{0};
 
     std::vector<AabbVertex> batchedAabbVertices_{};
-    std::vector<AabbVertex> cachedSceneAabbVertices_{};
 };
 
 } // namespace bgl::gpu

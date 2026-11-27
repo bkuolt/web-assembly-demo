@@ -99,7 +99,7 @@ fn cs_atrous_16(@builtin(global_invocation_id) gid : vec3<u32>) {
     }
 
     let cNR = textureLoad(gbufferNormalRoughness, fullPx, 0);
-    let centerN = normalize(cNR.xyz);
+    let centerN = rtSafeNormalize(cNR.xyz, vec3<f32>(0.0, 1.0, 0.0));
     let centerRough = cNR.w;
     let stride = max(i32(ubo.params3.w), 1);
 
@@ -126,7 +126,7 @@ fn cs_atrous_16(@builtin(global_invocation_id) gid : vec3<u32>) {
                 continue;
             }
             let sNR = textureLoad(gbufferNormalRoughness, sFullPx, 0);
-            let sN = normalize(sNR.xyz);
+            let sN = rtSafeNormalize(sNR.xyz, vec3<f32>(0.0, 1.0, 0.0));
             let nW = pow(max(dot(centerN, sN), 0.0), 48.0);
             let dW = exp(-abs(centerDepth - sDepth) * 450.0);
             let rW = exp(-abs(centerRough - sNR.w) * 16.0);

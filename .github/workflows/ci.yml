@@ -38,7 +38,6 @@ jobs:
         node --check web/app.js
         node --check web/gltf_worker.js
         node tests/test_web_unit.js
-        node tests/test_webgpu_path.js
 
   code-quality:
     name: Code Formatting & Clang-Tidy Quality
@@ -117,6 +116,7 @@ jobs:
           --export=bgl_gamepad_state \
           /tmp/wasm_bridge.o -o web/dist/bgl_engine.wasm
         node -e "const fs = require('fs'); const m = new WebAssembly.Module(fs.readFileSync('web/dist/bgl_engine.wasm')); const imp = WebAssembly.Module.imports(m); if (imp.length !== 1 || imp[0].module !== 'env' || imp[0].name !== 'memory') throw new Error('Unexpected WASM imports');"
+        node tests/test_webgpu_path.js
 
     - name: Package Minimal Web App
       run: |
@@ -210,12 +210,13 @@ jobs:
 
     - name: Package Native Binaries
       run: |
-        mkdir -p dist-native/assets/fonts
-        cp -f build/Release/bgl_viewer dist-native/
-        cp -f build/Release/bgl_unit_tests dist-native/
-        cp -f build/Release/libbgl_*.so dist-native/
-        cp -f third_party/wgpu-native/lib/libwgpu_native.so dist-native/
-        if [ -d assets/fonts ]; then cp -rf assets/fonts/* dist-native/assets/fonts/; fi
+        rm -rf dist-native
+        cmake --install build/Release --prefix dist-native
+        cp -f build/Release/bgl_unit_tests dist-native/bin/
+        if [ -f assets/ToyCar.glb ]; then
+          mkdir -p dist-native/bin/assets
+          cp -f assets/ToyCar.glb dist-native/bin/assets/
+        fi
         cp -f README.md CHANGELOG.md dist-native/
 
     - name: Upload Build Artifacts

@@ -38,12 +38,12 @@ fn cs_rt_shadows(@builtin(global_invocation_id) gid : vec3<u32>) {
 
     let uv = (vec2<f32>(fullPx) + vec2<f32>(0.5)) / vec2<f32>(fullDims);
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
-    let N = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
+    let N = rtSafeNormalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz, vec3<f32>(0.0, 1.0, 0.0));
     let viewDist = length(worldPos - ubo.cameraPos.xyz);
     let origin = worldPos + N * clamp(0.0002 + viewDist * 0.0005, 0.0002, 0.02);
 
     var rng = rtPcgHash(gid.x + gid.y * 4099u + u32(ubo.cameraPos.w) * 16777619u);
-    let sunL = normalize(ubo.sunDir.xyz);
+    let sunL = rtSafeNormalize(ubo.sunDir.xyz, vec3<f32>(0.35, 1.0, 0.25));
     let softness = clamp(ubo.sunDir.w, 0.0, 0.15);
 
     var sunShadow = 1.0;
@@ -57,7 +57,7 @@ fn cs_rt_shadows(@builtin(global_invocation_id) gid : vec3<u32>) {
             let basis = rtBuildOrthonormalBasis(sunL);
             let diskR = sqrt(u1) * softness;
             let diskA = u2 * 6.2831853;
-            let jitterDir = normalize(sunL + basis[0] * (diskR * cos(diskA)) + basis[1] * (diskR * sin(diskA)));
+            let jitterDir = rtSafeNormalize(sunL + basis[0] * (diskR * cos(diskA)) + basis[1] * (diskR * sin(diskA)), sunL);
             if (rtTraceAnyHit(origin, jitterDir, 0.001, 2000.0)) {
                 sunShadow = 0.0;
             }
@@ -70,7 +70,7 @@ fn cs_rt_shadows(@builtin(global_invocation_id) gid : vec3<u32>) {
     for (var i : u32 = 0u; i < pCount; i = i + 1u) {
         let lp = ubo.lightsPos[i];
         let lType = u32(lp.w + 0.5);
-        var toL = normalize(lp.xyz);
+        var toL = rtSafeNormalize(lp.xyz, vec3<f32>(0.0, 1.0, 0.0));
         var maxDist = 2000.0;
         if (lType != 0u) {
             let delta = lp.xyz - origin;

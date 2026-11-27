@@ -38,7 +38,7 @@ fn cs_rt_ao(@builtin(global_invocation_id) gid : vec3<u32>) {
 
     let uv = (vec2<f32>(fullPx) + vec2<f32>(0.5)) / vec2<f32>(fullDims);
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
-    let N = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
+    let N = rtSafeNormalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz, vec3<f32>(0.0, 1.0, 0.0));
     let viewDist = length(worldPos - ubo.cameraPos.xyz);
     let origin = worldPos + N * clamp(0.0002 + viewDist * 0.0004, 0.0002, 0.02);
 

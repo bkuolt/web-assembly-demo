@@ -18,12 +18,16 @@ cp -f web/style.css "${OUT_DIR}/style.css"
 cp -f web/app.js "${OUT_DIR}/app.js"
 cp -f web/gltf_worker.js "${OUT_DIR}/gltf_worker.js"
 cp -rf web/js/* "${OUT_DIR}/js/"
-if [[ -d web/dist ]] && [[ -n "$(ls -A web/dist 2>/dev/null)" ]]; then
-  cp -rf web/dist/* "${OUT_DIR}/dist/"
+if [[ ! -f "web/dist/bgl_engine.wasm" ]]; then
+  echo "Required WebAssembly artifact missing: web/dist/bgl_engine.wasm" >&2
+  exit 1
 fi
-if [[ -d web/assets ]] && [[ -n "$(ls -A web/assets 2>/dev/null)" ]]; then
-  cp -rf web/assets/* "${OUT_DIR}/assets/"
+cp -rf web/dist/* "${OUT_DIR}/dist/"
+if [[ ! -d web/assets ]] || [[ -z "$(ls -A web/assets 2>/dev/null)" ]]; then
+  echo "Required web assets directory missing or empty: web/assets" >&2
+  exit 1
 fi
+cp -rf web/assets/* "${OUT_DIR}/assets/"
 
 # 2. Compatibility redirect for legacy /web/index.html subpath (avoids duplicating 60MB of GLB assets)
 cat > "${OUT_DIR}/web/index.html" <<'EOF'

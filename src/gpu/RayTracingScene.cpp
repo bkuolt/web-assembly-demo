@@ -257,8 +257,7 @@ void RayTracingScene::BuildFromScene(const scene::Scene& scene) {
         if (!p || p->vertices.empty()) {
             return;
         }
-        if (primSliceMap_.find(p) == primSliceMap_.end()) {
-            primSliceMap_.emplace(p, PrimitiveBlasSlice{});
+        if (primSliceMap_.try_emplace(p, PrimitiveBlasSlice{}).second) {
             uniquePrims.push_back(p);
         }
     };
@@ -281,6 +280,9 @@ void RayTracingScene::BuildFromScene(const scene::Scene& scene) {
     }
 
     if (uniquePrims.empty()) {
+        ReleaseGpuBuffers();
+        lastScene_ = nullptr;
+        lastTransformVersion_ = ~uint64_t{0};
         return;
     }
 

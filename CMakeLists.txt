@@ -133,12 +133,14 @@ list(PREPEND CMAKE_PREFIX_PATH
 find_package(fastgltf REQUIRED CONFIG)
 find_package(glm REQUIRED CONFIG)
 find_package(spdlog REQUIRED CONFIG)
-find_package(miniaudio REQUIRED CONFIG)
+if(BGL_ENABLE_AUDIO AND NOT EMSCRIPTEN)
+    find_package(miniaudio REQUIRED CONFIG)
+endif()
 find_package(freetype REQUIRED CONFIG)
 find_package(harfbuzz REQUIRED CONFIG)
 
 if(BGL_ENABLE_PNG)
-    find_package(PNG REQUIRED)
+    find_package(PNG REQUIRED CONFIG)
 endif()
 if(BGL_ENABLE_JPEG)
     find_package(libjpeg-turbo REQUIRED CONFIG)
@@ -188,15 +190,16 @@ if(NOT EMSCRIPTEN)
     endif()
     message(STATUS "Verified libwgpu_native.so SHA256 (${_WGPU_ACTUAL_SHA256})")
 
-    # Imported Target for wgpu-native
-    add_library(wgpu_native SHARED IMPORTED GLOBAL)
-    set_target_properties(wgpu_native PROPERTIES
-        IMPORTED_LOCATION "${_WGPU_LIB}"
-        IMPORTED_LOCATION_DEBUG "${_WGPU_LIB}"
-        IMPORTED_LOCATION_RELEASE "${_WGPU_LIB}"
-        IMPORTED_LOCATION_RELWITHDEBINFO "${_WGPU_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include"
+    # Interface Target for wgpu-native using -l:libwgpu_native.so so DT_NEEDED records only
+    # the filename (prebuilt libwgpu_native.so lacks DT_SONAME, which otherwise embeds host paths).
+    add_library(wgpu_native INTERFACE)
+    target_include_directories(wgpu_native SYSTEM INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include"
     )
+    target_link_directories(wgpu_native INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib"
+    )
+    target_link_libraries(wgpu_native INTERFACE "$<LINK_ONLY:-l:libwgpu_native.so>")
 endif()
 
 # Diagnostic Status Report
@@ -312,7 +315,10 @@ add_library(bgl::gpu ALIAS bgl_gpu)
 add_library(bgl_audio ${BGL_LIB_TYPE}
     src/audio/SoundEngine.cpp
 )
-target_link_libraries(bgl_audio PUBLIC bgl_core miniaudio::miniaudio)
+target_link_libraries(bgl_audio PUBLIC bgl_core)
+if(BGL_ENABLE_AUDIO AND NOT EMSCRIPTEN)
+    target_link_libraries(bgl_audio PUBLIC miniaudio::miniaudio)
+endif()
 add_library(bgl::audio ALIAS bgl_audio)
 
 # ==============================================================================
@@ -423,38 +429,37 @@ target_link_libraries(bgl_engine PUBLIC
 add_library(bgl::engine ALIAS bgl_engine)
 
 # ==============================================================================
-# 7. libbgl_viewer_lib
+# 7. libbgl_viewer_lib, Viewer Executable & Native Test Targets
 # ==============================================================================
-add_library(bgl_viewer_lib ${BGL_LIB_TYPE}
-    apps/viewer/Application.cpp
-    apps/viewer/ApplicationInput.cpp
-    apps/viewer/ApplicationModelLoader.cpp
-    apps/viewer/ApplicationUI.cpp
-    apps/viewer/CommandLine.cpp
-)
-target_include_directories(bgl_viewer_lib PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/apps>
-)
-target_link_libraries(bgl_viewer_lib PUBLIC
-    bgl_engine
-    bgl_scene
-    bgl_text
-    bgl_ui
-)
+if(NOT EMSCRIPTEN)
+    add_library(bgl_viewer_lib ${BGL_LIB_TYPE}
+        apps/viewer/Application.cpp
+        apps/viewer/ApplicationInput.cpp
+        apps/viewer/ApplicationModelLoader.cpp
+        apps/viewer/ApplicationUI.cpp
+        apps/viewer/CommandLine.cpp
+    )
+    target_include_directories(bgl_viewer_lib PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/apps>
+    )
+    target_link_libraries(bgl_viewer_lib PUBLIC
+        bgl_engine
+        bgl_scene
+        bgl_text
+        bgl_ui
+    )
 
-# ==============================================================================
-# 8. Native Viewer Executable
-# ==============================================================================
-add_executable(bgl_viewer
-    apps/viewer/main.cpp
-    apps/viewer/WebExports.cpp
-)
-target_link_libraries(bgl_viewer PRIVATE bgl_viewer_lib)
+    add_executable(bgl_viewer
+        apps/viewer/main.cpp
+        apps/viewer/WebExports.cpp
+    )
+    target_link_libraries(bgl_viewer PRIVATE bgl_viewer_lib)
+endif()
 
 # ==============================================================================
 # 9. Unit Testing Suite (GTest)
 # ==============================================================================
-if(BGL_BUILD_TESTING)
+if(BGL_BUILD_TESTING AND NOT EMSCRIPTEN)
     enable_testing()
     find_package(GTest REQUIRED CONFIG)
     add_executable(bgl_unit_tests
@@ -540,6 +545,12 @@ endif()
 # 10. Fuzzing Targets (libFuzzer)
 # ==============================================================================
 if(BGL_BUILD_FUZZING)
+    if(EMSCRIPTEN OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "BGL_BUILD_FUZZING=ON requires native Clang (libFuzzer).")
+    endif()
+    target_compile_options(bgl_common_settings INTERFACE -fsanitize=fuzzer-no-link,address)
+    target_link_options(bgl_common_settings INTERFACE -fsanitize=address)
+
     add_executable(fuzz_texture_decoder tests/fuzz/fuzz_texture_decoder.cpp)
     target_link_libraries(fuzz_texture_decoder PRIVATE bgl_scene)
     target_compile_options(fuzz_texture_decoder PRIVATE -fsanitize=fuzzer,address)
@@ -579,9 +590,7 @@ endif()
 # ==============================================================================
 include(GNUInstallDirs)
 
-install(TARGETS
-    bgl_viewer
-    bgl_viewer_lib
+set(_BGL_INSTALL_TARGETS
     bgl_engine
     bgl_ui
     bgl_text
@@ -589,9 +598,29 @@ install(TARGETS
     bgl_audio
     bgl_gpu
     bgl_core
+)
+if(TARGET bgl_viewer_lib)
+    list(PREPEND _BGL_INSTALL_TARGETS bgl_viewer_lib)
+endif()
+if(TARGET bgl_viewer)
+    list(PREPEND _BGL_INSTALL_TARGETS bgl_viewer)
+endif()
+
+install(TARGETS ${_BGL_INSTALL_TARGETS}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/bgl"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Camera.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Log.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Sprite.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Types.hpp"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/core"
 )
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so")

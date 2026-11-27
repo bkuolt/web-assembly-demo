@@ -106,6 +106,10 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     ubDesc.label = gpu::ToWgpuStringView("TextUniformBuffer");
     uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+    if (!uniformBuffer_) {
+        Shutdown();
+        return std::unexpected("Failed to create TextRenderer uniform buffer");
+    }
 
     // 3. Bind Group Layout
     std::array<WGPUBindGroupLayoutEntry, 3> bglEntries{};
@@ -133,12 +137,20 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     bglDesc.entryCount = bglEntries.size();
     bglDesc.entries = bglEntries.data();
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+    if (!bindGroupLayout_) {
+        Shutdown();
+        return std::unexpected("Failed to create TextRenderer bind group layout");
+    }
 
     // 4. Pipeline Layout
     WGPUPipelineLayoutDescriptor plDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     plDesc.bindGroupLayoutCount = 1;
     plDesc.bindGroupLayouts = bindGroupLayout_.AddressOf();
     gpu::PipelineLayoutHandle pipelineLayout{wgpuDeviceCreatePipelineLayout(device_, &plDesc)};
+    if (!pipelineLayout) {
+        Shutdown();
+        return std::unexpected("Failed to create TextRenderer pipeline layout");
+    }
 
     // 5. Vertex Layout
     std::array<WGPUVertexAttribute, 3> vertAttrs{};
@@ -197,6 +209,10 @@ core::Result<void> TextRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
     rpDesc.multisample.alphaToCoverageEnabled = WGPU_FALSE;
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &rpDesc);
+    if (!pipeline_) {
+        Shutdown();
+        return std::unexpected("Failed to create TextRenderer render pipeline");
+    }
     RebuildBindGroup();
 
     BGL_LOG_INFO("TextRenderer initialized: format={}, sampleCount={}", static_cast<int>(surfaceFormat_), sampleCount_);

@@ -51,6 +51,11 @@ struct RtHit {
 @group(1) @binding(4) var<storage, read> rtVertices : array<RtVertex>;
 @group(1) @binding(5) var<storage, read> rtMaterials : array<RtMaterial>;
 
+fn rtSafeNormalize(v : vec3<f32>, fallback : vec3<f32>) -> vec3<f32> {
+    let lenSq = dot(v, v);
+    return select(fallback, v * inverseSqrt(lenSq), lenSq > 1e-12);
+}
+
 fn rtSafeInvDir(d : vec3<f32>) -> vec3<f32> {
     let sx = select(-1e8, 1e8, d.x >= 0.0);
     let sy = select(-1e8, 1e8, d.y >= 0.0);
@@ -273,7 +278,7 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
             inst.invModel[1].xyz,
             inst.invModel[2].xyz
         ));
-        var worldN = normalize(normalMat * localN);
+        var worldN = rtSafeNormalize(normalMat * localN, vec3<f32>(0.0, 1.0, 0.0));
         if (dot(worldN, rd) > 0.0) {
             worldN = -worldN;
         }
@@ -422,10 +427,11 @@ fn rtRand01(state : ptr<function, u32>) -> f32 {
 }
 
 fn rtBuildOrthonormalBasis(n : vec3<f32>) -> mat3x3<f32> {
-    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(n.z) < 0.999);
-    let t = normalize(cross(up, n));
-    let b = cross(n, t);
-    return mat3x3<f32>(t, b, n);
+    let sn = rtSafeNormalize(n, vec3<f32>(0.0, 0.0, 1.0));
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sn.z) < 0.999);
+    let t = rtSafeNormalize(cross(up, sn), vec3<f32>(1.0, 0.0, 0.0));
+    let b = cross(sn, t);
+    return mat3x3<f32>(t, b, sn);
 }
 
 fn rtSampleCosineHemisphere(u1 : f32, u2 : f32, n : vec3<f32>) -> vec3<f32> {
@@ -434,7 +440,7 @@ fn rtSampleCosineHemisphere(u1 : f32, u2 : f32, n : vec3<f32>) -> vec3<f32> {
     let x = r * cos(phi);
     let y = r * sin(phi);
     let z = sqrt(max(0.0, 1.0 - u1));
-    return normalize(rtBuildOrthonormalBasis(n) * vec3<f32>(x, y, z));
+    return rtSafeNormalize(rtBuildOrthonormalBasis(n) * vec3<f32>(x, y, z), vec3<f32>(0.0, 0.0, 1.0));
 }
 
 fn rtWorldPosFromDepth(uv : vec2<f32>, ndcDepth : f32, invViewProj : mat4x4<f32>) -> vec3<f32> {

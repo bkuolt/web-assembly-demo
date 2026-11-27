@@ -8,7 +8,9 @@
 #include "engine/GuiInternal.hpp"
 #include "engine/InputBackend.hpp"
 #include <algorithm>
+#include <cmath>
 #include <string>
+#include <type_traits>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <SDL2/SDL.h>
@@ -18,7 +20,14 @@ namespace bgl {
 
 void Engine::Impl::ApplySettings() {
     const bool force = !settingsApplied_;
-    auto changed = [&](const auto& a, const auto& b) { return force || a != b; };
+    auto changed = [&](const auto& a, const auto& b) {
+        if constexpr (std::is_floating_point_v<std::decay_t<decltype(a)>>) {
+            if (!std::isfinite(a)) {
+                return false;
+            }
+        }
+        return force || a != b;
+    };
     const RenderSettings& n = settings_;
     const RenderSettings& p = applied_;
 
@@ -125,6 +134,8 @@ bool Engine::Impl::PollEvents() {
     guiInput_.mouseReleased = false;
     guiInput_.wheelDelta = 0.0f;
 
+    std::string pendingDropUri{};
+
     if (nativeWindow_) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -142,6 +153,8 @@ bool Engine::Impl::PollEvents() {
                     if (resizeCb_) {
                         resizeCb_(w, h);
                     }
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    guiInput_.mouseDown = false;
                 }
             } else if (event.type == SDL_MOUSEBUTTONDOWN) {
                 guiInput_.mouseX = static_cast<float>(event.button.x);
@@ -161,22 +174,27 @@ bool Engine::Impl::PollEvents() {
                 guiInput_.mouseX = static_cast<float>(event.motion.x);
                 guiInput_.mouseY = static_cast<float>(event.motion.y);
             } else if (event.type == SDL_MOUSEWHEEL) {
-                guiInput_.wheelDelta += static_cast<float>(event.wheel.y);
+                const float sign = (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) ? -1.0f : 1.0f;
+                guiInput_.wheelDelta += static_cast<float>(event.wheel.y) * sign;
             } else if (event.type == SDL_DROPFILE || event.type == SDL_DROPTEXT) {
                 char* droppedStr{event.drop.file};
                 if (droppedStr) {
                     const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
                     if (!sanitized.empty()) {
-                        if (dropCb_) {
-                            dropCb_(sanitized);
-                        }
-                        if (config_.loadDroppedFiles) {
-                            if (auto loadRes = LoadSceneFromUri(sanitized); !loadRes) {
-                                BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", sanitized, loadRes.error());
-                            }
-                        }
+                        pendingDropUri = sanitized;
                     }
                     SDL_free(droppedStr);
+                }
+            }
+        }
+        if (!pendingDropUri.empty()) {
+            if (dropCb_) {
+                dropCb_(pendingDropUri);
+            }
+            if (config_.loadDroppedFiles) {
+                if (auto loadRes = LoadSceneFromUri(pendingDropUri); !loadRes) {
+                    BGL_LOG_ERROR("Failed to load dropped asset/URL '{}': {}", core::SanitizeForLog(pendingDropUri),
+                                  core::SanitizeForLog(loadRes.error()));
                 }
             }
         }
@@ -195,7 +213,7 @@ void Engine::Impl::Update(float deltaTime) {
 
     ApplySettings();
 
-    const float safeDt = std::clamp(deltaTime, 0.0f, 0.25f);
+    const float safeDt = std::isfinite(deltaTime) ? std::clamp(deltaTime, 0.0f, 0.25f) : 0.0f;
     lastDeltaTime_ = safeDt;
     if (config_.defaultCameraControls) {
         const float dist = camera_.GetDistance();
@@ -262,7 +280,7 @@ void Engine::Impl::OnRenderOverlay(WGPURenderPassEncoder swapchainPass) {
     gui_.Render(swapchainPass, gpuContext_.GetWidth(), gpuContext_.GetHeight());
 }
 
-void Engine::Impl::Render() {
+void Engine::Impl::RenderFrame() {
     ApplySettings();
     EngineCore::Render();
 }

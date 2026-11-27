@@ -598,6 +598,12 @@ private:
                            const PanelOptions& options, bool standalone);
     bool EmitRadioRow(uint64_t id, const UiRect& rect, std::string_view label, bool selected);
 
+    [[nodiscard]] static constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
+        return glm::vec4{c.r, c.g, c.b, alpha};
+    }
+    core::Result<void> ApplyLoadedFontSlot(std::string_view slotName, std::unique_ptr<text::FontAtlas> newAtlas,
+                                           uint32_t clampedPx);
+
     void EnsureGpuBuffers(size_t vertexCount, size_t indexCount);
     void ReleaseDynamicBuffers() noexcept;
     void SyncFontBindGroup(FontSlot& slot);
@@ -713,8 +719,25 @@ private:
         bool hasBorder{true};
     };
 
+    struct ActiveScroll {
+        uint64_t id{0};
+        UiRect rect{};
+        UiRect effectiveClip{};
+        float savedCursorX{0.0f};
+        float savedCursorY{0.0f};
+        float savedContentWidth{0.0f};
+        float contentStartY{0.0f};
+        float appliedOffset{0.0f};
+    };
+
+    struct HoverEntry {
+        float mix{0.0f};
+        uint64_t lastFrame{0};
+    };
+
     // Persistent widget & hover animation states
-    std::unordered_map<uint64_t, float> hoverAmounts_{};
+    uint64_t frameIndex_{0};
+    std::unordered_map<uint64_t, HoverEntry> hoverAmounts_{};
     std::unordered_map<uint64_t, float> toggleAmounts_{};
     std::unordered_map<uint64_t, glm::vec2> windowOffsets_{};
     std::unordered_map<uint64_t, bool> collapsingHeaders_{};
@@ -734,18 +757,12 @@ private:
     uint64_t activeColorSvId_{0};
     uint64_t activeColorHueId_{0};
 
-    // Active scroll-area state
-    bool inScrollArea_{false};
-    uint64_t activeScrollId_{0};
-    UiRect scrollRect_{};
-    float scrollSavedCursorX_{0.0f};
-    float scrollSavedCursorY_{0.0f};
-    float scrollSavedContentW_{0.0f};
-    float scrollContentStartY_{0.0f};
-    float scrollAppliedOffset_{0.0f};
+    // Nested scroll-area stack
+    std::vector<ActiveScroll> scrollStack_{};
 
     // Persistent popup states (dropdown / color picker / modals / loading screen)
     uint64_t openDropdownId_{0};
+    bool openDropdownSeenThisFrame_{false};
     bool dropdownToggledThisFrame_{false};
     bool popupConsumedInputThisFrame_{false};
     uint64_t activeDropdownScrollId_{0};
@@ -756,6 +773,7 @@ private:
     bool hasPendingOverlay_{false};
 
     uint64_t openColorId_{0};
+    bool openColorSeenThisFrame_{false};
     bool colorToggledThisFrame_{false};
     PendingColorOverlay pendingColorOverlay_{};
     bool hasPendingColorOverlay_{false};

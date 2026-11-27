@@ -60,14 +60,14 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray,
 
         // Hierarchical broad-phase AABB test for entire scene node
         float nt0{0.0f}, nt1{0.0f};
-        if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !node->worldAABB.Intersects(ray, nt0, nt1)) {
+        if (node->worldAABB.IsValid() && !node->worldAABB.Intersects(ray, nt0, nt1)) {
             return;
         }
 
         for (const auto& prim : node->GetPrimitives()) {
             float t0{0.0f}, t1{0.0f};
             const core::AABB worldPrimAABB{prim.boundingBox.Transformed(worldMat)};
-            if (worldPrimAABB.minBound.x <= worldPrimAABB.maxBound.x && !worldPrimAABB.Intersects(ray, t0, t1)) {
+            if (worldPrimAABB.IsValid() && !worldPrimAABB.Intersects(ray, t0, t1)) {
                 // Skip primitive if ray misses world-space AABB
                 continue;
             }

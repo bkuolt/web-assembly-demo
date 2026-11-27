@@ -265,6 +265,10 @@ void InstallCrashHandler() noexcept {
     if (g_installed.exchange(true)) {
         return;
     }
+    // Pre-warm execinfo symbol resolution outside signal context
+    void* warmupStack[2]{};
+    (void)::backtrace(warmupStack, 2);
+
     // 1. Allocate alternate signal stack to catch stack overflows safely
     if (!g_altStackMemory) {
         g_altStackMemory = std::malloc(kAltStackSize);
@@ -345,14 +349,10 @@ void PrintStackTrace(std::string_view reason) noexcept {
     if (signalType == 1) {
         std::abort();
     } else if (signalType == 2) {
-        volatile int zero = 0;
-        volatile int result = 100 / zero; // NOLINT(clang-analyzer-core.DivideZero)
-        (void)result;
+        ::raise(SIGFPE);
         std::abort();
     } else {
-        // Default: SIGSEGV (null pointer write)
-        volatile int* p = nullptr;
-        *p = 42; // NOLINT(clang-analyzer-core.NullDereference)
+        ::raise(SIGSEGV);
         std::abort();
     }
 }

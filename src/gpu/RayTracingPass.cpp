@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <unordered_set>
 
@@ -236,6 +237,10 @@ void RayTracingPass::RenderGBufferPass(WGPUCommandEncoder encoder, scene::Scene&
                                        const glm::mat4& viewProj, const glm::mat4& lightViewProj,
                                        uint32_t baseDrawFlags, uint64_t skinFrameId) {
 #if defined(BGL_PLATFORM_NATIVE)
+    if (!gbufferNormalRoughnessView_ || !gbufferAlbedoMetallicView_ || !gbufferDepthView_ || !gbufferPipeline_ ||
+        !gbufferBackCulledPipeline_) {
+        return;
+    }
     gbufferDrawsScratch_.clear();
     gbufferPerDrawScratch_.clear();
     gbufferInstanceTransformsScratch_.clear();
@@ -317,6 +322,9 @@ void RayTracingPass::RenderGBufferPass(WGPUCommandEncoder encoder, scene::Scene&
     if (RenderPassEncoderHandle pass{wgpuCommandEncoderBeginRenderPass(encoder, &rpDesc)}) {
         if (perDrawBg && sceneGlobalsBindGroup && gbufferInstanceBuffer_.GetBuffer()) {
             for (const auto& dc : gbufferDrawsScratch_) {
+                if (!dc.pipe) {
+                    continue;
+                }
                 const auto lod0 = dc.prim->GetLodSlice(0);
                 wgpuRenderPassEncoderSetPipeline(pass.Get(), dc.pipe);
                 wgpuRenderPassEncoderSetBindGroup(pass.Get(), 0, sceneGlobalsBindGroup, 0, nullptr);
@@ -489,6 +497,14 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
     if (config_.reflections && gbufferDepthView_ && reflTraceBg_) {
         EnsureResolutionTargets(viewportW, viewportH);
 
+        const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
+        const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
+        if (!rtSceneBg || (bindlessActive_ && !bindlessBg)) {
+            ResolveTimestampQueries(encoder);
+            prevViewProj_ = viewProj;
+            return;
+        }
+
         RtPassUniforms reflUbo{};
         PopulateUniformTemplate(reflUbo, nullptr, viewProj, cameraPos, sunDir, solarElev, envRotation, fullWidth_,
                                 fullHeight_);
@@ -498,8 +514,6 @@ void RayTracingPass::ExecutePostOpaque(WGPUCommandEncoder encoder, const RayTrac
 
         const uint32_t traceWgX = (traceWidth_ + 7u) / 8u;
         const uint32_t traceWgY = (traceHeight_ + 7u) / 8u;
-        const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
-        const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
 
         DispatchComputePass(encoder, reflPipeline_.Get(), reflTraceBg_.Get(), rtSceneBg, bindlessBg, 8u, traceWgX,
                             traceWgY, "Pass_RT_Reflections", 2u);
@@ -546,6 +560,12 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
 
     EnsureResolutionTargets(viewportW, viewportH);
 
+    const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
+    const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
+    if (!rtSceneBg || (bindlessActive_ && !bindlessBg)) {
+        return;
+    }
+
     const bool dirty = (&scene != lastPathScene_) || (scene.transformVersion_ != lastPathTransformVer_) ||
                        !MatricesClose(viewProj, lastPathViewProj_) || (glm::length(sunDir - lastPathSunDir_) > 1e-4f) ||
                        (std::abs(envRotation - lastPathEnvRot_) > 1e-4f) || (config_.pathBounces != lastPathBounces_);
@@ -568,8 +588,6 @@ void RayTracingPass::ExecutePathTrace(WGPUCommandEncoder encoder, const RayTraci
 
     const uint32_t fullWgX = (fullWidth_ + 7u) / 8u;
     const uint32_t fullWgY = (fullHeight_ + 7u) / 8u;
-    const WGPUBindGroup rtSceneBg = rtScene.GetSceneBindGroup();
-    const WGPUBindGroup bindlessBg = bindlessActive_ ? rtScene.GetBindlessTexturesBindGroup() : nullptr;
 
     timestampHasPrePass_ = false;
     timestampHasPostPass_ = true;
@@ -623,10 +641,10 @@ void RayTracingPass::PollGpuTimestamps() noexcept {
         return;
     }
 
-    auto* stateCopy = new std::shared_ptr<TimestampMapState>(timestampMapState_);
+    auto stateHolder = std::make_unique<std::shared_ptr<TimestampMapState>>(timestampMapState_);
     WGPUBufferMapCallbackInfo cb{};
     cb.mode = WGPUCallbackMode_AllowProcessEvents;
-    cb.userdata1 = stateCopy;
+    cb.userdata1 = stateHolder.release();
     cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {
         std::unique_ptr<std::shared_ptr<TimestampMapState>> holder{
             static_cast<std::shared_ptr<TimestampMapState>*>(ud1)};

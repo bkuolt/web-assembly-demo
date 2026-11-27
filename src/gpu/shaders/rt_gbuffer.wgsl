@@ -134,8 +134,8 @@ fn fs_gbuffer(in : GBufferVsOut) -> GBufferFsOut {
         discard;
     }
 
-    var geomN = normalize(in.normal);
-    let viewDir = normalize(sceneLighting.cameraPos.xyz - in.worldPos);
+    var geomN = safeNormalize(in.normal, vec3<f32>(0.0, 1.0, 0.0));
+    let viewDir = safeNormalize(sceneLighting.cameraPos.xyz - in.worldPos, vec3<f32>(0.0, 0.0, 1.0));
     if ((flags & 512u) != 0u && dot(geomN, viewDir) < 0.0) {
         geomN = -geomN;
     }
@@ -148,16 +148,16 @@ fn fs_gbuffer(in : GBufferVsOut) -> GBufferFsOut {
         var B = vec3<f32>(0.0, 1.0, 0.0);
         if (abs(in.tangent.w) > 0.001 && orthoLenSq > 1e-6) {
             T = orthoT * inverseSqrt(orthoLenSq);
-            B = normalize(cross(geomN, T) * sign(in.tangent.w));
+            B = safeNormalize(cross(geomN, T) * sign(in.tangent.w), vec3<f32>(0.0, 1.0, 0.0));
         } else {
             let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(geomN.y) < 0.999);
-            T = normalize(cross(up, geomN));
-            B = normalize(cross(geomN, T));
+            T = safeNormalize(cross(up, geomN), vec3<f32>(1.0, 0.0, 0.0));
+            B = safeNormalize(cross(geomN, T), vec3<f32>(0.0, 1.0, 0.0));
         }
         let tbn = mat3x3<f32>(T, B, geomN);
         let nTex = normSample.xyz * 2.0 - 1.0;
-        let scaledN = normalize(vec3<f32>(nTex.xy * matUbo.normalScale, nTex.z));
-        N = normalize(tbn * scaledN);
+        let scaledN = safeNormalize(vec3<f32>(nTex.xy * matUbo.normalScale, nTex.z), vec3<f32>(0.0, 0.0, 1.0));
+        N = safeNormalize(tbn * scaledN, geomN);
     }
 
     var roughness = matUbo.roughnessFactor;

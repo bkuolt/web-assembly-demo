@@ -54,7 +54,7 @@ void Engine::Update(float deltaTime) {
 }
 
 void Engine::Render() {
-    impl_->Render();
+    impl_->RenderFrame();
 }
 
 bool Engine::IsRunning() const noexcept {

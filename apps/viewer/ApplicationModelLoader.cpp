@@ -126,7 +126,7 @@ struct Application::AsyncLoadTask {
 Application::Application() = default;
 
 Application::~Application() {
-    Shutdown();
+    ShutdownImpl();
 }
 
 std::span<const ModelPresetEntry> Application::GetBuiltinModelPresets() noexcept {
@@ -158,7 +158,7 @@ std::string Application::ResolveModelPresetUri(const ModelPresetEntry& preset) {
 }
 
 void Application::SetLoadingSucceededState() {
-    loadingTitle_ = std::format("Loaded {}", currentModelName_);
+    loadingTitle_ = std::format("Loaded {}", core::SanitizeForLog(currentModelName_));
     loadingStatus_ = std::format("Ready: {} primitives, {} tex", totalPrimitives_,
                                  activeScene_ ? activeScene_->gpuTextures.size() : 0u);
     loadingTargetProgress_ = 1.0f;
@@ -168,8 +168,8 @@ void Application::SetLoadingSucceededState() {
 }
 
 void Application::SetLoadingFailedState(std::string_view titleName, std::string_view errorMsg, bool revertSelection) {
-    loadingTitle_ = std::format("Failed: {}", titleName);
-    loadingStatus_ = std::string{errorMsg};
+    loadingTitle_ = std::format("Failed: {}", core::SanitizeForLog(titleName));
+    loadingStatus_ = core::SanitizeForLog(errorMsg);
     loadingTargetProgress_ = 1.0f;
     loadingVisualProgress_ = 1.0f;
     loadingHasError_ = true;
@@ -231,7 +231,7 @@ void Application::LoadSceneFromUriAsync(std::string_view uri, std::string_view d
     state->SetProgress(0.02f, core::NetworkFetcher::IsHttpUrl(sanitizedUri) ? "Connecting to remote host..."
                                                                             : "Reading local glTF/GLB file...");
 
-    loadingTitle_ = std::format("Loading {}...", resolvedTitle);
+    loadingTitle_ = std::format("Loading {}...", core::SanitizeForLog(resolvedTitle));
     loadingStatus_ = state->GetStatus();
     loadingTargetProgress_ = 0.02f;
     loadingVisualProgress_ = 0.02f;
@@ -274,7 +274,7 @@ float Application::GetLoadingProgress() const noexcept {
     return activeLoad_ ? loadingVisualProgress_ : loadingTargetProgress_;
 }
 
-std::string Application::GetLoadingStatus() const {
+const std::string& Application::GetLoadingStatus() const noexcept {
     return loadingStatus_;
 }
 

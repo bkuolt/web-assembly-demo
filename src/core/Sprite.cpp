@@ -60,10 +60,13 @@ void ComputePixelRectUv(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t
         outMax = glm::vec2{1.0f, 1.0f};
         return;
     }
-    const float invW = 1.0f / static_cast<float>(texW);
-    const float invH = 1.0f / static_cast<float>(texH);
-    outMin = glm::vec2{static_cast<float>(x) * invW, static_cast<float>(y) * invH};
-    outMax = glm::vec2{static_cast<float>(x + w) * invW, static_cast<float>(y + h) * invH};
+    const double invW = 1.0 / static_cast<double>(texW);
+    const double invH = 1.0 / static_cast<double>(texH);
+    const double maxX = static_cast<double>(x) + static_cast<double>(w);
+    const double maxY = static_cast<double>(y) + static_cast<double>(h);
+    outMin =
+        glm::vec2{static_cast<float>(static_cast<double>(x) * invW), static_cast<float>(static_cast<double>(y) * invH)};
+    outMax = glm::vec2{static_cast<float>(maxX * invW), static_cast<float>(maxY * invH)};
 }
 
 void ApplyFlipUv(const glm::vec2& uvMin, const glm::vec2& uvMax, bool flipX, bool flipY, glm::vec2& outMin,
@@ -90,14 +93,15 @@ SpriteClip SpriteClip::FromGrid(std::string_view clipName, uint32_t cols, uint32
         return clip;
     }
 
-    const uint32_t totalCells = cols * rows;
-    if (startFrame >= totalCells) {
+    const uint64_t totalCells64 = static_cast<uint64_t>(cols) * static_cast<uint64_t>(rows);
+    if (totalCells64 > 65536u || startFrame >= totalCells64) {
         return clip;
     }
+    const uint32_t totalCells = static_cast<uint32_t>(totalCells64);
 
     const uint32_t avail = totalCells - startFrame;
     const uint32_t count = (frameCount == 0) ? avail : std::min(frameCount, avail);
-    const float frameDur = (fps > 1e-4f) ? (1.0f / fps) : 0.1f;
+    const float frameDur = (std::isfinite(fps) && fps > 1e-4f) ? (1.0f / fps) : 0.1f;
     clip.frames.reserve(count);
 
     for (uint32_t i = 0; i < count; ++i) {
@@ -115,7 +119,7 @@ SpriteClip SpriteClip::FromGrid(std::string_view clipName, uint32_t cols, uint32
 void SpriteClip::AddPixelFrame(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t texWidth, uint32_t texHeight,
                                float duration) {
     SpriteFrame f{};
-    f.duration = std::max(kMinFrameDuration, duration);
+    f.duration = std::isfinite(duration) ? std::max(kMinFrameDuration, duration) : kMinFrameDuration;
     ComputePixelRectUv(x, y, w, h, texWidth, texHeight, f.uvMin, f.uvMax);
     frames.push_back(f);
 }
@@ -133,7 +137,12 @@ std::shared_ptr<SpriteTexture> SpriteTexture::FromRGBA8(std::span<const uint8_t>
     if (width == 0 || height == 0) {
         return nullptr;
     }
-    const size_t requiredBytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
+    const uint64_t pixelCount = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+    if (pixelCount > (static_cast<uint64_t>(std::numeric_limits<std::ptrdiff_t>::max()) / 4u) ||
+        pixelCount > (static_cast<uint64_t>(std::numeric_limits<size_t>::max()) / 4u)) {
+        return nullptr;
+    }
+    const size_t requiredBytes = static_cast<size_t>(pixelCount * 4u);
     if (rgba.size() < requiredBytes) {
         return nullptr;
     }
@@ -288,7 +297,7 @@ void SpriteAnimator::Stop() noexcept {
 }
 
 void SpriteAnimator::SetSpeed(float speed) noexcept {
-    speed_ = std::max(0.0f, speed);
+    speed_ = std::isfinite(speed) ? std::max(0.0f, speed) : 0.0f;
 }
 
 std::string_view SpriteAnimator::ActiveClipName() const noexcept {
@@ -309,8 +318,8 @@ const SpriteFrame* SpriteAnimator::CurrentFrame() const noexcept {
 }
 
 bool SpriteAnimator::Update(float deltaTime) {
-    if (!playing_ || finished_ || !hasActiveClip_ || activeClip_ >= clips_.size() || deltaTime <= 0.0f ||
-        speed_ <= 0.0f) {
+    if (!playing_ || finished_ || !hasActiveClip_ || activeClip_ >= clips_.size() || !std::isfinite(deltaTime) ||
+        deltaTime <= 0.0f || !std::isfinite(speed_) || speed_ <= 0.0f) {
         return false;
     }
 
@@ -322,6 +331,27 @@ bool SpriteAnimator::Update(float deltaTime) {
 
     const size_t initialFrame = frameIndex_;
     timer_ += deltaTime * speed_;
+    if (!std::isfinite(timer_)) {
+        timer_ = 0.0f;
+        return false;
+    }
+
+    // Wrap huge elapsed times via fmod before iterating frame deltas to avoid O(N) CPU stalls
+    const float clipDur = clip.TotalDuration();
+    if (clipDur > kMinFrameDuration && timer_ > clipDur * 2.0f) {
+        if (clip.mode == SpritePlaybackMode::Loop) {
+            timer_ = std::fmod(timer_, clipDur);
+        } else if (clip.mode == SpritePlaybackMode::PingPong && clip.frames.size() > 1u) {
+            const float cycleDur = std::max(kMinFrameDuration, clipDur * 2.0f);
+            timer_ = std::fmod(timer_, cycleDur);
+        } else if (clip.mode == SpritePlaybackMode::Once) {
+            frameIndex_ = clip.frames.size() - 1u;
+            timer_ = 0.0f;
+            finished_ = true;
+            playing_ = false;
+            return true;
+        }
+    }
 
     while (playing_ && !finished_) {
         const float frameDur = std::max(kMinFrameDuration, clip.frames[frameIndex_].duration);
@@ -336,7 +366,8 @@ bool SpriteAnimator::Update(float deltaTime) {
                 playing_ = false;
                 break;
             }
-            continue;
+            timer_ = std::fmod(timer_, frameDur);
+            break;
         }
 
         if (clip.mode == SpritePlaybackMode::Loop) {

@@ -41,7 +41,7 @@ inline void PopulatePerDrawMorphAndSkin(WGPUQueue queue, scene::MeshPrimitive& p
     out.uniforms.viewProj = viewProj;
     out.uniforms.model = worldMat;
     out.uniforms.lightViewProj = lightViewProj;
-    out.uniforms.drawParams = glm::vec4{lodTransition, 0.0f, 0.0f, 0.0f};
+    out.uniforms.drawParams = glm::vec4{lodTransition, 0.035f, 0.0f, 0.0f};
     uint32_t flags{baseDrawFlags};
 
     if (prim.morphDirty && !prim.gpuMorphDeltaBuffer && prim.gpuVertexBuffer && !prim.vertices.empty()) {
@@ -75,16 +75,19 @@ inline void PopulatePerDrawMorphAndSkin(WGPUQueue queue, scene::MeshPrimitive& p
     out.skinBindGroup = dummySkinBg;
     if (node && node->skinIndex >= 0 && static_cast<size_t>(node->skinIndex) < skins.size()) {
         const auto& skin = skins[static_cast<size_t>(node->skinIndex)];
-        if (!skin.joints.empty() && skin.gpuJointBuffer && skin.gpuBindGroup) {
+        WGPUBuffer jointBuf{nullptr};
+        WGPUBindGroup skinBg{nullptr};
+        bool needsUpload{false};
+        skin.ResolveNodeGpuBinding(node, skinFrameId, jointBuf, skinBg, needsUpload);
+        if (jointBuf && skinBg) {
             const auto jointsSpan = skin.GetOrComputeJointMatrices(skinFrameId, node, worldMat, allNodes);
             if (!jointsSpan.empty()) {
-                if (skin.NeedsGpuUpload(skinFrameId, node)) {
-                    wgpuQueueWriteBuffer(queue, skin.gpuJointBuffer, 0, jointsSpan.data(),
-                                         jointsSpan.size() * sizeof(glm::mat4));
-                    skin.MarkGpuUploaded(skinFrameId, node);
+                if (needsUpload) {
+                    wgpuQueueWriteBuffer(queue, jointBuf, 0, jointsSpan.data(), jointsSpan.size() * sizeof(glm::mat4));
+                    skin.MarkNodeGpuUploaded(skinFrameId, node);
                 }
                 out.uniforms.jointCount = static_cast<uint32_t>(jointsSpan.size());
-                out.skinBindGroup = skin.gpuBindGroup;
+                out.skinBindGroup = skinBg;
                 flags |= MaterialFlags::HasSkinning;
             }
         }

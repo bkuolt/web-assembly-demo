@@ -9,6 +9,7 @@
 #include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <cstring>
+#include <unordered_set>
 
 namespace bgl::gpu {
 
@@ -25,8 +26,7 @@ AabbRenderer::AabbRenderer(AabbRenderer&& other) noexcept
       aabbBindGroup_{std::move(other.aabbBindGroup_)},
       aabbVertexBufferSize_{std::exchange(other.aabbVertexBufferSize_, 0)},
       aabbFrameByteOffset_{std::exchange(other.aabbFrameByteOffset_, 0)},
-      batchedAabbVertices_{std::move(other.batchedAabbVertices_)},
-      cachedSceneAabbVertices_{std::move(other.cachedSceneAabbVertices_)} {}
+      batchedAabbVertices_{std::move(other.batchedAabbVertices_)} {}
 
 AabbRenderer& AabbRenderer::operator=(AabbRenderer&& other) noexcept {
     if (this != &other) {
@@ -45,7 +45,6 @@ AabbRenderer& AabbRenderer::operator=(AabbRenderer&& other) noexcept {
         aabbVertexBufferSize_ = std::exchange(other.aabbVertexBufferSize_, 0);
         aabbFrameByteOffset_ = std::exchange(other.aabbFrameByteOffset_, 0);
         batchedAabbVertices_ = std::move(other.batchedAabbVertices_);
-        cachedSceneAabbVertices_ = std::move(other.cachedSceneAabbVertices_);
     }
     return *this;
 }
@@ -64,7 +63,6 @@ void AabbRenderer::Shutdown() noexcept {
     aabbPipelineLayout_.Reset();
     aabbBindGroupLayout_.Reset();
     batchedAabbVertices_.clear();
-    cachedSceneAabbVertices_.clear();
     aabbVertexBufferSize_ = 0;
     aabbFrameByteOffset_ = 0;
     device_ = nullptr;
@@ -253,7 +251,7 @@ core::Result<void> AabbRenderer::Initialize(WGPUDevice device, WGPUQueue queue, 
 }
 
 void AabbRenderer::AppendAABBLines(const core::AABB& aabb, const glm::vec4& color) {
-    if (aabb.minBound.x > aabb.maxBound.x)
+    if (!aabb.IsValid())
         return;
     const glm::vec3 minB{aabb.minBound};
     const glm::vec3 maxB{aabb.maxBound};
@@ -324,33 +322,35 @@ void AabbRenderer::RenderAABB(WGPURenderPassEncoder pass, const core::AABB& aabb
 }
 
 void AabbRenderer::BatchSceneAABBs(const scene::Scene& scene, bool showSceneAABB, bool showPrimitiveAABBs) {
-    if (showSceneAABB && showPrimitiveAABBs && !cachedSceneAabbVertices_.empty()) {
-        batchedAabbVertices_.insert(batchedAabbVertices_.end(), cachedSceneAabbVertices_.begin(),
-                                    cachedSceneAabbVertices_.end());
-        return;
-    }
-
-    if (showSceneAABB && scene.sceneAABB.minBound.x <= scene.sceneAABB.maxBound.x) {
+    if (showSceneAABB && scene.sceneAABB.IsValid()) {
         AppendAABBLines(scene.sceneAABB, glm::vec4{1.0f, 0.84f, 0.0f, 1.0f});
     }
 
     if (showPrimitiveAABBs) {
-        auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
+        std::unordered_set<const scene::SceneNode*> visitedNodes;
+        constexpr uint32_t kMaxTraversalDepth{256u};
+        auto renderNodeAABBs = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform,
+                                   uint32_t depth) -> void {
+            if (depth >= kMaxTraversalDepth || !visitedNodes.insert(&node).second) {
+                return;
+            }
             const glm::mat4 worldMat{parentTransform * node.localTransform};
             for (const auto& prim : node.GetPrimitives()) {
-                if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+                if (prim.boundingBox.IsValid()) {
                     AppendAABBLines(prim.boundingBox.Transformed(worldMat), glm::vec4{0.2f, 0.85f, 1.0f, 0.8f});
                 }
             }
             for (const auto& child : node.children) {
-                if (child)
-                    self(self, *child, worldMat);
+                if (child) {
+                    self(self, *child, worldMat, depth + 1u);
+                }
             }
         };
 
         for (const auto& rootNode : scene.rootNodes) {
-            if (rootNode)
-                renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f});
+            if (rootNode) {
+                renderNodeAABBs(renderNodeAABBs, *rootNode, glm::mat4{1.0f}, 0u);
+            }
         }
     }
 }

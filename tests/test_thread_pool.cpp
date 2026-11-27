@@ -116,3 +116,19 @@ TEST(ThreadPoolTest, HeavyWorkloadStressAndDistribution) {
     }
     EXPECT_EQ(completed.load(), kTasks);
 }
+
+TEST(ThreadPoolTest, ParallelForExceptionPropagatesCleanlyAndPoolRemainsUsable) {
+    ThreadPool pool(4);
+    EXPECT_THROW(pool.ParallelFor(0, 64,
+                                  [](size_t i) {
+                                      if (i == 37) {
+                                          throw std::runtime_error("ParallelFor worker failure");
+                                      }
+                                  }),
+                 std::runtime_error);
+
+    // Subsequent ParallelFor invocations after a thrown worker exception must still complete normally
+    std::atomic<size_t> count{0};
+    pool.ParallelFor(0, 16, [&count](size_t) { count.fetch_add(1, std::memory_order_relaxed); });
+    EXPECT_EQ(count.load(), 16u);
+}

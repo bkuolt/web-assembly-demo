@@ -182,10 +182,15 @@ TEST(EnginePublicApi, CreateEntityFindAndSceneReloadInvalidatesOldHandles) {
     engine.Settings().exposure = 1.85f;
     engine.Render();
 
-    // Empty byte buffer load returns an explicit Result error without replacing the scene
+    // Empty and corrupt buffer loads return an explicit Result error without replacing the live scene
     const std::array<uint8_t, 0> emptyBytes{};
     EXPECT_FALSE(engine.LoadModel(emptyBytes, "empty.glb").has_value());
     EXPECT_TRUE(parent.IsValid());
+
+    const std::array<uint8_t, 12> corruptGlb{'g', 'l', 'T', 'F', 2, 0, 0, 0, 255, 255, 255, 127};
+    EXPECT_FALSE(engine.LoadModel(corruptGlb, "corrupt.glb").has_value());
+    EXPECT_TRUE(parent.IsValid());
+    EXPECT_TRUE(child.IsValid());
 
     // Loading a new model from memory replaces the scene and invalidates handles from the previous scene
     std::ifstream file("assets/ToyCar.glb", std::ios::binary | std::ios::ate);

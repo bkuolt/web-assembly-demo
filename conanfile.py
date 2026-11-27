@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout, CMakeToolchain, CMakeDeps
 
 class BglEngineRecipe(ConanFile):
     name = "bgl_engine"
-    version = "1.1.0"
+    version = "1.2.0"
     package_type = "application"
     required_conan_version = ">=2.28"
     settings = "os", "arch", "compiler", "build_type"
@@ -56,10 +56,12 @@ class BglEngineRecipe(ConanFile):
         tc.variables["CMAKE_CXX_STANDARD"] = "23"
         tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
         tc.variables["CMAKE_CXX_EXTENSIONS"] = "OFF"
-        tc.variables["BGL_ENABLE_PNG"] = self.options.with_png
-        tc.variables["BGL_ENABLE_JPEG"] = self.options.with_jpeg
-        tc.variables["BGL_ENABLE_WEBP"] = self.options.with_webp
-        tc.variables["BGL_ENABLE_KTX"] = self.options.with_ktx
+        tc.variables["BGL_ENABLE_AUDIO"] = "ON" if self.options.with_audio else "OFF"
+        tc.variables["BGL_BUILD_TESTING"] = "ON" if self.options.with_testing else "OFF"
+        tc.variables["BGL_ENABLE_PNG"] = "ON" if self.options.with_png else "OFF"
+        tc.variables["BGL_ENABLE_JPEG"] = "ON" if self.options.with_jpeg else "OFF"
+        tc.variables["BGL_ENABLE_WEBP"] = "ON" if self.options.with_webp else "OFF"
+        tc.variables["BGL_ENABLE_KTX"] = "ON" if self.options.with_ktx else "OFF"
         tc.user_presets_path = "ConanPresets.json"
         tc.generate()
 

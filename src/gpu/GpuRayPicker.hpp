@@ -55,7 +55,16 @@ public:
     /**
      * @brief Dispatches parallel GPU ray intersection test.
      */
-    void Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount, const core::Ray& ray);
+    void Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer, uint32_t primitiveCount, const core::Ray& ray,
+                  uint64_t boundsGeneration = 0);
+
+    /** @brief Clears cached bind-group references to prevent pointer-reuse ABA hazards across buffer reallocations. */
+    void InvalidateBindGroup() noexcept {
+        bindGroup_.Reset();
+        cachedBoundsBuffer_ = nullptr;
+        cachedPrimitiveCount_ = 0;
+        cachedBoundsGeneration_ = 0;
+    }
 
     [[nodiscard]] bool IsInitialized() const noexcept {
         return computePipeline_ != nullptr && resolvePipeline_ != nullptr;
@@ -78,6 +87,7 @@ private:
     BufferHandle resultBuffer_{};
     WGPUBuffer cachedBoundsBuffer_{nullptr};
     uint32_t cachedPrimitiveCount_{0};
+    uint64_t cachedBoundsGeneration_{0};
 };
 
 } // namespace bgl::gpu

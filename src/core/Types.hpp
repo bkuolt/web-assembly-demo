@@ -52,6 +52,15 @@ struct AABB {
         maxBound = glm::max(maxBound, other.maxBound);
     }
 
+    /**
+     * @brief Returns true when bounds are finite and non-inverted across all three axes.
+     */
+    [[nodiscard]] bool IsValid() const noexcept {
+        return std::isfinite(minBound.x) && std::isfinite(minBound.y) && std::isfinite(minBound.z) &&
+               std::isfinite(maxBound.x) && std::isfinite(maxBound.y) && std::isfinite(maxBound.z) &&
+               minBound.x <= maxBound.x && minBound.y <= maxBound.y && minBound.z <= maxBound.z;
+    }
+
     [[nodiscard]] constexpr glm::vec3 Center() const noexcept { return (minBound + maxBound) * 0.5f; }
 
     [[nodiscard]] constexpr glm::vec3 Extents() const noexcept { return (maxBound - minBound) * 0.5f; }
@@ -75,8 +84,9 @@ struct AABB {
      * @return Newly computed enclosing Axis-Aligned Bounding Box in target space.
      */
     [[nodiscard]] AABB Transformed(const glm::mat4& transform) const noexcept {
-        if (minBound.x > maxBound.x)
+        if (!IsValid()) {
             return AABB{};
+        }
         const glm::vec3 c{Center()};
         const glm::vec3 e{Extents()};
         const glm::vec3 newCenter{transform * glm::vec4{c, 1.0f}};

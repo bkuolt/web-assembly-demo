@@ -86,7 +86,10 @@ void FeedSdlEvent(const SDL_Event& event) noexcept {
             state.SetMouseButton(btn, event.type == SDL_MOUSEBUTTONDOWN);
         }
     } else if (event.type == SDL_MOUSEWHEEL) {
-        state.AddWheel(static_cast<float>(event.wheel.y));
+        const float sign = (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) ? -1.0f : 1.0f;
+        state.AddWheel(static_cast<float>(event.wheel.y) * sign);
+    } else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+        state.ClearButtons();
     }
 }
 

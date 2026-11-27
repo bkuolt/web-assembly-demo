@@ -71,16 +71,19 @@ fn vs_sky(@builtin(vertex_index) vIdx : u32) -> VertexOutput {
     var out : VertexOutput;
     out.clipPos = vec4<f32>(p, 0.999999, 1.0);
     let farWorld = ubo.invViewProj * vec4<f32>(p, 1.0, 1.0);
-    let worldPos = farWorld.xyz / farWorld.w;
+    let safeW = select(farWorld.w, 1e-6, abs(farWorld.w) < 1e-6);
+    let worldPos = farWorld.xyz / safeW;
     out.viewRay = worldPos - ubo.cameraPos.xyz;
     return out;
 }
 
 @fragment
 fn fs_sky(in : VertexOutput) -> @location(0) vec4<f32> {
-    let rawDir = normalize(in.viewRay);
+    let rayLenSq = dot(in.viewRay, in.viewRay);
+    let rawDir = select(vec3<f32>(0.0, 0.0, -1.0), in.viewRay * inverseSqrt(rayLenSq), rayLenSq > 1e-12);
     let rotDir = rotateY(rawDir, ubo.params.x);
-    let sunVector = normalize(ubo.sunDir.xyz);
+    let sunLenSq = dot(ubo.sunDir.xyz, ubo.sunDir.xyz);
+    let sunVector = select(vec3<f32>(0.35, 1.0, 0.25), ubo.sunDir.xyz * inverseSqrt(sunLenSq), sunLenSq > 1e-12);
     let solarElev = ubo.sunDir.w;
     let weatherMode = ubo.cameraPos.w;
     let weatherIntensity = clamp(ubo.params.w, 0.0, 1.5);

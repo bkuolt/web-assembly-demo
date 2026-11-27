@@ -35,7 +35,7 @@ fn rtSampleGgxHalfVector(u1 : f32, u2 : f32, N : vec3<f32>, roughness : f32) -> 
     let cosTheta = sqrt(max(0.0, (1.0 - u2) / (1.0 + (a2 - 1.0) * u2)));
     let sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
     let hTan = vec3<f32>(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-    return normalize(rtBuildOrthonormalBasis(N) * hTan);
+    return rtSafeNormalize(rtBuildOrthonormalBasis(N) * hTan, N);
 }
 
 fn rtFresnelSchlickRough(cosTheta : f32, F0 : vec3<f32>, roughness : f32) -> vec3<f32> {
@@ -60,7 +60,7 @@ fn cs_rt_reflections(@builtin(global_invocation_id) gid : vec3<u32>) {
     }
 
     let nr = textureLoad(gbufferNormalRoughness, fullPx, 0);
-    let N = normalize(nr.xyz);
+    let N = rtSafeNormalize(nr.xyz, vec3<f32>(0.0, 1.0, 0.0));
     let roughness = clamp(nr.w, 0.04, 1.0);
     let rtWeight = (1.0 - smoothstep(0.40, 0.65, roughness)) * clamp(ubo.params1.z, 0.0, 2.0);
     if (rtWeight <= 0.005) {
@@ -75,7 +75,7 @@ fn cs_rt_reflections(@builtin(global_invocation_id) gid : vec3<u32>) {
 
     let uv = (vec2<f32>(fullPx) + vec2<f32>(0.5)) / vec2<f32>(fullDims);
     let worldPos = rtWorldPosFromDepth(uv, depth, ubo.invViewProj);
-    let V = normalize(ubo.cameraPos.xyz - worldPos);
+    let V = rtSafeNormalize(ubo.cameraPos.xyz - worldPos, vec3<f32>(0.0, 0.0, 1.0));
     let viewDist = length(ubo.cameraPos.xyz - worldPos);
     let origin = worldPos + N * clamp(0.0003 + viewDist * 0.0006, 0.0003, 0.03);
 
@@ -87,7 +87,7 @@ fn cs_rt_reflections(@builtin(global_invocation_id) gid : vec3<u32>) {
     if (dot(reflDir, N) <= 0.001) {
         reflDir = reflect(-V, N);
     }
-    reflDir = normalize(reflDir);
+    reflDir = rtSafeNormalize(reflDir, N);
 
     let envRot = ubo.params1.w;
     let solarElev = ubo.params3.y;
@@ -111,13 +111,13 @@ fn cs_rt_reflections(@builtin(global_invocation_id) gid : vec3<u32>) {
         let hitOrigin = hit.worldPos + hit.worldNormal * 0.004;
 
         var hitCol = hitEmissive;
-        let sunL = normalize(ubo.sunDir.xyz);
+        let sunL = rtSafeNormalize(ubo.sunDir.xyz, vec3<f32>(0.35, 1.0, 0.25));
         if (ubo.params2.w > 0.5) {
             let ndl = max(dot(hit.worldNormal, sunL), 0.0);
             if (ndl > 0.0) {
                 if (!rtTraceAnyHit(hitOrigin, sunL, 0.002, 500.0)) {
                     let sunRad = evaluateDiurnalSunRadiance(solarElev);
-                    let hVec = normalize(sunL - reflDir);
+                    let hVec = rtSafeNormalize(sunL - reflDir, hit.worldNormal);
                     let ndh = max(dot(hit.worldNormal, hVec), 0.0);
                     let spec = pow(ndh, mix(64.0, 4.0, hitRough)) * 0.25;
                     hitCol = hitCol + (hitDiff * 0.318309886 + hitF0 * spec) * sunRad * ndl;

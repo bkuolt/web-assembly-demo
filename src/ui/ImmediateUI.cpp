@@ -11,14 +11,6 @@
 
 namespace bgl::ui {
 
-namespace {
-
-[[nodiscard]] constexpr glm::vec4 WithAlpha(const glm::vec4& c, float alpha) noexcept {
-    return glm::vec4{c.r, c.g, c.b, alpha};
-}
-
-} // namespace
-
 ImmediateUI::ImmediateUI()
     : arenaBacking_(kArenaBytes), frameArena_(arenaBacking_.data(), arenaBacking_.size()), vertices_(&frameArena_),
       indices_(&frameArena_), overlayVertices_(&frameArena_), overlayIndices_(&frameArena_), hitRects_(&frameArena_),
@@ -158,11 +150,12 @@ ImmediateUI::HoverEval ImmediateUI::EvalHover(uint64_t id, const UiRect& rect, b
         return HoverEval{.hovered = hovered, .mix = 0.0f};
     }
 
-    float& amount = hoverAmounts_[id];
+    HoverEntry& entry = hoverAmounts_[id];
+    entry.lastFrame = frameIndex_;
     const float rise = std::clamp(frameDeltaTime_ * style_.hoverTransitionSpeed, 0.60f, 1.0f);
     const float fall = std::clamp(frameDeltaTime_ * style_.hoverTransitionSpeed * 0.7f, 0.25f, 1.0f);
-    amount = hovered ? std::min(1.0f, amount + rise) : std::max(0.0f, amount - fall);
-    return HoverEval{.hovered = hovered, .mix = amount};
+    entry.mix = hovered ? std::min(1.0f, entry.mix + rise) : std::max(0.0f, entry.mix - fall);
+    return HoverEval{.hovered = hovered, .mix = entry.mix};
 }
 
 void ImmediateUI::EmitHoverHighlight(std::pmr::vector<UiVertex>& verts, std::pmr::vector<uint32_t>& idxs,
@@ -220,18 +213,8 @@ std::vector<text::FontDescriptor> ImmediateUI::GetAvailableFonts() const {
     return text::FontLibrary::Discover();
 }
 
-core::Result<void> ImmediateUI::LoadFont(std::string_view slotName, const text::FontQuery& query, float pixelSize,
-                                         bool allowEmbeddedFallback) {
-    if (slotName.empty()) {
-        return std::unexpected("Font slot name cannot be empty");
-    }
-
-    const uint32_t clampedPx = static_cast<uint32_t>(std::clamp(pixelSize, 8.0f, 96.0f));
-    auto newAtlas = std::make_unique<text::FontAtlas>();
-    if (auto res = newAtlas->InitializeWithQuery(query, clampedPx, 1024, true, allowEmbeddedFallback); !res) {
-        return res;
-    }
-
+core::Result<void> ImmediateUI::ApplyLoadedFontSlot(std::string_view slotName,
+                                                    std::unique_ptr<text::FontAtlas> newAtlas, uint32_t clampedPx) {
     EnsureDefaultFontSlot();
     for (auto& slot : fontSlots_) {
         if (slot.name == slotName) {
@@ -257,6 +240,20 @@ core::Result<void> ImmediateUI::LoadFont(std::string_view slotName, const text::
         SyncFontBindGroup(fontSlots_.back());
     }
     return {};
+}
+
+core::Result<void> ImmediateUI::LoadFont(std::string_view slotName, const text::FontQuery& query, float pixelSize,
+                                         bool allowEmbeddedFallback) {
+    if (slotName.empty()) {
+        return std::unexpected("Font slot name cannot be empty");
+    }
+
+    const uint32_t clampedPx = static_cast<uint32_t>(std::clamp(pixelSize, 8.0f, 96.0f));
+    auto newAtlas = std::make_unique<text::FontAtlas>();
+    if (auto res = newAtlas->InitializeWithQuery(query, clampedPx, 1024, true, allowEmbeddedFallback); !res) {
+        return res;
+    }
+    return ApplyLoadedFontSlot(slotName, std::move(newAtlas), clampedPx);
 }
 
 core::Result<void> ImmediateUI::LoadFont(std::string_view slotName, std::string_view nameOrPath, float pixelSize) {
@@ -273,32 +270,7 @@ core::Result<void> ImmediateUI::LoadFontFromMemory(std::string_view slotName, st
     if (auto res = newAtlas->InitializeFromMemory(fontData, clampedPx, 1024, true); !res) {
         return res;
     }
-
-    EnsureDefaultFontSlot();
-    for (auto& slot : fontSlots_) {
-        if (slot.name == slotName) {
-            slot.atlas = std::move(newAtlas);
-            slot.basePixelSize = static_cast<float>(clampedPx);
-            slot.bindGroup.Reset();
-            slot.boundGeneration = 0;
-            slot.ready = true;
-            if (gpuInitialized_) {
-                SyncFontBindGroup(slot);
-            }
-            return {};
-        }
-    }
-
-    FontSlot slot;
-    slot.name = std::string{slotName};
-    slot.atlas = std::move(newAtlas);
-    slot.basePixelSize = static_cast<float>(clampedPx);
-    slot.ready = true;
-    fontSlots_.push_back(std::move(slot));
-    if (gpuInitialized_) {
-        SyncFontBindGroup(fontSlots_.back());
-    }
-    return {};
+    return ApplyLoadedFontSlot(slotName, std::move(newAtlas), clampedPx);
 }
 
 bool ImmediateUI::SetDefaultFont(std::string_view nameOrPath, float pixelSize) {
@@ -313,7 +285,8 @@ bool ImmediateUI::PushFont(std::string_view slotName) {
         if (fontSlots_[i].name == slotName && fontSlots_[i].ready) {
             fontStack_.push_back(activeFontSlot_);
             if (i != activeFontSlot_) {
-                FlushDrawCommand(inScrollArea_, inScrollArea_ ? scrollRect_ : UiRect{});
+                FlushDrawCommand(!scrollStack_.empty(),
+                                 scrollStack_.empty() ? UiRect{} : scrollStack_.back().effectiveClip);
                 activeFontSlot_ = i;
                 batchFontSlot_ = i;
             }
@@ -330,7 +303,7 @@ void ImmediateUI::PopFont() {
     const uint32_t prev = fontStack_.back();
     fontStack_.pop_back();
     if (prev != activeFontSlot_) {
-        FlushDrawCommand(inScrollArea_, inScrollArea_ ? scrollRect_ : UiRect{});
+        FlushDrawCommand(!scrollStack_.empty(), scrollStack_.empty() ? UiRect{} : scrollStack_.back().effectiveClip);
         activeFontSlot_ = (prev < fontSlots_.size()) ? prev : 0u;
         batchFontSlot_ = activeFontSlot_;
     }
@@ -375,16 +348,20 @@ void ImmediateUI::BeginFrame(const UiInputState& input, uint32_t viewportWidth, 
     input_ = input;
     viewportWidth_ = std::max(1u, viewportWidth);
     viewportHeight_ = std::max(1u, viewportHeight);
-    frameDeltaTime_ = std::clamp(deltaTime, 0.0005f, 0.25f);
+    frameDeltaTime_ = std::isfinite(deltaTime) ? std::clamp(deltaTime, 0.0005f, 0.25f) : 0.016f;
     timeSec_ += frameDeltaTime_;
+    ++frameIndex_;
 
     inWindow_ = false;
-    inScrollArea_ = false;
+    scrollStack_.clear();
     containerStack_.clear();
     panelStack_.clear();
     groupStack_.clear();
+    hasActivePopupRect_ = false;
     hasPendingOverlay_ = false;
     hasPendingColorOverlay_ = false;
+    openDropdownSeenThisFrame_ = false;
+    openColorSeenThisFrame_ = false;
     dropdownToggledThisFrame_ = false;
     colorToggledThisFrame_ = false;
     popupConsumedInputThisFrame_ = false;
@@ -421,6 +398,9 @@ void ImmediateUI::FlushDrawCommand(bool hasScissor, const UiRect& scissorRect) {
 }
 
 void ImmediateUI::EndFrame() {
+    while (!scrollStack_.empty()) {
+        EndScrollArea();
+    }
     while (!groupStack_.empty()) {
         EndGroup();
     }
@@ -442,6 +422,16 @@ void ImmediateUI::EndFrame() {
         FlushDrawCommand(false, UiRect{});
         activeFontSlot_ = 0;
         batchFontSlot_ = 0;
+    }
+
+    if (openDropdownId_ != 0 && !openDropdownSeenThisFrame_) {
+        openDropdownId_ = 0;
+        activeDropdownScrollId_ = 0;
+    }
+    if (openColorId_ != 0 && !openColorSeenThisFrame_) {
+        openColorId_ = 0;
+        activeColorSvId_ = 0;
+        activeColorHueId_ = 0;
     }
 
     if (loadingState_.active) {
@@ -467,9 +457,14 @@ void ImmediateUI::EndFrame() {
         }
     }
 
+    if (!modalDrawnThisFrame_) {
+        EmitColorPickerOverlay();
+        EmitDropdownOverlay();
+    }
+
     EmitTooltipOverlay();
 
-    // Merge floating badges, tooltips, loading screens & modals BEFORE dropdown/color overlays so popups stack crisp
+    // Stack floating badges, tooltips, loading screens & modals AFTER popups so modals always stay on top
     if (!overlayVertices_.empty() && !overlayIndices_.empty()) {
         const uint32_t baseVertex = static_cast<uint32_t>(vertices_.size());
         vertices_.insert(vertices_.end(), overlayVertices_.begin(), overlayVertices_.end());
@@ -478,8 +473,11 @@ void ImmediateUI::EndFrame() {
         }
     }
 
-    EmitColorPickerOverlay();
-    EmitDropdownOverlay();
+    if (hoverAmounts_.size() > 64u) {
+        std::erase_if(hoverAmounts_, [this](const auto& kv) noexcept {
+            return kv.second.mix <= 0.001f || (frameIndex_ - kv.second.lastFrame) > 120u;
+        });
+    }
 
     FlushDrawCommand(false, UiRect{});
 

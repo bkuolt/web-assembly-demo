@@ -64,8 +64,8 @@ void PipelineManager::BuildClusteredLightGrid(std::span<const GpuPunctualLight> 
     const float safeFar{std::max(zFar, safeNear + 1.0f)};
     const float logRatio{std::log(safeFar / safeNear)};
 
-    const float p00{(std::abs(projMatrix[0][0]) > 1e-5f) ? projMatrix[0][0] : 1.0f};
-    const float p11{(std::abs(projMatrix[1][1]) > 1e-5f) ? projMatrix[1][1] : 1.0f};
+    const float p00{(std::abs(projMatrix[0][0]) > 1e-5f) ? std::abs(projMatrix[0][0]) : 1.0f};
+    const float p11{(std::abs(projMatrix[1][1]) > 1e-5f) ? std::abs(projMatrix[1][1]) : 1.0f};
 
     auto setClusterBit = [&](uint32_t x, uint32_t y, uint32_t z, uint32_t bitMask) {
         const uint32_t clusterIdx{(z * kClusterCountY + y) * kClusterCountX + x};
@@ -162,6 +162,11 @@ void PipelineManager::PreparePostProcessPass(WGPUCommandEncoder encoder, WGPUTex
                                              const glm::vec3& cameraPos, const glm::vec3& lightDir, float envRotation,
                                              uint32_t viewportW, uint32_t viewportH, float deltaTime,
                                              float elapsedTime) {
+    const uint64_t rtTargetGen = rtPass_.GetTargetGeneration();
+    if (rtTargetGen != cachedPostRtTargetGen_) {
+        postProcessPass_.InvalidateBindGroup();
+        cachedPostRtTargetGen_ = rtTargetGen;
+    }
     WGPUTextureView aoOverride = rtPass_.IsAoActive(rtScene_) ? rtPass_.GetAoView() : nullptr;
     const bool suppressSsr = rtPass_.IsReflectionsActive(rtScene_) || rtPass_.IsPathTracingActive(rtScene_);
     postProcessPass_.Prepare(encoder, hdrResolveView, depthReadView, sampleCount, viewProj, projMatrix, cameraPos,
@@ -173,6 +178,11 @@ void PipelineManager::RenderTonemapPass(WGPURenderPassEncoder swapchainPass, WGP
                                         const glm::mat4& viewProj, const glm::vec3& cameraPos,
                                         const glm::vec3& lightDir, float envRotation, uint32_t viewportW,
                                         uint32_t viewportH) {
+    const uint64_t rtTargetGen = rtPass_.GetTargetGeneration();
+    if (rtTargetGen != cachedPostRtTargetGen_) {
+        postProcessPass_.InvalidateBindGroup();
+        cachedPostRtTargetGen_ = rtTargetGen;
+    }
     postProcessPass_.Render(swapchainPass, hdrResolveView, viewProj, cameraPos, lightDir, envRotation, viewportW,
                             viewportH);
 }
@@ -297,7 +307,8 @@ void PipelineManager::RenderScene(WGPURenderPassEncoder pass, scene::Scene& scen
     }
     WGPUTextureView expectedRtShadow =
         rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
-    if (expectedRtShadow && expectedRtShadow != cachedRtShadowView_) {
+    const uint64_t rtTargetGen = rtPass_.GetTargetGeneration();
+    if (expectedRtShadow && (expectedRtShadow != cachedRtShadowView_ || rtTargetGen != cachedRtShadowTargetGen_)) {
         RebuildSceneGlobalsBindGroup();
     }
     PrepareFrameScene(scene, viewProj, cameraPos, spatialIndex, viewMatrix, projMatrix, viewportW, viewportH, zNear,
@@ -317,7 +328,8 @@ void PipelineManager::RenderOpaqueScene(WGPURenderPassEncoder pass, scene::Scene
     }
     WGPUTextureView expectedRtShadow =
         rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
-    if (expectedRtShadow && expectedRtShadow != cachedRtShadowView_) {
+    const uint64_t rtTargetGen = rtPass_.GetTargetGeneration();
+    if (expectedRtShadow && (expectedRtShadow != cachedRtShadowView_ || rtTargetGen != cachedRtShadowTargetGen_)) {
         RebuildSceneGlobalsBindGroup();
     }
     if (!framePreparedByRtPrePass_) {
@@ -370,7 +382,7 @@ void PipelineManager::RenderRayTracingPrePass(WGPUCommandEncoder encoder, scene:
 
     WGPUTextureView activeRtShadowView =
         rtPass_.IsShadowActive(rtScene_) ? rtPass_.GetShadowView() : defaultWhiteTextureView_.Get();
-    if (activeRtShadowView != cachedRtShadowView_) {
+    if (activeRtShadowView != cachedRtShadowView_ || rtPass_.GetTargetGeneration() != cachedRtShadowTargetGen_) {
         RebuildSceneGlobalsBindGroup();
     }
 }
@@ -472,7 +484,7 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
                 return;
             }
             const glm::mat4 worldMat{parentMat * node->localTransform};
-            if (node->worldAABB.minBound.x <= node->worldAABB.maxBound.x && !frustum.IntersectsAABB(node->worldAABB)) {
+            if (node->worldAABB.IsValid() && !frustum.IntersectsAABB(node->worldAABB)) {
                 return;
             }
             auto prims = node->GetPrimitives();
@@ -480,8 +492,8 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
                 const auto& prim = prims[pIdx];
                 const core::AABB worldBox =
                     !node->instanceTransforms.empty() ? node->worldAABB : prim.boundingBox.Transformed(worldMat);
-                const float dist = glm::length(worldBox.Center() - cameraPos);
-                const float radius = std::max(0.001f, glm::length(worldBox.Extents()));
+                const float dist = worldBox.IsValid() ? glm::length(worldBox.Center() - cameraPos) : 0.0f;
+                const float radius = worldBox.IsValid() ? std::max(0.001f, glm::length(worldBox.Extents())) : 1.0f;
                 const float metric = (dist / radius) * lodBias_;
                 uint32_t lodLvl = 0u;
                 float lodTrans = 0.0f;
@@ -632,6 +644,7 @@ void PipelineManager::EncodeDrawRange(WGPURenderPassEncoder pass, scene::Scene& 
         PopulatePerDrawMorphAndSkin(queue_, prim, item.node, item.worldTransform, viewProj, currentLightViewProj_,
                                     drawFlags, clampedTrans, scene.skins, scene.allNodes, skinFrameId_,
                                     dummySkinBindGroup_.Get(), prepared);
+        prepared.uniforms.drawParams.y = parallaxScale_;
 
         WGPURenderPipeline desiredPipeline{singleSidedPipe};
         if (wireframe && wireframePipeline_) {

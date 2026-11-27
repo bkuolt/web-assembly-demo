@@ -31,7 +31,13 @@
           throw new Error(`Truncated GLB container: Header is only ${arrayBuffer.byteLength} bytes (minimum 20 required).`);
         }
         const version = dataView.getUint32(4, true);
+        if (version !== 2) {
+          throw new Error(`Unsupported GLB version: ${version}. Expected GLB v2.`);
+        }
         const totalLength = dataView.getUint32(8, true);
+        if (totalLength < 20 || totalLength > arrayBuffer.byteLength) {
+          throw new Error(`Truncated or invalid GLB length (${totalLength} vs ${arrayBuffer.byteLength} bytes).`);
+        }
         BglLogger.log('glTF', `GLB container detected: Version ${version}, Total Length: ${totalLength.toLocaleString()} bytes`);
 
         const chunkLength = dataView.getUint32(12, true);
@@ -42,8 +48,8 @@
           throw new Error(`Invalid GLB: First chunk type 0x${chunkType.toString(16)} is not JSON (0x4E4F534A).`);
         }
 
-        if (chunkLength > arrayBuffer.byteLength - 20) {
-          throw new Error(`Truncated GLB chunk: JSON chunk claims ${chunkLength} bytes, but file has only ${arrayBuffer.byteLength - 20} payload bytes remaining.`);
+        if (chunkLength > totalLength - 20) {
+          throw new Error(`Truncated GLB chunk: JSON chunk claims ${chunkLength} bytes, but file has only ${totalLength - 20} payload bytes remaining.`);
         }
 
         const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);
@@ -128,9 +134,12 @@
         let payloadBuffer;
         let cmd = 'parseBuffer';
         if (magic === 0x46546C67 && arrayBuffer.byteLength >= 20) {
+          const version = dv.getUint32(4, true);
+          const totalLength = dv.getUint32(8, true);
           const chunkLength = dv.getUint32(12, true);
           const chunkType = dv.getUint32(16, true);
-          if (chunkType === 0x4E4F534A && 20 + chunkLength <= arrayBuffer.byteLength) {
+          if (version === 2 && totalLength >= 20 && totalLength <= arrayBuffer.byteLength &&
+              chunkType === 0x4E4F534A && chunkLength <= totalLength - 20) {
             // Transfer only the JSON chunk slice so the full GLB buffer stays intact for WASM & WebGPU
             payloadBuffer = arrayBuffer.slice(20, 20 + chunkLength);
             cmd = 'parseJsonChunkOnly';
@@ -158,7 +167,13 @@
             resolve: (val) => { clearTimeout(timer); resolve(val); },
             reject: (err) => { clearTimeout(timer); reject(err); }
           });
-          this._worker.postMessage({ id: reqId, cmd, buffer: payloadBuffer }, [payloadBuffer]);
+          try {
+            this._worker.postMessage({ id: reqId, cmd, buffer: payloadBuffer }, [payloadBuffer]);
+          } catch (postErr) {
+            this._workerPending.delete(reqId);
+            clearTimeout(timer);
+            reject(postErr);
+          }
         });
       } catch (workerErr) {
         BglLogger.warn('glTF', `Web Worker parse fallback to main thread: ${workerErr.message || workerErr}`);
@@ -170,7 +185,18 @@
      * Compute and display spatial AABB telemetry from glTF accessors.
      */
     updateTelemetry(gltf) {
-      if (!gltf || !gltf.accessors) return;
+      const resetTelemetry = () => {
+        if (BglUI.elDims) BglUI.elDims.textContent = '--';
+        if (BglUI.elMin) BglUI.elMin.textContent = '--';
+        if (BglUI.elMax) BglUI.elMax.textContent = '--';
+        if (BglUI.elCenter) BglUI.elCenter.textContent = '--';
+        if (BglUI.elPrims) BglUI.elPrims.textContent = '--';
+        if (BglUI.elLodTelemetry) BglUI.elLodTelemetry.textContent = '--';
+      };
+      if (!gltf || !gltf.accessors) {
+        resetTelemetry();
+        return;
+      }
       const precomputed = gltf._bglTelemetry;
       let minB = precomputed ? precomputed.minB : [Infinity, Infinity, Infinity];
       let maxB = precomputed ? precomputed.maxB : [-Infinity, -Infinity, -Infinity];
@@ -214,6 +240,8 @@
         if (BglUI.elPrims) BglUI.elPrims.textContent = `${totalPrims} Prims (${totalVerts.toLocaleString()} Verts)`;
 
         BglLogger.log('glTF', `Telemetry updated: ${totalPrims} primitives, ${totalVerts.toLocaleString()} vertices, AABB [${dx.toFixed(1)} × ${dy.toFixed(1)} × ${dz.toFixed(1)}]`);
+      } else {
+        resetTelemetry();
       }
     },
 
@@ -407,7 +435,7 @@
             if (p.attributes && p.attributes.POSITION !== undefined) {
               const acc = gltf.accessors ? gltf.accessors[p.attributes.POSITION] : null;
               if (acc) {
-                addRow(`Prim #${pi} Vertices`, acc.count.toLocaleString());
+                addRow(`Prim #${pi} Vertices`, (Number.isFinite(acc.count) ? acc.count : 0).toLocaleString());
                 if (acc.min && acc.max) {
                   for (let i = 0; i < 3; i++) {
                     meshMin[i] = Math.min(meshMin[i], acc.min[i]);

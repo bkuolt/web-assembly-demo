@@ -36,7 +36,7 @@ fn ptSampleGgxHalf(u1 : f32, u2 : f32, N : vec3<f32>, roughness : f32) -> vec3<f
     let cosTheta = sqrt(max(0.0, (1.0 - u2) / (1.0 + (a2 - 1.0) * u2)));
     let sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
     let hTan = vec3<f32>(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-    return normalize(rtBuildOrthonormalBasis(N) * hTan);
+    return rtSafeNormalize(rtBuildOrthonormalBasis(N) * hTan, N);
 }
 
 fn ptEvalCookTorrance(N : vec3<f32>, V : vec3<f32>, L : vec3<f32>, F0 : vec3<f32>,
@@ -46,7 +46,7 @@ fn ptEvalCookTorrance(N : vec3<f32>, V : vec3<f32>, L : vec3<f32>, F0 : vec3<f32
         return vec3<f32>(0.0);
     }
     let NdotV = max(dot(N, V), 0.001);
-    let H = normalize(V + L);
+    let H = rtSafeNormalize(V + L, N);
     let NdotH = max(dot(N, H), 0.0);
     let VdotH = max(dot(V, H), 0.0);
 
@@ -83,17 +83,19 @@ fn cs_pathtrace(@builtin(global_invocation_id) gid : vec3<u32>) {
     let ndcY = 1.0 - uv.y * 2.0;
     let nearP4 = ubo.invViewProj * vec4<f32>(ndcX, ndcY, 0.0, 1.0);
     let farP4 = ubo.invViewProj * vec4<f32>(ndcX, ndcY, 1.0, 1.0);
-    let nearP = nearP4.xyz / nearP4.w;
-    let farP = farP4.xyz / farP4.w;
+    let nearW = select(nearP4.w, 1e-6, abs(nearP4.w) < 1e-6);
+    let farW = select(farP4.w, 1e-6, abs(farP4.w) < 1e-6);
+    let nearP = nearP4.xyz / nearW;
+    let farP = farP4.xyz / farW;
 
     var ro = ubo.cameraPos.xyz;
-    var rd = normalize(farP - nearP);
+    var rd = rtSafeNormalize(farP - nearP, vec3<f32>(0.0, 0.0, -1.0));
 
     let maxBounces = clamp(u32(ubo.params2.x), 1u, 6u);
     let envRot = ubo.params1.w;
     let solarElev = ubo.params3.y;
     let ambientScale = evaluateDiurnalAmbientScale(solarElev);
-    let sunL = normalize(ubo.sunDir.xyz);
+    let sunL = rtSafeNormalize(ubo.sunDir.xyz, vec3<f32>(0.35, 1.0, 0.25));
     let softness = clamp(ubo.sunDir.w, 0.0, 0.15);
     let sunRad = evaluateDiurnalSunRadiance(solarElev);
     let maxMip = max(ubo.params3.z - 1.0, 0.0);
@@ -133,7 +135,7 @@ fn cs_pathtrace(@builtin(global_invocation_id) gid : vec3<u32>) {
                 let su2 = rtRand01(&rng);
                 let sr = sqrt(su1) * softness;
                 let sa = su2 * 6.2831853;
-                let shadowDir = normalize(sunL + bSun[0] * (sr * cos(sa)) + bSun[1] * (sr * sin(sa)));
+                let shadowDir = rtSafeNormalize(sunL + bSun[0] * (sr * cos(sa)) + bSun[1] * (sr * sin(sa)), sunL);
                 if (dot(N, shadowDir) > 0.0 && !rtTraceAnyHit(hitOrigin, shadowDir, 0.001, 500.0)) {
                     radiance = radiance + throughput * ptEvalCookTorrance(N, V, shadowDir, F0, diffCol, roughness) * sunRad;
                 }
@@ -143,7 +145,7 @@ fn cs_pathtrace(@builtin(global_invocation_id) gid : vec3<u32>) {
             for (var li : u32 = 0u; li < pCount; li = li + 1u) {
                 let lp = ubo.lightsPos[li];
                 let lType = u32(lp.w + 0.5);
-                var L_p = normalize(lp.xyz);
+                var L_p = rtSafeNormalize(lp.xyz, vec3<f32>(0.0, 1.0, 0.0));
                 var maxD = 500.0;
                 var atten = 1.0;
                 if (lType != 0u) {
@@ -231,9 +233,11 @@ fn cs_pathtrace(@builtin(global_invocation_id) gid : vec3<u32>) {
     let safeRad = select(vec3<f32>(0.0), min(radiance, vec3<f32>(24.0)),
                          all(radiance >= vec3<f32>(0.0)) && all(radiance < vec3<f32>(1e5)));
     let pxIdx = gid.y * w + gid.x;
-    if (sampleIdx == 0u) {
-        pathAccum[pxIdx] = vec4<f32>(safeRad, 1.0);
-    } else {
-        pathAccum[pxIdx] = pathAccum[pxIdx] + vec4<f32>(safeRad, 1.0);
+    if (pxIdx < arrayLength(&pathAccum)) {
+        if (sampleIdx == 0u) {
+            pathAccum[pxIdx] = vec4<f32>(safeRad, 1.0);
+        } else {
+            pathAccum[pxIdx] = pathAccum[pxIdx] + vec4<f32>(safeRad, 1.0);
+        }
     }
 }

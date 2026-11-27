@@ -29,7 +29,7 @@ namespace {
     const auto prims = item.node->GetPrimitives();
     if (item.primitiveIndex < prims.size()) {
         const auto& primBox = prims[item.primitiveIndex].boundingBox;
-        if (primBox.minBound.x <= primBox.maxBound.x) {
+        if (primBox.IsValid()) {
             if (item.node->instanceTransforms.empty()) {
                 return primBox.Transformed(item.node->worldTransform);
             }
@@ -148,7 +148,7 @@ bool QuadtreeNode::RecomputeLooseBounds() noexcept {
     looseBounds_ = core::AABB{};
     bool hasAny{false};
     for (const auto& item : items_) {
-        if (item.aabb.minBound.x <= item.aabb.maxBound.x) {
+        if (item.aabb.IsValid()) {
             looseBounds_.Expand(item.aabb);
             hasAny = true;
         }
@@ -164,7 +164,7 @@ bool QuadtreeNode::RecomputeLooseBounds() noexcept {
 
 bool OcclusionBuffer::ProjectAABB(const core::AABB& box, const glm::mat4& viewProj, glm::vec2& ndcMinOut,
                                   glm::vec2& ndcMaxOut, float& minZOut, float& maxZOut) noexcept {
-    if (box.minBound.x > box.maxBound.x)
+    if (!box.IsValid())
         return false;
 
     ndcMinOut = glm::vec2{1e30f};
@@ -266,11 +266,21 @@ void OcclusionBuffer::RasterizeOccluder(const glm::vec2& ndcMin, const glm::vec2
     }
 }
 
+size_t QuadtreeNode::CountSubtreeItems() const noexcept {
+    size_t count = items_.size();
+    for (const auto& child : children_) {
+        if (child) {
+            count += child->CountSubtreeItems();
+        }
+    }
+    return count;
+}
+
 void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& camPos,
                                 std::vector<QuadtreeItem>& visibleItemsOut, const glm::mat4* viewProj,
                                 OcclusionBuffer* occlusionBuf, size_t* occludedCountOut, float lodBias) const {
     // 1. Broad-phase Frustum Culling: cull whole quadtree quadrant if outside frustum
-    const core::AABB& testBounds{(looseBounds_.minBound.x <= looseBounds_.maxBound.x) ? looseBounds_ : bounds_};
+    const core::AABB& testBounds{looseBounds_.IsValid() ? looseBounds_ : bounds_};
     if (!frustum.IntersectsAABB(testBounds)) {
         return;
     }
@@ -283,7 +293,7 @@ void QuadtreeNode::QueryFrustum(const core::Frustum& frustum, const glm::vec3& c
         if (OcclusionBuffer::ProjectAABB(testBounds, *viewProj, nodeNdcMin, nodeNdcMax, nodeMinZ, nodeMaxZ)) {
             if (occlusionBuf->IsOccluded(nodeNdcMin, nodeNdcMax, nodeMinZ)) {
                 if (occludedCountOut) {
-                    *occludedCountOut += items_.size();
+                    *occludedCountOut += CountSubtreeItems();
                 }
                 return;
             }
@@ -400,7 +410,7 @@ void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
             return;
         auto prims = n->GetPrimitives();
         if (prims.empty()) {
-            if (n->children.empty() && n->worldAABB.minBound.x <= n->worldAABB.maxBound.x) {
+            if (n->children.empty() && n->worldAABB.IsValid()) {
                 QuadtreeItem item;
                 item.node = n;
                 item.primitiveIndex = 0;
@@ -412,7 +422,7 @@ void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
         } else {
             for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
                 const auto& prim = prims[pIdx];
-                if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
+                if (prim.boundingBox.IsValid()) {
                     QuadtreeItem item;
                     item.node = n;
                     item.primitiveIndex = pIdx;
@@ -458,22 +468,22 @@ size_t Quadtree::Refit() {
 void Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos, const glm::mat4& viewProj,
                             std::vector<QuadtreeItem>& resultsOut, bool enableOcclusionCulling, float lodBias) const {
     resultsOut.clear();
-    lastOccludedCount_ = 0;
+    size_t occludedCount{0};
     if (root_) {
         if (enableOcclusionCulling) {
-            occlusionBuffer_.Clear();
-            root_->QueryFrustum(frustum, cameraPos, resultsOut, &viewProj, &occlusionBuffer_, &lastOccludedCount_,
-                                lodBias);
+            OcclusionBuffer localOcclusion{};
+            root_->QueryFrustum(frustum, cameraPos, resultsOut, &viewProj, &localOcclusion, &occludedCount, lodBias);
         } else {
             root_->QueryFrustum(frustum, cameraPos, resultsOut, &viewProj, nullptr, nullptr, lodBias);
         }
     }
+    lastOccludedCount_.store(occludedCount, std::memory_order_relaxed);
 }
 
 void Quadtree::QueryVisible(const core::Frustum& frustum, const glm::vec3& cameraPos,
                             std::vector<QuadtreeItem>& resultsOut, float lodBias) const {
     resultsOut.clear();
-    lastOccludedCount_ = 0;
+    lastOccludedCount_.store(0, std::memory_order_relaxed);
     if (root_) {
         root_->QueryFrustum(frustum, cameraPos, resultsOut, nullptr, nullptr, nullptr, lodBias);
     }

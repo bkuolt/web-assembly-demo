@@ -160,11 +160,11 @@ thread_local bool t_allowLoopbackHttpForTests{false};
 
 #if defined(BGL_HAS_CURL)
 void EnsureCurlGlobalInitialized() {
-    static std::once_flag initFlag{};
-    std::call_once(initFlag, []() {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        std::atexit([]() { curl_global_cleanup(); });
-    });
+    static struct CurlGlobalGuard {
+        CurlGlobalGuard() { curl_global_init(CURL_GLOBAL_DEFAULT); }
+        ~CurlGlobalGuard() { curl_global_cleanup(); }
+    } s_curlGuard{};
+    (void)s_curlGuard;
 }
 
 #if defined(__linux__) || defined(__unix__)
@@ -194,30 +194,48 @@ void EnsureCurlGlobalInitialized() {
     if (addr->sa_family == AF_INET6) {
         const auto* sin6{reinterpret_cast<const struct sockaddr_in6*>(addr)};
         const uint8_t* b{sin6->sin6_addr.s6_addr};
-        bool allZero{true};
-        for (size_t i{0}; i < 16u; ++i) {
+        bool prefixZero12{true};
+        for (size_t i{0}; i < 12u; ++i) {
             if (b[i] != 0u) {
-                allZero = false;
+                prefixZero12 = false;
                 break;
             }
         }
-        if (allZero) {
-            return true; // ::
-        }
-        bool isLoopback{b[15] == 1u};
-        for (size_t i{0}; i < 15u; ++i) {
-            if (b[i] != 0u) {
-                isLoopback = false;
-                break;
+        if (prefixZero12) {
+            const uint32_t tail{(static_cast<uint32_t>(b[12]) << 24u) | (static_cast<uint32_t>(b[13]) << 16u) |
+                                (static_cast<uint32_t>(b[14]) << 8u) | static_cast<uint32_t>(b[15])};
+            if (tail == 0u) {
+                return true; // ::
             }
+            if (tail == 1u) {
+                return !allowLoopback; // ::1
+            }
+            return true; // Deprecated IPv4-compatible IPv6 ::0.0.0.0/96
         }
-        if (isLoopback) {
-            return !allowLoopback; // ::1
-        }
-        if ((b[0] & 0xFEu) == 0xFCu ||                    // fc00::/7 ULA
-            (b[0] == 0xFEu && (b[1] & 0xC0u) == 0x80u) || // fe80::/10 link-local
-            b[0] == 0xFFu) {                              // ff00::/8 multicast
+        if ((b[0] & 0xFEu) == 0xFCu ||                                      // fc00::/7 ULA
+            (b[0] == 0xFEu && (b[1] & 0xC0u) == 0x80u) ||                   // fe80::/10 link-local
+            b[0] == 0xFFu ||                                                // ff00::/8 multicast
+            (b[0] == 0x20u && b[1] == 0x02u) ||                             // 2002::/16 6to4
+            (b[0] == 0x20u && b[1] == 0x01u && b[2] == 0u && b[3] == 0u)) { // 2001::/32 Teredo
             return true;
+        }
+        // NAT64: 64:ff9b::/96 and local-use 64:ff9b:1::/48
+        if (b[0] == 0x00u && b[1] == 0x64u && b[2] == 0xFFu && b[3] == 0x9Bu) {
+            if (b[4] == 0x00u && b[5] == 0x01u) {
+                return true;
+            }
+            bool nat64WellKnownZero{true};
+            for (size_t i{4}; i < 12u; ++i) {
+                if (b[i] != 0u) {
+                    nat64WellKnownZero = false;
+                    break;
+                }
+            }
+            if (nat64WellKnownZero) {
+                const uint32_t v4Host{(static_cast<uint32_t>(b[12]) << 24u) | (static_cast<uint32_t>(b[13]) << 16u) |
+                                      (static_cast<uint32_t>(b[14]) << 8u) | static_cast<uint32_t>(b[15])};
+                return IsBlockedIpv4HostOrder(v4Host, allowLoopback);
+            }
         }
         // IPv4-mapped IPv6 ::ffff:0:0/96
         bool v4Mapped{b[10] == 0xFFu && b[11] == 0xFFu};
@@ -246,6 +264,19 @@ curl_socket_t CurlOpenSocketCallback(void* clientp, curlsocktype purpose, struct
 }
 #endif
 
+[[nodiscard]] bool HasUrlCredentials(std::string_view url) noexcept {
+    const size_t schemePos = url.find("://");
+    if (schemePos == std::string_view::npos) {
+        return false;
+    }
+    std::string_view authority = url.substr(schemePos + 3u);
+    const size_t delim = authority.find_first_of("/?#");
+    if (delim != std::string_view::npos) {
+        authority = authority.substr(0, delim);
+    }
+    return authority.find('@') != std::string_view::npos;
+}
+
 [[nodiscard]] bool IsLoopbackHttpLiteral(std::string_view url) noexcept {
     if (!StartsWithCaseInsensitive(url, "http://")) {
         return false;
@@ -255,8 +286,17 @@ curl_socket_t CurlOpenSocketCallback(void* clientp, curlsocktype purpose, struct
     if (slashPos != std::string_view::npos) {
         host = host.substr(0, slashPos);
     }
-    const size_t colonPos = host.rfind(':');
-    if (colonPos != std::string_view::npos && host.find(']') == std::string_view::npos) {
+    if (host.starts_with('[')) {
+        const size_t endBracket = host.find(']');
+        if (endBracket == std::string_view::npos) {
+            return false;
+        }
+        const std::string_view afterBracket = host.substr(endBracket + 1u);
+        if (!afterBracket.empty() && afterBracket.front() != ':') {
+            return false;
+        }
+        host = host.substr(0, endBracket + 1u);
+    } else if (const size_t colonPos = host.rfind(':'); colonPos != std::string_view::npos) {
         host = host.substr(0, colonPos);
     }
     return (host.size() == 9u && StartsWithCaseInsensitive(host, "127.0.0.1")) ||
@@ -320,7 +360,7 @@ int CurlXferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, cu
         return std::unexpected("Failed to determine size of local file: " + filePath.string());
     }
     if (static_cast<uint64_t>(size) > kMaxAssetFileSize) {
-        return std::unexpected("Local file exceeds maximum allowed asset size (1 GiB): " + filePath.string());
+        return std::unexpected("Local file exceeds maximum allowed asset size: " + filePath.string());
     }
     file.seekg(0, std::ios::beg);
 
@@ -698,6 +738,9 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
 
     // 3. Remote HTTP / HTTPS URL (HTTPS required for remote transfers)
     if (IsHttpUrl(cleanedUri)) {
+        if (HasUrlCredentials(cleanedUri)) {
+            return std::unexpected("Rejected HTTP(S) URL containing embedded credentials");
+        }
         const bool allowLoopbackTest = t_allowLoopbackHttpForTests;
         const bool isAllowedTestHttp = allowLoopbackTest && IsLoopbackHttpLiteral(cleanedUri);
         if (!StartsWithCaseInsensitive(cleanedUri, "https://") && !isAllowedTestHttp) {
@@ -827,10 +870,14 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
             return decodedRes;
         }
     }
-    return localRes;
+    return std::unexpected(localRes.error());
 }
 
 void NetworkFetcher::FetchAsync(std::string_view url, FetchCallback callback) {
+#if defined(BGL_HAS_CURL)
+    // Ensure static CurlGlobalGuard outlives ThreadPool's static workers (constructed earlier -> destroyed later).
+    EnsureCurlGlobalInitialized();
+#endif
     std::string urlStr{url};
     ThreadPool::Instance().Enqueue([url = std::move(urlStr), cb = std::move(callback)]() mutable {
         auto res = FetchSync(url);

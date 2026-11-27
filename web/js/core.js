@@ -352,9 +352,15 @@
     MAX_MEMORY_BYTES: 160 * 1024 * 1024,
     memoryFallback: new Map(),
 
+    _normalizeCacheKey(url) {
+      if (typeof url !== 'string' || !url || /^local:/i.test(url)) return null;
+      if (!BglNetwork || !BglNetwork.validateAssetUrl) return url;
+      const check = BglNetwork.validateAssetUrl(url, { allowData: false, allowCustomHttps: true });
+      return check.ok ? check.url : null;
+    },
+
     _isCacheableUrl(url) {
-      if (typeof url !== 'string' || !url || /^local:/i.test(url)) return false;
-      return !BglNetwork || BglNetwork.validateAssetUrl(url, { allowData: false, allowCustomHttps: true }).ok;
+      return this._normalizeCacheKey(url) !== null;
     },
 
     _enforceMemoryCap() {
@@ -372,53 +378,56 @@
     },
 
     async getCache() {
-      if ('caches' in window) {
+      if ('caches' in globalThis && globalThis.caches && typeof globalThis.caches.open === 'function') {
         try {
-          return await window.caches.open(this.CACHE_NAME);
+          return await globalThis.caches.open(this.CACHE_NAME);
         } catch (e) {
-          BglLogger.warn('Cache', 'window.caches access error:', e);
+          BglLogger.warn('Cache', 'CacheStorage access error:', e);
         }
       }
       return null;
     },
 
     async has(url) {
-      if (!this._isCacheableUrl(url)) return false;
+      const key = this._normalizeCacheKey(url);
+      if (!key) return false;
       try {
         const cache = await this.getCache();
         if (cache) {
-          const match = await cache.match(url);
+          const match = await cache.match(key);
           return !!match;
         }
       } catch (e) {
         // fallback
       }
-      return this.memoryFallback.has(url);
+      return this.memoryFallback.has(key);
     },
 
     async get(url) {
-      if (!this._isCacheableUrl(url)) return null;
+      const key = this._normalizeCacheKey(url);
+      if (!key) return null;
       try {
         const cache = await this.getCache();
         if (cache) {
-          const match = await cache.match(url);
+          const match = await cache.match(key);
           if (match) {
-            BglLogger.log('Cache', `CacheStorage HIT for model: ${url}`);
+            BglLogger.log('Cache', `CacheStorage HIT for model: ${key}`);
             return await match.arrayBuffer();
           }
         }
       } catch (e) {
-        BglLogger.warn('Cache', `Failed reading from CacheStorage for ${url}:`, e);
+        BglLogger.warn('Cache', `Failed reading from CacheStorage for ${key}:`, e);
       }
-      if (this.memoryFallback.has(url)) {
-        BglLogger.log('Cache', `Memory Cache HIT for model: ${url}`);
-        return this.memoryFallback.get(url).slice(0);
+      if (this.memoryFallback.has(key)) {
+        BglLogger.log('Cache', `Memory Cache HIT for model: ${key}`);
+        return this.memoryFallback.get(key).slice(0);
       }
       return null;
     },
 
     async put(url, arrayBuffer) {
-      if (!this._isCacheableUrl(url) || !arrayBuffer || !(arrayBuffer instanceof ArrayBuffer)) {
+      const key = this._normalizeCacheKey(url);
+      if (!key || !arrayBuffer || !(arrayBuffer instanceof ArrayBuffer)) {
         return;
       }
       try {
@@ -431,15 +440,15 @@
               'X-Bgl-Cached-At': new Date().toISOString()
             }
           });
-          await cache.put(url, response);
-          BglLogger.log('Cache', `Successfully cached model (${(arrayBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB): ${url}`);
+          await cache.put(key, response);
+          BglLogger.log('Cache', `Successfully cached model (${(arrayBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB): ${key}`);
           await this.updateCacheStatusUI();
           return;
         }
       } catch (e) {
-        BglLogger.warn('Cache', `CacheStorage put failed for ${url}:`, e);
+        BglLogger.warn('Cache', `CacheStorage put failed for ${key}:`, e);
       }
-      this.memoryFallback.set(url, arrayBuffer.slice(0));
+      this.memoryFallback.set(key, arrayBuffer.slice(0));
       this._enforceMemoryCap();
       await this.updateCacheStatusUI();
     },
@@ -656,8 +665,12 @@
 
       const sameOrigin = parsed.origin === baseParsed.origin;
       if (sameOrigin) {
-        if (/\/\.\.(\/|$)/.test(url)) {
+        if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(url) || /(?:%2e){2}/i.test(url)) {
           return { ok: false, reason: 'Path traversal sequence prohibited' };
+        }
+        const baseDir = baseParsed.pathname.replace(/[^/]*$/, '');
+        if (baseDir !== '/' && !parsed.pathname.startsWith(baseDir)) {
+          return { ok: false, reason: 'Resolved path escapes application directory' };
         }
         return { ok: true, url: parsed.href };
       }
@@ -681,6 +694,40 @@
         throw new Error(`Blocked unsafe asset URL '${url}': ${check.reason}`);
       }
       const safeUrl = check.url;
+
+      // Decode validated data: URIs locally so CSP connect-src does not need to allow data:
+      if (/^data:/i.test(safeUrl)) {
+        const commaIdx = safeUrl.indexOf(',');
+        if (commaIdx === -1) {
+          throw new Error('Malformed data URI.');
+        }
+        const meta = safeUrl.slice(5, commaIdx).toLowerCase();
+        const payload = safeUrl.slice(commaIdx + 1);
+        let bytes;
+        if (meta.includes(';base64')) {
+          const binStr = atob(payload);
+          if (binStr.length > this.MAX_MODEL_BYTES) {
+            throw new Error(`Asset exceeds maximum allowed size (${this.MAX_MODEL_BYTES / (1024 * 1024)} MB).`);
+          }
+          bytes = new Uint8Array(binStr.length);
+          for (let i = 0; i < binStr.length; ++i) bytes[i] = binStr.charCodeAt(i);
+        } else {
+          bytes = new TextEncoder().encode(decodeURIComponent(payload));
+          if (bytes.byteLength > this.MAX_MODEL_BYTES) {
+            throw new Error(`Asset exceeds maximum allowed size (${this.MAX_MODEL_BYTES / (1024 * 1024)} MB).`);
+          }
+        }
+        if (onProgress) {
+          onProgress({
+            percent: 100,
+            msg: `Decoded ${(bytes.byteLength / (1024 * 1024)).toFixed(2)} MB`,
+            transferredBytes: bytes.byteLength,
+            totalBytes: bytes.byteLength,
+            speedMbS: '0.0'
+          });
+        }
+        return bytes.buffer;
+      }
 
       const startTime = performance.now();
       BglLogger.log('Network', `Initiating fetch for resource: ${safeUrl}`);
@@ -969,7 +1016,9 @@
      * Push raw model buffer into C++ WebAssembly heap memory.
      */
     sendBufferToWasm(name, arrayBuffer) {
-      if (!BglState.wasmExports || !BglState.wasmExports.malloc) {
+      const exp = BglState.wasmExports;
+      if (!exp || typeof exp.malloc !== 'function' || typeof exp.free !== 'function' ||
+          typeof exp.bgl_load_file_buffer !== 'function' || !BglState.wasmMemory || !BglState.wasmMemory.buffer) {
         return false;
       }
 

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <unordered_set>
 #include <vector>
 
 namespace bgl::gpu {
@@ -468,14 +469,19 @@ void PipelineManager::RenderSelectionOutline(WGPUCommandEncoder encoder, scene::
     drawCallsScratch_.clear();
     frameInstanceTransformsScratch_.clear();
 
-    auto collectNode = [&](auto& self, scene::SceneNode& node) -> void {
+    std::unordered_set<const scene::SceneNode*> visitedNodes;
+    constexpr uint32_t kMaxTraversalDepth{256u};
+    auto collectNode = [&](auto& self, scene::SceneNode& node, uint32_t depth) -> void {
+        if (depth >= kMaxTraversalDepth || !visitedNodes.insert(&node).second) {
+            return;
+        }
         auto prims = node.GetPrimitives();
         if (!prims.empty()) {
-            const uint32_t instStart = static_cast<uint32_t>(frameInstanceTransformsScratch_.size());
+            // DynamicInstanceBuffer stores identity at slot 0 and per-node transforms starting at slot 1.
+            uint32_t instStart = 0u;
             uint32_t instCount = 1u;
-            if (node.instanceTransforms.empty()) {
-                frameInstanceTransformsScratch_.emplace_back(1.0f);
-            } else {
+            if (!node.instanceTransforms.empty()) {
+                instStart = static_cast<uint32_t>(1u + frameInstanceTransformsScratch_.size());
                 instCount = static_cast<uint32_t>(node.instanceTransforms.size());
                 frameInstanceTransformsScratch_.insert(frameInstanceTransformsScratch_.end(),
                                                        node.instanceTransforms.begin(), node.instanceTransforms.end());
@@ -504,11 +510,11 @@ void PipelineManager::RenderSelectionOutline(WGPUCommandEncoder encoder, scene::
         }
         for (const auto& child : node.children) {
             if (child) {
-                self(self, *child);
+                self(self, *child, depth + 1u);
             }
         }
     };
-    collectNode(collectNode, *const_cast<scene::SceneNode*>(selectedNode));
+    collectNode(collectNode, *const_cast<scene::SceneNode*>(selectedNode), 0u);
 
     if (drawCallsScratch_.empty()) {
         return;

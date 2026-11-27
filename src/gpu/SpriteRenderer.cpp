@@ -470,8 +470,13 @@ WGPUBindGroup SpriteRenderer::ResolveTextureBindGroup(const std::shared_ptr<cons
         w = tex->width;
         h = tex->height;
         fmt = tex->srgb ? WGPUTextureFormat_RGBA8UnormSrgb : WGPUTextureFormat_RGBA8Unorm;
+        const uint64_t requiredBytes{static_cast<uint64_t>(w) * static_cast<uint64_t>(h) * 4ULL};
+        if (w == 0 || h == 0 || w > 16384u || h > 16384u || requiredBytes > std::numeric_limits<size_t>::max() ||
+            tex->rgbaPixels.size() < requiredBytes) {
+            return nullptr;
+        }
         pxPtr = tex->rgbaPixels.data();
-        pxSize = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
+        pxSize = static_cast<size_t>(requiredBytes);
         entry.owner = tex;
     }
 
@@ -532,9 +537,16 @@ WGPUBindGroup SpriteRenderer::ResolveTextureBindGroup(const std::shared_ptr<cons
 
 bool SpriteRenderer::EnsurePassGeometryCapacity(PassBuffers& pass, size_t vertexCount, size_t indexCount) {
     if (vertexCount > pass.vertexCap) {
+        if (vertexCount > std::numeric_limits<size_t>::max() / (2u * sizeof(SpriteVertex))) {
+            return false;
+        }
         const size_t nextCap = std::max(vertexCount * 2u, size_t{256});
+        const uint64_t bufBytes = static_cast<uint64_t>(nextCap) * sizeof(SpriteVertex);
+        if (bufBytes > std::numeric_limits<size_t>::max()) {
+            return false;
+        }
         WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        desc.size = nextCap * sizeof(SpriteVertex);
+        desc.size = bufBytes;
         desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         desc.label = ToWgpuStringView("SpriteVertexBuffer");
         BufferHandle nextVb{wgpuDeviceCreateBuffer(device_, &desc)};
@@ -546,13 +558,20 @@ bool SpriteRenderer::EnsurePassGeometryCapacity(PassBuffers& pass, size_t vertex
         }
         pass.vb = std::move(nextVb);
         pass.vertexCap = nextCap;
-        pass.vbBytes = desc.size;
+        pass.vbBytes = static_cast<size_t>(desc.size);
         core::MemoryTracker::Instance().TrackBufferAlloc(pass.vbBytes);
     }
     if (indexCount > pass.indexCap) {
+        if (indexCount > (std::numeric_limits<size_t>::max() - 3u) / (2u * sizeof(uint32_t))) {
+            return false;
+        }
         const size_t nextCap = std::max(indexCount * 2u, size_t{384});
+        const uint64_t alignedBytes = ((static_cast<uint64_t>(nextCap) * sizeof(uint32_t)) + 3ULL) & ~uint64_t{3u};
+        if (alignedBytes > std::numeric_limits<size_t>::max()) {
+            return false;
+        }
         WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
-        desc.size = ((nextCap * sizeof(uint32_t)) + 3u) & ~size_t{3u};
+        desc.size = alignedBytes;
         desc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
         desc.label = ToWgpuStringView("SpriteIndexBuffer");
         BufferHandle nextIb{wgpuDeviceCreateBuffer(device_, &desc)};
@@ -564,7 +583,7 @@ bool SpriteRenderer::EnsurePassGeometryCapacity(PassBuffers& pass, size_t vertex
         }
         pass.ib = std::move(nextIb);
         pass.indexCap = nextCap;
-        pass.ibBytes = desc.size;
+        pass.ibBytes = static_cast<size_t>(desc.size);
         core::MemoryTracker::Instance().TrackBufferAlloc(pass.ibBytes);
     }
     return true;

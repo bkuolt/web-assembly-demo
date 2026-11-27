@@ -10,6 +10,7 @@
 #include "gpu/ShaderManager.hpp"
 #include <algorithm>
 #include <array>
+#include <unordered_set>
 #include <utility>
 
 namespace bgl::gpu {
@@ -186,9 +187,7 @@ glm::mat4 ShadowPass::ComputeDirectionalLightMatrix(const core::AABB& sceneBound
         up = glm::vec3{0.0f, 0.0f, 1.0f};
     }
 
-    const bool validBounds{sceneBounds.minBound.x <= sceneBounds.maxBound.x &&
-                           sceneBounds.minBound.y <= sceneBounds.maxBound.y &&
-                           sceneBounds.minBound.z <= sceneBounds.maxBound.z};
+    const bool validBounds{sceneBounds.IsValid()};
     if (!validBounds) {
         const glm::vec3 center{0.0f};
         constexpr float kDefaultRadius{20.0f};
@@ -327,26 +326,32 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
             pushPrimitiveDraw(*vis.node, prims[vis.primitiveIndex], vis.node->worldTransform);
         }
     } else {
-        auto collectNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat) -> void {
+        std::unordered_set<const scene::SceneNode*> visitedNodes{};
+        constexpr size_t kMaxTraversalDepth{256u};
+        auto collectNodeShadow = [&](auto& self, scene::SceneNode& node, const glm::mat4& parentMat,
+                                     size_t depth) -> void {
+            if (depth >= kMaxTraversalDepth || !visitedNodes.insert(&node).second) {
+                return;
+            }
             const glm::mat4 worldMat{parentMat * node.localTransform};
             for (auto& prim : node.GetPrimitives()) {
                 const core::AABB worldBox =
                     !node.instanceTransforms.empty() ? node.worldAABB : prim.boundingBox.Transformed(worldMat);
-                if (worldBox.minBound.x <= worldBox.maxBound.x && !lightFrustum.IntersectsAABB(worldBox)) {
+                if (worldBox.IsValid() && !lightFrustum.IntersectsAABB(worldBox)) {
                     continue;
                 }
                 pushPrimitiveDraw(node, prim, worldMat);
             }
             for (const auto& child : node.children) {
                 if (child) {
-                    self(self, *child, worldMat);
+                    self(self, *child, worldMat, depth + 1u);
                 }
             }
         };
 
         for (const auto& root : scene.rootNodes) {
             if (root) {
-                collectNodeShadow(collectNodeShadow, *root, glm::mat4{1.0f});
+                collectNodeShadow(collectNodeShadow, *root, glm::mat4{1.0f}, 0u);
             }
         }
     }
@@ -419,7 +424,7 @@ void ShadowPass::Render(WGPUCommandEncoder encoder, scene::Scene& scene, const g
                 }
                 wgpuRenderPassEncoderDrawIndexed(pass.Get(), slice.indexCount, draw.instanceCount, slice.firstIndex, 0,
                                                  0);
-            } else {
+            } else if (!prim->vertices.empty()) {
                 wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(prim->vertices.size()), draw.instanceCount,
                                           0, 0);
             }

@@ -37,14 +37,6 @@ class ReusableTCPServer(socketserver.TCPServer):
 
 
 def find_free_port():
-    """Bind an ephemeral loopback TCP socket to obtain an unused local port."""
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
-
-
-def find_free_port():
     """Allocate a free ephemeral TCP port on 127.0.0.1."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(('127.0.0.1', 0))

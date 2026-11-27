@@ -154,7 +154,7 @@ public:
     void AbortFrame() noexcept;
 
 private:
-    void CreateRenderBuffers();
+    [[nodiscard]] bool CreateRenderBuffers();
 
     bool initialized_{false};
     bool supportsBC_{false};

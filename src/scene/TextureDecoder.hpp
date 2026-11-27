@@ -100,10 +100,11 @@ public:
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target);
 
     /**
-     * @brief Transcodes KTX2 Basis Universal texture data using a caller-supplied std::pmr staging arena.
-     * @param data Byte span containing the KTX2 file data.
-     * @param target Desired transcoding target (RGBA32, BC7, ASTC, or ETC2).
-     * @param scratchResource Polymorphic memory resource for zero-fragmentation staging buffers.
+     * @brief Decodes or transcodes KTX/KTX2 texture data into RGBA32 or GPU-compressed mip chains.
+     * @param data Byte span containing the KTX or KTX2 file data.
+     * @param target Desired transcoding target (Rgba32, Bc7, Astc, or Etc2).
+     * @param scratchResource Optional caller-supplied staging memory resource (reserved for future streaming
+     * allocators; libktx manages its own internal allocations).
      * @return DecodedImage structure with transcoded mip chain on success, or an error string.
      */
     static core::Result<DecodedImage> DecodeKTX2(std::span<const uint8_t> data, KtxTranscodeTarget target,

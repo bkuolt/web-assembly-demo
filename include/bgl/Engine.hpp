@@ -86,7 +86,7 @@ public:
      * @param name Virtual filename or base URI used for logging and resolving external relative assets.
      * @return Empty Result on success, or an error description string on failure.
      */
-    [[nodiscard]] Result<void> LoadModel(std::span<const uint8_t> data, std::string_view name = "memory.glb");
+    [[nodiscard]] Result<void> LoadModel(std::span<const uint8_t> data, std::string_view name = "memory://memory.glb");
 
     /**
      * @brief Creates an empty entity in the active scene (creates an empty scene automatically if none is loaded).

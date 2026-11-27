@@ -19,12 +19,20 @@ function extractJsonPayload(arrayBuffer) {
     if (arrayBuffer.byteLength < 20) {
       throw new Error(`Truncated GLB container: Header is only ${arrayBuffer.byteLength} bytes.`);
     }
+    const version = dv.getUint32(4, true);
+    if (version !== 2) {
+      throw new Error(`Unsupported GLB version: ${version}. Expected GLB v2.`);
+    }
+    const totalLength = dv.getUint32(8, true);
+    if (totalLength < 20 || totalLength > arrayBuffer.byteLength) {
+      throw new Error(`Truncated or invalid GLB length (${totalLength} vs ${arrayBuffer.byteLength} bytes).`);
+    }
     const chunkLength = dv.getUint32(12, true);
     const chunkType = dv.getUint32(16, true);
     if (chunkType !== 0x4E4F534A) {
       throw new Error(`Invalid GLB: First chunk type 0x${chunkType.toString(16)} is not JSON.`);
     }
-    if (chunkLength > arrayBuffer.byteLength - 20) {
+    if (chunkLength > totalLength - 20) {
       throw new Error(`Truncated GLB JSON chunk (${chunkLength} bytes).`);
     }
     const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);

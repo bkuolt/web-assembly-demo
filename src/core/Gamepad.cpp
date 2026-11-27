@@ -48,8 +48,11 @@ Gamepad& Gamepad::operator=(Gamepad&& other) noexcept {
 }
 
 glm::vec2 Gamepad::ApplyDeadzone(glm::vec2 rawAxis) noexcept {
+    if (!std::isfinite(rawAxis.x) || !std::isfinite(rawAxis.y)) {
+        return glm::vec2{0.0f};
+    }
     const float length{glm::length(rawAxis)};
-    if (length < kDeadzone) {
+    if (!std::isfinite(length) || length < kDeadzone) {
         return glm::vec2{0.0f};
     }
     // Normalized smooth remap above deadzone
@@ -58,8 +61,11 @@ glm::vec2 Gamepad::ApplyDeadzone(glm::vec2 rawAxis) noexcept {
 }
 
 glm::vec2 Gamepad::ApplyPs5ResponseCurve(glm::vec2 stick, float exponent, float pitchFactor) noexcept {
+    if (!std::isfinite(stick.x) || !std::isfinite(stick.y) || !std::isfinite(exponent) || !std::isfinite(pitchFactor)) {
+        return glm::vec2{0.0f};
+    }
     const float mag = glm::length(stick);
-    if (mag <= 1e-4f) {
+    if (!std::isfinite(mag) || mag <= 1e-4f) {
         return glm::vec2{0.0f};
     }
     const float curvedMag = std::pow(std::min(mag, 1.0f), exponent);
@@ -75,8 +81,10 @@ void Gamepad::SetRawState(const GamepadState& raw, float deltaTime) noexcept {
     state_.leftStick = ApplyDeadzone(raw.leftStick);
     state_.rightStick = ApplyDeadzone(raw.rightStick);
     state_.curvedLook = ApplyPs5ResponseCurve(state_.rightStick);
+    state_.leftTrigger = std::isfinite(raw.leftTrigger) ? std::clamp(raw.leftTrigger, 0.0f, 1.0f) : 0.0f;
+    state_.rightTrigger = std::isfinite(raw.rightTrigger) ? std::clamp(raw.rightTrigger, 0.0f, 1.0f) : 0.0f;
 
-    const float dt = std::clamp(deltaTime, 0.001f, 0.1f);
+    const float dt = std::isfinite(deltaTime) ? std::clamp(deltaTime, 0.001f, 0.1f) : 0.016f;
     const float blend = 1.0f - std::exp(-20.0f * dt);
     state_.smoothedMove = glm::mix(prevSmoothedMove, state_.leftStick, blend);
     state_.smoothedLook = glm::mix(prevSmoothedLook, state_.curvedLook, blend);
@@ -99,16 +107,14 @@ void Gamepad::Rumble(float lowFreq, float highFreq, uint32_t durationMs) noexcep
 void Gamepad::Update(float deltaTime) noexcept {
 #if defined(BGL_PLATFORM_NATIVE)
     if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0) {
-        state_.connected = false;
+        state_ = GamepadState{};
         return;
     }
 
     if (activeController_ && !SDL_GameControllerGetAttached(activeController_)) {
         SDL_GameControllerClose(activeController_);
         activeController_ = nullptr;
-        state_.connected = false;
-        state_.deviceName = "None";
-        state_.isDualSense = false;
+        state_ = GamepadState{};
     }
 
     if (!activeController_) {
@@ -123,7 +129,7 @@ void Gamepad::Update(float deltaTime) noexcept {
     }
 
     if (!activeController_) {
-        state_.connected = false;
+        state_ = GamepadState{};
         return;
     }
 

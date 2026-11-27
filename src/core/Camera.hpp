@@ -155,7 +155,7 @@ public:
     [[nodiscard]] Frustum GetFrustum() const noexcept { return Frustum::FromViewProjection(GetViewProjectionMatrix()); }
 
     /**
-     * @brief Unproject screen coordinates (normalized 0..1) into a 3D ray in world space.
+     * @brief Unproject screen pixel coordinates (`0..screenWidth`, `0..screenHeight`) into a 3D ray in world space.
      */
     [[nodiscard]] Ray ScreenPointToRay(float screenX, float screenY, float screenWidth,
                                        float screenHeight) const noexcept;

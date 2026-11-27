@@ -7,6 +7,9 @@
 #include "scene/TextureDecoder.hpp"
 #include <gtest/gtest.h>
 #include <memory_resource>
+#if defined(BGL_ENABLE_KTX)
+#include <ktx.h>
+#endif
 
 using namespace bgl::scene;
 
@@ -323,4 +326,57 @@ TEST(TextureDecoderTest, OpenExrOverflowAndCraftedHeaderHardening) {
         EXPECT_TRUE(std::isfinite(c));
         EXPECT_GE(c, 0.0f);
     }
+
+    // OpenEXR non-zero version flags (e.g., tiled bit 0x200) rejected cleanly as unsupported
+    std::vector<uint8_t> exrTiledFlags = {0x76, 0x2F, 0x31, 0x01, 0x02, 0x02, 0x00, 0x00, 0x00};
+    EXPECT_FALSE(TextureDecoder::DecodeEXR(exrTiledFlags).has_value());
+
+#if defined(BGL_ENABLE_KTX)
+    {
+        // Uncompressed 1x1 VK_FORMAT_B8G8R8A8_UNORM (44) KTX2 swaps B and R into RGBA
+        ktxTextureCreateInfo ci{};
+        ci.vkFormat = 44; // VK_FORMAT_B8G8R8A8_UNORM
+        ci.baseWidth = 1;
+        ci.baseHeight = 1;
+        ci.baseDepth = 1;
+        ci.numDimensions = 2;
+        ci.numLevels = 1;
+        ci.numLayers = 1;
+        ci.numFaces = 1;
+        ktxTexture2* ktxBgra{nullptr};
+        if (ktxTexture2_Create(&ci, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &ktxBgra) == KTX_SUCCESS && ktxBgra) {
+            const uint8_t bgra[4]{10u, 20u, 30u, 255u};
+            if (ktxTexture_SetImageFromMemory(ktxTexture(ktxBgra), 0, 0, 0, bgra, sizeof(bgra)) == KTX_SUCCESS) {
+                ktx_uint8_t* rawPtr{nullptr};
+                ktx_size_t rawSize{0};
+                if (ktxTexture_WriteToMemory(ktxTexture(ktxBgra), &rawPtr, &rawSize) == KTX_SUCCESS && rawPtr) {
+                    const auto dec = TextureDecoder::DecodeKTX2({rawPtr, rawSize});
+                    ASSERT_TRUE(dec.has_value()) << dec.error();
+                    ASSERT_EQ(dec->rgbaData.size(), 4u);
+                    EXPECT_EQ(dec->rgbaData[0], 30u); // R
+                    EXPECT_EQ(dec->rgbaData[1], 20u); // G
+                    EXPECT_EQ(dec->rgbaData[2], 10u); // B
+                    EXPECT_EQ(dec->rgbaData[3], 255u);
+                    free(rawPtr);
+                }
+            }
+            ktxTexture_Destroy(ktxTexture(ktxBgra));
+        }
+
+        // Array KTX2 (numLayers == 2) must be rejected cleanly
+        ktxTextureCreateInfo arrCi = ci;
+        arrCi.numLayers = 2;
+        arrCi.isArray = KTX_TRUE;
+        ktxTexture2* ktxArr{nullptr};
+        if (ktxTexture2_Create(&arrCi, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &ktxArr) == KTX_SUCCESS && ktxArr) {
+            ktx_uint8_t* rawPtr{nullptr};
+            ktx_size_t rawSize{0};
+            if (ktxTexture_WriteToMemory(ktxTexture(ktxArr), &rawPtr, &rawSize) == KTX_SUCCESS && rawPtr) {
+                EXPECT_FALSE(TextureDecoder::DecodeKTX2({rawPtr, rawSize}).has_value());
+                free(rawPtr);
+            }
+            ktxTexture_Destroy(ktxTexture(ktxArr));
+        }
+    }
+#endif
 }

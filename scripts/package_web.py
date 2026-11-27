@@ -44,19 +44,25 @@ def package_web_app(output_zip: Path, include_sponza: bool = False):
 
     # Precompiled WebAssembly binary
     wasm_file = web_dir / "dist" / "bgl_engine.wasm"
-    if wasm_file.exists():
-        files_to_pack.append((wasm_file, "dist/bgl_engine.wasm"))
+    if not wasm_file.is_file():
+        print(f"Error: Required WebAssembly binary missing: '{wasm_file}'", file=sys.stderr)
+        sys.exit(1)
+    files_to_pack.append((wasm_file, "dist/bgl_engine.wasm"))
 
     # Lightweight glTF demo models referenced by web/index.html selector
     for asset_name in ("ToyCar.glb", "RobotExpressive.glb", "Soldier.glb"):
         asset_file = web_dir / "assets" / asset_name
-        if asset_file.exists():
-            files_to_pack.append((asset_file, f"assets/{asset_name}"))
+        if not asset_file.is_file():
+            print(f"Error: Required web preset asset missing: '{asset_file}'", file=sys.stderr)
+            sys.exit(1)
+        files_to_pack.append((asset_file, f"assets/{asset_name}"))
 
     if include_sponza:
         sponza_file = web_dir / "assets" / "Sponza.glb"
-        if sponza_file.exists():
-            files_to_pack.append((sponza_file, "assets/Sponza.glb"))
+        if not sponza_file.is_file():
+            print(f"Error: Requested Sponza asset missing: '{sponza_file}'", file=sys.stderr)
+            sys.exit(1)
+        files_to_pack.append((sponza_file, "assets/Sponza.glb"))
 
     print("=" * 80)
     print(" Packaging bgl-Engine Minimal Web Viewer Distribution")
@@ -67,9 +73,9 @@ def package_web_app(output_zip: Path, include_sponza: bool = False):
 
     with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for src_path, arc_name in files_to_pack:
-            if not src_path.exists():
-                print(f"  [MISSING] {src_path}", file=sys.stderr)
-                continue
+            if not src_path.is_file():
+                print(f"Error: Required web artifact missing: {src_path}", file=sys.stderr)
+                sys.exit(1)
 
             file_size = src_path.stat().st_size
             total_uncompressed += file_size

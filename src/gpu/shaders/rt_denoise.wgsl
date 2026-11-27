@@ -95,7 +95,7 @@ fn cs_atrous_8(@builtin(global_invocation_id) gid : vec3<u32>) {
         return;
     }
 
-    let centerN = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
+    let centerN = rtSafeNormalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz, vec3<f32>(0.0, 1.0, 0.0));
     let stride = max(i32(ubo.params3.w), 1);
 
     let kernel = array<f32, 3>(1.0, 2.0 / 3.0, 1.0 / 6.0);
@@ -114,7 +114,7 @@ fn cs_atrous_8(@builtin(global_invocation_id) gid : vec3<u32>) {
             if (sDepth >= 0.99999) {
                 continue;
             }
-            let sN = normalize(textureLoad(gbufferNormalRoughness, sFullPx, 0).xyz);
+            let sN = rtSafeNormalize(textureLoad(gbufferNormalRoughness, sFullPx, 0).xyz, vec3<f32>(0.0, 1.0, 0.0));
             let nW = pow(max(dot(centerN, sN), 0.0), 32.0);
             let dW = exp(-abs(centerDepth - sDepth) * 450.0);
             let kW = kernel[abs(dx)] * kernel[abs(dy)];
@@ -151,7 +151,7 @@ fn cs_upsample_8(@builtin(global_invocation_id) gid : vec3<u32>) {
         textureStore(dstTex8, fullPx, vec4<f32>(1.0));
         return;
     }
-    let cN = normalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz);
+    let cN = rtSafeNormalize(textureLoad(gbufferNormalRoughness, fullPx, 0).xyz, vec3<f32>(0.0, 1.0, 0.0));
     let baseLow = fullPx / 2;
     var sumVal = vec4<f32>(0.0);
     var sumW : f32 = 0.0;
