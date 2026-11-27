@@ -454,3 +454,38 @@ node --check web/js/core.js web/js/gltf.js web/js/math.js web/js/shaders.js web/
 node tests/test_web_unit.js
 node tests/test_webgpu_path.js
 ```
+
+---
+
+## 5. Independent Quality Audit & Verification Status (`v1.2.0`)
+
+Following the Waves 1–5 remediation, an independent codebase, shader, concurrency, and web-runtime quality audit was performed and every fix verified cleanly after the final code edit:
+
+- **Additional Post-Wave Hardening & Fixes Applied:**
+  - **Concurrency (`src/core/ThreadPool.hpp`, `src/core/ThreadPool.cpp`):** Scoped `WorkerJoinGuard` strictly inside an inner block so all worker threads join *before* inspecting `state->firstException` (fixing a race where caller-first completion could drop worker exceptions), initialized `activeWorkers` safely under `queueMutex_`, and eliminated empty catch handlers (`bugprone-empty-catch`) via `ExecuteTaskSafely()`.
+  - **Core & Scene (`src/core/Types.hpp`, `src/scene/TextureDecoder.cpp`, `src/scene/Animation.hpp`, `src/scene/Scene.cpp`):** Centralized `AABB::IsValid()`, tightened KTX1/KTX2 validation (rejecting array/cubemap/3D/compressed-KTX1/non-Basis pre-compressed KTX2 and validating 8-bit uncompressed `VkFormat` channels with B/R swizzle), and eliminated multi-node `Skin::gpuJointBuffer` races via per-node `NodeGpuBinding` tracking.
+  - **GPU & WGSL (`src/gpu/`, `src/gpu/shaders/`):** Added generation counters to defeat raw-pointer ABA reuse (`GpuCuller::boundsGeneration_`, `RayTracingPass::targetGeneration_`, `PipelineManager` cached target generations), preserved `boundsGeneration_` in `GpuCuller::MoveFrom`, replaced find-then-emplace in `RayTracingScene`, added null/bounds/overflow guards across `PostProcessPassRender`, `PipelineIBL`, `PipelineScene`, `PipelineEffects` (fixed `instStart` off-by-one), `SpriteRenderer`, and `RayTracingPass`, switched `AabbRenderer` / `PipelineHelpers` / `PipelineEffects` traversals to cycle/depth guards, wired `parallaxScale_` cleanly into `pbr.wgsl`, initialized `hitUv = rUv` before SSR binary search (`tonemap.wgsl`), and enforced `safeNormalize` + SSBO bounds checks (`pxIdx < arrayLength(&pathAccum)`).
+  - **Browser WebGPU Client (`web/`):** Fixed WebGPU `[0, 1]` NDC depth projection and `[0, 1]` near-plane frustum extraction (`web/js/math.js`), raised `mat4.invert`/`normalMatrix4` determinant thresholds to `1e-30`, fixed `tonemapKhronosPbrNeutral` low-range toe return (`return c;`) and `safeNormalize` in `web/js/shaders.js`, enforced GLB v2 header/length validation (`web/gltf_worker.js`, `web/js/gltf.js`), normalized `BglModelCache` URL keys, decoded `data:` URIs locally without weakening CSP `connect-src`, added `BglWasmBridge.sendBufferToWasm` export guards (`web/js/core.js`), implemented `clearResources()`/`clearModelResources()`, per-node skin bindings, unindexed primitive bounds, strict `bufferViews` fallback rules, and `prim.mode`/`matrix` guards in `web/js/renderer.js`, and enforced glTF-before-state load ordering, `SELECT`/`Alt`/`Meta`/`blur` hotkey guards, and `flex` features toggle layout in `web/app.js`.
+  - **Viewer (`apps/viewer/`):** Preserved `EnvironmentPreset::CustomHdr` dropdown switching (`ApplicationUI.cpp`) and returned `Application::GetLoadingStatus()` by `const std::string& noexcept` (`Application.hpp`, `ApplicationModelLoader.cpp`).
+
+- **Verification Results Directly Observed After Final Code Edit:**
+  - **Formatting, Layering & Python Checks:**
+    - `clang-format --dry-run -Werror` across `src/`, `apps/`, `include/`, `samples/`, `tests/` — **Passed** (`exit 0`).
+    - `python3 scripts/check_layering.py` — **Passed** (`layering check: OK (0 violation(s))`).
+    - `python3 -m py_compile scripts/package_web.py tests/test_browsers_e2e.py` — **Passed** (`exit 0`).
+  - **Static Analysis & Documentation:**
+    - `run-clang-tidy -p build/Release` (across 70 translation units in `src/`, `apps/`, `samples/`) + `clang-tidy --config-file=.clang-tidy src/wasm/wasm_bridge.cpp` with `WarningsAsErrors: '*'` — **Passed** (`0` warnings/errors in project code).
+    - `cppcheck -j$(nproc) --enable=warning,performance,portability --std=c++23 --error-exitcode=1` across `src/` & `apps/` (excluding generated `src/text/EmbeddedFont.cpp`) — **Passed** (`CPPCHECK_CLEAN`).
+    - `doxygen Doxyfile` (`WARN_AS_ERROR = YES`) — **Passed** (`exit 0`).
+  - **Native Release (`build/Release`) & Sanitizers (`build/asan`, `build/ubsan`):**
+    - `./build/Release/bgl_unit_tests` — **337 tests from 51 test suites ran, 337 passed, 0 skipped, 0 failed** (plus **25x repeated `ThreadPoolTest.*`** stress verification passing `10/10` per iteration).
+    - `ctest --preset default --output-on-failure -E BrowserE2ETest` — **5/5 CTest suites passed** (`AllUnitTests`, `LayeringCheck`, `NativeHeadlessSmokeTest`, `WebGPUPipelineTest`, `WebUnitTests`).
+    - `./build/Release/bgl_viewer --headless assets/ToyCar.glb` — **Passed** (`exit 0`, 10 frames rendered, clean shutdown).
+    - `ctest --preset asan --output-on-failure -E BrowserE2ETest` (`LSAN_OPTIONS=suppressions=lsan.supp`, without `leak:newlocale`) — **5/5 CTest suites passed** (`0` leaks/UAF/OOB).
+    - `ctest --preset ubsan --output-on-failure -E BrowserE2ETest` — **5/5 CTest suites passed** (`0` UB findings).
+  - **Web & Real Browser Verification:**
+    - `node --check web/js/core.js web/js/gltf.js web/js/math.js web/js/shaders.js web/js/renderer.js web/app.js web/gltf_worker.js tests/test_web_unit.js tests/test_webgpu_path.js` — **Passed** (`exit 0`).
+    - `node tests/test_web_unit.js` — **80/80 tests passed** (`0` failed).
+    - `node tests/test_webgpu_path.js` — **Passed** (`ALL WEBGPU PIPELINE TESTS PASSED (100%)`, verifying `ToyCar.glb`, `Sponza.glb`, `RobotExpressive.glb`, `Soldier.glb`, and `web/dist/bgl_engine.wasm`).
+    - `python3 tests/test_browsers_e2e.py` — **Passed** (`ALL BROWSER E2E TESTS PASSED`: real Mozilla Firefox + real Google Chrome native WebGPU active, `ToyCar.glb` 3 primitives rendered, live CSP `data-action` UI toggle verified, zero console/runtime errors).
+  - **Scope Note:** `em++` is not installed locally in this environment, so `web/dist/bgl_engine.wasm` was validated at its checked-in binary artifact (`54` exports, `7757` bytes) while `src/wasm/wasm_bridge.cpp` was verified via `clang-tidy --config-file=.clang-tidy` (`WarningsAsErrors: '*'`).
