@@ -225,6 +225,74 @@ jobs:
         name: bgl_viewer-linux-amd64
         path: dist-native/
 
+  native-sanitizers:
+    name: Linux amd64 (ASan + UBSan Sanitizer Verification)
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          ninja-build \
+          pkg-config \
+          libsdl2-dev \
+          libcurl4-openssl-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libvulkan-dev \
+          vulkan-tools \
+          xvfb
+
+    - name: Install Conan 2.x
+      run: |
+        pip install "conan>=2.0,<3.0"
+
+    - name: Cache Conan Packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.conan2/p
+        key: conan-${{ runner.os }}-${{ hashFiles('conan.lock', 'conanfile.py') }}
+
+    - name: Install Dependencies via Conan
+      run: |
+        conan profile detect --force
+        conan install . -s build_type=Release --build=missing --lockfile=conan.lock
+
+    - name: Verify Bundled wgpu-native Integrity & Configure Sanitizers
+      run: |
+        (cd third_party/wgpu-native && sha256sum -c wgpu-native-meta/SHA256SUMS)
+        cmake -B build/sanitizers -G Ninja \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_MAP_IMPORTED_CONFIG_DEBUG=Release \
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
+          -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
+          -DBGL_BUILD_TESTING=ON \
+          -DBGL_BUILD_SAMPLES=OFF
+
+    - name: Build Sanitizer Targets
+      run: |
+        cmake --build build/sanitizers -j$(nproc)
+
+    - name: Execute Unit & Smoke Tests under ASan + UBSan
+      env:
+        LSAN_OPTIONS: suppressions=${{ github.workspace }}/lsan.supp
+        UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      run: |
+        xvfb-run ctest --test-dir build/sanitizers --output-on-failure -E BrowserE2ETest
+
   doxygen-docs:
     name: Build Doxygen API Documentation
     runs-on: ubuntu-24.04
@@ -251,7 +319,7 @@ jobs:
 
   release:
     name: Publish Release Artifacts
-    needs: [native-linux, wasm-emscripten]
+    needs: [web-validation, code-quality, wasm-emscripten, native-linux, native-sanitizers, doxygen-docs]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:

@@ -169,20 +169,23 @@ public:
         }
 
         size_t pushedWorkers = 0;
-        if (prepOk) {
-            try {
-                std::unique_lock<std::mutex> lock(queueMutex_);
-                if (!stop_.load(std::memory_order_relaxed)) {
+        if (prepOk && !stagedTasks.empty()) {
+            std::unique_lock<std::mutex> lock(queueMutex_);
+            if (!stop_.load(std::memory_order_relaxed)) {
+                state->activeWorkers.store(stagedTasks.size(), std::memory_order_release);
+                try {
                     for (auto& t : stagedTasks) {
                         tasks_.emplace(std::move(t));
                         ++pushedWorkers;
                     }
+                } catch (...) {
+                    // Roll back count for unpushed workers before unlocking queueMutex_.
                 }
-            } catch (...) {
-                // Only pushedWorkers tasks were inserted into tasks_.
+                if (pushedWorkers < stagedTasks.size()) {
+                    state->activeWorkers.fetch_sub(stagedTasks.size() - pushedWorkers, std::memory_order_acq_rel);
+                }
             }
         }
-        state->activeWorkers.store(pushedWorkers, std::memory_order_release);
 
         if (pushedWorkers == 0) {
             for (size_t i = start; i < end; ++i) {
@@ -195,42 +198,45 @@ public:
             cv_.notify_one();
         }
 
-        struct WorkerJoinGuard {
-            std::shared_ptr<ParallelState> st;
-            bool isWorker;
-            ThreadPool* pool;
-            ~WorkerJoinGuard() {
-                if (!st) {
-                    return;
-                }
-                if (isWorker) {
-                    while (true) {
-                        {
-                            std::unique_lock<std::mutex> doneLock(st->doneMutex);
-                            if (st->activeWorkers.load(std::memory_order_acquire) == 0) {
-                                break;
+        {
+            struct WorkerJoinGuard {
+                std::shared_ptr<ParallelState> st;
+                bool isWorker;
+                ThreadPool* pool;
+                ~WorkerJoinGuard() {
+                    if (!st) {
+                        return;
+                    }
+                    if (isWorker) {
+                        while (true) {
+                            {
+                                std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                                if (st->activeWorkers.load(std::memory_order_acquire) == 0) {
+                                    break;
+                                }
+                            }
+                            if (!pool->TryExecuteOneTask()) {
+                                std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                                st->doneCv.wait_for(doneLock, std::chrono::microseconds(100), [&]() {
+                                    return st->activeWorkers.load(std::memory_order_acquire) == 0;
+                                });
                             }
                         }
-                        if (!pool->TryExecuteOneTask()) {
-                            std::unique_lock<std::mutex> doneLock(st->doneMutex);
-                            st->doneCv.wait_for(doneLock, std::chrono::microseconds(100), [&]() {
-                                return st->activeWorkers.load(std::memory_order_acquire) == 0;
-                            });
-                        }
+                    } else {
+                        std::unique_lock<std::mutex> doneLock(st->doneMutex);
+                        st->doneCv.wait(doneLock,
+                                        [&]() { return st->activeWorkers.load(std::memory_order_acquire) == 0; });
                     }
-                } else {
-                    std::unique_lock<std::mutex> doneLock(st->doneMutex);
-                    st->doneCv.wait(doneLock, [&]() { return st->activeWorkers.load(std::memory_order_acquire) == 0; });
                 }
-            }
-        } joinGuard{state, t_isWorkerThread, this};
+            } joinGuard{state, t_isWorkerThread, this};
 
-        try {
-            runWorkerLoop();
-        } catch (...) {
-            std::lock_guard<std::mutex> exLock(state->exceptionMutex);
-            if (!state->firstException) {
-                state->firstException = std::current_exception();
+            try {
+                runWorkerLoop();
+            } catch (...) {
+                std::lock_guard<std::mutex> exLock(state->exceptionMutex);
+                if (!state->firstException) {
+                    state->firstException = std::current_exception();
+                }
             }
         }
 

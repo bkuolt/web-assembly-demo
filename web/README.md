@@ -5,7 +5,7 @@ Native browser WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (P
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
 [![API Docs](https://img.shields.io/badge/Docs-Doxygen-0284c7?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-0d9488?style=flat)](js/renderer.js)
-[![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-79_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
+[![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-80_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
 
@@ -268,7 +268,7 @@ Camera parameters are dynamically configured:
 The web runtime is verified by three complementary automated test suites:
 
 ### 1. Web Runtime Unit Tests (`tests/test_web_unit.js`)
-Dedicated, high-speed unit test suite executing **79 isolated unit tests** covering all algorithmic, mathematical, security, and parser components:
+Dedicated, high-speed unit test suite executing **80 isolated unit tests** covering all algorithmic, mathematical, security, and parser components:
 ```bash
 node tests/test_web_unit.js
 ```

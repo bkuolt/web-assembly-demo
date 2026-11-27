@@ -48,7 +48,7 @@
     const animSection = document.getElementById('animation-controls-group');
     if (!select) return;
     const anims = BglWebGpuRenderer.animations || [];
-    select.innerHTML = '';
+    select.textContent = '';
     if (anims.length === 0) {
       const opt = document.createElement('option');
       opt.value = '-1';
@@ -383,7 +383,7 @@
     const modal = document.getElementById('compat-warning-modal');
     const content = document.getElementById('compat-modal-content');
     if (content) {
-      content.innerHTML = '';
+      content.textContent = '';
 
       for (const item of issues) {
         const box = document.createElement('div');

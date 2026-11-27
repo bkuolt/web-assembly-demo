@@ -37,10 +37,20 @@ constexpr std::array<EnumChoice, 11> kWeatherChoices{{{"clear", 0},
                                                       {"3", 3},
                                                       {"smoke", 4},
                                                       {"4", 4}}};
-constexpr std::array<EnumChoice, 20> kDebugViewChoices{
-    {{"lit", 0},  {"0", 0},         {"lod", 1},  {"heatmap", 1}, {"1", 1},   {"normals", 2}, {"normal", 2},
-     {"2", 2},    {"pbr", 3},       {"mrao", 3}, {"3", 3},       {"uv", 4},  {"checker", 4}, {"4", 4},
-     {"clay", 5}, {"wireframe", 5}, {"5", 5},    {"toon", 6},    {"cel", 6}, {"6", 6}}};
+constexpr std::array<EnumChoice, 14> kDebugViewChoices{{{"lit", 0},
+                                                        {"0", 0},
+                                                        {"lod", 1},
+                                                        {"heatmap", 1},
+                                                        {"1", 1},
+                                                        {"normals", 2},
+                                                        {"normal", 2},
+                                                        {"2", 2},
+                                                        {"pbr", 3},
+                                                        {"mrao", 3},
+                                                        {"3", 3},
+                                                        {"uv", 4},
+                                                        {"checker", 4},
+                                                        {"4", 4}}};
 
 struct BoolOpt {
     std::string_view stem, help;
@@ -102,7 +112,7 @@ constexpr std::array<RangeOpt<float>, 5> kFloatOpts{
      {"", "--day-night-speed", "<0.05-12.0>", "Day/night progression speed in hrs/sec (default: 1.0)",
       &CliOptions::dayNightSpeed, 0.05f, 12.0f}}};
 constexpr std::array<EnumOpt, 2> kEnumOpts{
-    {{"", "--debug-view", "<lit|lod|normals|pbr|uv|clay|toon>", "Initial diagnostic shading mode (default: lit)",
+    {{"", "--debug-view", "<lit|lod|normals|pbr|uv>", "Initial diagnostic shading mode (default: lit)",
       &CliOptions::debugViewMode, kDebugViewChoices},
      {"", "--weather", "<clear|rain|snow|fog|smoke>", "Initial atmospheric weather mode (default: clear)",
       &CliOptions::weatherMode, kWeatherChoices}}};
@@ -175,8 +185,6 @@ template <typename Range, typename ApplyFn>
         if (MatchFlag(flag, entry.shortFlag, entry.longFlag)) {
             if (const auto val = ConsumeValue(inlineVal, args, index)) {
                 apply(entry, *val);
-            } else {
-                std::cerr << std::format("Warning: option '{}' requires a value; keeping default\n", flag);
             }
             return true;
         }
@@ -207,28 +215,20 @@ template <typename Range, typename ApplyFn>
         return true;
     }
     if (DispatchValue(kUIntOpts, flag, inlineVal, args, index, [&](const RangeOpt<uint32_t>& e, std::string_view val) {
-            const auto n = TryParseNumber<uint32_t>(val);
-            if (!n || *n < e.minVal || *n > e.maxVal) {
-                std::cerr << std::format("Warning: invalid value '{}' for '{}' (expected [{}, {}]); keeping default\n",
-                                         val, flag, e.minVal, e.maxVal);
-                return;
+            if (const auto n = TryParseNumber<uint32_t>(val); n && *n >= e.minVal && *n <= e.maxVal) {
+                opt.*(e.field) = *n;
             }
-            opt.*(e.field) = *n;
         })) {
         return true;
     }
     if (DispatchValue(kFloatOpts, flag, inlineVal, args, index, [&](const RangeOpt<float>& e, std::string_view val) {
-            const auto n = TryParseNumber<float>(val);
-            if (!n || !std::isfinite(*n)) {
-                std::cerr << std::format("Warning: invalid floating-point value '{}' for '{}'; keeping default\n", val,
-                                         flag);
-                return;
-            }
-            if (e.wrapMod24) {
-                const float wrapped = std::fmod(*n, 24.0f);
-                opt.*(e.field) = wrapped < 0.0f ? wrapped + 24.0f : wrapped;
-            } else {
-                opt.*(e.field) = std::clamp(*n, e.minVal, e.maxVal);
+            if (const auto n = TryParseNumber<float>(val); n && std::isfinite(*n)) {
+                if (e.wrapMod24) {
+                    const float wrapped = std::fmod(*n, 24.0f);
+                    opt.*(e.field) = wrapped < 0.0f ? wrapped + 24.0f : wrapped;
+                } else {
+                    opt.*(e.field) = std::clamp(*n, e.minVal, e.maxVal);
+                }
             }
         })) {
         return true;
@@ -236,8 +236,6 @@ template <typename Range, typename ApplyFn>
     return DispatchValue(kEnumOpts, flag, inlineVal, args, index, [&](const EnumOpt& e, std::string_view val) {
         if (const auto choice = LookupChoice(e.choices, val)) {
             opt.*(e.field) = *choice;
-        } else {
-            std::cerr << std::format("Warning: unknown choice '{}' for '{}'; keeping default\n", val, flag);
         }
     });
 }
@@ -409,11 +407,7 @@ void CliOptions::PrintFormats() {
          {"JPEG textures", scene::TextureDecoder::IsJpegSupported(), "libjpeg-turbo"},
          {"WebP textures", scene::TextureDecoder::IsWebpSupported(), "libwebp"},
          {"KTX / KTX2 (Basis Universal)", scene::TextureDecoder::IsKtxSupported(), "libktx"},
-#if defined(BGL_ENABLE_AUDIO)
          {"Audio (WAV, MP3, FLAC)", true, "miniaudio"},
-#else
-         {"Audio (WAV, MP3, FLAC)", false, "disabled"},
-#endif
          {"Fonts (TTF, OTF)", true, "FreeType + HarfBuzz"}}};
 
     std::cout << "================================================================================\n"

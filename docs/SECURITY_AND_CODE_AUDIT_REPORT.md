@@ -4,7 +4,7 @@
 > **Remediation Status (`v1.2.0`):** All Waves 1–5 security, concurrency, GPU/WGSL, browser CSP/WebGPU, build/CI hardening, and regression-test tasks defined in this audit report have been implemented and verified in `v1.2.0`.
 
 > **Audit Classification:** AAA Security, Memory Safety, Concurrency, GPU/WGSL, Browser WebGPU, Build/CI & Supply-Chain Audit  
-> **Target Repository:** `bgl-Engine` v1.2.0 (remediated from v1.1.0 baseline commit `c20c80a` on `develop` / `ad410ee` on `main`)  
+> **Target Repository:** `bgl-Engine` v1.1.0 (`/home/bastian/code/bgl-wasm`, baseline commit `ad410ee` on `develop`)  
 > **Audience:** Engineering Team & Execution Playbook (structured as atomic, deterministic task cards so even a lightweight model such as Gemini Flash / Flash-Lite can execute each wave safely without ambiguity)  
 > **Scope Exclusion:** `third_party/` upstream source/binaries (except integration, linkage & integrity verification of `third_party/wgpu-native/`), `build*/`, `.cache/`, `dist/`, and generated bitmap payload inside `src/text/EmbeddedFont.cpp`.
 
@@ -409,7 +409,7 @@ Every fix below is packaged as an atomic **Task Card** ordered into **5 strict d
   2. **`CMakePresets.json`:** Add `CMAKE_SHARED_LINKER_FLAGS` & `CMAKE_EXE_LINKER_FLAGS` to `ubsan` & `tsan` presets.
   3. **WASM `--stack-first`:** Add `--stack-first` to `wasm-ld` in `.github/workflows/ci.yml`, `.github/workflows/pages.yml`, and `scripts/run_ci_locally.sh`. Also tighten `.github/workflows/ci.yml` (`permissions: contents: read`, remove broad `restore-keys`, expand `clang-tidy` scope, fix `pages.yml` job-scoped permissions, guard `rm -rf` in `scripts/stage_pages.sh`).
   4. **`scripts/check_layering.py`:** Match both `"` and `<` includes (`#\s*include\s+[<"]([^>"]+)[>"]`), broaden `FORBIDDEN_IN_PUBLIC` (`webgpu|wgpu|sdl|curl|vulkan|freetype|ft2build|harfbuzz|ktx`), and cover `src/wasm`.
-  5. **`lsan.supp`:** Narrow `leak:pthread_once` to `leak:__pthread_once_slow` and `leak:___pthread_once` for `dlclose`d external Mesa/Vulkan driver threads, while retaining external DSO suppressions (`leak:libp11-kit`, `leak:libvulkan`, `leak:libGLX`, `leak:libX11`, `leak:newlocale`).
+  5. **`lsan.supp`:** Remove overly broad `leak:pthread_once` & `leak:newlocale` (only suppress specific external driver DSOs if actually hit under ASan/LSan).
   6. **`Taskfile.yml` & `docker/Dockerfile`:** Stop deleting tracked `ConanPresets.json` on `clean`; add non-root `builder` user and fixed system deps (`libcurl4-openssl-dev`, `libvulkan-dev`, etc.) to `docker/Dockerfile`.
 
 #### [SEC-20 / QUAL-01] Replace Fake/Tautological Tests & Add Comprehensive Security Regression Suites
@@ -454,29 +454,3 @@ node --check web/js/core.js web/js/gltf.js web/js/math.js web/js/shaders.js web/
 node tests/test_web_unit.js
 node tests/test_webgpu_path.js
 ```
-
----
-
-## 5. Implementation & Verification Status (`v1.2.0`)
-
-All Waves 1–5 remediation tasks (`SEC-01` through `SEC-20 / QUAL-01`) have been implemented and verified with the following directly observed checks:
-
-- **Formatting, Layering, Static Analysis & Docs:**
-  - `clang-format --dry-run -Werror` across `src/`, `apps/`, `include/`, `samples/`, `tests/` — **Passed** (`exit 0`).
-  - `python3 scripts/check_layering.py` — **Passed** (`layering check: OK (0 violation(s))`).
-  - `python3 -m py_compile tests/test_browsers_e2e.py scripts/check_layering.py scripts/package_web.py` — **Passed** (`exit 0`).
-  - `clang-tidy src/wasm/wasm_bridge.cpp -- -std=c++23 -Isrc -Iinclude` — **Passed** (`exit 0`, 0 warnings in user code).
-  - `doxygen Doxyfile` (`WARN_AS_ERROR = YES`) — **Passed** (`exit 0`).
-- **Web JS Syntax, Unit Tests & WebGPU Pipeline Tests:**
-  - `node --check web/js/*.js web/app.js web/gltf_worker.js` — **Passed** (`exit 0`).
-  - `node tests/test_web_unit.js` — **79/79 tests passed** (`0` failed).
-  - `node tests/test_webgpu_path.js` — **Passed** (`ALL WEBGPU PIPELINE TESTS PASSED (100%)`, verifying `web/dist/bgl_engine.wasm` at 54 exports, 7757 bytes).
-- **Native Release (`build/Release`):**
-  - `cmake --preset default` verified `third_party/wgpu-native/lib/libwgpu_native.so` SHA-256 (`be0d8270dd9d78e1039eeb413ee21be8a89776a752e56d6b0f57eefbbc2d749c`) against `third_party/wgpu-native/wgpu-native-meta/SHA256SUMS`.
-  - `cmake --build build/Release` + `ctest --test-dir build/Release --output-on-failure -E BrowserE2ETest` — **5/5 CTest suites passed** (`AllUnitTests`, `LayeringCheck`, `NativeHeadlessSmokeTest`, `WebGPUPipelineTest`, `WebUnitTests`), including **334 C++ GoogleTests**.
-  - `./build/Release/bgl_viewer --headless assets/ToyCar.glb` — **Passed** (`exit 0`, 10 frames rendered, clean shutdown).
-- **AddressSanitizer + LeakSanitizer (`build/asan`) & UBSan (`build/ubsan`):**
-  - `ctest --test-dir build/asan --output-on-failure -E BrowserE2ETest` (with `lsan.supp`) — **5/5 CTest suites passed** (including all **334** GTests, zero leaks/UAF/OOB).
-  - `ctest --test-dir build/ubsan --output-on-failure -E BrowserE2ETest` — **5/5 CTest suites passed** (including all **334** GTests, zero UB).
-- **Scope Note on Excluded / Toolchain-Conditional Checks:**
-  - `BrowserE2ETest` was excluded (`-E BrowserE2ETest`) in these local CTest runs, and `em++` is not installed locally so `web/dist/bgl_engine.wasm` was validated at its existing binary artifact rather than rebuilt locally from `src/wasm/wasm_bridge.cpp`.

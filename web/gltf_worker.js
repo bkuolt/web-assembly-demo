@@ -96,8 +96,12 @@ function decodeEmbeddedBuffers(gltf, transferList) {
     try {
       let bytes;
       if (header.includes(';base64')) {
+        const remainingBudget = MAX_MODEL_BYTES - totalDecodedBytes;
+        if (payload.length > Math.ceil(remainingBudget * 4 / 3) + 4) {
+          throw new Error('Encoded base64 embedded buffer exceeds size limit');
+        }
         const binStr = atob(payload);
-        if (binStr.length > MAX_MODEL_BYTES || totalDecodedBytes + binStr.length > MAX_MODEL_BYTES) {
+        if (binStr.length > remainingBudget) {
           throw new Error('Decoded embedded buffer exceeds size limit');
         }
         bytes = new Uint8Array(binStr.length);

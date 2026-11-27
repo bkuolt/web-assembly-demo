@@ -327,7 +327,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── test_entity.cpp                # Scene graph reparenting, cycle guard & Entity handle safety
 │   ├── test_engine_api.cpp            # Live Engine API, gui safety & scene reload invalidation
 │   ├── test_sprites.cpp               # Sprites, AnimatedSprites, SpriteClips & SpriteRenderer
-│   ├── test_web_unit.js               # 79 Node.js web math, shader, security, glTF, frustum & LOD tests
+│   ├── test_web_unit.js               # 80 Node.js web math, shader, security, glTF, frustum & LOD tests
 │   ├── test_webgpu_path.js            # Headless WebGPU pipeline + bgl_engine.wasm verification
 │   └── test_browsers_e2e.py           # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
@@ -638,7 +638,7 @@ Produces `dist/bgl_web_app_minimal.zip` (~5.8 MB) with the web runtime and core 
 
 ## Test Suite Overview
 
-The repository includes **334 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **79 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), ASan/UBSan sanitizer verification (both locally via CMake presets and in CI), and cross-browser Chrome/Firefox tests (`BrowserE2ETest`).
+The repository includes **334 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **80 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), ASan/UBSan sanitizer verification (both locally via CMake presets and in CI), and cross-browser Chrome/Firefox tests (`BrowserE2ETest`).
 
 | Test Suite | Tests | Scope |
 | :--- | :---: | :--- |
@@ -674,7 +674,7 @@ The repository includes **334 C++ GoogleTests across 51 suites**, a static modul
 
 See [**CHANGELOG.md**](CHANGELOG.md) for version notes from `v0.6.0` through **`v1.2.0`**:
 
-- **[1.2.0](CHANGELOG.md#120---2026-11-22)**: End-to-end security, safety & compliance hardening across glTF/mesh/animation ingestion, texture decoders, async-signal-safe crash diagnostics, SSRF-filtered `NetworkFetcher`, WebGPU/BVH/WGSL bounds & context-loss guards, strict CSP without inline script attributes (`script-src-attr 'none'`), ELF/WASM stack-first hardening with `libwgpu_native.so` SHA256 verification, ASan+UBSan CI job, and **334 C++ GoogleTests + 79 Web unit tests**.
+- **[1.2.0](CHANGELOG.md#120---2026-11-22)**: End-to-end security, safety & compliance hardening across glTF/mesh/animation ingestion, texture decoders, async-signal-safe crash diagnostics, SSRF-filtered `NetworkFetcher`, WebGPU/BVH/WGSL bounds & context-loss guards, strict CSP without inline script attributes (`script-src-attr 'none'`), ELF/WASM stack-first hardening with `libwgpu_native.so` SHA256 verification, ASan+UBSan CI job, and **334 C++ GoogleTests + 80 Web unit tests**.
 - **[1.1.0](CHANGELOG.md#110---2026-11-22)**: Public backend-free C++23 SDK (`include/bgl/`, `EngineCore`, `samples/01..03`), desktop compute-shader hybrid ray tracing & progressive path tracer (`RayTracingScene` + `RayTracingPass`), 2D sprites & 3D HDR billboards, cross-platform font discovery (`FontLibrary`) & frosted-glass modals, SDF studio UI & full post-processing suite (GTAO, Bloom, Auto-Exposure, SSR, DoF, God Rays, FXAA), security & overflow hardening, modular source/JS splits, 324 C++ GoogleTests + 74 Web unit tests, and Doxygen/GitHub Pages deployment.
 - **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Production 1.0 release with RAII `Handle<>` WebGPU lifecycle, modularized `FastGltfLoader` / `PipelineManager` / `Application`, consolidated swapchain/attachment helpers, zero `clang-tidy`/compiler warnings, and cross-compiler/sanitizer/browser E2E parity.
 - **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular `.wgsl` shader pipeline with `#include`/`#pragma once` and hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and Conan 2 dependency upgrades.

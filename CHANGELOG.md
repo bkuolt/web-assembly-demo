@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added worker timeout/root-object validation and iterative cyclic hierarchy guards across [`web/gltf_worker.js`](web/gltf_worker.js), [`web/js/gltf.js`](web/js/gltf.js), and [`web/js/renderer.js`](web/js/renderer.js).
 - **Build System, Toolchain Hardening & Expanded Verification (`CMakeLists.txt`, `.github/workflows/`, `tests/`):**
   - Enabled Linux ELF binary hardening (`-fPIE`, `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, `-Wl,-z,relro,-z,now`, `-Wl,-z,noexecstack`), `wasm-ld --stack-first`, configure-time `SHA256SUMS` verification for `libwgpu_native.so`, expanded [`check_layering.py`](scripts/check_layering.py) coverage, and added the `native-sanitizers` (ASan + UBSan) CI job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-  - Expanded automated verification to **334 C++ GoogleTests across 51 suites** and **79 Web runtime unit tests** (`tests/test_web_unit.js`), hardened [`test_golden_image.cpp`](tests/test_golden_image.cpp) and [`test_browsers_e2e.py`](tests/test_browsers_e2e.py) (ephemeral ports + CDP error assertions), and added adversarial regression coverage across loaders, decoders, SSRF networking, CLI parsing, and UI lifetimes.
+  - Expanded automated verification to **334 C++ GoogleTests across 51 suites** and **80 Web runtime unit tests** (`tests/test_web_unit.js`), hardened [`test_golden_image.cpp`](tests/test_golden_image.cpp) and [`test_browsers_e2e.py`](tests/test_browsers_e2e.py) (ephemeral ports, CDP console/exception checks, and live delegated UI toggle assertions under strict CSP), and added adversarial regression coverage across loaders, decoders, SSRF networking, CLI parsing, and UI lifetimes.
 
 ---
 
