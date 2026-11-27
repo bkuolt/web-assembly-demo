@@ -83,6 +83,9 @@ namespace {
 } // namespace
 
 void PipelineManager::SetTimeOfDay(float hour) noexcept {
+    if (!std::isfinite(hour)) {
+        return;
+    }
     timeOfDay_ = WrapHour24(hour);
     solarElevation_ = ComputeSolarElevation(timeOfDay_);
 }

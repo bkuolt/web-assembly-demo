@@ -16,10 +16,14 @@ namespace bgl::gpu {
 
 struct alignas(16) GpuRayPickUniforms {
     glm::vec4 rayOrigin{0.0f};    // xyz = origin, w = maxDistance
-    glm::vec4 rayDirection{0.0f}; // xyz = direction, w = primitiveCount
+    glm::vec4 rayDirection{0.0f}; // xyz = direction, w = unused
+    uint32_t primitiveCount{0};
+    uint32_t pad0{0};
+    uint32_t pad1{0};
+    uint32_t pad2{0};
 };
 
-static_assert(sizeof(GpuRayPickUniforms) == 32, "GpuRayPickUniforms must be 32 bytes");
+static_assert(sizeof(GpuRayPickUniforms) == 48, "GpuRayPickUniforms must be 48 bytes");
 
 struct alignas(16) GpuRayPickResult {
     uint32_t hitNodeIndex{0xFFFFFFFF};

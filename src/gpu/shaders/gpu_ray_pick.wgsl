@@ -3,6 +3,10 @@
 struct GpuRayPickUniforms {
     rayOrigin: vec4<f32>,
     rayDirection: vec4<f32>,
+    primitiveCount: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 struct GpuRayPickResult {
@@ -45,8 +49,8 @@ fn intersectRayAabb(ro: vec3<f32>, rd: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f3
 @compute @workgroup_size(64)
 fn cs_pick(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
-    let count = u32(uniforms.rayDirection.w);
-    if (index >= count) {
+    let count = uniforms.primitiveCount;
+    if (index >= count || index >= arrayLength(&bounds)) {
         return;
     }
 
@@ -61,8 +65,8 @@ fn cs_pick(@builtin(global_invocation_id) global_id: vec3<u32>) {
 @compute @workgroup_size(64)
 fn cs_resolve(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
-    let count = u32(uniforms.rayDirection.w);
-    if (index >= count) {
+    let count = uniforms.primitiveCount;
+    if (index >= count || index >= arrayLength(&bounds)) {
         return;
     }
 

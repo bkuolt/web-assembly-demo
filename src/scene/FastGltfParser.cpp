@@ -14,14 +14,30 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <limits>
 #include <utility>
 
 namespace bgl::scene::detail {
 
 namespace {
 
-constexpr size_t kMaxPrimitiveVertices{25'000'000u};
-constexpr size_t kMaxPrimitiveIndices{75'000'000u};
+constexpr size_t kMaxPrimitiveVertices{5'000'000u};
+constexpr size_t kMaxPrimitiveIndices{15'000'000u};
+constexpr size_t kMaxMorphTargetsPerPrimitive{64u};
+constexpr size_t kMaxTotalMorphVertices{2'000'000u};
+
+[[nodiscard]] bool ValidateBufferSliceBytes(const fastgltf::Asset& asset, size_t bvIdx, size_t byteOffset,
+                                            size_t minElemBytes, size_t count) noexcept {
+    if (bvIdx >= asset.bufferViews.size()) {
+        return false;
+    }
+    const auto& bv = asset.bufferViews[bvIdx];
+    if (byteOffset > bv.byteLength) {
+        return false;
+    }
+    const size_t availBytes{bv.byteLength - byteOffset};
+    return minElemBytes == 0 || count <= (availBytes / minElemBytes);
+}
 
 [[nodiscard]] bool ValidateAccessorBounds(const fastgltf::Asset& asset, const fastgltf::Accessor& acc,
                                           size_t minElemBytes, size_t maxAllowedCount) noexcept {
@@ -29,17 +45,29 @@ constexpr size_t kMaxPrimitiveIndices{75'000'000u};
         return false;
     }
     if (acc.sparse.has_value()) {
+        const auto& sp = *acc.sparse;
+        if (sp.count == 0 || sp.count > acc.count) {
+            return false;
+        }
+        size_t spIdxBytes{1u};
+        if (sp.indexComponentType == fastgltf::ComponentType::UnsignedShort) {
+            spIdxBytes = 2u;
+        } else if (sp.indexComponentType == fastgltf::ComponentType::UnsignedInt) {
+            spIdxBytes = 4u;
+        }
+        if (!ValidateBufferSliceBytes(asset, sp.indicesBufferView, sp.indicesByteOffset, spIdxBytes, sp.count) ||
+            !ValidateBufferSliceBytes(asset, sp.valuesBufferView, sp.valuesByteOffset, minElemBytes, sp.count)) {
+            return false;
+        }
+        if (acc.bufferViewIndex.has_value()) {
+            return ValidateBufferSliceBytes(asset, *acc.bufferViewIndex, acc.byteOffset, minElemBytes, acc.count);
+        }
         return true;
     }
-    if (!acc.bufferViewIndex.has_value() || *acc.bufferViewIndex >= asset.bufferViews.size()) {
+    if (!acc.bufferViewIndex.has_value()) {
         return false;
     }
-    const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
-    if (acc.byteOffset > bv.byteLength) {
-        return false;
-    }
-    const size_t availBytes{bv.byteLength - acc.byteOffset};
-    return minElemBytes == 0 || acc.count <= (availBytes / minElemBytes);
+    return ValidateBufferSliceBytes(asset, *acc.bufferViewIndex, acc.byteOffset, minElemBytes, acc.count);
 }
 
 [[nodiscard]] std::span<const uint8_t> ExtractSafeSlice(const void* basePtr, size_t totalSize, size_t offset,
@@ -125,7 +153,8 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         meshPrim.materialIndex = static_cast<int>(*prim.materialIndex);
     }
 
-    if (auto posIt = prim.findAttribute("POSITION"); posIt != prim.attributes.end()) {
+    if (auto posIt = prim.findAttribute("POSITION");
+        posIt != prim.attributes.end() && posIt->second < asset.accessors.size()) {
         const auto& posAccessor = asset.accessors[posIt->second];
         if (!ValidateAccessorBounds(asset, posAccessor, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
             BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized POSITION accessor (count={})",
@@ -135,79 +164,109 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         }
         meshPrim.vertices.resize(posAccessor.count);
         fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor, [&](glm::vec3 pos, size_t idx) {
-            meshPrim.vertices[idx].position = pos;
-            meshPrim.boundingBox.Expand(pos);
+            const glm::vec3 safePos{
+                (std::isfinite(pos.x) && std::isfinite(pos.y) && std::isfinite(pos.z)) ? pos : glm::vec3{0.0f}};
+            meshPrim.vertices[idx].position = safePos;
+            meshPrim.boundingBox.Expand(safePos);
         });
     }
 
     auto normIt = prim.findAttribute("NORMAL");
-    if (normIt != prim.attributes.end()) {
+    if (normIt != prim.attributes.end() && normIt->second < asset.accessors.size()) {
         const auto& normAccessor = asset.accessors[normIt->second];
-        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
-            if (idx < meshPrim.vertices.size()) {
-                meshPrim.vertices[idx].normal = norm;
-            }
-        });
+        if (ValidateAccessorBounds(asset, normAccessor, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
+            fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, normAccessor, [&](glm::vec3 norm, size_t idx) {
+                if (idx < meshPrim.vertices.size() && std::isfinite(norm.x) && std::isfinite(norm.y) &&
+                    std::isfinite(norm.z)) {
+                    meshPrim.vertices[idx].normal = norm;
+                }
+            });
+        }
     }
 
-    if (auto uvIt = prim.findAttribute("TEXCOORD_0"); uvIt != prim.attributes.end()) {
+    if (auto uvIt = prim.findAttribute("TEXCOORD_0");
+        uvIt != prim.attributes.end() && uvIt->second < asset.accessors.size()) {
         const auto& uvAccessor = asset.accessors[uvIt->second];
-        fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
-            if (idx < meshPrim.vertices.size()) {
-                meshPrim.vertices[idx].uv = uv;
-            }
-        });
+        if (ValidateAccessorBounds(asset, uvAccessor, sizeof(uint8_t) * 2u, kMaxPrimitiveVertices)) {
+            fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, uvAccessor, [&](glm::vec2 uv, size_t idx) {
+                if (idx < meshPrim.vertices.size() && std::isfinite(uv.x) && std::isfinite(uv.y)) {
+                    meshPrim.vertices[idx].uv = uv;
+                }
+            });
+        }
     }
 
     auto tanIt = prim.findAttribute("TANGENT");
-    const bool hasExplicitTangents = (tanIt != prim.attributes.end());
+    const bool hasExplicitTangents = (tanIt != prim.attributes.end() && tanIt->second < asset.accessors.size());
     if (hasExplicitTangents) {
         const auto& tanAccessor = asset.accessors[tanIt->second];
-        fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
-            if (idx < meshPrim.vertices.size()) {
-                meshPrim.vertices[idx].tangent = tan;
-            }
-        });
-    }
-
-    if (auto jointsIt = prim.findAttribute("JOINTS_0"); jointsIt != prim.attributes.end()) {
-        const auto& jAccessor = asset.accessors[jointsIt->second];
-        fastgltf::iterateAccessorWithIndex<glm::uvec4>(asset, jAccessor, [&](glm::uvec4 j, size_t idx) {
-            if (idx < meshPrim.vertices.size()) {
-                meshPrim.vertices[idx].joints = j;
-            }
-        });
-    }
-
-    if (auto weightsIt = prim.findAttribute("WEIGHTS_0"); weightsIt != prim.attributes.end()) {
-        const auto& wAccessor = asset.accessors[weightsIt->second];
-        fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, wAccessor, [&](glm::vec4 w, size_t idx) {
-            if (idx < meshPrim.vertices.size()) {
-                const float sum = w.x + w.y + w.z + w.w;
-                if (sum > 1e-6f) {
-                    w /= sum;
+        if (ValidateAccessorBounds(asset, tanAccessor, sizeof(float) * 4u, kMaxPrimitiveVertices)) {
+            fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tanAccessor, [&](glm::vec4 tan, size_t idx) {
+                if (idx < meshPrim.vertices.size() && std::isfinite(tan.x) && std::isfinite(tan.y) &&
+                    std::isfinite(tan.z) && std::isfinite(tan.w)) {
+                    meshPrim.vertices[idx].tangent = tan;
                 }
-                meshPrim.vertices[idx].weights = w;
-            }
-        });
+            });
+        }
     }
 
-    if (!prim.targets.empty()) {
-        meshPrim.morphTargets.resize(prim.targets.size());
-        for (size_t tIdx = 0; tIdx < prim.targets.size(); ++tIdx) {
+    if (auto jointsIt = prim.findAttribute("JOINTS_0");
+        jointsIt != prim.attributes.end() && jointsIt->second < asset.accessors.size()) {
+        const auto& jAccessor = asset.accessors[jointsIt->second];
+        if (ValidateAccessorBounds(asset, jAccessor, sizeof(uint8_t) * 4u, kMaxPrimitiveVertices)) {
+            fastgltf::iterateAccessorWithIndex<glm::uvec4>(asset, jAccessor, [&](glm::uvec4 j, size_t idx) {
+                if (idx < meshPrim.vertices.size()) {
+                    meshPrim.vertices[idx].joints = j;
+                }
+            });
+        }
+    }
+
+    if (auto weightsIt = prim.findAttribute("WEIGHTS_0");
+        weightsIt != prim.attributes.end() && weightsIt->second < asset.accessors.size()) {
+        const auto& wAccessor = asset.accessors[weightsIt->second];
+        if (ValidateAccessorBounds(asset, wAccessor, sizeof(uint8_t) * 4u, kMaxPrimitiveVertices)) {
+            fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, wAccessor, [&](glm::vec4 w, size_t idx) {
+                if (idx < meshPrim.vertices.size()) {
+                    if (!std::isfinite(w.x) || !std::isfinite(w.y) || !std::isfinite(w.z) || !std::isfinite(w.w)) {
+                        meshPrim.vertices[idx].weights = glm::vec4{1.0f, 0.0f, 0.0f, 0.0f};
+                        return;
+                    }
+                    const float sum = w.x + w.y + w.z + w.w;
+                    if (sum > 1e-6f && std::isfinite(sum)) {
+                        w /= sum;
+                    }
+                    meshPrim.vertices[idx].weights = w;
+                }
+            });
+        }
+    }
+
+    if (!prim.targets.empty() && !meshPrim.vertices.empty()) {
+        const size_t maxTargetsByVerts{std::max<size_t>(1u, kMaxTotalMorphVertices / meshPrim.vertices.size())};
+        const size_t targetCount{std::min({prim.targets.size(), kMaxMorphTargetsPerPrimitive, maxTargetsByVerts})};
+        if (targetCount < prim.targets.size()) {
+            BGL_LOG_WARN("[glTF Loader] Capped morph targets from {} to {} to bound CPU/GPU memory",
+                         prim.targets.size(), targetCount);
+        }
+        meshPrim.morphTargets.resize(targetCount);
+        for (size_t tIdx = 0; tIdx < targetCount; ++tIdx) {
             auto& mt = meshPrim.morphTargets[tIdx];
             mt.positionDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
             mt.normalDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
             mt.tangentDeltas.resize(meshPrim.vertices.size(), glm::vec3{0.0f});
 
             auto loadDelta = [&](const char* attr, std::vector<glm::vec3>& dst) {
-                if (auto it = prim.findTargetAttribute(tIdx, attr); it != prim.targets[tIdx].cend()) {
+                if (auto it = prim.findTargetAttribute(tIdx, attr);
+                    it != prim.targets[tIdx].cend() && it->second < asset.accessors.size()) {
                     const auto& acc = asset.accessors[it->second];
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
-                        if (idx < dst.size()) {
-                            dst[idx] = d;
-                        }
-                    });
+                    if (ValidateAccessorBounds(asset, acc, sizeof(float) * 3u, kMaxPrimitiveVertices)) {
+                        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, acc, [&](glm::vec3 d, size_t idx) {
+                            if (idx < dst.size() && std::isfinite(d.x) && std::isfinite(d.y) && std::isfinite(d.z)) {
+                                dst[idx] = d;
+                            }
+                        });
+                    }
                 }
             };
             loadDelta("POSITION", mt.positionDeltas);
@@ -217,7 +276,8 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         meshPrim.baseVertices = meshPrim.vertices;
     }
 
-    if (prim.indicesAccessor.has_value()) {
+    if (prim.indicesAccessor.has_value() && *prim.indicesAccessor < asset.accessors.size() &&
+        !meshPrim.vertices.empty()) {
         const auto& idxAccessor = asset.accessors[*prim.indicesAccessor];
         if (!ValidateAccessorBounds(asset, idxAccessor, sizeof(uint8_t), kMaxPrimitiveIndices)) {
             BGL_LOG_WARN("[glTF Loader] Rejected primitive with invalid or oversized indices accessor (count={})",
@@ -229,7 +289,7 @@ void ComputeFallbackNormals(MeshPrimitive& meshPrim) {
         const size_t vertexCount{meshPrim.vertices.size()};
         bool hasInvalidIndices{false};
         fastgltf::iterateAccessorWithIndex<uint32_t>(asset, idxAccessor, [&](uint32_t val, size_t idx) {
-            if (vertexCount > 0 && val >= vertexCount) {
+            if (val >= vertexCount) {
                 hasInvalidIndices = true;
                 meshPrim.indices[idx] = 0;
             } else {

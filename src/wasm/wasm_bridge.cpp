@@ -17,13 +17,17 @@ extern unsigned char __heap_base; // NOLINT(bugprone-reserved-identifier)
 
 namespace {
 
+inline bool IsFiniteF(float x) noexcept {
+    return (x - x) == 0.0f;
+}
+
 inline float AbsF(float x) noexcept {
     return x < 0.0f ? -x : x;
 }
 
 inline float FastSin(float x) noexcept {
     // Reject NaN/Inf in freestanding wasm (zero libm dependency) so range reduction never spins.
-    if (!((x - x) == 0.0f)) {
+    if (!IsFiniteF(x)) {
         return 0.0f;
     }
     constexpr float kTwoPi = 6.28318530717958647692f;
@@ -47,17 +51,21 @@ inline float FastCos(float x) noexcept {
 // ============================================================================
 // Free-List Linear Heap Allocator over Imported WebAssembly.Memory
 // ============================================================================
-struct BlockHeader {
+constexpr uint32_t kBlockMagic = 0x42474C48u;
+
+struct alignas(16) BlockHeader {
     size_t size{0};
-    bool free{false};
+    BlockHeader* prev{nullptr};
     BlockHeader* next{nullptr};
-    size_t padding{0}; // Maintain 16-byte payload alignment on 32-bit wasm
+    uint32_t magic{kBlockMagic};
+    uint8_t free{0};
 };
 
 static_assert(sizeof(BlockHeader) % 16 == 0, "BlockHeader must keep 16-byte alignment");
 
 constexpr size_t kPageSizeBytes = 65536u;
 BlockHeader* gHeapHead = nullptr;
+BlockHeader* gHeapTail = nullptr;
 unsigned char* gHeapTop = nullptr;
 
 inline size_t AlignUp(size_t value, size_t alignment) noexcept {
@@ -70,6 +78,18 @@ inline uintptr_t CurrentMemoryEndBytes() noexcept {
 #else
     return 0u;
 #endif
+}
+
+inline bool IsRangeInWasmMemory(const void* ptr, size_t len) noexcept {
+    if (!ptr) {
+        return false;
+    }
+    const uintptr_t curEnd = CurrentMemoryEndBytes();
+    if (curEnd == 0u) {
+        return true; // Non-WASM host builds skip linear-memory end check
+    }
+    const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    return addr <= curEnd && len <= (curEnd - addr);
 }
 
 bool EnsureHeapCapacity(uintptr_t requiredEndByte) noexcept {
@@ -88,18 +108,6 @@ bool EnsureHeapCapacity(uintptr_t requiredEndByte) noexcept {
 #else
     return false;
 #endif
-}
-
-void CoalesceFreeBlocks() noexcept {
-    BlockHeader* cur = gHeapHead;
-    while (cur && cur->next) {
-        if (cur->free && cur->next->free) {
-            cur->size += sizeof(BlockHeader) + cur->next->size;
-            cur->next = cur->next->next;
-        } else {
-            cur = cur->next;
-        }
-    }
 }
 
 void* WasmMalloc(size_t requestedBytes) noexcept {
@@ -121,20 +129,25 @@ void* WasmMalloc(size_t requestedBytes) noexcept {
     }
 
     // First-fit search with block splitting
-    BlockHeader* prev = nullptr;
-    for (BlockHeader* cur = gHeapHead; cur != nullptr; prev = cur, cur = cur->next) {
-        if (cur->free && cur->size >= alignedSize) {
+    for (BlockHeader* cur = gHeapHead; cur != nullptr; cur = cur->next) {
+        if (cur->magic == kBlockMagic && cur->free != 0u && cur->size >= alignedSize) {
             auto* curBytes = reinterpret_cast<unsigned char*>(cur);
             if ((cur->size - alignedSize) >= (sizeof(BlockHeader) + 32u)) {
                 auto* split = reinterpret_cast<BlockHeader*>(curBytes + sizeof(BlockHeader) + alignedSize);
                 split->size = cur->size - alignedSize - sizeof(BlockHeader);
-                split->free = true;
+                split->prev = cur;
                 split->next = cur->next;
-                split->padding = 0u;
+                split->magic = kBlockMagic;
+                split->free = 1u;
+                if (split->next) {
+                    split->next->prev = split;
+                } else {
+                    gHeapTail = split;
+                }
                 cur->size = alignedSize;
                 cur->next = split;
             }
-            cur->free = false;
+            cur->free = 0u;
             return curBytes + sizeof(BlockHeader);
         }
     }
@@ -151,14 +164,16 @@ void* WasmMalloc(size_t requestedBytes) noexcept {
 
     auto* block = reinterpret_cast<BlockHeader*>(blockBytes);
     block->size = alignedSize;
-    block->free = false;
+    block->prev = gHeapTail;
     block->next = nullptr;
-    block->padding = 0u;
-    if (prev) {
-        prev->next = block;
+    block->magic = kBlockMagic;
+    block->free = 0u;
+    if (gHeapTail) {
+        gHeapTail->next = block;
     } else {
         gHeapHead = block;
     }
+    gHeapTail = block;
     gHeapTop = blockBytes + totalBytes;
     return blockBytes + sizeof(BlockHeader);
 }
@@ -172,16 +187,47 @@ void WasmFree(void* ptr) noexcept {
     if (addr < sizeof(BlockHeader) || addr < reinterpret_cast<uintptr_t>(&__heap_base)) {
         return;
     }
-    auto* const candidate = reinterpret_cast<BlockHeader*>(bytePtr - sizeof(BlockHeader));
-    for (BlockHeader* cur = gHeapHead; cur != nullptr; cur = cur->next) {
-        if (cur == candidate) {
-            if (cur->free) {
-                return; // Ignore double-free safely
-            }
-            cur->free = true;
-            CoalesceFreeBlocks();
-            return;
+    auto* block = reinterpret_cast<BlockHeader*>(bytePtr - sizeof(BlockHeader));
+    if (!IsRangeInWasmMemory(block, sizeof(BlockHeader)) || block->magic != kBlockMagic || block->free != 0u) {
+        return;
+    }
+    block->free = 1u;
+
+    // O(1) bidirectional coalescing with immediate neighbors
+    if (block->next && block->next->magic == kBlockMagic && block->next->free != 0u) {
+        BlockHeader* nextBlk = block->next;
+        block->size += sizeof(BlockHeader) + nextBlk->size;
+        block->next = nextBlk->next;
+        if (block->next) {
+            block->next->prev = block;
+        } else {
+            gHeapTail = block;
         }
+        nextBlk->magic = 0u;
+    }
+    if (block->prev && block->prev->magic == kBlockMagic && block->prev->free != 0u) {
+        BlockHeader* prevBlk = block->prev;
+        prevBlk->size += sizeof(BlockHeader) + block->size;
+        prevBlk->next = block->next;
+        if (prevBlk->next) {
+            prevBlk->next->prev = prevBlk;
+        } else {
+            gHeapTail = prevBlk;
+        }
+        block->magic = 0u;
+        block = prevBlk;
+    }
+
+    // Reclaim heap top if the freed block sits at the trailing end of linear memory
+    if (block == gHeapTail && gHeapTop == reinterpret_cast<unsigned char*>(block) + sizeof(BlockHeader) + block->size) {
+        gHeapTop = reinterpret_cast<unsigned char*>(block);
+        gHeapTail = block->prev;
+        if (gHeapTail) {
+            gHeapTail->next = nullptr;
+        } else {
+            gHeapHead = nullptr;
+        }
+        block->magic = 0u;
     }
 }
 
@@ -313,7 +359,7 @@ int CountArrayElementsForKey(ByteSpan json, const char* quotedKey, size_t keyLen
 }
 
 ByteSpan ExtractGltfJsonSlice(const uint8_t* data, size_t len) noexcept {
-    if (!data || len < 4u) {
+    if (!data || len < 4u || !IsRangeInWasmMemory(data, len)) {
         return {};
     }
     if (len >= 20u && ReadU32LE(data) == 0x46546C67u) {
@@ -465,7 +511,8 @@ void bgl_clear_selection() {
 }
 
 int bgl_pick_node(float x, float y, float w, float h) {
-    if (gState.nodeCount <= 0 || w <= 0.0f || h <= 0.0f) {
+    if (!IsFiniteF(x) || !IsFiniteF(y) || !IsFiniteF(w) || !IsFiniteF(h) || gState.nodeCount <= 0 || w <= 0.0f ||
+        h <= 0.0f) {
         return -1;
     }
     // Normalized center picking fallback when ray-query runs in WASM state cache
@@ -555,46 +602,60 @@ void bgl_toggle_auto_lod() {
 }
 
 void bgl_set_ssao_intensity(float v) {
-    gState.ssaoIntensity = v;
+    if (IsFiniteF(v))
+        gState.ssaoIntensity = v;
 }
 void bgl_set_bloom_intensity(float v) {
-    gState.bloomIntensity = v;
+    if (IsFiniteF(v))
+        gState.bloomIntensity = v;
 }
 void bgl_set_ao_intensity(float v) {
-    gState.aoIntensity = v;
+    if (IsFiniteF(v))
+        gState.aoIntensity = v;
 }
 void bgl_set_bump_scale(float v) {
-    gState.bumpScale = v;
+    if (IsFiniteF(v))
+        gState.bumpScale = v;
 }
 void bgl_set_parallax_scale(float v) {
-    gState.parallaxScale = v;
+    if (IsFiniteF(v))
+        gState.parallaxScale = v;
 }
 void bgl_set_lens_flare_intensity(float v) {
-    gState.lensFlareIntensity = v;
+    if (IsFiniteF(v))
+        gState.lensFlareIntensity = v;
 }
 void bgl_set_weather_mode(int mode) {
-    gState.weatherMode = mode;
+    if (mode >= 0 && mode <= 4)
+        gState.weatherMode = mode;
 }
 void bgl_set_weather_intensity(float v) {
-    gState.weatherIntensity = v;
+    if (IsFiniteF(v))
+        gState.weatherIntensity = v;
 }
 void bgl_set_wind_strength(float v) {
-    gState.windStrength = v;
+    if (IsFiniteF(v))
+        gState.windStrength = v;
 }
 void bgl_set_turntable_speed(float v) {
-    gState.turntableSpeed = v;
+    if (IsFiniteF(v))
+        gState.turntableSpeed = v;
 }
 void bgl_set_time_of_day(float v) {
-    gState.timeOfDay = v;
+    if (IsFiniteF(v))
+        gState.timeOfDay = v;
 }
 void bgl_set_day_night_speed(float v) {
-    gState.dayNightSpeed = v;
+    if (IsFiniteF(v))
+        gState.dayNightSpeed = v;
 }
 void bgl_set_lod_bias(float v) {
-    gState.lodBias = v;
+    if (IsFiniteF(v))
+        gState.lodBias = v;
 }
 void bgl_set_debug_view(int mode) {
-    gState.debugViewMode = mode;
+    if (mode >= 0 && mode <= 6)
+        gState.debugViewMode = mode;
 }
 
 void bgl_camera_focus_selection() {
@@ -639,6 +700,9 @@ void bgl_camera_restore_bookmark(int slot) {
 }
 
 void bgl_camera_move(float fwd, float right, float up) {
+    if (!IsFiniteF(fwd) || !IsFiniteF(right) || !IsFiniteF(up)) {
+        return;
+    }
     const float sy = FastSin(gState.camYaw);
     const float cy = FastCos(gState.camYaw);
     gState.camTargetX += (-sy * fwd + cy * right);
@@ -647,6 +711,9 @@ void bgl_camera_move(float fwd, float right, float up) {
 }
 
 void bgl_camera_zoom(float delta) {
+    if (!IsFiniteF(delta)) {
+        return;
+    }
     gState.camDistance = gState.camDistance - delta * 0.5f;
     if (gState.camDistance < 0.05f) {
         gState.camDistance = 0.05f;
@@ -654,6 +721,9 @@ void bgl_camera_zoom(float delta) {
 }
 
 void bgl_camera_orbit(float dx, float dy) {
+    if (!IsFiniteF(dx) || !IsFiniteF(dy)) {
+        return;
+    }
     gState.camYaw += dx;
     gState.camPitch += dy;
     if (gState.camPitch > 1.5f)
@@ -663,6 +733,9 @@ void bgl_camera_orbit(float dx, float dy) {
 }
 
 void bgl_camera_pan(float dx, float dy) {
+    if (!IsFiniteF(dx) || !IsFiniteF(dy)) {
+        return;
+    }
     const float factor = gState.camDistance * 0.25f;
     gState.camTargetX += FastCos(gState.camYaw) * dx * factor;
     gState.camTargetY += dy * factor;
@@ -671,12 +744,19 @@ void bgl_camera_pan(float dx, float dy) {
 
 void bgl_gamepad_state(float lx, float ly, float rx, float ry, float /*lt*/, float /*rt*/, int a, int /*b*/, int /*x*/,
                        int y) {
+    if (!IsFiniteF(lx) || !IsFiniteF(ly) || !IsFiniteF(rx) || !IsFiniteF(ry)) {
+        return;
+    }
     gState.padLx = lx;
     gState.padLy = ly;
     gState.padRx = rx;
     gState.padRy = ry;
     gState.camYaw += rx * 0.03f;
     gState.camPitch -= ry * 0.02f;
+    if (gState.camPitch > 1.5f)
+        gState.camPitch = 1.5f;
+    if (gState.camPitch < -1.5f)
+        gState.camPitch = -1.5f;
     if (a)
         bgl_camera_frame_all();
     if (y)

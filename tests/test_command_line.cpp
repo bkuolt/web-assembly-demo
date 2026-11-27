@@ -392,3 +392,39 @@ TEST(CommandLineTest, InfoActionDispatchAndApplicationConfigInheritance) {
     EXPECT_EQ(cfg.assetPath, "assets/Car.glb");
     EXPECT_TRUE(cli.headless);
 }
+
+TEST(CommandLineTest, RejectsSwallowedFlagsInvalidEnumAndOutOfRangeValues) {
+    // Missing value before a following flag must not swallow '--headless'
+    const std::array<const char*, 3> swallowedArgs{"bgl_viewer", "-w", "--headless"};
+    const auto swallowedOpt = CliOptions::Parse(std::span<const char* const>{swallowedArgs});
+    EXPECT_TRUE(swallowedOpt.headless);
+    EXPECT_EQ(swallowedOpt.width, 1280u);
+
+    // Invalid enum choice must not clobber previously set valid choice
+    const std::array<const char*, 3> enumArgs{"bgl_viewer", "--weather=rain", "--weather=bogus"};
+    const auto enumOpt = CliOptions::Parse(std::span<const char* const>{enumArgs});
+    EXPECT_EQ(enumOpt.weatherMode, 1u);
+
+    // --no-shadows=false preserves/restores shadows, NaN float and huge integers are rejected
+    const std::array<const char*, 4> edgeArgs{"bgl_viewer", "--no-shadows=false", "--lod-bias=nan",
+                                              "--width=999999999"};
+    const auto edgeOpt = CliOptions::Parse(std::span<const char* const>{edgeArgs});
+    EXPECT_TRUE(edgeOpt.enableShadows);
+    EXPECT_FLOAT_EQ(edgeOpt.lodBias, 1.0f);
+    EXPECT_EQ(edgeOpt.width, 1280u);
+}
+
+TEST(CommandLineTest, RejectsInvalidValuesAndFlagSwallowing) {
+    // Missing value before another flag must NOT swallow '--headless' as the asset string
+    const std::array<const char*, 3> swallowArgs{"bgl_viewer", "--asset", "--headless"};
+    const auto swallowOpt = CliOptions::Parse(std::span<const char* const>{swallowArgs});
+    EXPECT_TRUE(swallowOpt.assetPath.empty());
+    EXPECT_TRUE(swallowOpt.headless);
+
+    // Unknown options are warned and ignored rather than becoming positional asset paths
+    const std::array<const char*, 4> unknownArgs{"bgl_viewer", "--unknown-option", "--width=0", "--height=0"};
+    const auto unknownOpt = CliOptions::Parse(std::span<const char* const>{unknownArgs});
+    EXPECT_TRUE(unknownOpt.assetPath.empty());
+    EXPECT_EQ(unknownOpt.width, 1280u);
+    EXPECT_EQ(unknownOpt.height, 720u);
+}

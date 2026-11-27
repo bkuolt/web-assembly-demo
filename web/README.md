@@ -3,10 +3,9 @@
 Native browser WebGPU 3D scene viewer and glTF 2.0 Physically Based Rendering (PBR) runtime paired with `bgl_engine.wasm`. Targets WebGPU-enabled desktop and mobile browsers (Chrome, Edge, Firefox Nightly, Safari).
 
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
-[![Direct Mirror](https://img.shields.io/badge/Mirror-GitHack_main-0f766e?style=flat)](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 [![API Docs](https://img.shields.io/badge/Docs-Doxygen-0284c7?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![WebGPU](https://img.shields.io/badge/Pipeline-WebGPU_WGSL_PBR-0d9488?style=flat)](js/renderer.js)
-[![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-74_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
+[![Web Tests](https://img.shields.io/badge/Web_Unit_Tests-79_Passing-16a34a?style=flat)](../tests/test_web_unit.js)
 
 ![Sponza Atrium Rendered in bgl-Engine WebGPU PBR](../assets/sponza_screenshot.png)
 
@@ -228,10 +227,8 @@ Camera parameters are dynamically configured:
 - Subsequent requests for the same URL execute with zero network delay (Cache HIT).
 - An in-memory `Map` provides automatic fallback in environments where `window.caches` is restricted (e.g. data URLs or privacy modes).
 
-### `BglNetwork` (Streaming Fetch)
-- Employs `ReadableStream` reader to read incoming binary chunks incrementally.
-- Calculates instantaneous network throughput ($\text{MB/s}$) and percentage completion.
-- Dispatches real-time progress callbacks to `BglLoadingScreen` for smooth progress bar updates.
+- **Strict Content Security Policy & Delegated DOM Events (`web/index.html`, `web/app.js`)**: Enforces `script-src-attr 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, `no-referrer` policy, and explicit `data-action` / `data-change` / `data-input` allowlist dispatch without inline script handlers or HTML injection.
+- **`BglNetwork` (Streaming Fetch & URL Policy)**: Uses `BglNetwork.validateAssetUrl` to enforce HTTPS/loopback origins, block embedded credentials or `file:`/`javascript:`/`data:image/svg+xml` payloads, bound downloads at `128 MiB` with `60s` `AbortController` timeouts, and stream chunks via `ReadableStream` with instantaneous throughput metrics ($\text{MB/s}$).
 
 ---
 
@@ -271,7 +268,7 @@ Camera parameters are dynamically configured:
 The web runtime is verified by three complementary automated test suites:
 
 ### 1. Web Runtime Unit Tests (`tests/test_web_unit.js`)
-Dedicated, high-speed unit test suite executing **74 isolated unit tests** covering all algorithmic, mathematical, and parser components:
+Dedicated, high-speed unit test suite executing **79 isolated unit tests** covering all algorithmic, mathematical, security, and parser components:
 ```bash
 node tests/test_web_unit.js
 ```

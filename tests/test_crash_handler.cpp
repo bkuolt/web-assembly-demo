@@ -3,6 +3,7 @@
  * @brief Unit tests for CrashHandler and stacktrace capturing.
  */
 #include "core/CrashHandler.hpp"
+#include <csignal>
 #include <gtest/gtest.h>
 
 using namespace bgl;
@@ -47,10 +48,27 @@ TEST(CrashHandlerTest, LongStringStackTraceHeader) {
 }
 
 TEST(CrashHandlerTest, MultipleConsecutiveInstallCalls) {
-    // Calling Install multiple times consecutively without Uninstalling should be safe
+    struct sigaction before{};
+    ASSERT_EQ(::sigaction(SIGSEGV, nullptr, &before), 0);
+
+    // Nested Install calls must remain idempotent and Uninstall must restore the original handler
     core::InstallCrashHandler();
     core::InstallCrashHandler();
     core::InstallCrashHandler();
+
+    struct sigaction during{};
+    ASSERT_EQ(::sigaction(SIGSEGV, nullptr, &during), 0);
+    EXPECT_NE((during.sa_flags & SA_SIGINFO), 0);
+    EXPECT_NE(during.sa_sigaction, nullptr);
+
     core::UninstallCrashHandler();
-    SUCCEED();
+
+    struct sigaction after{};
+    ASSERT_EQ(::sigaction(SIGSEGV, nullptr, &after), 0);
+    EXPECT_EQ(after.sa_flags, before.sa_flags);
+    if ((before.sa_flags & SA_SIGINFO) != 0) {
+        EXPECT_EQ(after.sa_sigaction, before.sa_sigaction);
+    } else {
+        EXPECT_EQ(after.sa_handler, before.sa_handler);
+    }
 }

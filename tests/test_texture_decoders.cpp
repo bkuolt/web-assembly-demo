@@ -293,4 +293,34 @@ TEST(TextureDecoderTest, OpenExrOverflowAndCraftedHeaderHardening) {
     std::vector<uint8_t> corruptWebp{'R', 'I', 'F', 'F', 20, 0, 0, 0, 'W', 'E', 'B', 'P',
                                      'V', 'P', '8', ' ', 8,  0, 0, 0, 0,   0,   0,   0};
     EXPECT_FALSE(TextureDecoder::DecodeWebP(corruptWebp).has_value());
+
+    // Extreme HDR resolution banner rejected cleanly without OOM
+    const std::string craftedHdr{"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 100000000 +X 100000000\n"};
+    const std::vector<uint8_t> hdrBytes(craftedHdr.begin(), craftedHdr.end());
+    EXPECT_FALSE(TextureDecoder::DecodeHDR(hdrBytes).has_value());
+
+    // Oversized PNG IHDR dimensions rejected cleanly
+    const std::vector<uint8_t> craftedPng{0x89, 'P',  'N',  'G',  0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00,
+                                          0x0D, 'I',  'H',  'D',  'R',  0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF,
+                                          0xFF, 0xFF, 0x08, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    EXPECT_FALSE(TextureDecoder::DecodePNG(craftedPng).has_value());
+
+    // Truncated / corrupt KTX2 header rejected cleanly
+    const std::vector<uint8_t> craftedKtx2{0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB,
+                                           0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x00};
+    EXPECT_FALSE(TextureDecoder::DecodeKTX2(craftedKtx2, KtxTranscodeTarget::Rgba32).has_value());
+
+    // Valid minimal 1x1 Radiance HDR produces finite non-negative RGBA channels
+    const std::string validHdrStr{"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n"};
+    std::vector<uint8_t> validHdr(validHdrStr.begin(), validHdrStr.end());
+    validHdr.insert(validHdr.end(), {128u, 128u, 128u, 128u});
+    const auto hdrOk = TextureDecoder::DecodeHDR(validHdr);
+    ASSERT_TRUE(hdrOk.has_value());
+    EXPECT_EQ(hdrOk->width, 1u);
+    EXPECT_EQ(hdrOk->height, 1u);
+    ASSERT_EQ(hdrOk->rgbaFloat.size(), 4u);
+    for (float c : hdrOk->rgbaFloat) {
+        EXPECT_TRUE(std::isfinite(c));
+        EXPECT_GE(c, 0.0f);
+    }
 }

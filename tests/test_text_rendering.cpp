@@ -951,3 +951,63 @@ TEST(ImmediateUIScopingAndDisabledTest, GridContainerWrapsRowsAndCollapsingHeade
 
     EXPECT_LT(collapsedPanelRect.h, openPanelRect.h);
 }
+
+TEST(ImmediateUIScopingAndDisabledTest, DropdownCopiesOptionsPastTemporaryVectorLifetime) {
+    bgl::ui::ImmediateUI ui;
+    ASSERT_TRUE(ui.SetDefaultFont("embedded", 24.0f));
+
+    size_t selected{0};
+    bgl::ui::UiRect ddRect{};
+    {
+        std::vector<std::string> ownedLabels{"Option Alpha", "Option Beta", "Option Gamma"};
+        std::vector<const char*> ptrs;
+        for (const auto& s : ownedLabels) {
+            ptrs.push_back(s.c_str());
+        }
+        ui.BeginFrame(bgl::ui::UiInputState{}, 1024, 768, 0.016f);
+        ui.BeginPanel("DropPanel", 20.0f, 20.0f, 260.0f, 0.0f, "Dropdown");
+        ui.Dropdown("Mode", ptrs, selected);
+        ddRect = ui.GetLastItemRect();
+        ui.EndPanel();
+        ui.EndFrame();
+    }
+
+    bgl::ui::UiInputState clickInput{};
+    clickInput.mouseX = ddRect.x + ddRect.w * 0.5f;
+    clickInput.mouseY = ddRect.y + ddRect.h * 0.5f;
+    clickInput.mouseReleased = true;
+
+    ui.BeginFrame(clickInput, 1024, 768, 0.016f);
+    ui.BeginPanel("DropPanel", 20.0f, 20.0f, 260.0f, 0.0f, "Dropdown");
+    {
+        // Destroy temporary label strings and pointer vector BEFORE ui.EndFrame() draws the deferred overlay
+        std::vector<std::string> tempStrings{"Temp First", "Temp Second", "Temp Third"};
+        std::vector<const char*> tempPtrs{tempStrings[0].c_str(), tempStrings[1].c_str(), tempStrings[2].c_str()};
+        ui.Dropdown("Mode", tempPtrs, selected);
+    }
+    ui.EndPanel();
+    EXPECT_NO_THROW(ui.EndFrame());
+    EXPECT_LT(selected, 3u);
+}
+
+TEST(ImmediateUiSafetyTest, DeferredDropdownOverlayOwnsOptionStringsAcrossEndFrame) {
+    ui::ImmediateUI imgui;
+    ASSERT_TRUE(imgui.SetDefaultFont("embedded", 24.0f));
+
+    size_t dropdownIdx = 99u; // deliberately out of bounds to test selectedIndex clamp
+
+    // Frame 1: click Dropdown anchor to open popup
+    imgui.BeginFrame(ui::UiInputState{.mouseX = 100.0f, .mouseY = 77.0f, .mouseReleased = true}, 1280, 720);
+    imgui.BeginWindow("Transient", 10.0f, 10.0f, 300.0f);
+    {
+        std::vector<std::string> owned{"Temporary Alpha", "Temporary Beta", "Temporary Gamma"};
+        std::vector<const char*> ptrs{owned[0].c_str(), owned[1].c_str(), owned[2].c_str()};
+        EXPECT_FALSE(ui::UI::Dropdown("TempSelect", ptrs, dropdownIdx));
+    }
+    // Caller-owned strings and pointer array are destroyed BEFORE EndWindow/EndFrame!
+    imgui.EndWindow();
+    imgui.EndFrame();
+
+    EXPECT_GT(imgui.GetVertexCount(), 0u);
+    EXPECT_LT(dropdownIdx, 3u);
+}

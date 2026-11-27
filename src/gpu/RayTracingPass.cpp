@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <unordered_set>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <webgpu/wgpu.h>
@@ -62,7 +63,8 @@ void RayTracingPass::PopulateUniformTemplate(RtPassUniforms& out, const scene::S
                                              float envRotation, uint32_t fullW, uint32_t fullH) const noexcept {
     out = RtPassUniforms{};
     out.viewProj = viewProj;
-    out.invViewProj = glm::inverse(viewProj);
+    const float detVp = glm::determinant(viewProj);
+    out.invViewProj = (std::isfinite(detVp) && std::abs(detVp) > 1e-12f) ? glm::inverse(viewProj) : glm::mat4{1.0f};
     out.prevViewProj = (frameIndex_ > 1u) ? prevViewProj_ : viewProj;
     out.cameraPos = glm::vec4{cameraPos, static_cast<float>(frameIndex_)};
     const glm::vec3 safeSun =
@@ -79,9 +81,11 @@ void RayTracingPass::PopulateUniformTemplate(RtPassUniforms& out, const scene::S
     if (scene) {
         uint32_t pCount = 0u;
         bool hasExplicitDir = false;
-        auto collect = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
-                           const glm::mat4& parentMat) -> void {
-            if (!node || pCount >= 4u) {
+        std::unordered_set<const scene::SceneNode*> visitedNodes;
+        constexpr uint32_t kMaxTraversalDepth{256u};
+        auto collect = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node, const glm::mat4& parentMat,
+                           uint32_t depth) -> void {
+            if (!node || pCount >= 4u || depth >= kMaxTraversalDepth || !visitedNodes.insert(node.get()).second) {
                 return;
             }
             const glm::mat4 worldMat = parentMat * node->localTransform;
@@ -101,11 +105,11 @@ void RayTracingPass::PopulateUniformTemplate(RtPassUniforms& out, const scene::S
                 ++pCount;
             }
             for (const auto& c : node->children) {
-                self(self, c, worldMat);
+                self(self, c, worldMat, depth + 1u);
             }
         };
         for (const auto& r : scene->rootNodes) {
-            collect(collect, r, glm::mat4{1.0f});
+            collect(collect, r, glm::mat4{1.0f}, 0u);
         }
         if (pCount == 0u && !scene->lights.empty()) {
             for (const auto& l : scene->lights) {
@@ -212,8 +216,9 @@ void RayTracingPass::ExecuteDenoise8Chain(WGPUCommandEncoder encoder, WGPUComput
 
 void RayTracingPass::ResolveTimestampQueries(WGPUCommandEncoder encoder) noexcept {
 #if defined(BGL_PLATFORM_NATIVE)
+    const bool inFlight = timestampMapState_ && timestampMapState_->inFlight.load(std::memory_order_acquire);
     if (supportsTimestampQueries_ && timestampQuerySet_ && timestampResolveBuf_ && timestampReadbackBuf_ &&
-        timestampDataWritten_ && !timestampReadInFlight_) {
+        timestampDataWritten_ && !inFlight) {
         wgpuCommandEncoderResolveQuerySet(encoder, timestampQuerySet_.Get(), 0u, 4u, timestampResolveBuf_.Get(), 0u);
         wgpuCommandEncoderCopyBufferToBuffer(encoder, timestampResolveBuf_.Get(), 0u, timestampReadbackBuf_.Get(), 0u,
                                              4u * sizeof(uint64_t));
@@ -324,11 +329,10 @@ void RayTracingPass::RenderGBufferPass(WGPUCommandEncoder encoder, scene::Scene&
                                                      DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
                                                      DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
                 if (dc.prim->gpuIndexBuffer && lod0.indexCount > 0) {
-                    const uint64_t idxByteOffset = static_cast<uint64_t>(lod0.firstIndex) *
-                                                   ((dc.prim->indexFormat == WGPUIndexFormat_Uint16) ? 2u : 4u);
-                    wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), dc.prim->gpuIndexBuffer, dc.prim->indexFormat,
-                                                        idxByteOffset, dc.prim->gpuIndexBufferSize - idxByteOffset);
-                    wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, dc.instanceCount, 0, 0, 0);
+                    wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), dc.prim->gpuIndexBuffer, dc.prim->indexFormat, 0,
+                                                        dc.prim->gpuIndexBufferSize);
+                    wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, dc.instanceCount, lod0.firstIndex, 0,
+                                                     0);
                 } else if (!dc.prim->vertices.empty()) {
                     wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(dc.prim->vertices.size()),
                                               dc.instanceCount, 0, 0);
@@ -602,7 +606,10 @@ void RayTracingPass::PollGpuTimestamps() noexcept {
     if (!supportsTimestampQueries_ || !timestampReadbackBuf_ || !device_) {
         return;
     }
-    if (timestampReadInFlight_) {
+    if (!timestampMapState_) {
+        timestampMapState_ = std::make_shared<TimestampMapState>();
+    }
+    if (timestampMapState_->inFlight.load(std::memory_order_acquire)) {
         wgpuDevicePoll(device_, WGPU_FALSE, nullptr);
         return;
     }
@@ -610,38 +617,47 @@ void RayTracingPass::PollGpuTimestamps() noexcept {
         return;
     }
     timestampCopyQueued_ = false;
+    timestampMapState_->owner = this;
+    timestampMapState_->alive.store(true, std::memory_order_release);
+    if (timestampMapState_->inFlight.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
 
+    auto* stateCopy = new std::shared_ptr<TimestampMapState>(timestampMapState_);
     WGPUBufferMapCallbackInfo cb{};
     cb.mode = WGPUCallbackMode_AllowProcessEvents;
-    cb.userdata1 = this;
+    cb.userdata1 = stateCopy;
     cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {
-        auto* self = static_cast<RayTracingPass*>(ud1);
-        if (!self) {
-            return;
-        }
-        if (status == WGPUMapAsyncStatus_Success && self->timestampReadbackBuf_) {
-            const void* ptr =
-                wgpuBufferGetConstMappedRange(self->timestampReadbackBuf_.Get(), 0u, 4u * sizeof(uint64_t));
-            if (ptr) {
-                std::array<uint64_t, 4> ts{};
-                std::memcpy(ts.data(), ptr, sizeof(ts));
-                double totalNs = 0.0;
-                if (self->timestampHasPrePass_ && ts[1] > ts[0]) {
-                    totalNs += static_cast<double>(ts[1] - ts[0]) * static_cast<double>(self->timestampPeriodNs_);
+        std::unique_ptr<std::shared_ptr<TimestampMapState>> holder{
+            static_cast<std::shared_ptr<TimestampMapState>*>(ud1)};
+        const auto& st = *holder;
+        if (st && st->alive.load(std::memory_order_acquire) && st->owner) {
+            auto* self = st->owner;
+            if (status == WGPUMapAsyncStatus_Success && self->timestampReadbackBuf_) {
+                const void* ptr =
+                    wgpuBufferGetConstMappedRange(self->timestampReadbackBuf_.Get(), 0u, 4u * sizeof(uint64_t));
+                if (ptr) {
+                    std::array<uint64_t, 4> ts{};
+                    std::memcpy(ts.data(), ptr, sizeof(ts));
+                    double totalNs = 0.0;
+                    if (self->timestampHasPrePass_ && ts[1] > ts[0]) {
+                        totalNs += static_cast<double>(ts[1] - ts[0]) * static_cast<double>(self->timestampPeriodNs_);
+                    }
+                    if (self->timestampHasPostPass_ && ts[3] > ts[2]) {
+                        totalNs += static_cast<double>(ts[3] - ts[2]) * static_cast<double>(self->timestampPeriodNs_);
+                    }
+                    const float ms = static_cast<float>(totalNs * 1e-6);
+                    if (std::isfinite(ms) && ms >= 0.0f && ms < 250.0f) {
+                        self->lastGpuMs_ = self->lastGpuMs_ * 0.85f + ms * 0.15f;
+                    }
                 }
-                if (self->timestampHasPostPass_ && ts[3] > ts[2]) {
-                    totalNs += static_cast<double>(ts[3] - ts[2]) * static_cast<double>(self->timestampPeriodNs_);
-                }
-                const float ms = static_cast<float>(totalNs * 1e-6);
-                if (std::isfinite(ms) && ms >= 0.0f && ms < 250.0f) {
-                    self->lastGpuMs_ = self->lastGpuMs_ * 0.85f + ms * 0.15f;
-                }
+                wgpuBufferUnmap(self->timestampReadbackBuf_.Get());
             }
-            wgpuBufferUnmap(self->timestampReadbackBuf_.Get());
         }
-        self->timestampReadInFlight_ = false;
+        if (st) {
+            st->inFlight.store(false, std::memory_order_release);
+        }
     };
-    timestampReadInFlight_ = true;
     wgpuBufferMapAsync(timestampReadbackBuf_.Get(), WGPUMapMode_Read, 0u, 4u * sizeof(uint64_t), cb);
 #endif
 }

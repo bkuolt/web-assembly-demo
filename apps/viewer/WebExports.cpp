@@ -2,13 +2,24 @@
  * @file WebExports.cpp
  * @brief Emscripten HTML5 main loop and C-ABI exports for the WebAssembly viewer build.
  */
+#include "core/NetworkFetcher.hpp"
 #include "viewer/Application.hpp"
+#include <cmath>
+#include <cstring>
 
 #if defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
 static bgl::app::Application* g_pApp = nullptr;
+
+static std::string_view SafeCStringView(const char* ptr, size_t maxBytes = 8192u) noexcept {
+    if (!ptr) {
+        return {};
+    }
+    const size_t n = ::strnlen(ptr, maxBytes);
+    return std::string_view{ptr, n};
+}
 
 static void EmscriptenMainLoop() {
     if (g_pApp) {
@@ -287,9 +298,13 @@ int bgl_get_camera_count() {
 EMSCRIPTEN_KEEPALIVE
 const char* bgl_get_camera_name(int index) {
     static std::string s_camName;
-    if (g_pApp) {
-        s_camName = std::string(g_pApp->GetCameraName(index));
-        return s_camName.c_str();
+    try {
+        if (g_pApp) {
+            s_camName = std::string(g_pApp->GetCameraName(index));
+            return s_camName.c_str();
+        }
+    } catch (...) {
+        return "";
     }
     return "";
 }
@@ -308,20 +323,21 @@ void bgl_cycle_camera() {
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_time_of_day(float hour) {
-    if (g_pApp)
+    if (g_pApp && std::isfinite(hour))
         g_pApp->SetTimeOfDay(hour);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_set_sun_angle(float azimuthRad, float elevationRad) {
-    if (g_pApp)
+    if (g_pApp && std::isfinite(azimuthRad) && std::isfinite(elevationRad))
         g_pApp->SetSunAzimuthElevation(azimuthRad, elevationRad);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_gamepad_state(float lx, float ly, float rx, float ry, float lt, float rt, int btnA, int btnB, int btnX,
                        int btnY) {
-    if (g_pApp) {
+    if (g_pApp && std::isfinite(lx) && std::isfinite(ly) && std::isfinite(rx) && std::isfinite(ry) &&
+        std::isfinite(lt) && std::isfinite(rt)) {
         bgl::core::GamepadState raw{};
         raw.connected = true;
         raw.leftStick = glm::vec2{lx, ly};
@@ -379,6 +395,8 @@ void bgl_set_debug_view(int mode) {
                        : (mode == 2) ? bgl::gpu::DebugViewMode::Normals
                        : (mode == 3) ? bgl::gpu::DebugViewMode::MetallicRoughnessAo
                        : (mode == 4) ? bgl::gpu::DebugViewMode::UvChecker
+                       : (mode == 5) ? bgl::gpu::DebugViewMode::ClayWireframe
+                       : (mode == 6) ? bgl::gpu::DebugViewMode::ToonCel
                                      : bgl::gpu::DebugViewMode::LitPbr;
         g_pApp->SetDebugViewMode(m);
     }
@@ -392,16 +410,22 @@ void bgl_toggle_lod_heatmap() {
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_load_file_buffer(const char* name, const uint8_t* buffer, size_t size) {
-    if (g_pApp && name && buffer && size > 0) {
-        g_pApp->OnFileDrop(name, std::span<const uint8_t>(buffer, size));
-    }
+    try {
+        const std::string_view safeName = SafeCStringView(name, 1024u);
+        if (g_pApp && !safeName.empty() && buffer && size > 0 && size <= bgl::core::NetworkFetcher::kMaxAssetFileSize) {
+            g_pApp->OnFileDrop(safeName, std::span<const uint8_t>(buffer, size));
+        }
+    } catch (...) {}
 }
 
 EMSCRIPTEN_KEEPALIVE
 void bgl_load_url(const char* url) {
-    if (g_pApp && url) {
-        (void)g_pApp->LoadSceneFromUri(url);
-    }
+    try {
+        const std::string_view safeUrl = SafeCStringView(url, 8192u);
+        if (g_pApp && !safeUrl.empty()) {
+            (void)g_pApp->LoadSceneFromUri(safeUrl);
+        }
+    } catch (...) {}
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -431,10 +455,10 @@ void bgl_set_animation_playing(int playing) {
 
 int main() {
     static bgl::app::Application app;
-    g_pApp = &app;
     if (auto res = app.Initialize(1280, 720); !res) {
         return -1;
     }
+    g_pApp = &app;
     emscripten_set_main_loop(EmscriptenMainLoop, 0, 1);
     return 0;
 }

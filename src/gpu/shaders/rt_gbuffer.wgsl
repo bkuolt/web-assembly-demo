@@ -45,7 +45,7 @@ fn vs_gbuffer(in : VertexInput) -> GBufferVsOut {
     var localTan = in.tangent.xyz;
 
     let morphCount = min(drawUbo.morphTargetCount, 8u);
-    if (morphCount > 0u && drawUbo.vertexCount > 0u && (drawUbo.drawFlags & 262144u) != 0u) {
+    if (morphCount > 0u && in.vertexIndex < drawUbo.vertexCount && (drawUbo.drawFlags & 262144u) != 0u) {
         for (var t : u32 = 0u; t < morphCount; t = t + 1u) {
             let wVec = select(drawUbo.morphWeights0, drawUbo.morphWeights1, t >= 4u);
             let wComp = t & 3u;

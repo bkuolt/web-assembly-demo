@@ -74,9 +74,11 @@ public:
     void Clear();
 
 private:
+    static constexpr size_t kMaxCachedTextures{512u};
     mutable std::shared_mutex mutex_{};
     core::ScratchArena scratchArena_;
-    std::unordered_map<uint64_t, std::shared_ptr<DecodedImage>> textureCache_;
+    std::unordered_map<std::string, std::shared_ptr<DecodedImage>> pathCache_{};
+    std::unordered_map<uint64_t, std::shared_ptr<DecodedImage>> textureCache_{};
 };
 
 } // namespace bgl::scene

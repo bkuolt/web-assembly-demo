@@ -11,12 +11,12 @@ namespace bgl::scene {
 AssetManager::AssetManager() : scratchArena_(1024 * 1024 * 8) {}
 
 core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::string_view path) {
-    uint64_t pathHash = Fnv1a64(path);
+    const std::string pathKey{path};
     {
         std::shared_lock lock(mutex_);
-        auto it = textureCache_.find(pathHash);
-        if (it != textureCache_.end()) {
-            BGL_LOG_DEBUG("AssetManager: Texture cache hit for '{}' (hash: {:x})", path, pathHash);
+        auto it = pathCache_.find(pathKey);
+        if (it != pathCache_.end()) {
+            BGL_LOG_DEBUG("AssetManager: Texture path cache hit for '{}'", path);
             return it->second;
         }
     }
@@ -38,7 +38,9 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
     if (contentMatch) {
         BGL_LOG_DEBUG("AssetManager: Content hash deduplication hit for '{}' (hash: {:x})", path, contentHash);
         std::unique_lock writeLock(mutex_);
-        textureCache_.try_emplace(pathHash, contentMatch);
+        if (pathCache_.size() < kMaxCachedTextures) {
+            pathCache_.try_emplace(pathKey, contentMatch);
+        }
         return contentMatch;
     }
 
@@ -50,7 +52,13 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
     auto sharedImg = std::make_shared<DecodedImage>(std::move(*decodedResult));
     {
         std::unique_lock lock(mutex_);
-        textureCache_[pathHash] = sharedImg;
+        if (pathCache_.size() >= kMaxCachedTextures) {
+            pathCache_.clear();
+        }
+        if (textureCache_.size() >= kMaxCachedTextures) {
+            textureCache_.clear();
+        }
+        pathCache_[pathKey] = sharedImg;
         textureCache_[contentHash] = sharedImg;
     }
     BGL_LOG_INFO("AssetManager: Cached new texture '{}' ({}x{}) with content hash {:x}", path, sharedImg->width,
@@ -60,6 +68,9 @@ core::Result<std::shared_ptr<DecodedImage>> AssetManager::LoadTexture(std::strin
 
 void AssetManager::InsertTexture(uint64_t hash, std::shared_ptr<DecodedImage> texture) {
     std::unique_lock lock(mutex_);
+    if (textureCache_.size() >= kMaxCachedTextures) {
+        textureCache_.clear();
+    }
     textureCache_[hash] = std::move(texture);
 }
 
@@ -79,6 +90,7 @@ std::shared_ptr<DecodedImage> AssetManager::GetCachedTexture(uint64_t hash) cons
 
 void AssetManager::Clear() {
     std::unique_lock lock(mutex_);
+    pathCache_.clear();
     textureCache_.clear();
     scratchArena_.Reset();
 }

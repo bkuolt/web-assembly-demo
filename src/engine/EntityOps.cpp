@@ -4,6 +4,7 @@
  */
 #include "engine/EntityOps.hpp"
 #include <algorithm>
+#include <unordered_set>
 
 namespace bgl::engine {
 
@@ -21,19 +22,25 @@ void DetachFromTree(scene::Scene& scene, const scene::SceneNode* target) {
     }
 }
 
-bool IsDescendantOrSelf(const scene::SceneNode* ancestor, const scene::SceneNode* node) {
-    if (!ancestor || !node) {
+bool IsDescendantOrSelfImpl(const scene::SceneNode* ancestor, const scene::SceneNode* node,
+                            std::unordered_set<const scene::SceneNode*>& visited, size_t depth) {
+    if (!ancestor || !node || depth > 256u || !visited.insert(ancestor).second) {
         return false;
     }
     if (ancestor == node) {
         return true;
     }
     for (const auto& child : ancestor->children) {
-        if (IsDescendantOrSelf(child.get(), node)) {
+        if (IsDescendantOrSelfImpl(child.get(), node, visited, depth + 1u)) {
             return true;
         }
     }
     return false;
+}
+
+bool IsDescendantOrSelf(const scene::SceneNode* ancestor, const scene::SceneNode* node) {
+    std::unordered_set<const scene::SceneNode*> visited{};
+    return IsDescendantOrSelfImpl(ancestor, node, visited, 0u);
 }
 
 } // namespace

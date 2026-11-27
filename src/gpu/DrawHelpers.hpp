@@ -194,11 +194,19 @@ public:
         if (!device_ || !queue) {
             return;
         }
+        constexpr size_t kMaxSize = std::numeric_limits<size_t>::max();
+        if (instances.size() > (kMaxSize / sizeof(glm::mat4)) - 1u) {
+            return;
+        }
         const size_t requiredBytes = (1u + instances.size()) * sizeof(glm::mat4);
         const bool resized = !buffer_ || requiredBytes > capacityBytes_;
         if (resized) {
             size_t nextBytes = std::max<size_t>(sizeof(glm::mat4) * 64u, capacityBytes_ == 0 ? 16384u : capacityBytes_);
             while (nextBytes < requiredBytes) {
+                if (nextBytes > kMaxSize / 2u) {
+                    nextBytes = requiredBytes;
+                    break;
+                }
                 nextBytes *= 2u;
             }
             if (!EnsureCapacityBytes(queue, nextBytes, true)) {
@@ -268,9 +276,9 @@ private:
             if (mapped) {
                 const glm::mat4 identity{1.0f};
                 std::memcpy(mapped, &identity, sizeof(glm::mat4));
+                identityWritten_ = true;
             }
             wgpuBufferUnmap(nextBuf.Get());
-            identityWritten_ = true;
         } else if (queue != nullptr) {
             const glm::mat4 identity{1.0f};
             wgpuQueueWriteBuffer(queue, nextBuf.Get(), 0, &identity, sizeof(glm::mat4));

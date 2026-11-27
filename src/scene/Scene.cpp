@@ -5,6 +5,8 @@
 #include "scene/Scene.hpp"
 #include "core/MemoryTracker.hpp"
 #include <algorithm>
+#include <cmath>
+#include <unordered_set>
 #include <utility>
 
 namespace bgl::scene {
@@ -151,29 +153,49 @@ void SceneNode::ApplyMorphWeights() {
     }
 }
 
-void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
-    worldTransform = parentTransform * localTransform;
-    worldAABB = core::AABB{};
-    for (const auto& prim : GetPrimitives()) {
+namespace {
+
+constexpr size_t kMaxSceneHierarchyDepth{256u};
+
+void UpdateTransformsImpl(SceneNode& node, const glm::mat4& parentTransform,
+                          std::unordered_set<const SceneNode*>& visited, size_t depth) {
+    if (depth > kMaxSceneHierarchyDepth || !visited.insert(&node).second) {
+        return;
+    }
+    node.worldTransform = parentTransform * node.localTransform;
+    node.worldAABB = core::AABB{};
+    for (const auto& prim : node.GetPrimitives()) {
         if (prim.boundingBox.minBound.x <= prim.boundingBox.maxBound.x) {
-            if (instanceTransforms.empty()) {
-                worldAABB.Expand(prim.boundingBox.Transformed(worldTransform));
+            if (node.instanceTransforms.empty()) {
+                node.worldAABB.Expand(prim.boundingBox.Transformed(node.worldTransform));
             } else {
-                for (const glm::mat4& instMat : instanceTransforms) {
-                    worldAABB.Expand(prim.boundingBox.Transformed(worldTransform * instMat));
+                for (const glm::mat4& instMat : node.instanceTransforms) {
+                    node.worldAABB.Expand(prim.boundingBox.Transformed(node.worldTransform * instMat));
                 }
             }
         }
     }
-    for (auto& child : children) {
+    for (auto& child : node.children) {
         if (child) {
-            child->UpdateTransforms(worldTransform);
-            worldAABB.Expand(child->worldAABB);
+            UpdateTransformsImpl(*child, node.worldTransform, visited, depth + 1u);
+            node.worldAABB.Expand(child->worldAABB);
         }
     }
 }
 
+} // namespace
+
+void SceneNode::UpdateTransforms(const glm::mat4& parentTransform) {
+    std::unordered_set<const SceneNode*> visited{};
+    UpdateTransformsImpl(*this, parentTransform, visited, 0u);
+}
+
 Scene::~Scene() {
+    for (auto& n : allNodes) {
+        if (n) {
+            n->children.clear();
+        }
+    }
     for (auto& t : gpuTextures) {
         if (auto view = std::exchange(t.view, nullptr)) {
             wgpuTextureViewRelease(view);
@@ -188,9 +210,10 @@ Scene::~Scene() {
 
 void Scene::Update() {
     sceneAABB = core::AABB{};
+    std::unordered_set<const SceneNode*> visited{};
     for (auto& node : rootNodes) {
         if (node) {
-            node->UpdateTransforms();
+            UpdateTransformsImpl(*node, glm::mat4{1.0f}, visited, 0u);
             sceneAABB.Expand(node->worldAABB);
         }
     }
@@ -202,14 +225,16 @@ void Scene::UpdateAnimation(float deltaTime) {
         return;
     }
     const auto& anim = animations[activeAnimationIndex];
-    if (anim.duration <= 0.0f) {
+    if (anim.duration <= 0.0f || !std::isfinite(anim.duration)) {
         return;
     }
 
-    if (animationPlaying) {
+    if (animationPlaying && std::isfinite(deltaTime)) {
         animationTime += std::max(0.0f, deltaTime);
         animationTime = std::fmod(animationTime, anim.duration);
-        if (animationTime < 0.0f) {
+        if (!std::isfinite(animationTime)) {
+            animationTime = 0.0f;
+        } else if (animationTime < 0.0f) {
             animationTime += anim.duration;
         }
     }

@@ -1,18 +1,25 @@
 cmake_minimum_required(VERSION 3.28)
-project(bgl_engine VERSION 1.1.0 LANGUAGES C CXX)
+project(bgl_engine VERSION 1.2.0 LANGUAGES C CXX)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+include(CheckPIESupported)
+check_pie_supported()
 
 # ==============================================================================
 # RPATH Configuration for Native Desktop Execution
 # ==============================================================================
-set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_BUILD_RPATH
+    "${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib"
+)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 set(CMAKE_INSTALL_RPATH
     "$ORIGIN"
-    "$ORIGIN/../../third_party/wgpu-native/lib"
-    "$ORIGIN/third_party/wgpu-native/lib"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib"
+    "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
 )
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 
 # ==============================================================================
 # Subsystem and Feature Options
@@ -32,11 +39,11 @@ option(BGL_ENABLE_WEBP         "Enable WebP texture format decoding (libwebp)"  
 option(BGL_ENABLE_KTX          "Enable KTX/KTX2 texture format decoding (libktx)"    ON)
 
 # ==============================================================================
-# Centralized Version Configuration
+# Centralized Version Configuration (generated in binary dir)
 # ==============================================================================
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.hpp.in
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.hpp
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/include/core/Version.hpp
     @ONLY
 )
 
@@ -53,19 +60,42 @@ set_target_properties(bgl_common_settings PROPERTIES
 )
 
 target_include_directories(bgl_common_settings INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
-# Compiler Warning and Optimization Flags
+# Compiler Warning, Hardening, and Optimization Flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(bgl_common_settings INTERFACE
         -Wall
         -Wextra
         -Wpedantic
         -Wno-unused-parameter
+        -Wformat
+        -Wformat-security
+        -Werror=format-security
         $<$<CONFIG:Release>:-O3>
         $<$<CONFIG:Release>:-fno-math-errno>
     )
+    if(NOT EMSCRIPTEN)
+        target_compile_options(bgl_common_settings INTERFACE
+            -fstack-protector-strong
+            -fstack-clash-protection
+            -fno-delete-null-pointer-checks
+            $<$<CONFIG:Release>:-U_FORTIFY_SOURCE>
+            $<$<CONFIG:Release>:-D_FORTIFY_SOURCE=3>
+            $<$<CONFIG:Release>:-D_GLIBCXX_ASSERTIONS>
+        )
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+            target_compile_options(bgl_common_settings INTERFACE -fcf-protection=full)
+        endif()
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            target_link_options(bgl_common_settings INTERFACE
+                -Wl,-z,relro,-z,now
+                -Wl,-z,noexecstack
+            )
+        endif()
+    endif()
 endif()
 
 # Propagate Feature Flags
@@ -142,13 +172,29 @@ if(NOT EMSCRIPTEN)
         pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
     endif()
 
+    # Verify and import prebuilt wgpu-native shared library
+    set(_WGPU_LIB "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so")
+    set(_WGPU_SUM_FILE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/wgpu-native-meta/SHA256SUMS")
+    if(NOT EXISTS "${_WGPU_SUM_FILE}" OR NOT EXISTS "${_WGPU_LIB}")
+        message(FATAL_ERROR "Missing prebuilt wgpu-native library ('${_WGPU_LIB}') or SHA256SUMS manifest ('${_WGPU_SUM_FILE}').")
+    endif()
+    file(STRINGS "${_WGPU_SUM_FILE}" _WGPU_SUM_LINES LIMIT_COUNT 1)
+    string(REGEX MATCH "^[0-9a-fA-F]+" _WGPU_EXPECTED_SHA256 "${_WGPU_SUM_LINES}")
+    file(SHA256 "${_WGPU_LIB}" _WGPU_ACTUAL_SHA256)
+    string(TOLOWER "${_WGPU_EXPECTED_SHA256}" _WGPU_EXPECTED_SHA256)
+    string(TOLOWER "${_WGPU_ACTUAL_SHA256}" _WGPU_ACTUAL_SHA256)
+    if(NOT "${_WGPU_EXPECTED_SHA256}" STREQUAL "${_WGPU_ACTUAL_SHA256}")
+        message(FATAL_ERROR "SHA256 mismatch for libwgpu_native.so: expected ${_WGPU_EXPECTED_SHA256}, got ${_WGPU_ACTUAL_SHA256}")
+    endif()
+    message(STATUS "Verified libwgpu_native.so SHA256 (${_WGPU_ACTUAL_SHA256})")
+
     # Imported Target for wgpu-native
     add_library(wgpu_native SHARED IMPORTED GLOBAL)
     set_target_properties(wgpu_native PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
-        IMPORTED_LOCATION_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
-        IMPORTED_LOCATION_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
-        IMPORTED_LOCATION_RELWITHDEBINFO "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/lib/libwgpu_native.so"
+        IMPORTED_LOCATION "${_WGPU_LIB}"
+        IMPORTED_LOCATION_DEBUG "${_WGPU_LIB}"
+        IMPORTED_LOCATION_RELEASE "${_WGPU_LIB}"
+        IMPORTED_LOCATION_RELWITHDEBINFO "${_WGPU_LIB}"
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu-native/include"
     )
 endif()

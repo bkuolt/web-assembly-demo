@@ -32,7 +32,7 @@ struct Engine::Impl final : engine::EngineCore {
     void BeginGui();
     void EndGui();
     void Render();
-    void Shutdown();
+    void Shutdown() override;
 
 protected:
     void OnPrepareOverlay() override;

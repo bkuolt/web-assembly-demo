@@ -10,9 +10,11 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -22,13 +24,24 @@
 #include <emscripten/fetch.h>
 #elif defined(BGL_HAS_CURL)
 #include <curl/curl.h>
+#if defined(__linux__) || defined(__unix__)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 #endif
 
 namespace bgl::core {
 
 namespace {
 
-constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safety limit against unbounded allocations
+#if defined(BGL_PLATFORM_WASM)
+constexpr size_t kMaxAssetFileSize = 48ULL * 1024ULL * 1024ULL; // 48 MiB WASM safety limit
+#else
+constexpr size_t kMaxAssetFileSize = 256ULL * 1024ULL * 1024ULL; // 256 MiB native safety limit
+#endif
+
+thread_local bool t_allowLoopbackHttpForTests{false};
 
 [[nodiscard]] bool StartsWithCaseInsensitive(std::string_view str, std::string_view prefix) noexcept {
     if (str.size() < prefix.size())
@@ -75,8 +88,13 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
         return tab;
     }();
 
+    constexpr size_t kMaxBase64EncodedBytes{4u * ((kMaxAssetFileSize / 3u) + 2u)};
+    if (encoded.size() > kMaxBase64EncodedBytes) {
+        return std::unexpected("Base64 data URI exceeds maximum allowed asset size");
+    }
+
     std::vector<uint8_t> out{};
-    out.reserve((encoded.size() * 3) / 4);
+    out.reserve((encoded.size() / 4u + 1u) * 3u);
 
     uint32_t val{0};
     int valb{-8};
@@ -143,7 +161,106 @@ constexpr size_t kMaxAssetFileSize = 1024ULL * 1024ULL * 1024ULL; // 1 GiB safet
 #if defined(BGL_HAS_CURL)
 void EnsureCurlGlobalInitialized() {
     static std::once_flag initFlag{};
-    std::call_once(initFlag, []() { curl_global_init(CURL_GLOBAL_DEFAULT); });
+    std::call_once(initFlag, []() {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::atexit([]() { curl_global_cleanup(); });
+    });
+}
+
+#if defined(__linux__) || defined(__unix__)
+[[nodiscard]] bool IsBlockedIpv4HostOrder(uint32_t ip, bool allowLoopback) noexcept {
+    if ((ip & 0xFF000000u) == 0x7F000000u) { // 127.0.0.0/8 (Loopback)
+        return !allowLoopback;
+    }
+    return (ip & 0xFF000000u) == 0x00000000u || // 0.0.0.0/8 (this network)
+           (ip & 0xFF000000u) == 0x0A000000u || // 10.0.0.0/8 (RFC1918)
+           (ip & 0xFFC00000u) == 0x64400000u || // 100.64.0.0/10 (CGNAT)
+           (ip & 0xFFFF0000u) == 0xA9FE0000u || // 169.254.0.0/16 (Link-local / IMDS)
+           (ip & 0xFFF00000u) == 0xAC100000u || // 172.16.0.0/12 (RFC1918)
+           (ip & 0xFFFF0000u) == 0xC0000000u || // 192.0.0.0/24 (IETF)
+           (ip & 0xFFFF0000u) == 0xC0A80000u || // 192.168.0.0/16 (RFC1918)
+           (ip & 0xFFFE0000u) == 0xC6120000u || // 198.18.0.0/15 (Benchmark)
+           (ip >= 0xE0000000u);                 // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+}
+
+[[nodiscard]] bool IsBlockedSocketAddress(const struct sockaddr* addr, bool allowLoopback) noexcept {
+    if (!addr) {
+        return true;
+    }
+    if (addr->sa_family == AF_INET) {
+        const auto* sin{reinterpret_cast<const struct sockaddr_in*>(addr)};
+        return IsBlockedIpv4HostOrder(ntohl(sin->sin_addr.s_addr), allowLoopback);
+    }
+    if (addr->sa_family == AF_INET6) {
+        const auto* sin6{reinterpret_cast<const struct sockaddr_in6*>(addr)};
+        const uint8_t* b{sin6->sin6_addr.s6_addr};
+        bool allZero{true};
+        for (size_t i{0}; i < 16u; ++i) {
+            if (b[i] != 0u) {
+                allZero = false;
+                break;
+            }
+        }
+        if (allZero) {
+            return true; // ::
+        }
+        bool isLoopback{b[15] == 1u};
+        for (size_t i{0}; i < 15u; ++i) {
+            if (b[i] != 0u) {
+                isLoopback = false;
+                break;
+            }
+        }
+        if (isLoopback) {
+            return !allowLoopback; // ::1
+        }
+        if ((b[0] & 0xFEu) == 0xFCu ||                    // fc00::/7 ULA
+            (b[0] == 0xFEu && (b[1] & 0xC0u) == 0x80u) || // fe80::/10 link-local
+            b[0] == 0xFFu) {                              // ff00::/8 multicast
+            return true;
+        }
+        // IPv4-mapped IPv6 ::ffff:0:0/96
+        bool v4Mapped{b[10] == 0xFFu && b[11] == 0xFFu};
+        for (size_t i{0}; i < 10u; ++i) {
+            if (b[i] != 0u) {
+                v4Mapped = false;
+                break;
+            }
+        }
+        if (v4Mapped) {
+            const uint32_t v4Host{(static_cast<uint32_t>(b[12]) << 24u) | (static_cast<uint32_t>(b[13]) << 16u) |
+                                  (static_cast<uint32_t>(b[14]) << 8u) | static_cast<uint32_t>(b[15])};
+            return IsBlockedIpv4HostOrder(v4Host, allowLoopback);
+        }
+        return false;
+    }
+    return true;
+}
+
+curl_socket_t CurlOpenSocketCallback(void* clientp, curlsocktype purpose, struct curl_sockaddr* address) {
+    const bool allowLoopback = clientp != nullptr && *static_cast<const bool*>(clientp);
+    if (purpose != CURLSOCKTYPE_IPCXN || !address || IsBlockedSocketAddress(&address->addr, allowLoopback)) {
+        return CURL_SOCKET_BAD;
+    }
+    return ::socket(address->family, address->socktype, address->protocol);
+}
+#endif
+
+[[nodiscard]] bool IsLoopbackHttpLiteral(std::string_view url) noexcept {
+    if (!StartsWithCaseInsensitive(url, "http://")) {
+        return false;
+    }
+    std::string_view host = url.substr(7);
+    const size_t slashPos = host.find_first_of("/?#");
+    if (slashPos != std::string_view::npos) {
+        host = host.substr(0, slashPos);
+    }
+    const size_t colonPos = host.rfind(':');
+    if (colonPos != std::string_view::npos && host.find(']') == std::string_view::npos) {
+        host = host.substr(0, colonPos);
+    }
+    return (host.size() == 9u && StartsWithCaseInsensitive(host, "127.0.0.1")) ||
+           (host.size() == 9u && StartsWithCaseInsensitive(host, "localhost")) || host == "[::1]";
 }
 
 size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -238,20 +355,88 @@ int CurlXferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, cu
     return buffer;
 }
 
+[[nodiscard]] std::string_view TrimUriViewNoAlloc(std::string_view s) noexcept {
+    auto trimWs = [](std::string_view v) noexcept -> std::string_view {
+        while (!v.empty() && (v.front() == ' ' || v.front() == '\t' || v.front() == '\r' || v.front() == '\n')) {
+            v.remove_prefix(1);
+        }
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r' || v.back() == '\n')) {
+            v.remove_suffix(1);
+        }
+        return v;
+    };
+    std::string_view cur = trimWs(s);
+    if (cur.find('\n') != std::string_view::npos || cur.find('\r') != std::string_view::npos) {
+        size_t pos{0};
+        bool found{false};
+        while (pos < cur.size()) {
+            const size_t nl = cur.find_first_of("\r\n", pos);
+            const std::string_view line =
+                trimWs(cur.substr(pos, nl == std::string_view::npos ? cur.size() - pos : nl - pos));
+            if (!line.empty() && line.front() != '#') {
+                cur = line;
+                found = true;
+                break;
+            }
+            if (nl == std::string_view::npos) {
+                break;
+            }
+            pos = nl + 1;
+        }
+        if (!found) {
+            return {};
+        }
+    }
+    if (cur.size() >= 2 && ((cur.front() == '"' && cur.back() == '"') || (cur.front() == '\'' && cur.back() == '\'') ||
+                            (cur.front() == '<' && cur.back() == '>'))) {
+        cur = trimWs(cur.substr(1, cur.size() - 2));
+    }
+    return cur;
+}
+
+[[nodiscard]] Result<std::string> ParseLocalFileUrlPath(std::string_view fileUrl) {
+    if (!StartsWithCaseInsensitive(fileUrl, "file://")) {
+        return std::string{fileUrl};
+    }
+    std::string_view rest = fileUrl.substr(7);
+    if (!rest.empty() && rest.front() != '/') {
+        const size_t slashPos = rest.find('/');
+        if (slashPos == std::string_view::npos || !StartsWithCaseInsensitive(rest.substr(0, slashPos), "localhost") ||
+            slashPos != 9u) {
+            return std::unexpected("Rejected file:// URI with non-local authority");
+        }
+        rest.remove_prefix(slashPos);
+    }
+    std::string decodedPath{NetworkFetcher::DecodeUrlPercent(rest)};
+    if (ContainsControlOrNul(decodedPath)) {
+        return std::unexpected("Rejected file:// URI with control or NUL characters");
+    }
+    return decodedPath;
+}
+
 } // namespace
 
+NetworkFetcher::ScopedAllowLoopbackHttpForTests::ScopedAllowLoopbackHttpForTests() noexcept
+    : prev_{t_allowLoopbackHttpForTests} {
+    t_allowLoopbackHttpForTests = true;
+}
+
+NetworkFetcher::ScopedAllowLoopbackHttpForTests::~ScopedAllowLoopbackHttpForTests() {
+    t_allowLoopbackHttpForTests = prev_;
+}
+
 bool NetworkFetcher::IsHttpUrl(std::string_view uri) noexcept {
-    const std::string cleaned{SanitizeUri(uri)};
+    const std::string_view cleaned{TrimUriViewNoAlloc(uri)};
     return StartsWithCaseInsensitive(cleaned, "http://") || StartsWithCaseInsensitive(cleaned, "https://");
 }
 
 bool NetworkFetcher::IsFileUrl(std::string_view uri) noexcept {
-    const std::string cleaned{SanitizeUri(uri)};
+    const std::string_view cleaned{TrimUriViewNoAlloc(uri)};
     return StartsWithCaseInsensitive(cleaned, "file://");
 }
 
 bool NetworkFetcher::IsDataUri(std::string_view uri) noexcept {
-    const std::string cleaned{SanitizeUri(uri)};
+    const std::string_view cleaned{TrimUriViewNoAlloc(uri)};
     return StartsWithCaseInsensitive(cleaned, "data:");
 }
 
@@ -268,46 +453,7 @@ bool NetworkFetcher::IsCurlSupported() noexcept {
 }
 
 std::string NetworkFetcher::SanitizeUri(std::string_view rawUri) {
-    auto trim = [](std::string_view s) noexcept -> std::string_view {
-        while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
-            s.remove_prefix(1);
-        }
-        while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
-            s.remove_suffix(1);
-        }
-        return s;
-    };
-
-    std::string_view trimmed{trim(rawUri)};
-    if (trimmed.empty())
-        return {};
-
-    // Handle RFC 2483 text/uri-list payloads (may contain # comment lines and multiple CRLF-separated lines)
-    if (trimmed.find('\n') != std::string_view::npos || trimmed.find('\r') != std::string_view::npos) {
-        size_t pos{0};
-        while (pos < trimmed.size()) {
-            const size_t nextNl{trimmed.find_first_of("\r\n", pos)};
-            const std::string_view line{trim(
-                trimmed.substr(pos, (nextNl == std::string_view::npos) ? (trimmed.size() - pos) : (nextNl - pos)))};
-            if (!line.empty() && line.front() != '#') {
-                trimmed = line;
-                break;
-            }
-            if (nextNl == std::string_view::npos)
-                break;
-            pos = nextNl + 1;
-        }
-    }
-
-    // Strip surrounding quotes or angle brackets
-    if (trimmed.size() >= 2) {
-        if ((trimmed.front() == '"' && trimmed.back() == '"') || (trimmed.front() == '\'' && trimmed.back() == '\'') ||
-            (trimmed.front() == '<' && trimmed.back() == '>')) {
-            trimmed = trim(trimmed.substr(1, trimmed.size() - 2));
-        }
-    }
-
-    return std::string{trimmed};
+    return std::string{TrimUriViewNoAlloc(rawUri)};
 }
 
 std::string NetworkFetcher::DecodeUrlPercent(std::string_view input) {
@@ -419,14 +565,66 @@ Result<std::string> NetworkFetcher::ResolveExternalAssetUri(std::string_view bas
         if (!IsHttpUrl(resolved) && !IsDataUri(resolved)) {
             return std::unexpected("Remote asset may only reference http(s):// or data: subresources");
         }
+        if (StartsWithCaseInsensitive(cleanBase, "https://") && StartsWithCaseInsensitive(resolved, "http://")) {
+            return std::unexpected("HTTPS asset may not downgrade subresource to plaintext http://");
+        }
         return resolved;
     }
 
-    if (cleanBase.empty() || IsDataUri(cleanBase)) {
+    if (cleanBase.empty() || IsDataUri(cleanBase) || StartsWithCaseInsensitive(cleanBase, "memory://")) {
         if (!IsDataUri(resolved)) {
             return std::unexpected("Inline data or memory-buffered asset may only reference data: subresources");
         }
         return resolved;
+    }
+
+    if (IsDataUri(resolved)) {
+        return resolved;
+    }
+
+    if (IsHttpUrl(cleanRel) || IsHttpUrl(resolved)) {
+        return std::unexpected("Local asset may not reference remote http(s):// subresources");
+    }
+
+    auto stripFileUrl = [](std::string_view s) -> Result<std::string> {
+        if (!StartsWithCaseInsensitive(s, "file://")) {
+            return std::string{s};
+        }
+        std::string_view rest = s.substr(7);
+        if (!rest.empty() && rest.front() != '/') {
+            const size_t slashPos = rest.find('/');
+            if (slashPos != 9u || !StartsWithCaseInsensitive(rest.substr(0, slashPos), "localhost")) {
+                return std::unexpected("Rejected file:// URI with non-local authority");
+            }
+            rest.remove_prefix(slashPos);
+        }
+        return NetworkFetcher::DecodeUrlPercent(rest);
+    };
+
+    if (!IsFileUrl(cleanBase) && IsFileUrl(cleanRel)) {
+        return std::unexpected("Local filesystem asset may not use explicit file:// subresource");
+    }
+    if (!IsFileUrl(cleanBase) && std::filesystem::path{cleanRel}.is_absolute()) {
+        return std::unexpected("Local filesystem asset subresource path must be relative");
+    }
+
+    auto baseFsRes = stripFileUrl(cleanBase);
+    auto targetFsRes = stripFileUrl(resolved);
+    if (!baseFsRes || !targetFsRes) {
+        return std::unexpected(!baseFsRes ? baseFsRes.error() : targetFsRes.error());
+    }
+
+    std::error_code ec{};
+    const std::filesystem::path rawParent{std::filesystem::path{*baseFsRes}.parent_path()};
+    const std::filesystem::path baseDir{
+        std::filesystem::weakly_canonical(rawParent.empty() ? std::filesystem::current_path(ec) : rawParent, ec)};
+    const std::filesystem::path targetPath{std::filesystem::weakly_canonical(std::filesystem::path{*targetFsRes}, ec)};
+    if (ec || baseDir.empty() || targetPath.empty()) {
+        return std::unexpected("Failed to resolve canonical subresource path safely");
+    }
+    const std::filesystem::path relToBase{targetPath.lexically_relative(baseDir)};
+    if (relToBase.empty() || relToBase == "." || *relToBase.begin() == ".." || relToBase.is_absolute()) {
+        return std::unexpected("Rejected external subresource escaping asset base directory");
     }
 
     return resolved;
@@ -483,24 +681,28 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
             return DecodeBase64(payload);
         }
         const std::string decoded{DecodeUrlPercent(payload)};
+        if (decoded.size() > kMaxAssetFileSize) {
+            return std::unexpected("Decoded data: URI exceeds maximum allowed asset size");
+        }
         return std::vector<uint8_t>{decoded.begin(), decoded.end()};
     }
 
     // 2. Local file:// URI
     if (IsFileUrl(cleanedUri)) {
-        std::string_view pathPart{std::string_view{cleanedUri}.substr(7)};
-        if (StartsWithCaseInsensitive(pathPart, "localhost/")) {
-            pathPart.remove_prefix(9);
+        auto parsedFile = ParseLocalFileUrlPath(cleanedUri);
+        if (!parsedFile) {
+            return std::unexpected(parsedFile.error());
         }
-        const std::string decodedPath{DecodeUrlPercent(pathPart)};
-        if (ContainsControlOrNul(decodedPath)) {
-            return std::unexpected("Rejected file:// URI with control or NUL characters");
-        }
-        return ReadLocalFileBytes(std::filesystem::path{decodedPath}, progressCb);
+        return ReadLocalFileBytes(std::filesystem::path{*parsedFile}, progressCb);
     }
 
-    // 3. Remote HTTP / HTTPS URL
+    // 3. Remote HTTP / HTTPS URL (HTTPS required for remote transfers)
     if (IsHttpUrl(cleanedUri)) {
+        const bool allowLoopbackTest = t_allowLoopbackHttpForTests;
+        const bool isAllowedTestHttp = allowLoopbackTest && IsLoopbackHttpLiteral(cleanedUri);
+        if (!StartsWithCaseInsensitive(cleanedUri, "https://") && !isAllowedTestHttp) {
+            return std::unexpected("Rejected insecure cleartext http:// URL (https:// required): " + cleanedUri);
+        }
 #if defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
         emscripten_fetch_attr_t attr{};
         emscripten_fetch_attr_init(&attr);
@@ -511,7 +713,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         if (!fetch) {
             return std::unexpected("Emscripten fetch failed to initialize for URL: " + cleanedUri);
         }
-        if (fetch->status >= 200 && fetch->status < 300 && fetch->data && fetch->numBytes > 0) {
+        if (fetch->status >= 200 && fetch->status < 300 && fetch->data && fetch->numBytes > 0 &&
+            static_cast<uint64_t>(fetch->numBytes) <= kMaxAssetFileSize) {
             const auto* bytePtr{reinterpret_cast<const uint8_t*>(fetch->data)};
             std::vector<uint8_t> buffer{bytePtr, bytePtr + fetch->numBytes};
             emscripten_fetch_close(fetch);
@@ -519,7 +722,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         }
         const uint16_t status{fetch->status};
         emscripten_fetch_close(fetch);
-        return std::unexpected("HTTP request failed with status " + std::to_string(status) + " for URL: " + cleanedUri);
+        return std::unexpected("HTTP request failed or exceeded size cap (status " + std::to_string(status) +
+                               ") for URL: " + cleanedUri);
 
 #elif defined(BGL_HAS_CURL)
         EnsureCurlGlobalInitialized();
@@ -540,14 +744,24 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &responseBuffer);
         curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errBuf.data());
         curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl.get(), CURLOPT_MAXREDIRS, 10L);
-#if defined(CURLOPT_PROTOCOLS_STR) && defined(CURLOPT_REDIR_PROTOCOLS_STR)
-        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "http,https");
-        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
-#elif defined(CURLOPT_PROTOCOLS) && defined(CURLOPT_REDIR_PROTOCOLS)
-        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+        curl_easy_setopt(curl.get(), CURLOPT_MAXREDIRS, 5L);
+#if defined(__linux__) || defined(__unix__)
+        bool sockAllowLoopback = allowLoopbackTest;
+        curl_easy_setopt(curl.get(), CURLOPT_OPENSOCKETFUNCTION, CurlOpenSocketCallback);
+        curl_easy_setopt(curl.get(), CURLOPT_OPENSOCKETDATA, &sockAllowLoopback);
 #endif
+#if defined(CURLOPT_PROTOCOLS_STR) && defined(CURLOPT_REDIR_PROTOCOLS_STR)
+        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, isAllowedTestHttp ? "http,https" : "https");
+        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS_STR, "https");
+#elif defined(CURLOPT_PROTOCOLS) && defined(CURLOPT_REDIR_PROTOCOLS)
+        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS,
+                         isAllowedTestHttp ? (CURLPROTO_HTTP | CURLPROTO_HTTPS) : CURLPROTO_HTTPS);
+        curl_easy_setopt(curl.get(), CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+#endif
+        curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl.get(), CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_easy_setopt(curl.get(), CURLOPT_MAXFILESIZE_LARGE, static_cast<curl_off_t>(kMaxAssetFileSize));
         curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
         const std::string userAgent = std::string("bgl-engine/") + std::string(kEngineVersion) + " (libcurl)";
         curl_easy_setopt(curl.get(), CURLOPT_USERAGENT, userAgent.c_str());
@@ -567,7 +781,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
             curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &progressCtx);
         }
 
-        BGL_LOG_INFO("[NetworkFetcher] Downloading via libcurl: '{}'", cleanedUri);
+        BGL_LOG_INFO("[NetworkFetcher] Downloading via libcurl: '{}'", SanitizeForLog(cleanedUri));
         const CURLcode res{curl_easy_perform(curl.get())};
         if (res != CURLE_OK) {
             if (progressCtx.cancelled || res == CURLE_ABORTED_BY_CALLBACK) {
@@ -580,7 +794,7 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         long httpCode{0};
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &httpCode);
 
-        if (httpCode >= 400 || (httpCode != 0 && (httpCode < 200 || httpCode >= 300))) {
+        if (httpCode < 200 || httpCode >= 300) {
             return std::unexpected("HTTP error " + std::to_string(httpCode) + " when fetching URL: " + cleanedUri);
         }
 
@@ -590,7 +804,8 @@ Result<std::vector<uint8_t>> NetworkFetcher::FetchSync(std::string_view url, con
         }
 
         BGL_LOG_INFO("[NetworkFetcher] Downloaded {} bytes ({:.2f} MB) from '{}' (HTTP {})", responseBuffer.size(),
-                     static_cast<double>(responseBuffer.size()) / (1024.0 * 1024.0), cleanedUri, httpCode);
+                     static_cast<double>(responseBuffer.size()) / (1024.0 * 1024.0), SanitizeForLog(cleanedUri),
+                     httpCode);
         return responseBuffer;
 #else
         return std::unexpected("HTTP/HTTPS URL fetching is not enabled in this build: " + cleanedUri);

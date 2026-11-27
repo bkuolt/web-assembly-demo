@@ -29,11 +29,13 @@ fn luminance(c : vec3<f32>) -> f32 {
 }
 
 fn karisAverage(c : vec3<f32>) -> f32 {
-    return 1.0 / (1.0 + luminance(max(c, vec3<f32>(0.0))));
+    let finiteC = select(vec3<f32>(0.0), c, all(c >= vec3<f32>(0.0)) && all(c < vec3<f32>(65504.0)));
+    return 1.0 / (1.0 + luminance(finiteC));
 }
 
 fn prefilterSoftThreshold(hdr : vec3<f32>, threshold : f32, knee : f32) -> vec3<f32> {
-    let clamped = min(max(hdr, vec3<f32>(0.0)), vec3<f32>(64.0));
+    let finiteHdr = select(vec3<f32>(0.0), hdr, all(hdr >= vec3<f32>(0.0)) && all(hdr < vec3<f32>(65504.0)));
+    let clamped = min(finiteHdr, vec3<f32>(64.0));
     let br = max(clamped.r, max(clamped.g, clamped.b));
     let soft = clamp(br - threshold + knee, 0.0, 2.0 * knee);
     let softQuad = (soft * soft) / max(4.0 * knee, 1e-5);

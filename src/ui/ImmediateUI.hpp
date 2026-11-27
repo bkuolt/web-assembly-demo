@@ -522,7 +522,7 @@ private:
         uint64_t id{0};
         UiRect anchorRect{};
         UiRect popupRect{};
-        std::span<const char* const> options{};
+        std::vector<std::string> options{};
         size_t selectedIndex{0};
         float scrollOffset{0.0f};
         float contentHeight{0.0f};

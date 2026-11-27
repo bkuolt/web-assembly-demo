@@ -547,10 +547,13 @@ void PipelineManager::RenderSelectionOutline(WGPUCommandEncoder encoder, scene::
                                                      DynamicInstanceBuffer::GetByteOffset(dc.instanceStart),
                                                      DynamicInstanceBuffer::GetSliceSize(dc.instanceCount));
                 if (prim.gpuIndexBuffer && !prim.indices.empty()) {
-                    wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), prim.gpuIndexBuffer, WGPUIndexFormat_Uint32, 0,
-                                                        prim.gpuIndexBufferSize);
-                    wgpuRenderPassEncoderDrawIndexed(pass.Get(), static_cast<uint32_t>(prim.indices.size()),
-                                                     std::max(1u, dc.instanceCount), 0, 0, 0);
+                    const auto lod0 = prim.GetLodSlice(0u);
+                    if (lod0.indexCount > 0u) {
+                        wgpuRenderPassEncoderSetIndexBuffer(pass.Get(), prim.gpuIndexBuffer, prim.indexFormat, 0,
+                                                            prim.gpuIndexBufferSize);
+                        wgpuRenderPassEncoderDrawIndexed(pass.Get(), lod0.indexCount, std::max(1u, dc.instanceCount),
+                                                         lod0.firstIndex, 0, 0);
+                    }
                 } else if (!prim.vertices.empty()) {
                     wgpuRenderPassEncoderDraw(pass.Get(), static_cast<uint32_t>(prim.vertices.size()),
                                               std::max(1u, dc.instanceCount), 0, 0);

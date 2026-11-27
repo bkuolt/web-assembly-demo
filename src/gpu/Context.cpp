@@ -194,8 +194,9 @@ void Context::CreateRenderBuffers() {
 }
 
 core::Result<void> Context::Initialize(const ContextConfig& config) {
-    width_ = config.width;
-    height_ = config.height;
+    Shutdown();
+    width_ = std::max(1u, config.width);
+    height_ = std::max(1u, config.height);
     sampleCount_ = config.sampleCount;
     nativeWindow_ = config.nativeWindowHandle;
 
@@ -402,8 +403,23 @@ core::Result<void> Context::Initialize(const ContextConfig& config) {
     devDesc.requiredFeatureCount = requestedFeatures.size();
     devDesc.requiredFeatures = requestedFeatures.empty() ? nullptr : requestedFeatures.data();
     devDesc.requiredLimits = &requiredLimits;
+    devDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    devDesc.deviceLostCallbackInfo.callback = [](WGPUDevice const*, WGPUDeviceLostReason reason, WGPUStringView msg,
+                                                 void*, void*) {
+        const std::string_view text = (msg.data && msg.length != WGPU_STRLEN)
+                                          ? std::string_view{msg.data, msg.length}
+                                          : (msg.data ? std::string_view{msg.data} : std::string_view{"none"});
+        BGL_LOG_ERROR("WebGPU device lost (reason={}): {}", static_cast<int>(reason), text);
+    };
+    devDesc.uncapturedErrorCallbackInfo.callback = [](WGPUDevice const*, WGPUErrorType type, WGPUStringView msg, void*,
+                                                      void*) {
+        const std::string_view text = (msg.data && msg.length != WGPU_STRLEN)
+                                          ? std::string_view{msg.data, msg.length}
+                                          : (msg.data ? std::string_view{msg.data} : std::string_view{"unknown"});
+        BGL_LOG_ERROR("WebGPU uncaptured error (type={}): {}", static_cast<int>(type), text);
+    };
 
-    supportsDesktopRayTracing_ = (maxStorageBuffersPerShaderStage_ >= 6u);
+    supportsDesktopRayTracing_ = (maxStorageBuffersPerShaderStage_ >= 7u);
     BGL_LOG_INFO("Desktop RayTracing Capabilities: ComputeBVH={} (StorageSlots={}) | BindlessTextures={} ({} slots) "
                  "| Subgroups={} | TimestampQuery={}",
                  supportsDesktopRayTracing_ ? "YES" : "NO", maxStorageBuffersPerShaderStage_,
@@ -657,6 +673,17 @@ WGPURenderPassEncoder Context::BeginSwapchainPass() {
 WGPURenderPassEncoder Context::BeginPostProcessPass(WGPURenderPassEncoder hdrPass) {
     FinishHdrPass(hdrPass);
     return BeginSwapchainPass();
+}
+
+void Context::AbortFrame() noexcept {
+#if defined(BGL_PLATFORM_NATIVE)
+    encoder_.Reset();
+    currentView_.Reset();
+    if (surfaceTexture_.texture) {
+        wgpuTextureRelease(surfaceTexture_.texture);
+        surfaceTexture_.texture = nullptr;
+    }
+#endif
 }
 
 void Context::EndFrame(WGPURenderPassEncoder pass) {

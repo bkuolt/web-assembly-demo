@@ -35,6 +35,25 @@ using FetchProgressCallback = std::function<bool(const FetchProgress& progress)>
  */
 class NetworkFetcher {
 public:
+#if defined(BGL_PLATFORM_WASM)
+    static constexpr size_t kMaxAssetFileSize = 48ULL * 1024ULL * 1024ULL; ///< 48 MiB WASM linear memory cap
+#else
+    static constexpr size_t kMaxAssetFileSize = 256ULL * 1024ULL * 1024ULL; ///< 256 MiB native asset cap
+#endif
+
+    /**
+     * @brief RAII scope allowing loopback HTTP(S) (`127.0.0.1` / `localhost`) fetches for local tests.
+     */
+    struct ScopedAllowLoopbackHttpForTests {
+        explicit ScopedAllowLoopbackHttpForTests() noexcept;
+        ~ScopedAllowLoopbackHttpForTests();
+        ScopedAllowLoopbackHttpForTests(const ScopedAllowLoopbackHttpForTests&) = delete;
+        ScopedAllowLoopbackHttpForTests& operator=(const ScopedAllowLoopbackHttpForTests&) = delete;
+
+    private:
+        bool prev_{false};
+    };
+
     /**
      * @brief Check if the URI uses HTTP or HTTPS protocol (`http://` or `https://`).
      */

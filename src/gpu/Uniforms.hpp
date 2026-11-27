@@ -167,6 +167,13 @@ public:
         if (drawCount <= capacityDraws_ && buffer_ && bindGroup_) {
             return true;
         }
+        constexpr size_t kMaxSafeDraws = (std::numeric_limits<size_t>::max() >> 1u);
+        if (drawCount > kMaxSafeDraws || drawCount > (std::numeric_limits<uint64_t>::max() / sizeof(T))) {
+            return false;
+        }
+        if (drawCount > (std::numeric_limits<size_t>::max() / sizeof(T) / 2u)) {
+            return false;
+        }
         const size_t newCapacity = std::max<size_t>(64, std::bit_ceil(drawCount));
         WGPUBufferDescriptor bufDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
         bufDesc.size = static_cast<uint64_t>(newCapacity) * sizeof(T);

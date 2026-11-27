@@ -200,9 +200,12 @@ std::vector<float> PipelineManager::ConvertEquirectHdrToCubemapFace(const scene:
             const glm::vec3 c{glm::mix(glm::mix(c00, c10, tx), glm::mix(c01, c11, tx), ty)};
 
             const size_t dstIdx{(static_cast<size_t>(y) * faceSize + x) * 4};
-            rgba[dstIdx + 0] = std::clamp(c.r, 0.0f, 65000.0f);
-            rgba[dstIdx + 1] = std::clamp(c.g, 0.0f, 65000.0f);
-            rgba[dstIdx + 2] = std::clamp(c.b, 0.0f, 65000.0f);
+            auto sanitizeHdrChannel = [](float v) noexcept {
+                return std::isfinite(v) ? std::clamp(v, 0.0f, 65000.0f) : 0.0f;
+            };
+            rgba[dstIdx + 0] = sanitizeHdrChannel(c.r);
+            rgba[dstIdx + 1] = sanitizeHdrChannel(c.g);
+            rgba[dstIdx + 2] = sanitizeHdrChannel(c.b);
             rgba[dstIdx + 3] = 1.0f;
         }
     }
@@ -233,10 +236,12 @@ PipelineManager::ComputeSphericalHarmonicsL2(const std::array<std::vector<float>
                 const glm::vec3 dir{CubeFaceDirection(face, u, v)};
 
                 const size_t idx{(static_cast<size_t>(y) * faceSize + x) * 4};
-                // Clamp extreme sun spikes during diffuse SH projection to avoid ringing
-                const glm::vec3 radiance{std::clamp(faceData[idx + 0], 0.0f, 25.0f),
-                                         std::clamp(faceData[idx + 1], 0.0f, 25.0f),
-                                         std::clamp(faceData[idx + 2], 0.0f, 25.0f)};
+                // Clamp extreme sun spikes and reject NaN/Inf during diffuse SH projection to avoid ringing/poisoning
+                auto sanitizeDiffuse = [](float v) noexcept {
+                    return std::isfinite(v) ? std::clamp(v, 0.0f, 25.0f) : 0.0f;
+                };
+                const glm::vec3 radiance{sanitizeDiffuse(faceData[idx + 0]), sanitizeDiffuse(faceData[idx + 1]),
+                                         sanitizeDiffuse(faceData[idx + 2])};
 
                 const std::array<float, 9> basis{{0.282095f, 0.488603f * dir.y, 0.488603f * dir.z, 0.488603f * dir.x,
                                                   1.092548f * dir.x * dir.y, 1.092548f * dir.y * dir.z,

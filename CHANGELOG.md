@@ -7,10 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.2.0] - 2026-11-22
 
-- **Hardening & Defensive Bounds Follow-up (`src/scene/`, `src/engine/`, `apps/viewer/`):**
-  - Added `ValidateAccessorBounds` in [`FastGltfParser.cpp`](src/scene/FastGltfParser.cpp) to reject oversized/undersized glTF accessors prior to vertex/index buffer allocation, added `ktxTexture_GetDataSize()` slice bounds + `kMaxKtxMipLevels` (`16`) shift-UB cap and deduplicated `MakeFallbackWhiteQuad()` in [`TextureDecoder.cpp`](src/scene/TextureDecoder.cpp), switched remaining `std::filesystem::exists` probes to non-throwing `std::error_code` overloads, and refined path-separator matching in [`ApplicationModelLoader.cpp`](apps/viewer/ApplicationModelLoader.cpp) (`325` C++ GoogleTests across `51` suites).
+### Comprehensive Security Hardening, Web CSP & Compliance, CI Sanitizers & Expanded Verification
+- **glTF & Geometry Ingestion Hardening (`src/scene/`, `src/engine/`):**
+  - Replaced unguarded recursive hierarchy traversals with disjoint-set cycle detection, explicit `visited` sets, and bounded depth limits across [`FastGltfSceneBuilder.cpp`](src/scene/FastGltfSceneBuilder.cpp), [`Scene.cpp`](src/scene/Scene.cpp), [`RayPicker.cpp`](src/scene/RayPicker.cpp), [`FastGltfLoader.cpp`](src/scene/FastGltfLoader.cpp), [`Quadtree.cpp`](src/scene/Quadtree.cpp), and [`EntityOps.cpp`](src/engine/EntityOps.cpp).
+  - Enforced strict vertex (`5,000,000`), index (`15,000,000`), morph-target (`64`), sparse accessor, and `NaN`/non-finite TRS/matrix/quaternion guards across [`FastGltfParser.cpp`](src/scene/FastGltfParser.cpp) and [`Animation.cpp`](src/scene/Animation.cpp).
+  - Disabled implicit `fastgltf` external buffer loading so every external buffer URI routes through [`NetworkFetcher::ResolveExternalAssetUri`](src/core/NetworkFetcher.hpp) containment and SSRF validation.
+- **Texture Decoders, Font Rasterizer & UI Lifetime Safety (`src/scene/`, `src/text/`, `src/ui/`, `src/engine/`):**
+  - Added header dimension, channel, row-byte, and `ktxTexture_GetDataSize()` slice bounds (`kMaxKtxMipLevels = 16`) across [`TextureDecoder.cpp`](src/scene/TextureDecoder.cpp) and non-negative finite channel sanitization in [`TextureDecoderHdr.cpp`](src/scene/TextureDecoderHdr.cpp).
+  - Added bounds-safe `FT_PIXEL_MODE_MONO` / `FT_PIXEL_MODE_BGRA` rasterization in [`FontAtlas.cpp`](src/text/FontAtlas.cpp) and `64 MiB` regular-file caps in [`FontLibrary.cpp`](src/text/FontLibrary.cpp).
+  - Eliminated dangling `std::span<const char* const>` lifetimes in `PendingDropdownOverlay` ([`ImmediateUI.hpp`](src/ui/ImmediateUI.hpp), [`ImmediateUIOverlays.cpp`](src/ui/ImmediateUIOverlays.cpp)), marked `EngineCore::Shutdown()` `virtual` with `override` cleanup, capped queued load cancellations, and separated texture caches cleanly by key domain in [`AssetManager.hpp`](src/scene/AssetManager.hpp).
+- **Network SSRF Protection, Async-Signal-Safe Crash Handler & WASM Heap Hardening (`src/core/`, `src/wasm/`, `apps/viewer/`):**
+  - Enforced HTTPS-only remote transfers, TLSv1.2+, `CURLOPT_MAXFILESIZE_LARGE`, HTTP `2xx` verification, non-local `file://` rejection, and `CurlOpenSocketCallback` POSIX socket filtering blocking RFC1918/loopback/CGNAT/link-local/IMDS SSRF targets (with `ScopedAllowLoopbackHttpForTests` for unit tests) in [`NetworkFetcher.cpp`](src/core/NetworkFetcher.cpp).
+  - Made POSIX `SignalActionHandler` in [`CrashHandler.cpp`](src/core/CrashHandler.cpp) async-signal-safe (raw POSIX `write`/`sigprocmask`/`_exit`, fixed `INT64_MIN` / shift UB), added O(1) free-list coalescing + `BlockHeader` magic & range checks in [`wasm_bridge.cpp`](src/wasm/wasm_bridge.cpp), sanitized log strings via `core::SanitizeForLog`, and hardened [`CommandLine.cpp`](apps/viewer/CommandLine.cpp) against flag swallowing and non-positive dimensions.
+- **WebGPU/BVH/WGSL Pipeline & Context Loss Resilience (`src/gpu/`, `src/gpu/shaders/`):**
+  - Guarded BVH traversal stacks (`64` entries), TDR step caps (`4096`), out-of-bounds storage indexing, `NaN`-safe transparent sorting, outline `indexFormat` + LOD0 slicing, `ShaderManager` symlink containment, `Context::AbortFrame()`, and WebGPU device-lost/error callbacks.
+- **Browser WebGPU Client & Strict CSP Hardening (`web/`):**
+  - Replaced all inline `onclick`/`onchange`/`oninput` HTML attributes in [`web/index.html`](web/index.html) with `data-*` delegated listeners in [`web/app.js`](web/app.js) under `script-src-attr 'none'`, eliminated unsafe `innerHTML` and CSS selector interpolation, and added `BglNetwork.validateAssetUrl` with scheme/credential/traversal checks, `128 MiB` streaming caps, and `60s` request timeouts ([`web/js/core.js`](web/js/core.js)).
+  - Added worker timeout/root-object validation and iterative cyclic hierarchy guards across [`web/gltf_worker.js`](web/gltf_worker.js), [`web/js/gltf.js`](web/js/gltf.js), and [`web/js/renderer.js`](web/js/renderer.js).
+- **Build System, Toolchain Hardening & Expanded Verification (`CMakeLists.txt`, `.github/workflows/`, `tests/`):**
+  - Enabled Linux ELF binary hardening (`-fPIE`, `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, `-Wl,-z,relro,-z,now`, `-Wl,-z,noexecstack`), `wasm-ld --stack-first`, configure-time `SHA256SUMS` verification for `libwgpu_native.so`, expanded [`check_layering.py`](scripts/check_layering.py) coverage, and added the `native-sanitizers` (ASan + UBSan) CI job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+  - Expanded automated verification to **334 C++ GoogleTests across 51 suites** and **79 Web runtime unit tests** (`tests/test_web_unit.js`), hardened [`test_golden_image.cpp`](tests/test_golden_image.cpp) and [`test_browsers_e2e.py`](tests/test_browsers_e2e.py) (ephemeral ports + CDP error assertions), and added adversarial regression coverage across loaders, decoders, SSRF networking, CLI parsing, and UI lifetimes.
 
 ---
 

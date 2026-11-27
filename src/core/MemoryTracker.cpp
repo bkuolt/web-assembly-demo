@@ -4,6 +4,7 @@
  */
 #include "core/MemoryTracker.hpp"
 #include <cstdio>
+#include <limits>
 
 #if defined(BGL_PLATFORM_NATIVE)
 #include <sys/resource.h>
@@ -13,6 +14,22 @@
 #endif
 
 namespace bgl::core {
+
+namespace {
+
+[[nodiscard]] size_t SafeMulPositiveLong(long lhs, long rhs) noexcept {
+    if (lhs <= 0 || rhs <= 0) {
+        return 0u;
+    }
+    const uint64_t a{static_cast<uint64_t>(lhs)};
+    const uint64_t b{static_cast<uint64_t>(rhs)};
+    if (a > std::numeric_limits<size_t>::max() / b) {
+        return std::numeric_limits<size_t>::max();
+    }
+    return static_cast<size_t>(a * b);
+}
+
+} // namespace
 
 MemoryTracker& MemoryTracker::Instance() noexcept {
     static MemoryTracker tracker;
@@ -30,9 +47,9 @@ void MemoryTracker::QueryProcessMemory(size_t& residentBytesOut, size_t& virtual
         if (std::fscanf(f, "%ld %ld", &totalPages, &residentPages) == 2) {
             std::fclose(f);
             const long pageSize = sysconf(_SC_PAGESIZE);
-            if (pageSize > 0) {
-                virtualBytesOut = static_cast<size_t>(totalPages * pageSize);
-                residentBytesOut = static_cast<size_t>(residentPages * pageSize);
+            if (pageSize > 0 && totalPages >= 0 && residentPages >= 0) {
+                virtualBytesOut = SafeMulPositiveLong(totalPages, pageSize);
+                residentBytesOut = SafeMulPositiveLong(residentPages, pageSize);
                 return;
             }
         } else {
@@ -41,8 +58,8 @@ void MemoryTracker::QueryProcessMemory(size_t& residentBytesOut, size_t& virtual
     }
 
     struct rusage usage{};
-    if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        residentBytesOut = static_cast<size_t>(usage.ru_maxrss * 1024L);
+    if (getrusage(RUSAGE_SELF, &usage) == 0 && usage.ru_maxrss > 0) {
+        residentBytesOut = SafeMulPositiveLong(usage.ru_maxrss, 1024L);
     }
 #elif defined(BGL_PLATFORM_WASM) && defined(__EMSCRIPTEN__)
     const size_t heapBytes = static_cast<size_t>(emscripten_get_heap_size());

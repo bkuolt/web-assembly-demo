@@ -5,6 +5,7 @@
 #include "scene/Quadtree.hpp"
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 namespace bgl::scene {
 
@@ -392,8 +393,10 @@ void Quadtree::InsertNodes(std::span<const std::shared_ptr<SceneNode>> nodes) {
 void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
     if (!node)
         return;
-    auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n) -> void {
-        if (!n)
+    std::unordered_set<const SceneNode*> visited{};
+    constexpr size_t kMaxHierarchyDepth{256u};
+    auto insertRecursive = [&](auto& self, const std::shared_ptr<SceneNode>& n, size_t depth) -> void {
+        if (!n || depth > kMaxHierarchyDepth || !visited.insert(n.get()).second)
             return;
         auto prims = n->GetPrimitives();
         if (prims.empty()) {
@@ -422,10 +425,10 @@ void Quadtree::Insert(const std::shared_ptr<SceneNode>& node) {
         }
 
         for (const auto& child : n->children) {
-            self(self, child);
+            self(self, child, depth + 1u);
         }
     };
-    insertRecursive(insertRecursive, node);
+    insertRecursive(insertRecursive, node, 0u);
 }
 
 void Quadtree::Clear() {

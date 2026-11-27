@@ -379,6 +379,7 @@ void PipelineManager::CreateFallbackTextures() {
 
 core::Result<void> PipelineManager::Initialize(WGPUDevice device, WGPUQueue queue, WGPUTextureFormat surfaceFormat,
                                                uint32_t sampleCount) {
+    Shutdown();
     device_ = device;
     queue_ = queue;
     surfaceFormat_ = surfaceFormat;

@@ -92,15 +92,25 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
         return best;
     }
 
+    let instCount = arrayLength(&rtInstances);
+    let blasCount = arrayLength(&rtBlasNodes);
+    let triIdxCount = arrayLength(&rtIndices);
+    let vertCount = arrayLength(&rtVertices);
+
     let worldInvD = rtSafeInvDir(rd);
-    var tlasStack : array<u32, 32>;
+    var tlasStack : array<u32, 64>;
     var tlasSp : u32 = 0u;
     tlasStack[0] = 0u;
     tlasSp = 1u;
 
-    while (tlasSp > 0u) {
+    var tlasSteps : u32 = 0u;
+    while (tlasSp > 0u && tlasSteps < 4096u) {
+        tlasSteps = tlasSteps + 1u;
         tlasSp = tlasSp - 1u;
         let nodeIdx = tlasStack[tlasSp];
+        if (nodeIdx >= tlasCount) {
+            continue;
+        }
         let node = rtTlasNodes[nodeIdx];
         if (rtIntersectAabb(ro, worldInvD, node.aabbMin, node.aabbMax, best.t) >= best.t) {
             continue;
@@ -108,6 +118,9 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
         if (node.triCount > 0u) {
             for (var i : u32 = 0u; i < node.triCount; i = i + 1u) {
                 let instIdx = node.leftFirst + i;
+                if (instIdx >= instCount) {
+                    continue;
+                }
                 let inst = rtInstances[instIdx];
                 if (rtIntersectAabb(ro, worldInvD, inst.aabbMin, inst.aabbMax, best.t) >= best.t) {
                     continue;
@@ -117,15 +130,21 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
                 let localRd = (inst.invModel * vec4<f32>(rd, 0.0)).xyz;
                 let localInvD = rtSafeInvDir(localRd);
 
-                var blasStack : array<u32, 32>;
+                var blasStack : array<u32, 64>;
                 var blasSp : u32 = 0u;
                 blasStack[0] = 0u;
                 blasSp = 1u;
 
-                while (blasSp > 0u) {
+                var blasSteps : u32 = 0u;
+                while (blasSp > 0u && blasSteps < 4096u) {
+                    blasSteps = blasSteps + 1u;
                     blasSp = blasSp - 1u;
                     let localNodeIdx = blasStack[blasSp];
-                    let bNode = rtBlasNodes[inst.blasRootNode + localNodeIdx];
+                    let bNodeIdx = inst.blasRootNode + localNodeIdx;
+                    if (bNodeIdx >= blasCount) {
+                        continue;
+                    }
+                    let bNode = rtBlasNodes[bNodeIdx];
                     if (rtIntersectAabb(localRo, localInvD, bNode.aabbMin, bNode.aabbMax, best.t) >= best.t) {
                         continue;
                     }
@@ -133,9 +152,15 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
                         for (var t : u32 = 0u; t < bNode.triCount; t = t + 1u) {
                             let localTri = bNode.leftFirst + t;
                             let gTri = inst.triOffset + localTri;
+                            if (gTri * 3u + 2u >= triIdxCount) {
+                                continue;
+                            }
                             let i0 = inst.vertexOffset + rtIndices[gTri * 3u + 0u];
                             let i1 = inst.vertexOffset + rtIndices[gTri * 3u + 1u];
                             let i2 = inst.vertexOffset + rtIndices[gTri * 3u + 2u];
+                            if (i0 >= vertCount || i1 >= vertCount || i2 >= vertCount) {
+                                continue;
+                            }
                             let p0 = rtVertices[i0].posU.xyz;
                             let p1 = rtVertices[i1].posU.xyz;
                             let p2 = rtVertices[i2].posU.xyz;
@@ -172,25 +197,28 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
                     } else {
                         let leftLocal = localNodeIdx + 1u;
                         let rightLocal = bNode.leftFirst;
+                        if (inst.blasRootNode + leftLocal >= blasCount || inst.blasRootNode + rightLocal >= blasCount) {
+                            continue;
+                        }
                         let lNode = rtBlasNodes[inst.blasRootNode + leftLocal];
                         let rNode = rtBlasNodes[inst.blasRootNode + rightLocal];
                         let dL = rtIntersectAabb(localRo, localInvD, lNode.aabbMin, lNode.aabbMax, best.t);
                         let dR = rtIntersectAabb(localRo, localInvD, rNode.aabbMin, rNode.aabbMax, best.t);
                         if (dL < dR) {
-                            if (dR < best.t && blasSp < 32u) {
+                            if (dR < best.t && blasSp < 64u) {
                                 blasStack[blasSp] = rightLocal;
                                 blasSp = blasSp + 1u;
                             }
-                            if (dL < best.t && blasSp < 32u) {
+                            if (dL < best.t && blasSp < 64u) {
                                 blasStack[blasSp] = leftLocal;
                                 blasSp = blasSp + 1u;
                             }
                         } else {
-                            if (dL < best.t && blasSp < 32u) {
+                            if (dL < best.t && blasSp < 64u) {
                                 blasStack[blasSp] = leftLocal;
                                 blasSp = blasSp + 1u;
                             }
-                            if (dR < best.t && blasSp < 32u) {
+                            if (dR < best.t && blasSp < 64u) {
                                 blasStack[blasSp] = rightLocal;
                                 blasSp = blasSp + 1u;
                             }
@@ -201,25 +229,28 @@ fn rtTraceClosest(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> RtH
         } else {
             let leftIdx = nodeIdx + 1u;
             let rightIdx = node.leftFirst;
+            if (leftIdx >= tlasCount || rightIdx >= tlasCount) {
+                continue;
+            }
             let lNode = rtTlasNodes[leftIdx];
             let rNode = rtTlasNodes[rightIdx];
             let dL = rtIntersectAabb(ro, worldInvD, lNode.aabbMin, lNode.aabbMax, best.t);
             let dR = rtIntersectAabb(ro, worldInvD, rNode.aabbMin, rNode.aabbMax, best.t);
             if (dL < dR) {
-                if (dR < best.t && tlasSp < 32u) {
+                if (dR < best.t && tlasSp < 64u) {
                     tlasStack[tlasSp] = rightIdx;
                     tlasSp = tlasSp + 1u;
                 }
-                if (dL < best.t && tlasSp < 32u) {
+                if (dL < best.t && tlasSp < 64u) {
                     tlasStack[tlasSp] = leftIdx;
                     tlasSp = tlasSp + 1u;
                 }
             } else {
-                if (dL < best.t && tlasSp < 32u) {
+                if (dL < best.t && tlasSp < 64u) {
                     tlasStack[tlasSp] = leftIdx;
                     tlasSp = tlasSp + 1u;
                 }
-                if (dR < best.t && tlasSp < 32u) {
+                if (dR < best.t && tlasSp < 64u) {
                     tlasStack[tlasSp] = rightIdx;
                     tlasSp = tlasSp + 1u;
                 }
@@ -263,21 +294,35 @@ fn rtTraceAnyHit(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> bool
         return false;
     }
 
+    let instCount = arrayLength(&rtInstances);
+    let blasCount = arrayLength(&rtBlasNodes);
+    let triIdxCount = arrayLength(&rtIndices);
+    let vertCount = arrayLength(&rtVertices);
+
     let worldInvD = rtSafeInvDir(rd);
-    var tlasStack : array<u32, 32>;
+    var tlasStack : array<u32, 64>;
     var tlasSp : u32 = 1u;
     tlasStack[0] = 0u;
 
-    while (tlasSp > 0u) {
+    var tlasSteps : u32 = 0u;
+    while (tlasSp > 0u && tlasSteps < 4096u) {
+        tlasSteps = tlasSteps + 1u;
         tlasSp = tlasSp - 1u;
         let nodeIdx = tlasStack[tlasSp];
+        if (nodeIdx >= tlasCount) {
+            continue;
+        }
         let node = rtTlasNodes[nodeIdx];
         if (rtIntersectAabb(ro, worldInvD, node.aabbMin, node.aabbMax, tMax) >= tMax) {
             continue;
         }
         if (node.triCount > 0u) {
             for (var i : u32 = 0u; i < node.triCount; i = i + 1u) {
-                let inst = rtInstances[node.leftFirst + i];
+                let instIdx = node.leftFirst + i;
+                if (instIdx >= instCount) {
+                    continue;
+                }
+                let inst = rtInstances[instIdx];
                 if ((inst.flags & 2u) != 0u) {
                     continue; // Transmissive glass does not block opaque shadow rays
                 }
@@ -289,23 +334,35 @@ fn rtTraceAnyHit(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> bool
                 let localRd = (inst.invModel * vec4<f32>(rd, 0.0)).xyz;
                 let localInvD = rtSafeInvDir(localRd);
 
-                var blasStack : array<u32, 32>;
+                var blasStack : array<u32, 64>;
                 var blasSp : u32 = 1u;
                 blasStack[0] = 0u;
 
-                while (blasSp > 0u) {
+                var blasSteps : u32 = 0u;
+                while (blasSp > 0u && blasSteps < 4096u) {
+                    blasSteps = blasSteps + 1u;
                     blasSp = blasSp - 1u;
                     let localNodeIdx = blasStack[blasSp];
-                    let bNode = rtBlasNodes[inst.blasRootNode + localNodeIdx];
+                    let bNodeIdx = inst.blasRootNode + localNodeIdx;
+                    if (bNodeIdx >= blasCount) {
+                        continue;
+                    }
+                    let bNode = rtBlasNodes[bNodeIdx];
                     if (rtIntersectAabb(localRo, localInvD, bNode.aabbMin, bNode.aabbMax, tMax) >= tMax) {
                         continue;
                     }
                     if (bNode.triCount > 0u) {
                         for (var t : u32 = 0u; t < bNode.triCount; t = t + 1u) {
                             let gTri = inst.triOffset + bNode.leftFirst + t;
+                            if (gTri * 3u + 2u >= triIdxCount) {
+                                continue;
+                            }
                             let i0 = inst.vertexOffset + rtIndices[gTri * 3u + 0u];
                             let i1 = inst.vertexOffset + rtIndices[gTri * 3u + 1u];
                             let i2 = inst.vertexOffset + rtIndices[gTri * 3u + 2u];
+                            if (i0 >= vertCount || i1 >= vertCount || i2 >= vertCount) {
+                                continue;
+                            }
                             let p0 = rtVertices[i0].posU.xyz;
                             let p1 = rtVertices[i1].posU.xyz;
                             let p2 = rtVertices[i2].posU.xyz;
@@ -334,7 +391,7 @@ fn rtTraceAnyHit(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> bool
                             }
                         }
                     } else {
-                        if (blasSp < 31u) {
+                        if (blasSp < 63u) {
                             blasStack[blasSp] = bNode.leftFirst;
                             blasStack[blasSp + 1u] = localNodeIdx + 1u;
                             blasSp = blasSp + 2u;
@@ -343,7 +400,7 @@ fn rtTraceAnyHit(ro : vec3<f32>, rd : vec3<f32>, tMin : f32, tMax : f32) -> bool
                 }
             }
         } else {
-            if (tlasSp < 30u) {
+            if (tlasSp < 62u) {
                 tlasStack[tlasSp] = node.leftFirst;
                 tlasStack[tlasSp + 1u] = nodeIdx + 1u;
                 tlasSp = tlasSp + 2u;

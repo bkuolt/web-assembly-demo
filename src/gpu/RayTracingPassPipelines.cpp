@@ -495,14 +495,19 @@ core::Result<void> RayTracingPass::ReloadShaders(std::span<const std::string> mo
 }
 
 void RayTracingPass::Shutdown() noexcept {
+    if (timestampMapState_) {
+        timestampMapState_->alive.store(false, std::memory_order_release);
+        timestampMapState_->owner = nullptr;
+    }
 #if defined(BGL_PLATFORM_NATIVE)
-    if (device_ && timestampReadInFlight_) {
+    if (device_ && timestampMapState_ && timestampMapState_->inFlight.load(std::memory_order_acquire)) {
         wgpuDevicePoll(device_, WGPU_TRUE, nullptr);
     }
 #endif
     ReleaseResolutionTargets();
     gbufferPerDrawRing_.Shutdown();
     gbufferInstanceBuffer_.Shutdown();
+    gbufferDrawsScratch_.clear();
     gbufferPerDrawScratch_.clear();
     gbufferInstanceTransformsScratch_.clear();
 
@@ -518,7 +523,7 @@ void RayTracingPass::Shutdown() noexcept {
     timestampReadbackBuf_.Reset();
     timestampResolveBuf_.Reset();
     timestampQuerySet_.Reset();
-    timestampReadInFlight_ = false;
+    timestampMapState_.reset();
     timestampDataWritten_ = false;
     timestampCopyQueued_ = false;
     timestampHasPrePass_ = false;

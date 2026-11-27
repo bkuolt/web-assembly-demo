@@ -153,9 +153,10 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
             outRgba[3] = 1.0f;
         } else {
             const float scale{std::ldexp(1.0f, static_cast<int>(e) - (128 + 8))};
-            outRgba[0] = (static_cast<float>(r) + 0.5f) * scale;
-            outRgba[1] = (static_cast<float>(g) + 0.5f) * scale;
-            outRgba[2] = (static_cast<float>(b) + 0.5f) * scale;
+            auto sanitizeHdr = [](float v) noexcept { return std::isfinite(v) ? std::max(v, 0.0f) : 0.0f; };
+            outRgba[0] = sanitizeHdr((static_cast<float>(r) + 0.5f) * scale);
+            outRgba[1] = sanitizeHdr((static_cast<float>(g) + 0.5f) * scale);
+            outRgba[2] = sanitizeHdr((static_cast<float>(b) + 0.5f) * scale);
             outRgba[3] = 1.0f;
         }
     };
@@ -222,6 +223,11 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeHDR(std::span<const uint8_t>
         for (uint32_t x{0}; x < width; ++x) {
             const size_t xOff{static_cast<size_t>(x) * 4u};
             rgbeToFloat(scanline[xOff + 0], scanline[xOff + 1], scanline[xOff + 2], scanline[xOff + 3], &dstRow[xOff]);
+            for (size_t chIdx{0}; chIdx < 3u; ++chIdx) {
+                const float v{dstRow[xOff + chIdx]};
+                dstRow[xOff + chIdx] = (std::isfinite(v) && v > 0.0f) ? v : 0.0f;
+            }
+            dstRow[xOff + 3u] = 1.0f;
         }
     }
 
@@ -399,6 +405,18 @@ core::Result<DecodedHdrImage> TextureDecoder::DecodeEXR(std::span<const uint8_t>
                         val = HalfToFloat(h);
                     } else if (ch.pixelType == 2) {
                         std::memcpy(&val, data.data() + cPtr + static_cast<size_t>(x) * 4u, sizeof(float));
+                    }
+                    if (!std::isfinite(val)) {
+                        val = (ch.rgbaComp == 3) ? 1.0f : 0.0f;
+                    } else if (ch.rgbaComp == 3) {
+                        val = std::clamp(val, 0.0f, 1.0f);
+                    } else {
+                        val = std::max(val, 0.0f);
+                    }
+                    if (ch.rgbaComp == 3) {
+                        val = std::isfinite(val) ? std::clamp(val, 0.0f, 1.0f) : 1.0f;
+                    } else {
+                        val = (std::isfinite(val) && val > 0.0f) ? val : 0.0f;
                     }
                     dstRow[static_cast<size_t>(x) * 4u + static_cast<size_t>(ch.rgbaComp)] = val;
                 }

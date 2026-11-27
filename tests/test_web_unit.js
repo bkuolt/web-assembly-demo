@@ -43,7 +43,9 @@ function getOrCreateMockElement(id) {
       textContent: '',
       innerHTML: '',
       style: {},
+      dataset: {},
       options: [],
+      replaceChildren: () => {},
       classList: {
         classes: new Set(),
         add(c) { this.classes.add(c); },
@@ -82,6 +84,7 @@ global.document = {
     el.tagName = tag.toUpperCase();
     return el;
   },
+  createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
   addEventListener: () => {},
   readyState: 'loading' // Prevent automatic bootstrap execution during unit tests
 };
@@ -1451,27 +1454,206 @@ suite('Multi-Level Mesh & Shader LOD System and Diagnostic Debug Views', () => {
     assert.strictEqual(smallLod.lodSlices[3].indexCount, 3);
     assert(Number.isFinite(smallLod.localRadius) && smallLod.localRadius > 0);
   });
+
+  test('Security: BglNetwork.validateAssetUrl blocks unsafe schemes, credentials, and traversal', () => {
+    const net = globalThis.BglNetwork;
+    assert(net && typeof net.validateAssetUrl === 'function', 'validateAssetUrl must exist');
+
+    assert.strictEqual(net.validateAssetUrl('javascript:alert(1)').ok, false);
+    assert.strictEqual(net.validateAssetUrl('file:///etc/passwd').ok, false);
+    assert.strictEqual(net.validateAssetUrl('http://evil.example.com/a.glb').ok, false);
+    assert.strictEqual(net.validateAssetUrl('https://user:pass@raw.githubusercontent.com/a.glb').ok, false);
+    assert.strictEqual(net.validateAssetUrl('data:image/svg+xml,<svg/>', { allowData: true }).ok, false);
+    assert.strictEqual(net.validateAssetUrl('assets/../../secret.glb').ok, false);
+    assert.strictEqual(net.validateAssetUrl('assets/ToyCar.glb\x00.glb').ok, false);
+    assert.strictEqual(net.validateAssetUrl('https://untrusted.example.com/m.glb', { allowCustomHttps: false }).ok, false);
+
+    assert.strictEqual(net.validateAssetUrl('assets/ToyCar.glb').ok, true);
+    assert.strictEqual(net.validateAssetUrl('https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb').ok, true);
+    assert.strictEqual(net.validateAssetUrl('data:image/png;base64,AAAA', { allowData: true }).ok, true);
+  });
+
+  test('Security & Robustness: glTF non-object root rejection & cyclic node hierarchy guard', () => {
+    const nonObjBytes = new TextEncoder().encode('[1, 2, 3]');
+    let threw = false;
+    try {
+      BglGltf.extractJson(nonObjBytes.buffer);
+    } catch {
+      threw = true;
+    }
+    assert.strictEqual(threw, true, 'Non-object JSON root must be rejected');
+
+    // Cyclic hierarchy must terminate in O(V+E) without overflowing call stack
+    const prevNodes = BglWebGpuRenderer.nodes;
+    const prevRoots = BglWebGpuRenderer.rootNodes;
+    try {
+      BglWebGpuRenderer.nodes = [
+        { children: [1], translation: [1, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], localMatrix: mat4.create(), worldMatrix: mat4.create() },
+        { children: [0], translation: [0, 2, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], localMatrix: mat4.create(), worldMatrix: mat4.create() }
+      ];
+      BglWebGpuRenderer.rootNodes = [0];
+      BglWebGpuRenderer.updateNodeHierarchy();
+      assert(Number.isFinite(BglWebGpuRenderer.nodes[1].worldMatrix[12]));
+    } finally {
+      BglWebGpuRenderer.nodes = prevNodes;
+      BglWebGpuRenderer.rootNodes = prevRoots;
+    }
+  });
+
+  test('Security: web/index.html and index.html enforce CSP and zero inline handlers', () => {
+    const webHtml = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
+    const rootHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+    assert(webHtml.includes('http-equiv="Content-Security-Policy"'), 'web/index.html must declare CSP');
+    assert(webHtml.includes("script-src-attr 'none'"), 'web/index.html CSP must disable inline event attributes');
+    assert(webHtml.includes('name="referrer" content="no-referrer"'), 'web/index.html must enforce no-referrer');
+    assert(!/\son(?:click|change|input|load|error)=/i.test(webHtml), 'web/index.html must contain zero inline handlers');
+    assert(!/<script\b/i.test(rootHtml), 'root index.html must contain zero inline script tags');
+  });
+
+  test('Security & Robustness: renderTreeDiagram/createJsonElement DAG bounds & FrameScheduler resilience', () => {
+    const dagNodes = [];
+    for (let i = 0; i < 28; ++i) {
+      dagNodes.push({ name: `D_${i}`, children: i < 27 ? [i + 1, i + 1] : [0] });
+    }
+    const t0 = Date.now();
+    BglGltf.renderTreeDiagram({ asset: { version: '2.0' }, scenes: [{ nodes: [0] }], nodes: dagNodes });
+    assert(Date.now() - t0 < 500, 'Cyclic diamond DAG renderTreeDiagram must finish quickly');
+
+    let deep = { v: 1 };
+    for (let i = 0; i < 60; ++i) deep = { c: deep };
+    assert(BglGltf.createJsonElement(deep, true), 'Deep JSON must truncate safely');
+    assert(window.BglFrameScheduler && typeof window.BglFrameScheduler.start === 'function');
+    assert.doesNotThrow(() => {
+      window.BglFrameScheduler._safeCall(() => { throw new Error('Simulated frame error'); }, 16);
+    });
+  });
 });
 
 // ============================================================================
-// Final Summary & Exit Code
+// Async Security Tests & Final Summary
 // ============================================================================
-console.log('\n================================================================================');
-console.log(` UNIT TEST EXECUTION COMPLETE`);
-const passPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
-console.log(` Total Tests:  ${totalTests}`);
-console.log(` Passed Tests: ${passedTests} (${passPct}%)`);
-console.log(` Failed Tests: ${failedTests}`);
-console.log('================================================================================');
+(async () => {
+  async function asyncTest(name, fn) {
+    totalTests++;
+    try {
+      await fn();
+      passedTests++;
+      console.log(`  ✓ ${name}`);
+    } catch (err) {
+      failedTests++;
+      failures.push({ name, error: err });
+      console.error(`  ✗ FAIL: ${name}`);
+      console.error(`    ${err.message}`);
+    }
+  }
 
-if (failedTests > 0) {
-  console.error('\nFailures Summary:');
-  failures.forEach((f, idx) => {
-    console.error(`  ${idx + 1}. ${f.name}`);
-    console.error(`     ${f.error.stack || f.error.message}`);
+  await asyncTest('Security & Robustness: loadModel OOB accessors/indices & fetchWithProgress size/CORS checks', async () => {
+    const prevState = {
+      isActive: BglWebGpuRenderer.isActive,
+      device: BglWebGpuRenderer.device,
+      bindGroupLayout: BglWebGpuRenderer.bindGroupLayout,
+      defaultSampler: BglWebGpuRenderer.defaultSampler,
+      defaultWhiteTextureView: BglWebGpuRenderer.defaultWhiteTextureView,
+      defaultMrTextureView: BglWebGpuRenderer.defaultMrTextureView,
+      defaultNormalTextureView: BglWebGpuRenderer.defaultNormalTextureView,
+      defaultBlackTextureView: BglWebGpuRenderer.defaultBlackTextureView,
+      _scratchProj: BglWebGpuRenderer._scratchProj,
+      _scratchView: BglWebGpuRenderer._scratchView,
+      _scratchViewProj: BglWebGpuRenderer._scratchViewProj,
+      _scratchUboF32: BglWebGpuRenderer._scratchUboF32,
+      _scratchUboU32: BglWebGpuRenderer._scratchUboU32
+    };
+    const prevFetch = global.fetch;
+    try {
+      BglWebGpuRenderer.device = {
+        limits: { maxTextureDimension2D: 4096 },
+        queue: { writeBuffer() {}, writeTexture() {}, copyExternalImageToTexture() {}, submit() {} },
+        createBuffer: (d) => ({ size: d.size, destroy() {} }),
+        createTexture: (d) => ({ size: d.size, createView: () => ({}), destroy() {} }),
+        createBindGroup: (d) => d
+      };
+      BglWebGpuRenderer.bindGroupLayout = {};
+      BglWebGpuRenderer.defaultSampler = {};
+      BglWebGpuRenderer.defaultWhiteTextureView = {};
+      BglWebGpuRenderer.defaultMrTextureView = {};
+      BglWebGpuRenderer.defaultNormalTextureView = {};
+      BglWebGpuRenderer.defaultBlackTextureView = {};
+      BglWebGpuRenderer._scratchProj = mat4.create();
+      BglWebGpuRenderer._scratchView = mat4.create();
+      BglWebGpuRenderer._scratchViewProj = mat4.create();
+      BglWebGpuRenderer._scratchUboF32 = new Float32Array(BglWebGpuRenderer._scratchUboBuffer, 0, 128);
+      BglWebGpuRenderer._scratchUboU32 = new Uint32Array(BglWebGpuRenderer._scratchUboBuffer, 288, 4);
+      BglWebGpuRenderer.isActive = true;
+
+      const evilBuf = new ArrayBuffer(64);
+      new Float32Array(evilBuf, 0, 9).set([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+      new Uint16Array(evilBuf, 36, 3).set([0, 9999, 2]);
+      assert.doesNotThrow(() => {
+        BglWebGpuRenderer.loadModel({
+          asset: { version: '2.0' },
+          buffers: [{ byteLength: 64 }],
+          bufferViews: [
+            { buffer: 0, byteOffset: 0, byteLength: 36 },
+            { buffer: 0, byteOffset: 36, byteLength: 6 },
+            { buffer: 0, byteOffset: -8, byteLength: 16 }
+          ],
+          accessors: [
+            { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3' },
+            { bufferView: 1, componentType: 5123, count: 3, type: 'SCALAR' },
+            { bufferView: 2, componentType: 5126, count: 4, type: 'VEC3' }
+          ],
+          meshes: [
+            { primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] },
+            { primitives: [{ attributes: { POSITION: 2 } }] }
+          ],
+          nodes: [{ mesh: 0 }, { mesh: 1 }],
+          scenes: [{ nodes: [0, 1] }]
+        }, evilBuf, 'evil.glb');
+      });
+      assert.strictEqual(BglWebGpuRenderer.primitives.length, 1, 'Only valid bounded primitive should load');
+
+      let passedOpts = null;
+      global.fetch = async (_u, opts) => {
+        passedOpts = opts;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: (h) => (h.toLowerCase() === 'content-length' ? '9999999999' : null) },
+          body: null
+        };
+      };
+      let rejectedOversize = false;
+      try {
+        await window.BglNetwork.fetchWithProgress('assets/ToyCar.glb');
+      } catch (e) {
+        rejectedOversize = /exceeds maximum/i.test(e.message);
+      }
+      assert.strictEqual(rejectedOversize, true, 'Spoofed oversized Content-Length must reject');
+      assert.strictEqual(passedOpts.credentials, 'omit', 'fetchWithProgress must set credentials: omit');
+      assert.strictEqual(passedOpts.referrerPolicy, 'no-referrer', 'fetchWithProgress must set no-referrer');
+    } finally {
+      Object.assign(BglWebGpuRenderer, prevState);
+      global.fetch = prevFetch;
+    }
   });
-  process.exit(1);
-} else {
-  console.log(`✓ All ${totalTests} web viewer unit tests PASSED successfully!\n`);
-  process.exit(0);
-}
+
+  console.log('\n================================================================================');
+  console.log(` UNIT TEST EXECUTION COMPLETE`);
+  const passPct = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+  console.log(` Total Tests:  ${totalTests}`);
+  console.log(` Passed Tests: ${passedTests} (${passPct}%)`);
+  console.log(` Failed Tests: ${failedTests}`);
+  console.log('================================================================================');
+
+  if (failedTests > 0) {
+    console.error('\nFailures Summary:');
+    failures.forEach((f, idx) => {
+      console.error(`  ${idx + 1}. ${f.name}`);
+      console.error(`     ${f.error.stack || f.error.message}`);
+    });
+    process.exit(1);
+  } else {
+    console.log(`✓ All ${totalTests} web viewer unit tests PASSED successfully!\n`);
+    process.exit(0);
+  }
+})();

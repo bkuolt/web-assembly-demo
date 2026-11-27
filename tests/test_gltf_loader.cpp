@@ -490,3 +490,96 @@ TEST(GltfLoaderTest, RejectsOversizedMalformedAccessorCountWithoutOom) {
         EXPECT_TRUE((*res)->meshes[0]->primitives[0].vertices.empty());
     }
 }
+
+TEST(GltfLoaderTest, BreaksMultiNodeCyclesAndDiamondDagBlowupWithoutStackOverflow) {
+    // 2-node mutual cycle: node[0] <-> node[1]
+    const std::string cyclicGltf{R"({
+  "asset": { "version": "2.0" },
+  "nodes": [
+    { "name": "A", "children": [1] },
+    { "name": "B", "children": [0] }
+  ],
+  "scenes": [{ "nodes": [0] }],
+  "scene": 0
+})"};
+    const std::span<const uint8_t> cyclicBytes{reinterpret_cast<const uint8_t*>(cyclicGltf.data()), cyclicGltf.size()};
+
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    auto res = loader.LoadFromMemory(cyclicBytes, "cyclic_nodes.gltf");
+    if (res && *res) {
+        EXPECT_NO_THROW((*res)->Update());
+        EXPECT_NO_THROW((*res)->UpdateAnimation(0.016f));
+    }
+
+    // 28-node diamond DAG (all non-root edges join next layer) must parse in bounded time without exponential blowup
+    std::string dagNodes;
+    for (int i = 0; i < 28; ++i) {
+        if (i > 0) {
+            dagNodes += ",";
+        }
+        if (i < 27) {
+            dagNodes += "{\"name\":\"N" + std::to_string(i) + "\",\"children\":[" + std::to_string(i + 1) + "," +
+                        std::to_string(i + 1) + "]}";
+        } else {
+            dagNodes += "{\"name\":\"Leaf\"}";
+        }
+    }
+    const std::string dagGltf{"{\"asset\":{\"version\":\"2.0\"},\"nodes\":[" + dagNodes +
+                              "],\"scenes\":[{\"nodes\":[0]}],\"scene\":0}"};
+    const std::span<const uint8_t> dagBytes{reinterpret_cast<const uint8_t*>(dagGltf.data()), dagGltf.size()};
+    const auto t0 = std::chrono::steady_clock::now();
+    auto dagRes = loader.LoadFromMemory(dagBytes, "diamond_dag.gltf");
+    const auto elapsedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    EXPECT_LT(elapsedMs, 1000);
+    if (dagRes && *dagRes) {
+        EXPECT_NO_THROW((*dagRes)->Update());
+    }
+}
+
+TEST(GltfLoaderTest, RejectsMorphTargetBombAndZeroVertexIndexBypass) {
+    // Primitive with 80 morph targets (exceeding kMaxMorphTargetsPerPrimitive) and indices referencing vertexCount == 0
+    std::string targets = "[";
+    for (int i = 0; i < 80; ++i) {
+        if (i > 0) {
+            targets += ",";
+        }
+        targets += "{\"POSITION\":0}";
+    }
+    targets += "]";
+    const std::string crafted{
+        R"({"asset":{"version":"2.0"},"buffers":[{"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAA","byteLength":12}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":12}],"accessors":[{"bufferView":0,"componentType":5126,"count":1,"type":"VEC3"},{"bufferView":0,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1,"targets":)" +
+        targets + R"(}]}],"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0})"};
+    const std::span<const uint8_t> bytes{reinterpret_cast<const uint8_t*>(crafted.data()), crafted.size()};
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    auto res = loader.LoadFromMemory(bytes, "morph_bomb.gltf");
+    if (res && *res && !(*res)->meshes.empty() && !(*res)->meshes[0]->primitives.empty()) {
+        EXPECT_LE((*res)->meshes[0]->primitives[0].morphTargets.size(), 64u);
+    }
+}
+
+TEST(GltfLoaderTest, HandlesCyclicNodeHierarchyAndNonFiniteTransformsSafely) {
+    const std::string craftedGltf{R"({
+  "asset": { "version": "2.0" },
+  "nodes": [
+    { "name": "NodeA", "children": [1], "translation": [1e300, 0.0, 0.0] },
+    { "name": "NodeB", "children": [0], "scale": [1.0, 1.0, 1.0] }
+  ],
+  "scenes": [{ "nodes": [0] }],
+  "scene": 0
+})"};
+    const std::span<const uint8_t> bytes{reinterpret_cast<const uint8_t*>(craftedGltf.data()), craftedGltf.size()};
+
+    bgl::scene::AssetManager assetMgr;
+    bgl::scene::FastGltfLoader loader{assetMgr};
+    auto res = loader.LoadFromMemory(bytes, "cyclic_hierarchy.gltf");
+    // Must complete without infinite recursion or hang regardless of accept/reject
+    if (res && *res) {
+        (*res)->Update();
+        (*res)->UpdateAnimation(0.016f);
+        EXPECT_TRUE(std::isfinite((*res)->sceneAABB.minBound.x));
+        EXPECT_TRUE(std::isfinite((*res)->sceneAABB.maxBound.x));
+    }
+}

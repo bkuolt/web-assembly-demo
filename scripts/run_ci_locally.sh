@@ -40,7 +40,7 @@ fi
 if command -v em++ >/dev/null 2>&1; then
   mkdir -p web/dist
   em++ -O3 -std=c++23 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -ffreestanding -c src/wasm/wasm_bridge.cpp -o /tmp/wasm_bridge.o
-  wasm-ld --no-entry --strip-debug --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
+  wasm-ld --no-entry --strip-debug --stack-first --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
     --export=malloc --export=free \
     --export=bgl_init --export=bgl_resize --export=bgl_load_file_buffer \
     --export=bgl_select_node --export=bgl_clear_selection --export=bgl_pick_node \

@@ -135,7 +135,18 @@
         if (this.device.lost) {
           this.device.lost.then((info) => {
             BglLogger.error('WebGPU', `Device lost: ${info.reason || 'Unknown'} - ${info.message || ''}`);
+            if (typeof BglNotifier !== 'undefined' && BglNotifier.error) {
+              BglNotifier.error('WebGPU Context Lost', `The GPU device was lost (${info.reason || 'unknown'}).`);
+            }
             this.isActive = false;
+            if (this._pendingMipmaps) this._pendingMipmaps.length = 0;
+            this.clearResources();
+          });
+        }
+        if (typeof this.device.addEventListener === 'function') {
+          this.device.addEventListener('uncapturederror', (ev) => {
+            const msg = ev && ev.error && ev.error.message ? ev.error.message : String(ev && ev.error ? ev.error : 'Uncaptured GPU error');
+            BglLogger.error('WebGPU', msg);
           });
         }
 
@@ -686,6 +697,7 @@
       this.animationTime = 0.0;
       this._hierarchyVersion = 0;
 
+      const MAX_BUFFER_BYTES = 128 * 1024 * 1024;
       let binBuffer = null;
       if (arrayBuffer && arrayBuffer.byteLength >= 12) {
         const dv = new DataView(arrayBuffer, 0, 12);
@@ -696,6 +708,10 @@
             const chunkDv = new DataView(arrayBuffer, byteOffset, 8);
             const chunkLen = chunkDv.getUint32(0, true);
             const chunkType = chunkDv.getUint32(4, true);
+            if (chunkLen > arrayBuffer.byteLength - byteOffset - 8) {
+              BglLogger.warn('glTF', `Truncated GLB chunk (${chunkLen} bytes at offset ${byteOffset}).`);
+              break;
+            }
             if (chunkType === 0x004E4942) {
               binBuffer = arrayBuffer.slice(byteOffset + 8, byteOffset + 8 + chunkLen);
               break;
@@ -707,22 +723,37 @@
 
       const predecoded = (gltf && Array.isArray(gltf._bglEmbeddedBuffers)) ? gltf._bglEmbeddedBuffers : null;
       const embeddedBuffers = predecoded ? predecoded.slice() : [];
-      if (gltf.buffers && !predecoded) {
-        for (let i = 0; i < gltf.buffers.length; ++i) {
+      if (Array.isArray(gltf.buffers) && !predecoded) {
+        const maxBufs = Math.min(gltf.buffers.length, 64);
+        let totalDecoded = 0;
+        for (let i = 0; i < maxBufs; ++i) {
           const buf = gltf.buffers[i];
-          if (buf.uri && buf.uri.startsWith('data:')) {
+          if (buf && typeof buf.uri === 'string' && /^data:/i.test(buf.uri)) {
             const commaIdx = buf.uri.indexOf(',');
             if (commaIdx !== -1) {
-              const base64Str = buf.uri.slice(commaIdx + 1);
+              const meta = buf.uri.slice(5, commaIdx).toLowerCase();
+              const payload = buf.uri.slice(commaIdx + 1);
               try {
-                const binStr = atob(base64Str);
-                const bytes = new Uint8Array(binStr.length);
-                for (let b = 0; b < binStr.length; ++b) {
-                  bytes[b] = binStr.charCodeAt(b);
+                let bytes;
+                if (meta.includes(';base64')) {
+                  const binStr = atob(payload);
+                  if (binStr.length > MAX_BUFFER_BYTES || totalDecoded + binStr.length > MAX_BUFFER_BYTES) {
+                    throw new Error('Decoded embedded buffer exceeds size limit');
+                  }
+                  bytes = new Uint8Array(binStr.length);
+                  for (let b = 0; b < binStr.length; ++b) {
+                    bytes[b] = binStr.charCodeAt(b);
+                  }
+                } else {
+                  bytes = new TextEncoder().encode(decodeURIComponent(payload));
+                  if (bytes.byteLength > MAX_BUFFER_BYTES || totalDecoded + bytes.byteLength > MAX_BUFFER_BYTES) {
+                    throw new Error('Decoded embedded buffer exceeds size limit');
+                  }
                 }
+                totalDecoded += bytes.byteLength;
                 embeddedBuffers[i] = bytes.buffer;
               } catch (e) {
-                BglLogger.warn('glTF', 'Failed to decode base64 buffer URI:', e);
+                BglLogger.warn('glTF', 'Failed to decode embedded buffer URI:', e);
               }
             }
           }
@@ -730,13 +761,18 @@
       }
 
       const getBufferViewData = (viewIdx) => {
-        if (!gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
+        if (!Number.isInteger(viewIdx) || viewIdx < 0 || !gltf.bufferViews || !gltf.bufferViews[viewIdx]) return null;
         const bv = gltf.bufferViews[viewIdx];
-        const offset = bv.byteOffset || 0;
-        const length = bv.byteLength || 0;
-        const bufferIdx = bv.buffer || 0;
+        const offset = bv.byteOffset === undefined ? 0 : bv.byteOffset;
+        const length = bv.byteLength === undefined ? 0 : bv.byteLength;
+        const bufferIdx = bv.buffer === undefined ? 0 : bv.buffer;
+        if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(length) || length < 0 ||
+            !Number.isInteger(bufferIdx) || bufferIdx < 0) {
+          BglLogger.warn('glTF', `BufferView ${viewIdx} has invalid negative/non-integer bounds.`);
+          return null;
+        }
         const src = (binBuffer && bufferIdx === 0) ? binBuffer : (embeddedBuffers[bufferIdx] || binBuffer || arrayBuffer);
-        if (!src || offset + length > src.byteLength) {
+        if (!src || offset > src.byteLength || length > src.byteLength - offset) {
           BglLogger.warn('glTF', `BufferView ${viewIdx} out of bounds: offset ${offset} + length ${length} > ${src ? src.byteLength : 0}`);
           return null;
         }
@@ -744,15 +780,16 @@
       };
 
       const getAccessorData = (accIdx) => {
-        if (!gltf.accessors || !gltf.accessors[accIdx]) return null;
+        if (!Number.isInteger(accIdx) || accIdx < 0 || !gltf.accessors || !gltf.accessors[accIdx]) return null;
         const acc = gltf.accessors[accIdx];
-        if (!acc.count) return null;
+        if (!Number.isInteger(acc.count) || acc.count <= 0 || acc.count > 20000000) return null;
         if (acc.bufferView === undefined) return null;
         const bv = gltf.bufferViews ? gltf.bufferViews[acc.bufferView] : null;
         if (!bv) return null;
         const bvData = getBufferViewData(acc.bufferView);
         if (!bvData) return null;
-        const byteOffset = acc.byteOffset || 0;
+        const byteOffset = acc.byteOffset === undefined ? 0 : acc.byteOffset;
+        if (!Number.isInteger(byteOffset) || byteOffset < 0) return null;
 
         let TypedArray = Float32Array;
         if (acc.componentType === 5126) TypedArray = Float32Array;
@@ -761,12 +798,19 @@
         else if (acc.componentType === 5121) TypedArray = Uint8Array;
         else if (acc.componentType === 5122) TypedArray = Int16Array;
         else if (acc.componentType === 5120) TypedArray = Int8Array;
+        else return null;
 
         const numComp = (acc.type === 'SCALAR' ? 1 : acc.type === 'VEC2' ? 2 : acc.type === 'VEC3' ? 3 : acc.type === 'MAT4' ? 16 : 4);
         const elemBytes = TypedArray.BYTES_PER_ELEMENT;
-        const stride = bv.byteStride || (numComp * elemBytes);
+        const minStride = numComp * elemBytes;
+        const stride = bv.byteStride === undefined ? minStride : bv.byteStride;
+        if (!Number.isInteger(stride) || stride < minStride) {
+          BglLogger.warn('glTF', `Accessor ${accIdx} has invalid byteStride ${stride}.`);
+          return null;
+        }
 
-        if (byteOffset + (acc.count - 1) * stride + (numComp * elemBytes) > bvData.byteLength) {
+        const requiredBytes = byteOffset + (acc.count - 1) * stride + minStride;
+        if (!Number.isSafeInteger(requiredBytes) || requiredBytes > bvData.byteLength) {
           BglLogger.warn('glTF', `Accessor ${accIdx} exceeds buffer view byte length.`);
           return null;
         }
@@ -965,19 +1009,39 @@
             if (!prim.attributes || prim.attributes.POSITION === undefined) continue;
 
             const posData = getAccessorData(prim.attributes.POSITION);
-            if (!posData) continue;
+            if (!posData || posData.length < 3 || posData.length % 3 !== 0) continue;
 
             const normData = prim.attributes.NORMAL !== undefined ? getAccessorData(prim.attributes.NORMAL) : null;
             const uvData = prim.attributes.TEXCOORD_0 !== undefined ? getAccessorData(prim.attributes.TEXCOORD_0) : null;
             const tanData = prim.attributes.TANGENT !== undefined ? getAccessorData(prim.attributes.TANGENT) : null;
             const jointsData = prim.attributes.JOINTS_0 !== undefined ? getAccessorData(prim.attributes.JOINTS_0) : null;
             const weightsData = prim.attributes.WEIGHTS_0 !== undefined ? getAccessorAsFloat32(prim.attributes.WEIGHTS_0) : null;
-            const indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
+            let indexData = prim.indices !== undefined ? getAccessorData(prim.indices) : null;
+
+            const vertexCount = Math.floor(posData.length / 3);
+            if (indexData) {
+              let hasOob = false;
+              for (let k = 0; k < indexData.length; ++k) {
+                if (indexData[k] >= vertexCount) {
+                  hasOob = true;
+                  break;
+                }
+              }
+              if (hasOob) {
+                BglLogger.warn('glTF', 'Clamping out-of-bounds primitive index entries.');
+                const clamped = indexData instanceof Uint32Array ? new Uint32Array(indexData.length) : new Uint16Array(indexData.length);
+                for (let k = 0; k < indexData.length; ++k) {
+                  clamped[k] = indexData[k] < vertexCount ? indexData[k] : 0;
+                }
+                indexData = clamped;
+              }
+            }
 
             for (const nIdx of nodeIdxList) {
               const worldMatrix = (nIdx >= 0 && this.nodes[nIdx]) ? this.nodes[nIdx].worldMatrix : this.mat4.create();
               for (let i = 0; i < posData.length; i += 3) {
                 const lx = posData[i], ly = posData[i + 1], lz = posData[i + 2];
+                if (!Number.isFinite(lx) || !Number.isFinite(ly) || !Number.isFinite(lz)) continue;
                 const wx = worldMatrix[0] * lx + worldMatrix[4] * ly + worldMatrix[8] * lz + worldMatrix[12];
                 const wy = worldMatrix[1] * lx + worldMatrix[5] * ly + worldMatrix[9] * lz + worldMatrix[13];
                 const wz = worldMatrix[2] * lx + worldMatrix[6] * ly + worldMatrix[10] * lz + worldMatrix[14];
@@ -987,7 +1051,9 @@
               }
             }
 
-            const vertexCount = posData.length / 3;
+            const hasNormals = normData && normData.length >= vertexCount * 3;
+            const hasUvs = uvData && uvData.length >= vertexCount * 2;
+            const hasTangents = tanData && tanData.length >= vertexCount * 4;
             const interleaved = new Float32Array(vertexCount * 12);
             for (let i = 0; i < vertexCount; ++i) {
               const base = i * 12;
@@ -996,7 +1062,7 @@
               interleaved[base + 1] = posData[pIdx + 1];
               interleaved[base + 2] = posData[pIdx + 2];
 
-              if (normData) {
+              if (hasNormals) {
                 interleaved[base + 3] = normData[pIdx + 0];
                 interleaved[base + 4] = normData[pIdx + 1];
                 interleaved[base + 5] = normData[pIdx + 2];
@@ -1006,7 +1072,7 @@
                 interleaved[base + 5] = 0.0;
               }
 
-              if (uvData) {
+              if (hasUvs) {
                 const uIdx = i * 2;
                 interleaved[base + 6] = uvData[uIdx + 0];
                 interleaved[base + 7] = uvData[uIdx + 1];
@@ -1015,7 +1081,7 @@
                 interleaved[base + 7] = 0.0;
               }
 
-              if (tanData) {
+              if (hasTangents) {
                 const tIdx = i * 4;
                 interleaved[base + 8] = tanData[tIdx + 0];
                 interleaved[base + 9] = tanData[tIdx + 1];
@@ -1077,8 +1143,24 @@
             let lodSlices = null;
             let localCenter = [0, 0, 0];
             let localRadius = 1.0;
-            if (indexData) {
-              const lodInfo = this.generateLodData(posData, normData, indexData, vertexCount);
+            if (indexData && indexData.length >= 3) {
+              let validIndexData = indexData;
+              let hasOobIndex = false;
+              for (let k = 0; k < indexData.length; ++k) {
+                if (indexData[k] >= vertexCount) {
+                  hasOobIndex = true;
+                  break;
+                }
+              }
+              if (hasOobIndex) {
+                BglLogger.warn('glTF', `Clamping out-of-bounds primitive index (>= ${vertexCount}).`);
+                const cloned = new Uint32Array(indexData.length);
+                for (let k = 0; k < indexData.length; ++k) {
+                  cloned[k] = indexData[k] < vertexCount ? indexData[k] : 0;
+                }
+                validIndexData = cloned;
+              }
+              const lodInfo = this.generateLodData(posData, hasNormals ? normData : null, validIndexData, vertexCount);
               const gpuIndexData = lodInfo.gpuIndexData;
               indexFormat = lodInfo.indexFormat;
               indexCount = lodInfo.indexCount;
@@ -1283,9 +1365,17 @@
                   try {
                     if (!this.device || this._loadGeneration !== loadGen) {
                       if (typeof bmp.close === 'function') bmp.close();
+                      this.textureCache.delete(imgIdx);
                       return;
                     }
-                    const mipLevelCount = Math.max(1, Math.floor(Math.log2(Math.max(bmp.width || 1, bmp.height || 1))) + 1);
+                    const maxDim = (this.device.limits && this.device.limits.maxTextureDimension2D) ? this.device.limits.maxTextureDimension2D : 8192;
+                    if (!bmp || bmp.width <= 0 || bmp.height <= 0 || bmp.width > maxDim || bmp.height > maxDim) {
+                      BglLogger.warn('WebGPU', `Rejected texture #${imgIdx} with invalid dimensions ${bmp ? bmp.width : 0}x${bmp ? bmp.height : 0}.`);
+                      if (bmp && typeof bmp.close === 'function') bmp.close();
+                      this.textureCache.delete(imgIdx);
+                      return;
+                    }
+                    const mipLevelCount = Math.max(1, Math.floor(Math.log2(Math.max(bmp.width, bmp.height))) + 1);
                     const gpuTex = this.device.createTexture({
                       size: [bmp.width, bmp.height, 1],
                       mipLevelCount,
@@ -1311,6 +1401,7 @@
                       fn(gpuView);
                     }
                   } catch (texErr) {
+                    this.textureCache.delete(imgIdx);
                     BglLogger.warn('WebGPU', `Failed to upload texture image #${imgIdx}:`, texErr);
                   }
                 };
@@ -1321,6 +1412,7 @@
                   createImageBitmap(srcObj, opts).then(onImageReady).catch(() => {
                     if (this._loadGeneration !== loadGen) return;
                     createImageBitmap(srcObj).then(onImageReady).catch((err) => {
+                      this.textureCache.delete(imgIdx);
                       BglLogger.warn('WebGPU', `createImageBitmap failed for image #${imgIdx}:`, err);
                     });
                   });
@@ -1329,21 +1421,38 @@
                 if (imgObj.bufferView !== undefined) {
                   const imgView = getBufferViewData(imgObj.bufferView);
                   if (imgView) {
+                    const allowedMimes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+                    const safeMime = (imgObj.mimeType && allowedMimes.has(imgObj.mimeType)) ? imgObj.mimeType : 'image/png';
                     const blob = new Blob([new Uint8Array(imgView.buffer, imgView.byteOffset, imgView.byteLength)], {
-                      type: imgObj.mimeType || 'image/png'
+                      type: safeMime
                     });
                     decodeBitmap(blob);
+                  } else {
+                    this.textureCache.delete(imgIdx);
                   }
-                } else if (imgObj.uri) {
-                  const img = new Image();
-                  img.crossOrigin = 'anonymous';
-                  img.onload = () => {
-                    decodeBitmap(img);
-                  };
-                  img.onerror = () => {
-                    BglLogger.warn('WebGPU', `Failed to load external texture image #${imgIdx}: ${imgObj.uri}`);
-                  };
-                  img.src = imgObj.uri;
+                } else if (typeof imgObj.uri === 'string') {
+                  const uriCheck = (globalThis.BglNetwork && globalThis.BglNetwork.validateAssetUrl)
+                    ? globalThis.BglNetwork.validateAssetUrl(imgObj.uri, { allowData: true, allowCustomHttps: true })
+                    : { ok: /^(?:https:\/\/|assets\/|data:image\/(?:png|jpeg|webp)[;,])/i.test(imgObj.uri.trim()), url: imgObj.uri.trim() };
+                  if (!uriCheck.ok) {
+                    this.textureCache.delete(imgIdx);
+                    BglLogger.warn('WebGPU', `Blocked unsafe external texture URI #${imgIdx}: ${uriCheck.reason || 'Disallowed URI'}`);
+                  } else {
+                    const safeTexUrl = uriCheck.url;
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.referrerPolicy = 'no-referrer';
+                    img.onload = () => {
+                      decodeBitmap(img);
+                    };
+                    img.onerror = () => {
+                      this.textureCache.delete(imgIdx);
+                      BglLogger.warn('WebGPU', `Failed to load external texture image #${imgIdx}: ${safeTexUrl}`);
+                    };
+                    img.src = safeTexUrl;
+                  }
+                } else {
+                  this.textureCache.delete(imgIdx);
                 }
               };
 
@@ -1429,29 +1538,47 @@
 
     updateNodeHierarchy() {
       this._hierarchyVersion = (this._hierarchyVersion || 0) + 1;
-      const visiting = new Set();
-      const updateNode = (nodeIdx, parentWorld) => {
-        if (visiting.has(nodeIdx)) return;
+      const nodeCount = this.nodes.length;
+      if (nodeCount === 0) return;
+      if (!this._hierarchyVisited || this._hierarchyVisited.length < nodeCount) {
+        this._hierarchyVisited = new Uint8Array(nodeCount);
+      } else {
+        this._hierarchyVisited.fill(0, 0, nodeCount);
+      }
+      if (!this._hierarchyStack) this._hierarchyStack = [];
+      const visited = this._hierarchyVisited;
+      const stack = this._hierarchyStack;
+
+      for (let r = this.rootNodes.length - 1; r >= 0; --r) {
+        stack.push({ idx: this.rootNodes[r], parentWorld: null });
+      }
+      while (stack.length > 0) {
+        const frame = stack.pop();
+        const nodeIdx = frame.idx;
+        if (!Number.isInteger(nodeIdx) || nodeIdx < 0 || nodeIdx >= nodeCount || visited[nodeIdx]) {
+          continue;
+        }
         const node = this.nodes[nodeIdx];
-        if (!node) return;
-        visiting.add(nodeIdx);
+        if (!node) continue;
+        visited[nodeIdx] = 1;
         if (node.matrix) {
           node.localMatrix.set(node.matrix);
         } else {
           this.mat4.fromRotationTranslationScale(node.localMatrix, node.rotation, node.translation, node.scale);
         }
-        if (parentWorld) {
-          this.mat4.multiply(node.worldMatrix, parentWorld, node.localMatrix);
+        if (frame.parentWorld) {
+          this.mat4.multiply(node.worldMatrix, frame.parentWorld, node.localMatrix);
         } else {
           node.worldMatrix.set(node.localMatrix);
         }
-        for (let i = 0; i < node.children.length; ++i) {
-          updateNode(node.children[i], node.worldMatrix);
+        if (Array.isArray(node.children)) {
+          for (let i = node.children.length - 1; i >= 0; --i) {
+            const cIdx = node.children[i];
+            if (Number.isInteger(cIdx) && cIdx >= 0 && cIdx < nodeCount && !visited[cIdx]) {
+              stack.push({ idx: cIdx, parentWorld: node.worldMatrix });
+            }
+          }
         }
-        visiting.delete(nodeIdx);
-      };
-      for (let i = 0; i < this.rootNodes.length; ++i) {
-        updateNode(this.rootNodes[i], null);
       }
     },
 

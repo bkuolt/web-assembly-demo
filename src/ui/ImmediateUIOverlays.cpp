@@ -158,7 +158,8 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
     EmitRoundedBox(vertices_, indices_, anchorRect.x, anchorRect.y, anchorRect.w, anchorRect.h, style_.widgetRadius,
                    fill, border, 1.0f + 0.25f * (nowOpen ? 1.0f : anchorHover.mix), false);
 
-    const std::string_view currentRaw = options[selectedIndex] ? std::string_view{options[selectedIndex]} : "";
+    const std::string_view currentRaw =
+        (selectedIndex < options.size() && options[selectedIndex]) ? std::string_view{options[selectedIndex]} : "";
     const std::string currentText = EllipsizeText(currentRaw, std::max(24.0f, anchorRect.w - 30.0f), style_.textScale);
     EmitText(vertices_, indices_, currentText, anchorRect.x + 8.0f, anchorRect.y + 4.0f, style_.textPrimary,
              style_.textScale);
@@ -169,10 +170,15 @@ bool ImmediateUI::Dropdown(std::string_view label, std::span<const char* const> 
         hasPendingOverlay_ = true;
         hasActivePopupRect_ = true;
         activePopupRect_ = popupRect;
+        std::vector<std::string> ownedOptions{};
+        ownedOptions.reserve(options.size());
+        for (const char* opt : options) {
+            ownedOptions.emplace_back(opt ? opt : "");
+        }
         pendingOverlay_ = PendingDropdownOverlay{.id = id,
                                                  .anchorRect = anchorRect,
                                                  .popupRect = popupRect,
-                                                 .options = options,
+                                                 .options = std::move(ownedOptions),
                                                  .selectedIndex = selectedIndex,
                                                  .scrollOffset = std::clamp(scrollOffset, 0.0f, maxScroll),
                                                  .contentHeight = rawPopupH,
@@ -366,7 +372,7 @@ void ImmediateUI::EmitDropdownOverlay() {
                            itemHover.mix > 0.25f ? WithAlpha(style_.accent, 0.5f * itemHover.mix) : glm::vec4{0.0f},
                            itemHover.mix > 0.25f ? 1.0f : 0.0f, false);
         }
-        const std::string_view rawOpt = ov.options[i] ? std::string_view{ov.options[i]} : "";
+        const std::string_view rawOpt = ov.options[i];
         const std::string optText = EllipsizeText(rawOpt, textMaxW, style_.textScale);
         EmitText(vertices_, indices_, optText, itemRect.x + 6.0f, itemRect.y + 3.0f, style_.textPrimary,
                  style_.textScale);

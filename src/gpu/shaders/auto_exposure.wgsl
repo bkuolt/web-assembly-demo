@@ -17,7 +17,9 @@ fn cs_auto_exposure(@builtin(local_invocation_id) lid : vec3<u32>,
     let dims = textureDimensions(hdrSrcTex);
     let stepPos = vec2<f32>(vec2<u32>(lid.x, lid.y)) + vec2<f32>(0.5);
     let sampleCoord = clamp(vec2<i32>((stepPos / 8.0) * vec2<f32>(dims)), vec2<i32>(0), vec2<i32>(dims) - vec2<i32>(1));
-    let col = max(textureLoad(hdrSrcTex, sampleCoord, 0).rgb, vec3<f32>(0.0));
+    let rawCol = textureLoad(hdrSrcTex, sampleCoord, 0).rgb;
+    let isFiniteCol = all(rawCol >= vec3<f32>(0.0)) && all(rawCol < vec3<f32>(65504.0));
+    let col = select(vec3<f32>(0.0), rawCol, isFiniteCol);
     let lum = dot(col, vec3<f32>(0.2126, 0.7152, 0.0722));
     sharedLogLum[lidx] = log2(clamp(lum, 1e-3, 64.0));
 

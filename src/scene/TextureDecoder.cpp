@@ -123,7 +123,14 @@ static bool ReadPngStreamIsolateSetjmp(png_structp png_ptr, png_infop info_ptr, 
 
     png_read_update_info(png_ptr, info_ptr);
 
-    const size_t totalBytes{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
+    const png_byte channels{png_get_channels(png_ptr, info_ptr)};
+    const size_t rowBytes{png_get_rowbytes(png_ptr, info_ptr)};
+    const size_t expectedRowBytes{static_cast<size_t>(width) * 4u};
+    if (channels != 4u || rowBytes != expectedRowBytes) {
+        return false;
+    }
+
+    const size_t totalBytes{expectedRowBytes * static_cast<size_t>(height)};
     outImg.width = width;
     outImg.height = height;
     outImg.channels = 4;
@@ -171,7 +178,7 @@ static bool ReadJpegStreamIsolateSetjmp(std::span<const uint8_t> data, DecodedIm
     jpeg_start_decompress(&cinfo);
 
     if (cinfo.output_width == 0 || cinfo.output_height == 0 || cinfo.output_width > kMaxTextureDimension ||
-        cinfo.output_height > kMaxTextureDimension) {
+        cinfo.output_height > kMaxTextureDimension || cinfo.output_components != 3) {
         jpeg_destroy_decompress(&cinfo);
         return false;
     }
@@ -458,23 +465,41 @@ core::Result<DecodedImage> TextureDecoder::DecodeKTX2(std::span<const uint8_t> d
         return img;
     }
 
-    const size_t expectedRgbaSize{static_cast<size_t>(width) * static_cast<size_t>(height) * 4u};
-    const size_t expectedRgbSize{static_cast<size_t>(width) * static_cast<size_t>(height) * 3u};
+    const size_t pixelCount{static_cast<size_t>(width) * static_cast<size_t>(height)};
+    const size_t expectedRgbaSize{pixelCount * 4u};
+    const size_t expectedRgbSize{pixelCount * 3u};
+    const size_t expectedRgSize{pixelCount * 2u};
 
-    if (imageSize >= expectedRgbaSize) {
+    if (imageSize == expectedRgbaSize) {
         img.rgbaData.resize(expectedRgbaSize);
         std::memcpy(img.rgbaData.data(), imageBytes, expectedRgbaSize);
     } else if (imageSize == expectedRgbSize) {
         img.rgbaData.resize(expectedRgbaSize);
-        for (size_t i{0}; i < static_cast<size_t>(width) * height; ++i) {
+        for (size_t i{0}; i < pixelCount; ++i) {
             img.rgbaData[i * 4 + 0] = imageBytes[i * 3 + 0];
             img.rgbaData[i * 4 + 1] = imageBytes[i * 3 + 1];
             img.rgbaData[i * 4 + 2] = imageBytes[i * 3 + 2];
             img.rgbaData[i * 4 + 3] = 255;
         }
+    } else if (imageSize == expectedRgSize) {
+        img.rgbaData.resize(expectedRgbaSize);
+        for (size_t i{0}; i < pixelCount; ++i) {
+            img.rgbaData[i * 4 + 0] = imageBytes[i * 2 + 0];
+            img.rgbaData[i * 4 + 1] = imageBytes[i * 2 + 1];
+            img.rgbaData[i * 4 + 2] = 0;
+            img.rgbaData[i * 4 + 3] = 255;
+        }
+    } else if (imageSize == pixelCount) {
+        img.rgbaData.resize(expectedRgbaSize);
+        for (size_t i{0}; i < pixelCount; ++i) {
+            const uint8_t v = imageBytes[i];
+            img.rgbaData[i * 4 + 0] = v;
+            img.rgbaData[i * 4 + 1] = v;
+            img.rgbaData[i * 4 + 2] = v;
+            img.rgbaData[i * 4 + 3] = 255;
+        }
     } else {
-        img.rgbaData.resize(imageSize);
-        std::memcpy(img.rgbaData.data(), imageBytes, imageSize);
+        return std::unexpected("Unsupported uncompressed KTX2 pixel byte layout (size mismatch with RGBA8)");
     }
 
     return img;

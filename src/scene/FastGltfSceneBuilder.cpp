@@ -10,11 +10,53 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <limits>
+#include <numeric>
 #include <utility>
 
 namespace bgl::scene::detail {
 
 namespace {
+
+constexpr size_t kMaxInstancesPerNode{1'000'000u};
+constexpr size_t kMaxSkinJoints{4096u};
+constexpr size_t kMaxAnimKeyframes{2'000'000u};
+
+[[nodiscard]] bool ValidateBuilderAccessor(const fastgltf::Asset& asset, size_t accIdx, size_t minElemBytes,
+                                           size_t maxCount) noexcept {
+    if (accIdx >= asset.accessors.size()) {
+        return false;
+    }
+    const auto& acc = asset.accessors[accIdx];
+    if (acc.count == 0 || acc.count > maxCount) {
+        return false;
+    }
+    if (acc.sparse.has_value()) {
+        const auto& sp = *acc.sparse;
+        if (sp.count == 0 || sp.count > acc.count || sp.indicesBufferView >= asset.bufferViews.size() ||
+            sp.valuesBufferView >= asset.bufferViews.size()) {
+            return false;
+        }
+        if (acc.bufferViewIndex.has_value() && *acc.bufferViewIndex < asset.bufferViews.size()) {
+            const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
+            if (acc.byteOffset > bv.byteLength) {
+                return false;
+            }
+            const size_t avail = bv.byteLength - acc.byteOffset;
+            return minElemBytes == 0 || acc.count <= (avail / minElemBytes);
+        }
+        return true;
+    }
+    if (!acc.bufferViewIndex.has_value() || *acc.bufferViewIndex >= asset.bufferViews.size()) {
+        return false;
+    }
+    const auto& bv = asset.bufferViews[*acc.bufferViewIndex];
+    if (acc.byteOffset > bv.byteLength) {
+        return false;
+    }
+    const size_t avail = bv.byteLength - acc.byteOffset;
+    return minElemBytes == 0 || acc.count <= (avail / minElemBytes);
+}
 
 [[nodiscard]] constexpr std::string_view AccessorTypeToString(fastgltf::AccessorType type) noexcept {
     switch (type) {
@@ -70,12 +112,23 @@ void ParseInstancingTransforms(const fastgltf::Asset& asset, const fastgltf::Nod
     auto rotIt = gltfNode.findInstancingAttribute("ROTATION");
     auto scaleIt = gltfNode.findInstancingAttribute("SCALE");
 
-    for (const auto& it : {transIt, rotIt, scaleIt}) {
-        if (it != gltfNode.instancingAttributes.cend() && it->second < asset.accessors.size()) {
-            instCount = std::max(instCount, asset.accessors[it->second].count);
-        }
+    const bool validTrans = (transIt != gltfNode.instancingAttributes.cend() &&
+                             ValidateBuilderAccessor(asset, transIt->second, sizeof(float) * 3u, kMaxInstancesPerNode));
+    const bool validRot = (rotIt != gltfNode.instancingAttributes.cend() &&
+                           ValidateBuilderAccessor(asset, rotIt->second, sizeof(uint8_t) * 4u, kMaxInstancesPerNode));
+    const bool validScale = (scaleIt != gltfNode.instancingAttributes.cend() &&
+                             ValidateBuilderAccessor(asset, scaleIt->second, sizeof(float) * 3u, kMaxInstancesPerNode));
+
+    if (validTrans) {
+        instCount = std::max(instCount, asset.accessors[transIt->second].count);
     }
-    if (instCount == 0) {
+    if (validRot) {
+        instCount = std::max(instCount, asset.accessors[rotIt->second].count);
+    }
+    if (validScale) {
+        instCount = std::max(instCount, asset.accessors[scaleIt->second].count);
+    }
+    if (instCount == 0 || instCount > kMaxInstancesPerNode) {
         return;
     }
 
@@ -83,29 +136,30 @@ void ParseInstancingTransforms(const fastgltf::Asset& asset, const fastgltf::Nod
     std::vector<glm::quat> instR(instCount, glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<glm::vec3> instS(instCount, glm::vec3{1.0f});
 
-    if (transIt != gltfNode.instancingAttributes.cend() && transIt->second < asset.accessors.size()) {
-        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[transIt->second],
-                                                      [&](glm::vec3 t, size_t idx) {
-                                                          if (idx < instT.size()) {
-                                                              instT[idx] = t;
-                                                          }
-                                                      });
+    if (validTrans) {
+        fastgltf::iterateAccessorWithIndex<glm::vec3>(
+            asset, asset.accessors[transIt->second], [&](glm::vec3 t, size_t idx) {
+                if (idx < instT.size() && std::isfinite(t.x) && std::isfinite(t.y) && std::isfinite(t.z)) {
+                    instT[idx] = t;
+                }
+            });
     }
-    if (rotIt != gltfNode.instancingAttributes.cend() && rotIt->second < asset.accessors.size()) {
-        fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, asset.accessors[rotIt->second],
-                                                      [&](glm::vec4 q, size_t idx) {
-                                                          if (idx < instR.size()) {
-                                                              instR[idx] = glm::quat{q.w, q.x, q.y, q.z};
-                                                          }
-                                                      });
+    if (validRot) {
+        fastgltf::iterateAccessorWithIndex<glm::vec4>(
+            asset, asset.accessors[rotIt->second], [&](glm::vec4 q, size_t idx) {
+                if (idx < instR.size() && std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) &&
+                    std::isfinite(q.w)) {
+                    instR[idx] = glm::quat{q.w, q.x, q.y, q.z};
+                }
+            });
     }
-    if (scaleIt != gltfNode.instancingAttributes.cend() && scaleIt->second < asset.accessors.size()) {
-        fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[scaleIt->second],
-                                                      [&](glm::vec3 s, size_t idx) {
-                                                          if (idx < instS.size()) {
-                                                              instS[idx] = s;
-                                                          }
-                                                      });
+    if (validScale) {
+        fastgltf::iterateAccessorWithIndex<glm::vec3>(
+            asset, asset.accessors[scaleIt->second], [&](glm::vec3 s, size_t idx) {
+                if (idx < instS.size() && std::isfinite(s.x) && std::isfinite(s.y) && std::isfinite(s.z)) {
+                    instS[idx] = s;
+                }
+            });
     }
 
     node.instanceTransforms.resize(instCount);
@@ -161,17 +215,27 @@ void ParseSkins(const fastgltf::Asset& asset, Scene& scene) {
         const auto& gltfSkin = asset.skins[sIdx];
         Skin skin{};
         skin.name = gltfSkin.name.empty() ? ("Skin_" + std::to_string(sIdx)) : std::string(gltfSkin.name);
-        skin.skeletonRootNodeIndex = gltfSkin.skeleton.has_value() ? static_cast<int>(*gltfSkin.skeleton) : -1;
-        skin.joints.reserve(gltfSkin.joints.size());
-        for (size_t jIdx : gltfSkin.joints) {
-            skin.joints.push_back(static_cast<int>(jIdx));
+        skin.skeletonRootNodeIndex = (gltfSkin.skeleton.has_value() && *gltfSkin.skeleton < asset.nodes.size())
+                                         ? static_cast<int>(*gltfSkin.skeleton)
+                                         : -1;
+        const size_t jointCount{std::min(gltfSkin.joints.size(), kMaxSkinJoints)};
+        skin.joints.reserve(jointCount);
+        for (size_t j = 0; j < jointCount; ++j) {
+            const size_t jIdx = gltfSkin.joints[j];
+            skin.joints.push_back((jIdx < asset.nodes.size()) ? static_cast<int>(jIdx) : -1);
         }
 
-        if (gltfSkin.inverseBindMatrices.has_value() && *gltfSkin.inverseBindMatrices < asset.accessors.size()) {
+        if (gltfSkin.inverseBindMatrices.has_value() &&
+            ValidateBuilderAccessor(asset, *gltfSkin.inverseBindMatrices, sizeof(float) * 16u, kMaxSkinJoints)) {
             const auto& ibmAccessor = asset.accessors[*gltfSkin.inverseBindMatrices];
-            skin.inverseBindMatrices.reserve(ibmAccessor.count);
-            fastgltf::iterateAccessor<glm::mat4>(asset, ibmAccessor,
-                                                 [&](glm::mat4 ibm) { skin.inverseBindMatrices.push_back(ibm); });
+            skin.inverseBindMatrices.reserve(std::min(ibmAccessor.count, jointCount));
+            fastgltf::iterateAccessor<glm::mat4>(asset, ibmAccessor, [&](glm::mat4 ibm) {
+                if (skin.inverseBindMatrices.size() < jointCount) {
+                    const float* ptr = glm::value_ptr(ibm);
+                    const bool finite = std::all_of(ptr, ptr + 16, [](float v) { return std::isfinite(v); });
+                    skin.inverseBindMatrices.push_back(finite ? ibm : glm::mat4{1.0f});
+                }
+            });
         }
         if (skin.inverseBindMatrices.size() < skin.joints.size()) {
             skin.inverseBindMatrices.resize(skin.joints.size(), glm::mat4(1.0f));
@@ -206,15 +270,21 @@ void ParseAnimations(const fastgltf::Asset& asset, Scene& scene) {
                 break;
             }
 
-            if (gltfSampler.inputAccessor < asset.accessors.size()) {
+            if (ValidateBuilderAccessor(asset, gltfSampler.inputAccessor, sizeof(float), kMaxAnimKeyframes)) {
                 const auto& inputAcc = asset.accessors[gltfSampler.inputAccessor];
                 sampler.timestamps.reserve(inputAcc.count);
-                fastgltf::iterateAccessor<float>(asset, inputAcc, [&](float t) { sampler.timestamps.push_back(t); });
+                float lastT{0.0f};
+                fastgltf::iterateAccessor<float>(asset, inputAcc, [&](float t) {
+                    const float finiteT = std::isfinite(t) ? std::max(0.0f, t) : lastT;
+                    lastT = sampler.timestamps.empty() ? finiteT : std::max(lastT, finiteT);
+                    sampler.timestamps.push_back(lastT);
+                });
             }
-            if (gltfSampler.outputAccessor < asset.accessors.size()) {
+            if (ValidateBuilderAccessor(asset, gltfSampler.outputAccessor, sizeof(uint8_t), kMaxAnimKeyframes * 12u)) {
                 const auto& outputAcc = asset.accessors[gltfSampler.outputAccessor];
-                fastgltf::iterateAccessor<float>(asset, outputAcc,
-                                                 [&](float v) { sampler.keyframeValues.push_back(v); });
+                sampler.keyframeValues.reserve(std::min(outputAcc.count * 4u, kMaxAnimKeyframes * 12u));
+                fastgltf::iterateAccessor<float>(
+                    asset, outputAcc, [&](float v) { sampler.keyframeValues.push_back(std::isfinite(v) ? v : 0.0f); });
             }
             anim.samplers.push_back(std::move(sampler));
         }
@@ -509,19 +579,31 @@ void BuildSceneHierarchy(const fastgltf::Asset& asset, Scene& scene) {
 
         if (std::holds_alternative<fastgltf::TRS>(gltfNode.transform)) {
             const auto& trs = std::get<fastgltf::TRS>(gltfNode.transform);
-            node->translation = glm::vec3(trs.translation[0], trs.translation[1], trs.translation[2]);
-            node->rotation = glm::quat(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
-            node->scale = glm::vec3(trs.scale[0], trs.scale[1], trs.scale[2]);
+            node->translation = glm::vec3(std::isfinite(trs.translation[0]) ? trs.translation[0] : 0.0f,
+                                          std::isfinite(trs.translation[1]) ? trs.translation[1] : 0.0f,
+                                          std::isfinite(trs.translation[2]) ? trs.translation[2] : 0.0f);
+            const glm::quat rawQ(trs.rotation[3], trs.rotation[0], trs.rotation[1], trs.rotation[2]);
+            const float qLen = glm::length(rawQ);
+            node->rotation = (std::isfinite(qLen) && qLen > 1e-6f) ? (rawQ / qLen) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
+            node->scale = glm::vec3(std::isfinite(trs.scale[0]) ? trs.scale[0] : 1.0f,
+                                    std::isfinite(trs.scale[1]) ? trs.scale[1] : 1.0f,
+                                    std::isfinite(trs.scale[2]) ? trs.scale[2] : 1.0f);
         } else if (std::holds_alternative<fastgltf::Node::TransformMatrix>(gltfNode.transform)) {
             const auto& mat = std::get<fastgltf::Node::TransformMatrix>(gltfNode.transform);
-            const glm::mat4 m = glm::make_mat4(mat.data());
+            glm::mat4 m = glm::make_mat4(mat.data());
+            const float* mPtr = glm::value_ptr(m);
+            if (!std::all_of(mPtr, mPtr + 16, [](float v) { return std::isfinite(v); })) {
+                m = glm::mat4{1.0f};
+            }
             node->translation = glm::vec3(m[3]);
             node->scale =
                 glm::vec3(glm::length(glm::vec3(m[0])), glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2])));
             const glm::mat3 rotM(node->scale.x > 1e-6f ? glm::vec3(m[0]) / node->scale.x : glm::vec3(1, 0, 0),
                                  node->scale.y > 1e-6f ? glm::vec3(m[1]) / node->scale.y : glm::vec3(0, 1, 0),
                                  node->scale.z > 1e-6f ? glm::vec3(m[2]) / node->scale.z : glm::vec3(0, 0, 1));
-            node->rotation = glm::quat_cast(rotM);
+            const glm::quat rawQ = glm::quat_cast(rotM);
+            const float qLen = glm::length(rawQ);
+            node->rotation = (std::isfinite(qLen) && qLen > 1e-6f) ? (rawQ / qLen) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
         }
         node->UpdateLocalTransform();
 
@@ -542,12 +624,32 @@ void BuildSceneHierarchy(const fastgltf::Asset& asset, Scene& scene) {
     });
 
     std::vector<bool> isChild(asset.nodes.size(), false);
+    std::vector<size_t> ufParent(asset.nodes.size());
+    std::iota(ufParent.begin(), ufParent.end(), size_t{0});
+    auto findRoot = [&ufParent](size_t x) noexcept {
+        while (ufParent[x] != x) {
+            ufParent[x] = ufParent[ufParent[x]];
+            x = ufParent[x];
+        }
+        return x;
+    };
     for (size_t i{0}; i < asset.nodes.size(); ++i) {
+        if (!loadedNodes[i]) {
+            continue;
+        }
         for (size_t childIdx : asset.nodes[i].children) {
-            if (childIdx < loadedNodes.size() && childIdx != i && !isChild[childIdx]) {
-                loadedNodes[i]->children.push_back(loadedNodes[childIdx]);
-                isChild[childIdx] = true;
+            if (childIdx >= loadedNodes.size() || !loadedNodes[childIdx] || childIdx == i || isChild[childIdx]) {
+                continue;
             }
+            const size_t rootParent{findRoot(i)};
+            const size_t rootChild{findRoot(childIdx)};
+            if (rootParent == rootChild) {
+                BGL_LOG_WARN("[glTF Loader] Rejected cyclic node edge {} -> {}", i, childIdx);
+                continue;
+            }
+            ufParent[rootChild] = rootParent;
+            loadedNodes[i]->children.push_back(loadedNodes[childIdx]);
+            isChild[childIdx] = true;
         }
     }
 

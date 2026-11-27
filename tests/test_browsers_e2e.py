@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -33,6 +34,21 @@ class ReusableTCPServer(socketserver.TCPServer):
     """TCP server bound to loopback with address reuse enabled."""
 
     allow_reuse_address = True
+
+
+def find_free_port():
+    """Bind an ephemeral loopback TCP socket to obtain an unused local port."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def find_free_port():
+    """Allocate a free ephemeral TCP port on 127.0.0.1."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
 
 
 def start_server():
@@ -82,16 +98,17 @@ def test_firefox(port):
         print('geckodriver not found - skipping Firefox test.')
         return True
 
+    gd_port = find_free_port()
     gd_proc = subprocess.Popen(
-        [geckodriver_path, '--port', '4459'],
+        [geckodriver_path, '--port', str(gd_port)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_http_json('http://127.0.0.1:4459/status', timeout=10.0)
+        wait_http_json(f'http://127.0.0.1:{gd_port}/status', timeout=10.0)
 
         req = urllib.request.Request(
-            'http://127.0.0.1:4459/session',
+            f'http://127.0.0.1:{gd_port}/session',
             data=json.dumps({
                 'capabilities': {
                     'alwaysMatch': {
@@ -113,7 +130,7 @@ def test_firefox(port):
 
         try:
             nav_req = urllib.request.Request(
-                f'http://127.0.0.1:4459/session/{session_id}/url',
+                f'http://127.0.0.1:{gd_port}/session/{session_id}/url',
                 data=json.dumps({'url': f'http://127.0.0.1:{port}/web/index.html'}).encode(),
                 headers={'Content-Type': 'application/json'}
             )
@@ -121,7 +138,7 @@ def test_firefox(port):
                 pass
 
             exec_req = urllib.request.Request(
-                f'http://127.0.0.1:4459/session/{session_id}/execute/async',
+                f'http://127.0.0.1:{gd_port}/session/{session_id}/execute/async',
                 data=json.dumps({
                     'script': '''
                         const done = arguments[arguments.length - 1];
@@ -166,7 +183,7 @@ def test_firefox(port):
         finally:
             try:
                 del_req = urllib.request.Request(
-                    f'http://127.0.0.1:4459/session/{session_id}', method='DELETE'
+                    f'http://127.0.0.1:{gd_port}/session/{session_id}', method='DELETE'
                 )
                 with urllib.request.urlopen(del_req, timeout=5.0):
                     pass
@@ -187,9 +204,10 @@ async def test_chrome(port):
 
     import websockets
 
+    cdp_port = find_free_port()
     proc = subprocess.Popen(
         [
-            chrome_bin, '--headless=new', '--remote-debugging-port=9270',
+            chrome_bin, '--headless=new', f'--remote-debugging-port={cdp_port}',
             '--no-sandbox', '--disable-dev-shm-usage',
             '--enable-unsafe-webgpu', '--use-angle=vulkan', '--enable-features=Vulkan',
             f'http://127.0.0.1:{port}/web/index.html'
@@ -199,15 +217,16 @@ async def test_chrome(port):
     )
     try:
         tabs = wait_http_json(
-            'http://127.0.0.1:9270/json',
+            f'http://127.0.0.1:{cdp_port}/json',
             timeout=10.0,
             predicate=lambda t: any(item.get('type') == 'page' for item in t),
         )
         page_tab = [t for t in tabs if t.get('type') == 'page'][0]
 
         async with websockets.connect(page_tab['webSocketDebuggerUrl']) as ws:
+            await ws.send(json.dumps({'id': 1, 'method': 'Runtime.enable'}))
             eval_msg = {
-                'id': 1,
+                'id': 2,
                 'method': 'Runtime.evaluate',
                 'params': {
                     'expression': '''(async () => {
@@ -237,9 +256,19 @@ async def test_chrome(port):
                 }
             }
             await ws.send(json.dumps(eval_msg))
-            res = await ws.recv()
-            data = json.loads(res)['result']['result']['value']
+            runtime_errors = []
+            data = None
+            while data is None:
+                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=15.0))
+                method = msg.get('method')
+                if method == 'Runtime.exceptionThrown':
+                    runtime_errors.append(str(msg.get('params', {})))
+                elif method == 'Runtime.consoleAPICalled' and msg.get('params', {}).get('type') == 'error':
+                    runtime_errors.append(str(msg['params'].get('args', [])))
+                elif msg.get('id') == 2:
+                    data = msg['result']['result']['value']
             print('  Chrome Runtime State:', data)
+            assert not runtime_errors, f"Unexpected Chrome console/runtime errors: {runtime_errors}"
             assert data['backend'] == 'webgpu', f"Expected webgpu backend in Chrome, got {data['backend']}"
             assert data['activeRendererName'] == 'WebGPU', f"Expected WebGPU renderer, got {data['activeRendererName']}"
             assert data['primitivesCount'] == 3, f"Expected 3 primitives for ToyCar, got {data['primitivesCount']}"

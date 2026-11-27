@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INCLUDE_RE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+INCLUDE_RE = re.compile(r'^\s*#\s*include\s+[<"]([^">]+)[>"]', re.MULTILINE)
 
 # module directory (relative to ROOT) -> allowed include prefixes
 RULES = {
@@ -16,11 +16,13 @@ RULES = {
     "src/text":    {"core", "gpu", "text"},
     "src/ui":      {"core", "gpu", "text", "ui"},
     "src/engine":  {"core", "gpu", "scene", "audio", "text", "ui", "engine", "bgl"},
+    "src/wasm":    {"wasm"},
     "apps/viewer": {"core", "gpu", "scene", "audio", "text", "ui", "engine", "bgl", "viewer"},
     "include/bgl": {"core", "bgl"},
     "samples":     {"bgl"},
 }
-FORBIDDEN_IN_PUBLIC = re.compile(r'webgpu|WGPU|SDL', re.IGNORECASE)
+FORBIDDEN_IN_PUBLIC = re.compile(r'webgpu|WGPU|SDL|fastgltf|miniaudio|ft2build|freetype|hb\.h|curl|ktx', re.IGNORECASE)
+INTERNAL_PREFIXES = {"core", "audio", "scene", "gpu", "text", "ui", "engine", "wasm", "viewer", "bgl"}
 
 
 def main() -> int:
@@ -35,8 +37,8 @@ def main() -> int:
             text = path.read_text(encoding="utf-8", errors="replace")
             for inc in INCLUDE_RE.findall(text):
                 prefix = inc.split("/")[0] if "/" in inc else None
-                if prefix is None:
-                    continue  # same-directory include
+                if prefix is None or prefix not in INTERNAL_PREFIXES:
+                    continue  # same-directory or external/system header
                 if prefix not in allowed:
                     errors.append(f"{path.relative_to(ROOT)}: forbidden include \"{inc}\" (module {module})")
             if module == "include/bgl":

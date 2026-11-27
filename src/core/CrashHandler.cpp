@@ -11,8 +11,6 @@
 #include <unistd.h>
 
 #if defined(__linux__) || defined(__unix__)
-#include <cxxabi.h>
-#include <dlfcn.h>
 #include <execinfo.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -38,6 +36,7 @@ static struct sigaction g_oldActionFpe{};
 static struct sigaction g_oldActionIll{};
 static struct sigaction g_oldActionBus{};
 
+static std::atomic<bool> g_installed{false};
 static std::atomic<bool> g_isHandlingCrash{false};
 
 /**
@@ -89,12 +88,13 @@ void SafeWriteStderr(std::string_view sv) noexcept {
 void SafeFormatHex(uintptr_t val, char* out, size_t outSize) noexcept {
     if (outSize < 19)
         return;
+    const uint64_t u{static_cast<uint64_t>(val)};
     out[0] = '0';
     out[1] = 'x';
     const char hexDigits[] = "0123456789abcdef";
     for (int i = 0; i < 16; ++i) {
-        int shift = (15 - i) * 4;
-        out[2 + i] = hexDigits[(val >> shift) & 0x0F];
+        const int shift = (15 - i) * 4;
+        out[2 + i] = hexDigits[(u >> shift) & 0x0Fu];
     }
     out[18] = '\0';
 }
@@ -110,8 +110,8 @@ void SafeFormatDec(int64_t val, char* out, size_t outSize) noexcept {
         out[1] = '\0';
         return;
     }
-    bool neg = val < 0;
-    uint64_t uval = neg ? static_cast<uint64_t>(-val) : static_cast<uint64_t>(val);
+    const bool neg = val < 0;
+    uint64_t uval = neg ? (uint64_t{0} - static_cast<uint64_t>(val)) : static_cast<uint64_t>(val);
     char tmp[24];
     size_t idx = 0;
     while (uval > 0) {
@@ -238,28 +238,23 @@ void SignalActionHandler(int sig, siginfo_t* info, void* /*ucontext*/) {
     ::backtrace_symbols_fd(callstack, frames, STDERR_FILENO);
 
     SafeWriteStderr("--------------------------------------------------------------------------------\n");
-
-#if defined(BGL_HAS_STD_STACKTRACE)
-    try {
-        std::cerr << "C++23 std::stacktrace:\n"
-                  << std::stacktrace::current()
-                  << "--------------------------------------------------------------------------------\n";
-    } catch (...) {
-        SafeWriteStderr("[std::stacktrace unavailable during crash]\n");
-    }
-#endif
-
     SafeWriteStderr("Restoring default handler and re-raising signal for core dump...\n");
     SafeWriteStderr("================================================================================\n\n");
 
-    // Unregister our handler and re-raise signal
+    // Unregister our handler, unblock signal, and re-raise (with _exit fallback)
     struct sigaction dfl;
     std::memset(&dfl, 0, sizeof(dfl));
     dfl.sa_handler = SIG_DFL;
     ::sigemptyset(&dfl.sa_mask);
     ::sigaction(sig, &dfl, nullptr);
 
+    sigset_t unblockSet;
+    ::sigemptyset(&unblockSet);
+    ::sigaddset(&unblockSet, sig);
+    ::sigprocmask(SIG_UNBLOCK, &unblockSet, nullptr);
+
     ::raise(sig);
+    ::_exit(128 + sig);
 }
 #endif
 
@@ -267,6 +262,9 @@ void SignalActionHandler(int sig, siginfo_t* info, void* /*ucontext*/) {
 
 void InstallCrashHandler() noexcept {
 #if defined(__linux__) || defined(__unix__)
+    if (g_installed.exchange(true)) {
+        return;
+    }
     // 1. Allocate alternate signal stack to catch stack overflows safely
     if (!g_altStackMemory) {
         g_altStackMemory = std::malloc(kAltStackSize);
@@ -298,6 +296,9 @@ void InstallCrashHandler() noexcept {
 
 void UninstallCrashHandler() noexcept {
 #if defined(__linux__) || defined(__unix__)
+    if (!g_installed.exchange(false)) {
+        return;
+    }
     ::sigaction(SIGSEGV, &g_oldActionSegv, nullptr);
     ::sigaction(SIGABRT, &g_oldActionAbrt, nullptr);
     ::sigaction(SIGFPE, &g_oldActionFpe, nullptr);

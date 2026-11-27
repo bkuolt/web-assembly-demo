@@ -330,12 +330,22 @@ core::Result<std::string> ShaderManager::ReadSourceFile(std::string_view virtual
     if (!dirCopy.empty()) {
         std::error_code ec;
         const std::filesystem::path fullPath{dirCopy / norm};
-        if (std::filesystem::exists(fullPath, ec) && std::filesystem::is_regular_file(fullPath, ec)) {
-            std::ifstream ifs{fullPath, std::ios::binary};
-            if (ifs) {
-                std::ostringstream ss;
-                ss << ifs.rdbuf();
-                return ss.str();
+        if (!std::filesystem::is_symlink(fullPath, ec)) {
+            const std::filesystem::path canonRoot{std::filesystem::weakly_canonical(dirCopy, ec)};
+            const std::filesystem::path canonFull{std::filesystem::weakly_canonical(fullPath, ec)};
+            const std::filesystem::path rel{canonFull.lexically_relative(canonRoot)};
+            if (!ec && !rel.empty() && rel != "." && *rel.begin() != ".." && !rel.is_absolute() &&
+                std::filesystem::is_regular_file(canonFull, ec)) {
+                constexpr uintmax_t kMaxShaderFileBytes{2u * 1024u * 1024u};
+                const uintmax_t fileSize = std::filesystem::file_size(canonFull, ec);
+                if (!ec && fileSize <= kMaxShaderFileBytes) {
+                    std::ifstream ifs{canonFull, std::ios::binary};
+                    if (ifs) {
+                        std::ostringstream ss;
+                        ss << ifs.rdbuf();
+                        return ss.str();
+                    }
+                }
             }
         }
     }
@@ -355,6 +365,9 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
     std::vector<std::string> activeStack{};
     std::unordered_set<std::string> recordedDeps{};
     std::unordered_map<std::string, std::string> sourceCache{};
+    constexpr size_t kMaxTotalIncludes{256u};
+    constexpr size_t kMaxPreprocessedBytes{4u * 1024u * 1024u};
+    size_t includeExpansions{0u};
 
     auto cachedLookup = [&](const std::string& path) -> core::Result<std::string_view> {
         if (auto it = sourceCache.find(path); it != sourceCache.end()) {
@@ -369,6 +382,9 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
     };
 
     auto processFile = [&](auto& self, std::string_view currentPath, size_t depth) -> core::Result<void> {
+        if (++includeExpansions > kMaxTotalIncludes || result.code.size() > kMaxPreprocessedBytes) {
+            return std::unexpected("WGSL #include expansion or size budget exceeded at " + std::string{currentPath});
+        }
         if (depth > maxDepth) {
             return std::unexpected("WGSL #include recursion depth exceeded (" + std::to_string(maxDepth) + ") at " +
                                    std::string{currentPath});
@@ -433,6 +449,10 @@ core::Result<PreprocessedShader> ShaderManager::PreprocessWithLookup(std::string
                 continue;
             }
 
+            if (result.code.size() + line.size() + 1u > kMaxPreprocessedBytes) {
+                activeStack.pop_back();
+                return std::unexpected("Preprocessed WGSL shader source exceeded 4 MiB limit");
+            }
             result.code.append(line);
             result.code.push_back('\n');
         }
@@ -498,10 +518,11 @@ core::Result<ShaderModuleHandle> ShaderManager::CompileWgslModule(WGPUDevice dev
 
 #if defined(BGL_PLATFORM_NATIVE)
     struct PopScopeState {
-        bool done{false};
+        std::atomic<bool> done{false};
         WGPUErrorType errorType{WGPUErrorType_NoError};
         std::string message{};
-    } popState{};
+    };
+    std::shared_ptr<PopScopeState> popState = std::make_shared<PopScopeState>();
 
     if (validateScope) {
         wgpuDevicePushErrorScope(device, WGPUErrorFilter_Validation);
@@ -523,14 +544,16 @@ core::Result<ShaderModuleHandle> ShaderManager::CompileWgslModule(WGPUDevice dev
 
 #if defined(BGL_PLATFORM_NATIVE)
     if (validateScope) {
+        auto* stateHolder = new std::shared_ptr<PopScopeState>(popState);
         WGPUPopErrorScopeCallbackInfo popInfo{};
         popInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-        popInfo.userdata1 = &popState;
+        popInfo.userdata1 = stateHolder;
         popInfo.callback = [](WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView msg, void* userdata1,
                               void* userdata2) {
             (void)userdata2;
-            auto* state = static_cast<PopScopeState*>(userdata1);
-            state->done = true;
+            std::unique_ptr<std::shared_ptr<PopScopeState>> holder{
+                static_cast<std::shared_ptr<PopScopeState>*>(userdata1)};
+            const auto& state = *holder;
             if (status == WGPUPopErrorScopeStatus_Success && type != WGPUErrorType_NoError) {
                 state->errorType = type;
                 if (msg.data) {
@@ -538,11 +561,12 @@ core::Result<ShaderModuleHandle> ShaderManager::CompileWgslModule(WGPUDevice dev
                     state->message.assign(msg.data, len);
                 }
             }
+            state->done.store(true, std::memory_order_release);
         };
         wgpuDevicePopErrorScope(device, popInfo);
         wgpuDevicePoll(device, WGPU_TRUE, nullptr);
-        if (popState.errorType != WGPUErrorType_NoError) {
-            return std::unexpected("WGSL validation error in '" + std::string{label} + "': " + popState.message);
+        if (popState->done.load(std::memory_order_acquire) && popState->errorType != WGPUErrorType_NoError) {
+            return std::unexpected("WGSL validation error in '" + std::string{label} + "': " + popState->message);
         }
     }
 #endif

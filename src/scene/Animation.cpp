@@ -3,11 +3,13 @@
  * @brief Implementation of glTF 2.0 animation keyframe sampling and interpolation.
  */
 #include "scene/Animation.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace bgl::scene {
 
 void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::span<float> outValues) const {
-    if (timestamps.empty() || keyframeValues.empty() || outValues.size() < stride || stride == 0) {
+    if (timestamps.empty() || keyframeValues.empty() || outValues.size() < stride || stride == 0 || !std::isfinite(t)) {
         return;
     }
 
@@ -31,7 +33,8 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
     auto normalizeIfRotation = [&]() noexcept {
         if (path == AnimationPath::Rotation && stride >= 4) {
             glm::quat q(outValues[3], outValues[0], outValues[1], outValues[2]);
-            q = glm::normalize(q);
+            const float lenSq{glm::dot(q, q)};
+            q = (lenSq > 1e-10f && std::isfinite(lenSq)) ? glm::normalize(q) : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
             outValues[0] = q.x;
             outValues[1] = q.y;
             outValues[2] = q.z;
@@ -73,7 +76,7 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
     if (interpolation == AnimationInterpolation::Linear) {
         const size_t offset0 = k * stride;
         const size_t offset1 = k1 * stride;
-        if (offset1 + stride > keyframeValues.size())
+        if (offset0 + stride > keyframeValues.size() || offset1 + stride > keyframeValues.size())
             return;
 
         if (path == AnimationPath::Rotation && stride >= 4) {
@@ -81,11 +84,21 @@ void AnimationSampler::Sample(float t, size_t stride, AnimationPath path, std::s
                          keyframeValues[offset0 + 2]);
             glm::quat q1(keyframeValues[offset1 + 3], keyframeValues[offset1 + 0], keyframeValues[offset1 + 1],
                          keyframeValues[offset1 + 2]);
+            if (glm::dot(q0, q0) <= 1e-10f || glm::dot(q1, q1) <= 1e-10f) {
+                outValues[0] = 0.0f;
+                outValues[1] = 0.0f;
+                outValues[2] = 0.0f;
+                outValues[3] = 1.0f;
+                return;
+            }
             // Ensure shortest path for spherical linear interpolation
             if (glm::dot(q0, q1) < 0.0f) {
                 q1 = -q1;
             }
-            const glm::quat q = glm::normalize(glm::slerp(q0, q1, alpha));
+            const glm::quat slerped = glm::slerp(glm::normalize(q0), glm::normalize(q1), alpha);
+            const float sLenSq = glm::dot(slerped, slerped);
+            const glm::quat q = (sLenSq > 1e-10f && std::isfinite(sLenSq)) ? glm::normalize(slerped)
+                                                                           : glm::quat{1.0f, 0.0f, 0.0f, 0.0f};
             outValues[0] = q.x;
             outValues[1] = q.y;
             outValues[2] = q.z;

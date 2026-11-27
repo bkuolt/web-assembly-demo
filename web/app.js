@@ -24,7 +24,11 @@
   function updateCameraDropdown(gltf) {
     const select = document.getElementById('camera-select');
     if (!select) return;
-    select.innerHTML = '<option value="-1">Default Interactive Camera</option>';
+    select.textContent = '';
+    const defOpt = document.createElement('option');
+    defOpt.value = '-1';
+    defOpt.textContent = 'Default Interactive Camera';
+    select.appendChild(defOpt);
     if (BglState.wasmExports && BglState.wasmExports.bgl_get_camera_count) {
       const count = BglState.wasmExports.bgl_get_camera_count();
       for (let i = 0; i < count; ++i) {
@@ -118,33 +122,12 @@
   window.toggleAnimationPlayback = toggleAnimationPlayback;
   window.onAnimationSpeedSlider = onAnimationSpeedSlider;
 
-  const BglFrameScheduler = {
-    _started: false,
-    _rendererStep: null,
-    _navStep: null,
-    _gamepadStep: null,
-    _fpsStep: null,
+  const BglFrameScheduler = globalThis.BglFrameScheduler;
 
-    registerRenderer(fn) { this._rendererStep = fn; this.start(); },
-    registerNav(fn) { this._navStep = fn; this.start(); },
-    registerGamepad(fn) { this._gamepadStep = fn; this.start(); },
-    registerFps(fn) { this._fpsStep = fn; this.start(); },
-
-    start() {
-      if (this._started || typeof requestAnimationFrame !== 'function') return;
-      this._started = true;
-      const tick = (now) => {
-        if (this._navStep) this._navStep(now);
-        if (this._gamepadStep) this._gamepadStep(now);
-        if (this._rendererStep) this._rendererStep(now);
-        if (this._fpsStep) this._fpsStep(now);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+  async function ingestModel(name, arrayBuffer, reqId = null) {
+    if (reqId !== null && reqId !== activeModelRequestId) {
+      return false;
     }
-  };
-
-  async function ingestModel(name, arrayBuffer) {
     BglLogger.timeStart('Model-Ingest');
     BglLogger.log('glTF', `Ingesting 3D model '${name}' (${arrayBuffer.byteLength.toLocaleString()} bytes)...`);
 
@@ -154,6 +137,9 @@
     // 2. Parse glTF (via Web Worker when available) for live inspector & telemetry
     try {
       const gltf = BglGltf.extractJsonAsync ? await BglGltf.extractJsonAsync(arrayBuffer) : BglGltf.extractJson(arrayBuffer);
+      if (reqId !== null && reqId !== activeModelRequestId) {
+        return false;
+      }
       BglState.currentGltf = gltf;
       BglState.currentModelBuffer = arrayBuffer;
       BglState.currentModelName = name;
@@ -180,49 +166,73 @@
         'Model Loaded Successfully',
         `'${name}' is active in the engine (${nodes.length} nodes, ${(arrayBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB).`
       );
+      return true;
     } catch (parseErr) {
       BglLogger.warn('glTF', `Could not parse JSON inspector data for '${name}':`, parseErr);
       BglNotifier.warning(
         'Hierarchy Inspector Notice',
         `3D Model buffer loaded into engine, but glTF JSON inspection was unavailable: ${parseErr.message}`
       );
+      return false;
     }
   }
 
   // ============================================================================
   // Remote Model Fetching & Preset Loading
   // ============================================================================
-  async function loadModelFromUrl(url) {
-    BglLogger.log('Network', `Requesting model download from URL: ${url}`);
-    const cleanName = url.split(/[?#]/)[0].split('/').pop() || 'Model.glb';
-    
+  let activeModelRequestId = 0;
+
+  async function loadModelFromUrl(url, options = {}) {
+    const { throwOnError = false, allowCustomHttps = true } = options;
+    const urlCheck = BglNetwork.validateAssetUrl(url, { allowData: true, allowCustomHttps });
+    if (!urlCheck.ok) {
+      const err = new Error(urlCheck.reason || 'Unsafe or disallowed asset URL');
+      BglLogger.warn('Network', `Blocked model URL '${url}': ${err.message}`);
+      BglNotifier.error('Blocked Asset URL', `Refused to load model URL "${url}": ${err.message}`);
+      if (throwOnError) throw err;
+      return false;
+    }
+
+    if (BglLoadingScreen.abortController) {
+      BglLoadingScreen.abortController.abort();
+    }
+    const reqId = ++activeModelRequestId;
+    const safeUrl = urlCheck.url;
+    BglLogger.log('Network', `Requesting model download from URL: ${safeUrl}`);
+    const cleanName = safeUrl.split(/[?#]/)[0].split('/').pop() || 'Model.glb';
+
     // Check if model exists in browser cache
-    const cachedBuffer = await BglModelCache.get(url);
+    const cachedBuffer = await BglModelCache.get(safeUrl);
+    if (reqId !== activeModelRequestId) return false;
     if (cachedBuffer) {
       BglLogger.log('Cache', `Instant load for cached asset: ${cleanName}`);
-      BglLoadingScreen.show(cleanName, url);
+      BglLoadingScreen.show(cleanName, safeUrl);
       BglLoadingScreen.update(100, `Loading from Browser Storage...`, cachedBuffer.byteLength, cachedBuffer.byteLength, 'Instant', true);
       BglUI.setProgress(100, `Instant Cache: ${cleanName}`);
-      
+
       try {
-        await ingestModel(cleanName, cachedBuffer);
+        const applied = await ingestModel(cleanName, cachedBuffer, reqId);
+        if (!applied || reqId !== activeModelRequestId) return false;
         BglNotifier.success('Loaded from Cache', `'${cleanName}' was instantly restored from offline browser cache.`);
+        return true;
       } catch (err) {
         BglLogger.error('Engine', `Error ingesting cached asset: ${err.message}`);
         BglNotifier.error('Cache Ingestion Error', `Could not load '${cleanName}' from cache: ${err.message}`);
+        if (throwOnError) throw err;
+        return false;
       } finally {
-        BglLoadingScreen.hide();
+        if (reqId === activeModelRequestId) BglLoadingScreen.hide();
       }
-      return;
     }
 
     // Remote or local network fetch
-    BglLoadingScreen.show(cleanName, url);
+    BglLoadingScreen.show(cleanName, safeUrl);
     try {
-      BglUI.setProgress(10, `Connecting to ${url}...`);
+      BglUI.setProgress(10, `Connecting to ${safeUrl}...`);
       const signal = BglLoadingScreen.abortController ? BglLoadingScreen.abortController.signal : null;
-      
-      const arrayBuffer = await BglNetwork.fetchWithProgress(url, (info) => {
+
+      const arrayBuffer = await BglNetwork.fetchWithProgress(safeUrl, (info) => {
+        if (reqId !== activeModelRequestId) return;
         BglUI.setProgress(info.percent, info.msg);
         BglLoadingScreen.update(
           info.percent,
@@ -234,26 +244,36 @@
         );
       }, signal);
 
-      // Cache the downloaded buffer for future loads
-      await BglModelCache.put(url, arrayBuffer);
+      if (reqId !== activeModelRequestId) return false;
 
       BglLoadingScreen.update(100, `Ingesting into WebGPU Engine...`, arrayBuffer.byteLength, arrayBuffer.byteLength, '0.0', false);
-      await ingestModel(cleanName, arrayBuffer);
+      const ingested = await ingestModel(cleanName, arrayBuffer, reqId);
+      if (reqId !== activeModelRequestId) return false;
+
+      // Validate-before-cache: cache only after glTF JSON parsing succeeded
+      if (ingested) {
+        await BglModelCache.put(safeUrl, arrayBuffer);
+      }
+      if (reqId !== activeModelRequestId) return false;
       BglUI.setProgress(100, `Ready: ${cleanName}`);
+      return true;
     } catch (err) {
+      if (reqId !== activeModelRequestId) return false;
       if (err.message && err.message.includes('aborted')) {
         BglLogger.warn('Network', 'Download cancelled by user.');
-        return;
+        return false;
       }
-      BglLogger.error('Network', `Failed to load model from '${url}':`, err);
+      BglLogger.error('Network', `Failed to load model from '${safeUrl}':`, err);
       BglNotifier.error(
         'Model Download Failed',
-        `Could not retrieve 3D model from "${url}". Please verify the URL, CORS permissions, and network connectivity.`,
+        `Could not retrieve 3D model from "${safeUrl}". Please verify the URL, CORS permissions, and network connectivity.`,
         err.message
       );
       BglUI.setProgress(100, `Failed to load: ${cleanName}`);
+      if (throwOnError) throw err;
+      return false;
     } finally {
-      BglLoadingScreen.hide();
+      if (reqId === activeModelRequestId) BglLoadingScreen.hide();
     }
   }
   window.loadModelFromUrl = loadModelFromUrl;
@@ -289,13 +309,21 @@
   function onManualFileSelected(event) {
     if (event.target.files && event.target.files.length > 0) {
       const file = event.target.files[0];
+      if (file.size > BglNetwork.MAX_MODEL_BYTES) {
+        BglNotifier.error('File Too Large', `'${file.name}' (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 128 MB browser limit.`);
+        return;
+      }
+      if (BglLoadingScreen.abortController) {
+        BglLoadingScreen.abortController.abort();
+        BglLoadingScreen.hide();
+      }
+      const reqId = ++activeModelRequestId;
       BglLogger.log('UI', `Manual file selected: ${file.name} (${file.size.toLocaleString()} bytes)`);
 
       const reader = new FileReader();
       reader.onload = async (evt) => {
         try {
-          await ingestModel(file.name, evt.target.result);
-          await BglModelCache.put(`local://${file.name}`, evt.target.result);
+          await ingestModel(file.name, evt.target.result, reqId);
         } catch (err) {
           BglNotifier.error('File Ingestion Error', `Could not ingest '${file.name}': ${err.message}`);
         }
@@ -314,6 +342,7 @@
   window.clearModelCache = clearModelCache;
 
   function cancelModelDownload() {
+    activeModelRequestId++;
     BglLoadingScreen.cancel();
   }
   window.cancelModelDownload = cancelModelDownload;
@@ -327,18 +356,19 @@
 
     if (customUrl) {
       BglLogger.log('Engine', `Detected query parameter model override: ${customUrl}`);
-      await loadModelFromUrl(customUrl);
-      return;
+      const ok = await loadModelFromUrl(customUrl, { allowCustomHttps: false });
+      if (ok) return;
+      BglLogger.warn('Engine', 'Query model override failed or was blocked; falling back to default scene.');
     }
 
     // Default: prioritize fast startup with ToyCar.glb (~5.1 MB), with Sponza available via quick button
     try {
       BglLogger.log('Engine', 'Loading default lightweight scene: assets/ToyCar.glb');
-      await loadModelFromUrl("assets/ToyCar.glb");
+      await loadModelFromUrl("assets/ToyCar.glb", { throwOnError: true });
     } catch (toyCarErr) {
       BglLogger.warn('Engine', `ToyCar.glb unavailable (${toyCarErr.message}), attempting assets/Sponza.glb...`);
       try {
-        await loadModelFromUrl("assets/Sponza.glb");
+        await loadModelFromUrl("assets/Sponza.glb", { throwOnError: true });
       } catch (sponzaErr) {
         BglLogger.warn('Engine', 'No default local asset found in assets/. Waiting for user drag-and-drop.');
         BglUI.setProgress(100, 'Ready: Drop a glTF or GLB file onto the viewport.');
@@ -403,15 +433,25 @@
 
       const rec = document.createElement('div');
       rec.className = 'compat-recommendations';
-      rec.innerHTML = `
-        <h5>Troubleshooting &amp; Browser Requirements</h5>
-        <ul>
-          <li><strong>Supported Browsers:</strong> Google Chrome (113+), Microsoft Edge (113+), Firefox (120+ with <code>dom.webgpu.enabled</code> in <code>about:config</code>), Safari (18+).</li>
-          <li><strong>Secure Context:</strong> WebGPU requires HTTPS or <code>http://localhost</code>. Non-secure HTTP origins block WebGPU APIs by browser security policy.</li>
-          <li><strong>Hardware Acceleration:</strong> Ensure hardware graphics acceleration is enabled in browser preferences (<code>Settings &rarr; System &rarr; Use graphics acceleration when available</code>).</li>
-          <li><strong>GPU Drivers:</strong> Ensure modern Vulkan, Metal, or Direct3D 12 drivers are installed for your graphics hardware.</li>
-        </ul>
-      `;
+      const recHeading = document.createElement('h5');
+      recHeading.textContent = 'Troubleshooting & Browser Requirements';
+      rec.appendChild(recHeading);
+      const recList = document.createElement('ul');
+      const items = [
+        ['Supported Browsers:', 'Google Chrome (113+), Microsoft Edge (113+), Firefox (120+ with dom.webgpu.enabled in about:config), Safari (18+).'],
+        ['Secure Context:', 'WebGPU requires HTTPS or http://localhost. Non-secure HTTP origins block WebGPU APIs by browser security policy.'],
+        ['Hardware Acceleration:', 'Ensure hardware graphics acceleration is enabled in browser preferences (Settings -> System -> Use graphics acceleration when available).'],
+        ['GPU Drivers:', 'Ensure modern Vulkan, Metal, or Direct3D 12 drivers are installed for your graphics hardware.']
+      ];
+      for (const [label, body] of items) {
+        const li = document.createElement('li');
+        const strong = document.createElement('strong');
+        strong.textContent = label + ' ';
+        li.appendChild(strong);
+        li.appendChild(document.createTextNode(body));
+        recList.appendChild(li);
+      }
+      rec.appendChild(recList);
       content.appendChild(rec);
     }
 
@@ -1191,24 +1231,119 @@
   window.switchTab = switchTab;
 
   function filterNodes(query) {
-    const q = query.trim().toLowerCase();
-    const escapedQ = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(q) : q.replace(/["\\]/g, '\\$&');
+    const q = String(query || '').trim().toLowerCase();
     const wrappers = document.querySelectorAll('.tree-node-wrapper');
+    if (!q) {
+      wrappers.forEach(w => { w.style.display = ''; });
+      return;
+    }
+    wrappers.forEach(w => { w.style.display = 'none'; });
     wrappers.forEach(w => {
-      if (!q || w.dataset.name.includes(q)) {
-        w.style.display = '';
-      } else {
-        const hasMatchingChild = w.querySelector(`.tree-node-wrapper[data-name*="${escapedQ}"]`);
-        w.style.display = hasMatchingChild ? '' : 'none';
+      const name = (w.dataset && w.dataset.name) ? w.dataset.name : '';
+      if (name.includes(q)) {
+        let cur = w;
+        while (cur) {
+          if (cur.classList && cur.classList.contains('tree-node-wrapper')) {
+            cur.style.display = '';
+          }
+          cur = cur.parentElement;
+        }
       }
     });
   }
   window.filterNodes = filterNodes;
 
   // ============================================================================
-  // Global Event Listeners (Keyboard, Drag & Drop, Error Handlers)
+  // Global Event Listeners (Keyboard, Drag & Drop, Delegated UI, Error Handlers)
   // ============================================================================
   function registerEventListeners() {
+    const clickActions = {
+      cancelModelDownload: () => cancelModelDownload(),
+      clearModelCache: () => clearModelCache(),
+      cycleDebugView: () => cycleDebugView(),
+      dismissCompatWarning: () => dismissCompatWarning(),
+      focusSelection: () => focusSelection(),
+      frameAll: () => frameAll(),
+      promptCustomModelUrl: () => promptCustomModelUrl(),
+      restoreBookmark: (arg) => restoreBookmark(Number(arg)),
+      saveBookmark: (arg) => saveBookmark(Number(arg)),
+      setWeatherMode: (arg) => setWeatherMode(arg),
+      switchTab: (arg) => switchTab(arg),
+      toggleAnimationPlayback: () => toggleAnimationPlayback(),
+      toggleAO: () => toggleAO(),
+      toggleAutoLod: () => toggleAutoLod(),
+      toggleBBox: () => toggleBBox(),
+      toggleBloom: () => toggleBloom(),
+      toggleBump: () => toggleBump(),
+      toggleCameraMode: () => toggleCameraMode(),
+      toggleDayNightCycle: () => toggleDayNightCycle(),
+      toggleFeaturesSection: () => toggleFeaturesSection(),
+      toggleHUD: () => toggleHUD(),
+      toggleHudMinimize: () => toggleHudMinimize(),
+      toggleLensFlare: () => toggleLensFlare(),
+      toggleLod: () => toggleLod(),
+      toggleLodHeatmap: () => toggleLodHeatmap(),
+      toggleMipmaps: () => toggleMipmaps(),
+      togglePOM: () => togglePOM(),
+      toggleQuadtree: () => toggleQuadtree(),
+      toggleReflections: () => toggleReflections(),
+      toggleShadows: () => toggleShadows(),
+      toggleSkybox: () => toggleSkybox(),
+      toggleSSAO: () => toggleSSAO(),
+      toggleTelemetrySection: () => toggleTelemetrySection(),
+      toggleTreePanel: () => toggleTreePanel(),
+      toggleTuningSection: () => toggleTuningSection(),
+      toggleTurntable: () => toggleTurntable(),
+      triggerFileInput: () => triggerFileInput()
+    };
+    const changeActions = {
+      onAnimationSelected: (el) => onAnimationSelected(el.value),
+      onCameraSelect: (el) => onCameraSelect(el.value),
+      onManualFileSelected: (_el, evt) => onManualFileSelected(evt),
+      onModelSelectChanged: (el) => onModelSelectChanged(el.value)
+    };
+    const inputActions = {
+      filterNodes: (el) => filterNodes(el.value),
+      onAnimationSpeedSlider: (el) => onAnimationSpeedSlider(el.value),
+      onAoSlider: (el) => onAoSlider(el.value),
+      onBloomSlider: (el) => onBloomSlider(el.value),
+      onBumpSlider: (el) => onBumpSlider(el.value),
+      onDayNightSpeedSlider: (el) => onDayNightSpeedSlider(el.value),
+      onFlareSlider: (el) => onFlareSlider(el.value),
+      onLodBiasSlider: (el) => onLodBiasSlider(el.value),
+      onPomSlider: (el) => onPomSlider(el.value),
+      onSsaoSlider: (el) => onSsaoSlider(el.value),
+      onTimeOfDaySlider: (el) => onTimeOfDaySlider(el.value),
+      onTurntableSpeedSlider: (el) => onTurntableSpeedSlider(el.value),
+      onWeatherIntensitySlider: (el) => onWeatherIntensitySlider(el.value),
+      onWindSlider: (el) => onWindSlider(el.value)
+    };
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'compat-warning-modal') {
+          dismissCompatWarning();
+          return;
+        }
+        const target = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+        if (!target) return;
+        const fn = clickActions[target.dataset.action];
+        if (fn) fn(target.dataset.arg, e);
+      });
+      document.addEventListener('change', (e) => {
+        const target = e.target && e.target.dataset ? e.target : null;
+        if (!target || !target.dataset.change) return;
+        const fn = changeActions[target.dataset.change];
+        if (fn) fn(target, e);
+      });
+      document.addEventListener('input', (e) => {
+        const target = e.target && e.target.dataset ? e.target : null;
+        if (!target || !target.dataset.input) return;
+        const fn = inputActions[target.dataset.input];
+        if (fn) fn(target, e);
+      });
+    }
+
     // Continuous WASD & Arrow Key Navigation
     const activeNavKeys = new Set();
     const navKeyCodes = new Set([
@@ -1555,6 +1690,15 @@
 
         if (e.dataTransfer && e.dataTransfer.files.length > 0) {
           const file = e.dataTransfer.files[0];
+          if (file.size > BglNetwork.MAX_MODEL_BYTES) {
+            BglNotifier.error('File Too Large', `'${file.name}' (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 128 MB browser limit.`);
+            return;
+          }
+          if (BglLoadingScreen.abortController) {
+            BglLoadingScreen.abortController.abort();
+            BglLoadingScreen.hide();
+          }
+          const reqId = ++activeModelRequestId;
           BglLogger.log('UI', `File dropped: ${file.name} (${file.size.toLocaleString()} bytes)`);
 
           const isGltf = file.name.endsWith('.glb') || file.name.endsWith('.gltf');
@@ -1568,7 +1712,7 @@
           const reader = new FileReader();
           reader.onload = async (evt) => {
             try {
-              await ingestModel(file.name, evt.target.result);
+              await ingestModel(file.name, evt.target.result, reqId);
             } catch (err) {
               BglNotifier.error('File Ingestion Error', `Could not ingest '${file.name}': ${err.message}`);
             }
@@ -1580,9 +1724,14 @@
         } else if (e.dataTransfer) {
           const rawUri = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '').trim();
           const urlLine = rawUri.split(/\r?\n/).find(line => line.trim() && !line.trim().startsWith('#'));
-          if (urlLine && (/^https?:\/\//i.test(urlLine.trim()) || /^data:/i.test(urlLine.trim()))) {
-            BglLogger.log('UI', `URL dropped: ${urlLine.trim()}`);
-            await loadModelFromUrl(urlLine.trim());
+          if (urlLine) {
+            const check = BglNetwork.validateAssetUrl(urlLine.trim(), { allowData: true, allowCustomHttps: true });
+            if (check.ok) {
+              BglLogger.log('UI', `URL dropped: ${check.url}`);
+              await loadModelFromUrl(check.url);
+            } else {
+              BglNotifier.error('Blocked URL Drop', `Refused to load dropped URI: ${check.reason}`);
+            }
           }
         }
       });

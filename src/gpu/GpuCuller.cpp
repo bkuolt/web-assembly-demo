@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <unordered_set>
 #include <utility>
 
 namespace bgl::gpu {
@@ -241,7 +242,12 @@ core::Result<void> GpuCuller::Initialize(WGPUDevice device, WGPUQueue queue) {
 void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
     cpuBounds_.clear();
     cpuIndirectArgs_.clear();
-    auto collectBounds = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentMat) -> void {
+    std::unordered_set<const scene::SceneNode*> visitedBounds{};
+    auto collectBounds = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentMat,
+                             size_t depth) -> void {
+        if (depth > 256u || !visitedBounds.insert(&node).second) {
+            return;
+        }
         const glm::mat4 worldMat = parentMat * node.localTransform;
         auto prims = node.GetPrimitives();
         for (size_t pIdx = 0; pIdx < prims.size(); ++pIdx) {
@@ -280,13 +286,13 @@ void GpuCuller::UploadSceneBounds(const scene::Scene& scene) {
         }
         for (const auto& child : node.children) {
             if (child)
-                self(self, *child, worldMat);
+                self(self, *child, worldMat, depth + 1u);
         }
     };
 
     for (const auto& root : scene.rootNodes) {
         if (root)
-            collectBounds(collectBounds, *root, glm::mat4{1.0f});
+            collectBounds(collectBounds, *root, glm::mat4{1.0f}, 0u);
     }
 
     primitiveCount_ = cpuBounds_.size();

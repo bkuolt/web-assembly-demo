@@ -147,6 +147,12 @@ public:
      */
     void EndFrame(WGPURenderPassEncoder pass);
 
+    /**
+     * @brief Releases an active in-progress frame's encoder/view/surface without submitting (e.g. on pass creation
+     * failure).
+     */
+    void AbortFrame() noexcept;
+
 private:
     void CreateRenderBuffers();
 

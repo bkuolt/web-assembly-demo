@@ -17,7 +17,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     (void)bgl::scene::TextureDecoder::DecodePNG(span);
     (void)bgl::scene::TextureDecoder::DecodeJPEG(span);
     (void)bgl::scene::TextureDecoder::DecodeWebP(span);
-    (void)bgl::scene::TextureDecoder::DecodeKTX2(span);
+    (void)bgl::scene::TextureDecoder::DecodeKTX2(span, bgl::scene::KtxTranscodeTarget::Rgba32);
+    (void)bgl::scene::TextureDecoder::DecodeKTX2(span, bgl::scene::KtxTranscodeTarget::Bc7);
+    (void)bgl::scene::TextureDecoder::DecodeHdrAuto(span, "fuzz_input.hdr");
+    (void)bgl::scene::TextureDecoder::DecodeHDR(span);
+    (void)bgl::scene::TextureDecoder::DecodeEXR(span);
+    (void)bgl::scene::TextureDecoder::DecodeKTX2(span, bgl::scene::KtxTranscodeTarget::Bc7);
+    (void)bgl::scene::TextureDecoder::DecodeKTX2(span, bgl::scene::KtxTranscodeTarget::Etc2Rgba);
+    (void)bgl::scene::TextureDecoder::DecodeHDR(span);
+    (void)bgl::scene::TextureDecoder::DecodeEXR(span);
+    (void)bgl::scene::TextureDecoder::DecodeHdrAuto(span, "fuzz.hdr");
 
     return 0;
 }

@@ -201,8 +201,10 @@ void EngineCore::Render() {
     }
 
     WGPURenderPassEncoder hdrPass = gpuContext_.BeginFrame();
-    if (!hdrPass)
+    if (!hdrPass) {
+        gpuContext_.AbortFrame();
         return;
+    }
 
     if (activeScene_) {
         // 1. Hardware 4x MSAA Opaque/Masked PBR Pass (RGBA16Float + 16x Aniso + Quadtree Frustum Culling)
@@ -227,8 +229,10 @@ void EngineCore::Render() {
                                      pipelineManager_.GetOpaqueCopyWidth(), pipelineManager_.GetOpaqueCopyHeight());
     pipelineManager_.GenerateOpaqueCopyMips(gpuContext_.GetCommandEncoder());
     WGPURenderPassEncoder transparentPass = gpuContext_.OpenTransparentPass();
-    if (!transparentPass)
+    if (!transparentPass) {
+        gpuContext_.AbortFrame();
         return;
+    }
 
     if (activeScene_) {
         pipelineManager_.RenderTransparentScene(transparentPass, *activeScene_, vp, wireframeMode_);
@@ -277,8 +281,10 @@ void EngineCore::Render() {
 
     // 7. Open Swapchain pass (1x), finish FXAA / Tonemap, and draw HUD + ImmediateUI crisp on top
     WGPURenderPassEncoder swapchainPass = gpuContext_.BeginSwapchainPass();
-    if (!swapchainPass)
+    if (!swapchainPass) {
+        gpuContext_.AbortFrame();
         return;
+    }
 
     pipelineManager_.RenderTonemapPass(swapchainPass, gpuContext_.GetHdrResolveView(),
                                        camera_.GetViewProjectionMatrix(), camera_.GetPosition(), sunDir,

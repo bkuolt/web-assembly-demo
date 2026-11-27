@@ -57,6 +57,8 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
                 "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g -O1",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=undefined",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=undefined",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
         },
@@ -70,6 +72,8 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_MAP_IMPORTED_CONFIG_DEBUG": "Release",
                 "CMAKE_CXX_FLAGS": "-fsanitize=thread -g",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
                 "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/build/Release/generators/conan_toolchain.cmake"
             }
         },

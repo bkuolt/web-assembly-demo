@@ -181,11 +181,18 @@ void Application::SetLoadingFailedState(std::string_view titleName, std::string_
 
 void Application::RetireActiveLoadAsync() noexcept {
 #if defined(BGL_PLATFORM_NATIVE)
+    constexpr size_t kMaxCancellingLoads{4u};
+    std::erase_if(cancellingLoads_, [](const std::unique_ptr<AsyncLoadTask>& t) {
+        return !t || !t->state || t->state->finished.load(std::memory_order_acquire);
+    });
     if (!activeLoad_) {
         return;
     }
     if (activeLoad_->state) {
         activeLoad_->state->cancelRequested.store(true, std::memory_order_release);
+    }
+    while (cancellingLoads_.size() >= kMaxCancellingLoads) {
+        cancellingLoads_.erase(cancellingLoads_.begin());
     }
     cancellingLoads_.push_back(std::move(activeLoad_));
 #endif
@@ -193,13 +200,15 @@ void Application::RetireActiveLoadAsync() noexcept {
 
 void Application::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
     RetireActiveLoadAsync();
-    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
-    if (auto res = LoadScene(data, filename); res) {
-        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
+    const std::string displayName{core::NetworkFetcher::ExtractDisplayName(filename)};
+    const std::string memoryBaseUri{"memory://" + displayName};
+    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", core::SanitizeForLog(displayName), data.size());
+    if (auto res = LoadScene(data, memoryBaseUri); res) {
+        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", core::SanitizeForLog(displayName));
         SetLoadingSucceededState();
     } else {
-        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", filename, res.error());
-        SetLoadingFailedState(core::NetworkFetcher::ExtractDisplayName(filename), res.error(), false);
+        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", core::SanitizeForLog(displayName), res.error());
+        SetLoadingFailedState(displayName, res.error(), false);
     }
 }
 
@@ -231,7 +240,7 @@ void Application::LoadSceneFromUriAsync(std::string_view uri, std::string_view d
 
     auto task = std::make_unique<AsyncLoadTask>();
     task->state = state;
-    // Worker captures only passive AsyncLoadState so std::jthread stays strictly owned by the main thread.
+    // Main thread joins or retires worker via std::jthread before Shutdown destroys `this` or `assetManager_`.
     task->worker = std::jthread([this, state, sanitizedUri]() {
         scene::FastGltfLoader workerLoader{assetManager_};
         auto res = workerLoader.LoadFromFile(sanitizedUri, [state](const scene::LoadProgressInfo& info) -> bool {
@@ -311,7 +320,8 @@ void Application::PollAsyncSceneLoad(float deltaTime) {
         SetLoadingSucceededState();
     } else {
         const std::string errMsg = res ? std::string{"Loaded glTF scene is empty"} : res.error();
-        BGL_LOG_ERROR("Failed to load glTF model '{}': {}", state.sourceUri, errMsg);
+        BGL_LOG_ERROR("Failed to load glTF model '{}': {}", core::SanitizeForLog(state.sourceUri),
+                      core::SanitizeForLog(errMsg));
         SetLoadingFailedState(core::NetworkFetcher::ExtractDisplayName(state.sourceUri), errMsg, true);
     }
 }

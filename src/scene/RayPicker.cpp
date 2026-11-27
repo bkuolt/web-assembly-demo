@@ -4,6 +4,7 @@
  */
 #include "scene/RayPicker.hpp"
 #include <cmath>
+#include <unordered_set>
 
 namespace bgl::scene {
 
@@ -48,10 +49,12 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray,
     }
     std::optional<RayHit> closestHit{};
     float minDistance{1e30f};
+    std::unordered_set<const SceneNode*> visited{};
+    constexpr size_t kMaxPickDepth{256u};
 
-    auto traverseNode = [&](this auto&& self, const std::shared_ptr<SceneNode>& node,
-                            const glm::mat4& parentTransform) -> void {
-        if (!node)
+    auto traverseNode = [&](this auto&& self, const std::shared_ptr<SceneNode>& node, const glm::mat4& parentTransform,
+                            size_t depth) -> void {
+        if (!node || depth > kMaxPickDepth || !visited.insert(node.get()).second)
             return;
         const glm::mat4 worldMat{parentTransform * node->localTransform};
 
@@ -121,12 +124,12 @@ std::optional<RayHit> RayPicker::Pick(const core::Ray& ray,
         }
 
         for (const auto& child : node->children) {
-            self(child, worldMat);
+            self(child, worldMat, depth + 1u);
         }
     };
 
     for (const auto& rootNode : rootNodes) {
-        traverseNode(rootNode, glm::mat4{1.0f});
+        traverseNode(rootNode, glm::mat4{1.0f}, 0u);
     }
 
     return closestHit;

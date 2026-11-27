@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -19,6 +17,10 @@ jobs:
   build-pages:
     name: Build Web App & Doxygen Docs
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -49,7 +51,7 @@ jobs:
       run: |
         mkdir -p web/dist
         em++ -O3 -std=c++23 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -ffreestanding -c src/wasm/wasm_bridge.cpp -o /tmp/wasm_bridge.o
-        wasm-ld --no-entry --strip-debug --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
+        wasm-ld --no-entry --strip-debug --stack-first --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
           --export=malloc --export=free \
           --export=bgl_init --export=bgl_resize --export=bgl_load_file_buffer \
           --export=bgl_select_node --export=bgl_clear_selection --export=bgl_pick_node \
@@ -102,6 +104,9 @@ jobs:
     needs: build-pages
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

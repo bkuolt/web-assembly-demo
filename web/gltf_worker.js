@@ -5,9 +5,12 @@
  */
 'use strict';
 
+const MAX_MODEL_BYTES = 128 * 1024 * 1024;
+const MAX_EMBEDDED_BUFFERS = 64;
+
 function extractJsonPayload(arrayBuffer) {
-  if (!arrayBuffer || arrayBuffer.byteLength < 4) {
-    throw new Error('Buffer is empty or too short to be a valid 3D model.');
+  if (!arrayBuffer || arrayBuffer.byteLength < 4 || arrayBuffer.byteLength > MAX_MODEL_BYTES) {
+    throw new Error('Buffer is empty, too short, or exceeds maximum allowed size.');
   }
 
   const dv = new DataView(arrayBuffer);
@@ -21,7 +24,7 @@ function extractJsonPayload(arrayBuffer) {
     if (chunkType !== 0x4E4F534A) {
       throw new Error(`Invalid GLB: First chunk type 0x${chunkType.toString(16)} is not JSON.`);
     }
-    if (20 + chunkLength > arrayBuffer.byteLength) {
+    if (chunkLength > arrayBuffer.byteLength - 20) {
       throw new Error(`Truncated GLB JSON chunk (${chunkLength} bytes).`);
     }
     const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);
@@ -44,14 +47,16 @@ function computeTelemetry(gltf) {
       totalPrims += mesh.primitives.length;
       for (let p = 0; p < mesh.primitives.length; ++p) {
         const prim = mesh.primitives[p];
-        if (!prim || !prim.attributes || prim.attributes.POSITION === undefined) continue;
-        const acc = gltf.accessors[prim.attributes.POSITION];
-        if (!acc) continue;
-        totalVerts += acc.count || 0;
-        if (acc.min && acc.max) {
+        if (!prim || !prim.attributes || !Number.isInteger(prim.attributes.POSITION)) continue;
+        const posIdx = prim.attributes.POSITION;
+        if (posIdx < 0 || posIdx >= gltf.accessors.length) continue;
+        const acc = gltf.accessors[posIdx];
+        if (!acc || !Number.isFinite(acc.count) || acc.count < 0) continue;
+        totalVerts += acc.count;
+        if (Array.isArray(acc.min) && Array.isArray(acc.max) && acc.min.length >= 3 && acc.max.length >= 3) {
           for (let i = 0; i < 3; ++i) {
-            if (acc.min[i] < minB[i]) minB[i] = acc.min[i];
-            if (acc.max[i] > maxB[i]) maxB[i] = acc.max[i];
+            if (Number.isFinite(acc.min[i]) && acc.min[i] < minB[i]) minB[i] = acc.min[i];
+            if (Number.isFinite(acc.max[i]) && acc.max[i] > maxB[i]) maxB[i] = acc.max[i];
           }
         }
       }
@@ -59,7 +64,7 @@ function computeTelemetry(gltf) {
   }
 
   return {
-    valid: minB[0] <= maxB[0],
+    valid: Number.isFinite(minB[0]) && Number.isFinite(maxB[0]) && minB[0] <= maxB[0],
     minB,
     maxB,
     totalPrims,
@@ -71,19 +76,39 @@ function decodeEmbeddedBuffers(gltf, transferList) {
   const embeddedBuffers = [];
   if (!gltf || !Array.isArray(gltf.buffers)) return embeddedBuffers;
 
-  for (let i = 0; i < gltf.buffers.length; ++i) {
+  const count = Math.min(gltf.buffers.length, MAX_EMBEDDED_BUFFERS);
+  let totalDecodedBytes = 0;
+  for (let i = 0; i < count; ++i) {
     const buf = gltf.buffers[i];
-    if (!buf || typeof buf.uri !== 'string' || !buf.uri.startsWith('data:')) continue;
+    if (!buf || typeof buf.uri !== 'string' || !/^data:/i.test(buf.uri)) continue;
     const commaIdx = buf.uri.indexOf(',');
     if (commaIdx === -1) continue;
-    const base64Str = buf.uri.slice(commaIdx + 1);
-    const binStr = atob(base64Str);
-    const bytes = new Uint8Array(binStr.length);
-    for (let b = 0; b < binStr.length; ++b) {
-      bytes[b] = binStr.charCodeAt(b);
+    const header = buf.uri.slice(5, commaIdx).toLowerCase();
+    const payload = buf.uri.slice(commaIdx + 1);
+    try {
+      let bytes;
+      if (header.includes(';base64')) {
+        const binStr = atob(payload);
+        if (binStr.length > MAX_MODEL_BYTES || totalDecodedBytes + binStr.length > MAX_MODEL_BYTES) {
+          throw new Error('Decoded embedded buffer exceeds size limit');
+        }
+        bytes = new Uint8Array(binStr.length);
+        for (let b = 0; b < binStr.length; ++b) {
+          bytes[b] = binStr.charCodeAt(b);
+        }
+      } else {
+        const text = decodeURIComponent(payload);
+        bytes = new TextEncoder().encode(text);
+        if (bytes.byteLength > MAX_MODEL_BYTES || totalDecodedBytes + bytes.byteLength > MAX_MODEL_BYTES) {
+          throw new Error('Decoded embedded buffer exceeds size limit');
+        }
+      }
+      totalDecodedBytes += bytes.byteLength;
+      embeddedBuffers[i] = bytes.buffer;
+      transferList.push(bytes.buffer);
+    } catch (_e) {
+      // Skip corrupted embedded buffer URI cleanly
     }
-    embeddedBuffers[i] = bytes.buffer;
-    transferList.push(bytes.buffer);
   }
   return embeddedBuffers;
 }
@@ -93,12 +118,19 @@ self.onmessage = function onWorkerMessage(evt) {
   if (!msg || typeof msg.id !== 'number') return;
 
   try {
+    if (!msg.buffer || msg.buffer.byteLength > MAX_MODEL_BYTES) {
+      throw new Error('Buffer exceeds maximum allowed size.');
+    }
     let gltf;
     if (msg.cmd === 'parseJsonChunkOnly') {
       const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(msg.buffer));
       gltf = JSON.parse(jsonStr);
     } else {
       gltf = extractJsonPayload(msg.buffer);
+    }
+
+    if (!gltf || typeof gltf !== 'object' || Array.isArray(gltf)) {
+      throw new Error('Parsed glTF payload is not a JSON object.');
     }
 
     const telemetry = computeTelemetry(gltf);

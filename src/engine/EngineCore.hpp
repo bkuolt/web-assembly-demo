@@ -65,7 +65,7 @@ public:
     void Render();
 
     /** @brief Releases GPU resources and the native window. Safe to call twice. */
-    void Shutdown();
+    virtual void Shutdown();
 
     /** @brief Toggles rendering of 3D scene and mesh primitive bounding boxes. */
     void ToggleBoundingBoxes() noexcept { showBoundingBoxes_ = !showBoundingBoxes_; }

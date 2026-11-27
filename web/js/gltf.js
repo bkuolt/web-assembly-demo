@@ -23,6 +23,7 @@
 
       const dataView = new DataView(arrayBuffer);
       const magic = dataView.getUint32(0, true);
+      let parsed;
 
       // Binary GLB check: magic 0x46546C67 ("glTF")
       if (magic === 0x46546C67) {
@@ -41,18 +42,23 @@
           throw new Error(`Invalid GLB: First chunk type 0x${chunkType.toString(16)} is not JSON (0x4E4F534A).`);
         }
 
-        if (20 + chunkLength > arrayBuffer.byteLength) {
+        if (chunkLength > arrayBuffer.byteLength - 20) {
           throw new Error(`Truncated GLB chunk: JSON chunk claims ${chunkLength} bytes, but file has only ${arrayBuffer.byteLength - 20} payload bytes remaining.`);
         }
 
         const jsonBytes = new Uint8Array(arrayBuffer, 20, chunkLength);
         const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(jsonBytes);
-        return JSON.parse(jsonStr);
+        parsed = JSON.parse(jsonStr);
+      } else {
+        // Plain JSON glTF text
+        const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(arrayBuffer));
+        parsed = JSON.parse(jsonStr);
       }
 
-      // Plain JSON glTF text
-      const jsonStr = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(arrayBuffer));
-      return JSON.parse(jsonStr);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Parsed glTF payload is not a JSON object.');
+      }
+      return parsed;
     },
 
     _worker: null,
@@ -84,6 +90,10 @@
             if (!entry) return;
             this._workerPending.delete(msg.id);
             if (msg.ok) {
+              if (!msg.gltf || typeof msg.gltf !== 'object' || Array.isArray(msg.gltf)) {
+                entry.reject(new Error('Invalid glTF root object returned from worker'));
+                return;
+              }
               if (Array.isArray(msg.embeddedBuffers) && msg.embeddedBuffers.length > 0) {
                 Object.defineProperty(msg.gltf, '_bglEmbeddedBuffers', {
                   value: msg.embeddedBuffers,
@@ -132,8 +142,22 @@
         }
 
         const reqId = ++this._workerReqId;
+        const WORKER_TIMEOUT_MS = 15000;
         return await new Promise((resolve, reject) => {
-          this._workerPending.set(reqId, { resolve, reject });
+          const timer = setTimeout(() => {
+            if (this._workerPending && this._workerPending.has(reqId)) {
+              this._workerPending.delete(reqId);
+              if (this._worker) {
+                this._worker.terminate();
+                this._worker = null;
+              }
+              reject(new Error('glTF worker timed out'));
+            }
+          }, WORKER_TIMEOUT_MS);
+          this._workerPending.set(reqId, {
+            resolve: (val) => { clearTimeout(timer); resolve(val); },
+            reject: (err) => { clearTimeout(timer); reject(err); }
+          });
           this._worker.postMessage({ id: reqId, cmd, buffer: payloadBuffer }, [payloadBuffer]);
         });
       } catch (workerErr) {
@@ -199,29 +223,46 @@
     renderTreeDiagram(gltf) {
       const treeRoot = document.getElementById('tree-view-root');
       if (!treeRoot) return;
-      treeRoot.innerHTML = '';
-      const nodes = gltf.nodes || [];
+      if (typeof treeRoot.replaceChildren === 'function') {
+        treeRoot.replaceChildren();
+      } else {
+        treeRoot.textContent = '';
+      }
+      const nodes = Array.isArray(gltf?.nodes) ? gltf.nodes : [];
+      if (nodes.length === 0) return;
 
-      const isChild = new Array(nodes.length).fill(false);
+      const isChild = new Uint8Array(nodes.length);
       nodes.forEach(n => {
-        if (n.children) {
-          n.children.forEach(cIdx => { isChild[cIdx] = true; });
+        if (n && Array.isArray(n.children)) {
+          n.children.forEach(cIdx => {
+            if (Number.isInteger(cIdx) && cIdx >= 0 && cIdx < nodes.length) {
+              isChild[cIdx] = 1;
+            }
+          });
         }
       });
 
       let rootIndices = [];
-      const activeSceneIdx = gltf.scene || 0;
-      if (gltf.scenes && gltf.scenes[activeSceneIdx] && gltf.scenes[activeSceneIdx].nodes) {
+      const activeSceneIdx = Number.isInteger(gltf.scene) ? gltf.scene : 0;
+      if (Array.isArray(gltf.scenes) && gltf.scenes[activeSceneIdx] && Array.isArray(gltf.scenes[activeSceneIdx].nodes)) {
         rootIndices = gltf.scenes[activeSceneIdx].nodes;
       } else {
         nodes.forEach((_, idx) => { if (!isChild[idx]) rootIndices.push(idx); });
       }
 
       const container = document.createElement('div');
+      const visited = new Uint8Array(nodes.length);
+      const MAX_TREE_DEPTH = 128;
+      const MAX_TREE_NODES = 10000;
+      let renderedNodes = 0;
 
-      const buildNodeElement = (nodeIdx) => {
+      const buildNodeElement = (nodeIdx, depth = 0) => {
+        if (depth > MAX_TREE_DEPTH || renderedNodes >= MAX_TREE_NODES) return null;
+        if (typeof nodeIdx !== 'number' || nodeIdx < 0 || nodeIdx >= nodes.length || visited[nodeIdx]) return null;
         const node = nodes[nodeIdx];
         if (!node) return null;
+        visited[nodeIdx] = 1;
+        renderedNodes++;
 
         const wrapper = document.createElement('div');
         wrapper.className = 'tree-node-wrapper';
@@ -278,7 +319,6 @@
             badges.appendChild(matBadge);
           }
         }
-        row.setAttribute('data-node-idx', String(nodeIdx));
         row.appendChild(badges);
 
         row.addEventListener('click', (e) => {
@@ -298,7 +338,7 @@
           const childrenContainer = document.createElement('div');
           childrenContainer.className = 'tree-children';
           node.children.forEach(cIdx => {
-            const childEl = buildNodeElement(cIdx);
+            const childEl = buildNodeElement(cIdx, depth + 1);
             if (childEl) childrenContainer.appendChild(childEl);
           });
           wrapper.appendChild(childrenContainer);
@@ -319,7 +359,7 @@
       };
 
       rootIndices.forEach(rIdx => {
-        const el = buildNodeElement(rIdx);
+        const el = buildNodeElement(rIdx, 0);
         if (el) container.appendChild(el);
       });
 
@@ -337,7 +377,11 @@
 
       footer.style.display = 'block';
       title.textContent = `[#${nodeIdx}] ${node.name || 'Unnamed Node'}`;
-      props.innerHTML = '';
+      if (typeof props.replaceChildren === 'function') {
+        props.replaceChildren();
+      } else {
+        props.textContent = '';
+      }
 
       const addRow = (k, v) => {
         const row = document.createElement('div');
@@ -394,7 +438,11 @@
     renderJsonInspector(gltf) {
       const jsonRoot = document.getElementById('json-view-root');
       if (!jsonRoot) return;
-      jsonRoot.innerHTML = '';
+      if (typeof jsonRoot.replaceChildren === 'function') {
+        jsonRoot.replaceChildren();
+      } else {
+        jsonRoot.textContent = '';
+      }
 
       const nodeData = {
         asset: gltf.asset,
@@ -412,7 +460,21 @@
       jsonRoot.appendChild(this.createJsonElement(nodeData, true));
     },
 
-    createJsonElement(val, isRoot = false) {
+    createJsonElement(val, isRoot = false, depth = 0, budget = { count: 0, max: 4000 }) {
+      if (budget.count >= budget.max || depth > 24) {
+        const span = document.createElement('span');
+        span.className = 'json-null';
+        span.textContent = depth > 24 ? '"[Max Depth Reached]"' : '"[Truncated for UI responsiveness]"';
+        return span;
+      }
+      budget.count++;
+
+      if (val === undefined) {
+        const span = document.createElement('span');
+        span.className = 'json-null';
+        span.textContent = 'undefined';
+        return span;
+      }
       if (val === null) {
         const span = document.createElement('span');
         span.className = 'json-null';
@@ -455,7 +517,7 @@
 
         val.forEach((item, idx) => {
           const line = document.createElement('div');
-          line.appendChild(this.createJsonElement(item));
+          line.appendChild(this.createJsonElement(item, false, depth + 1, budget));
           if (idx < val.length - 1) line.appendChild(document.createTextNode(','));
           content.appendChild(line);
         });
@@ -465,12 +527,12 @@
         preview.style.display = isRoot ? 'none' : 'inline';
         preview.textContent = ` Array(${val.length}) `;
 
-        toggle.onclick = () => {
+        toggle.addEventListener('click', () => {
           const isHidden = content.style.display === 'none';
           content.style.display = isHidden ? 'block' : 'none';
           preview.style.display = isHidden ? 'none' : 'inline';
           toggle.textContent = isHidden ? '▼' : '▶';
-        };
+        });
 
         container.appendChild(toggle);
         container.appendChild(openBracket);
@@ -502,7 +564,7 @@
           keySpan.className = 'json-key';
           keySpan.textContent = `"${key}": `;
           line.appendChild(keySpan);
-          line.appendChild(this.createJsonElement(val[key]));
+          line.appendChild(this.createJsonElement(val[key], false, depth + 1, budget));
           if (i < keys.length - 1) line.appendChild(document.createTextNode(','));
           content.appendChild(line);
         });
@@ -512,12 +574,12 @@
         preview.style.display = isRoot ? 'none' : 'inline';
         preview.textContent = ` Object(${keys.length}) `;
 
-        toggle.onclick = () => {
+        toggle.addEventListener('click', () => {
           const isHidden = content.style.display === 'none';
           content.style.display = isHidden ? 'block' : 'none';
           preview.style.display = isHidden ? 'none' : 'inline';
           toggle.textContent = isHidden ? '▼' : '▶';
-        };
+        });
 
         container.appendChild(toggle);
         container.appendChild(openBrace);

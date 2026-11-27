@@ -12,8 +12,10 @@
 #include "gpu/RayTracingScene.hpp"
 #include "gpu/Uniforms.hpp"
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -443,10 +445,15 @@ private:
     DenoiseBindGroupSet reflBgs_{};
 
     // Non-blocking GPU timestamp query telemetry
+    struct TimestampMapState {
+        std::atomic<bool> alive{true};
+        std::atomic<bool> inFlight{false};
+        RayTracingPass* owner{nullptr};
+    };
     QuerySetHandle timestampQuerySet_{};
     BufferHandle timestampResolveBuf_{};
     BufferHandle timestampReadbackBuf_{};
-    bool timestampReadInFlight_{false};
+    std::shared_ptr<TimestampMapState> timestampMapState_{};
     bool timestampDataWritten_{false};
     bool timestampCopyQueued_{false};
     bool timestampHasPrePass_{false};

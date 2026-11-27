@@ -4,7 +4,15 @@
 #include <future>
 #include <gtest/gtest.h>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if defined(__linux__) && defined(BGL_HAS_CURL)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 using bgl::core::FetchProgress;
 using bgl::core::MemoryTracker;
@@ -171,6 +179,74 @@ TEST(NetworkFetcherTest, ResolveExternalAssetUriBlocksCrossSchemeAndControlInjec
     EXPECT_FALSE(NetworkFetcher::FetchSync("file:///assets/ToyCar%00.glb").has_value());
     EXPECT_FALSE(NetworkFetcher::FetchSync("assets/ToyCar%00.glb").has_value());
     EXPECT_FALSE(NetworkFetcher::FetchSync(std::string("https://example.com/\x01/evil.glb")).has_value());
+
+    // 4. Reject non-local authority file:// URLs, HTTPS -> HTTP downgrade, and local '..' path escape
+    EXPECT_FALSE(NetworkFetcher::FetchSync("file://remote-host/etc/passwd").has_value());
+    EXPECT_FALSE(NetworkFetcher::ResolveExternalAssetUri("https://cdn.example.com/models/car.gltf",
+                                                         "http://cdn.example.com/a.png")
+                     .has_value());
+    EXPECT_FALSE(NetworkFetcher::ResolveExternalAssetUri("assets/ToyCar.glb", "../../etc/passwd").has_value());
 }
+
+#if defined(__linux__) && defined(BGL_HAS_CURL)
+TEST(NetworkFetcherTest, EnforcesSsrfAndHttpsPolicyWithLoopbackHttpTestScope) {
+    // Plain insecure http:// and link-local / private / loopback SSRF targets are blocked by default
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://example.com/model.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://127.0.0.1:9/model.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://169.254.169.254/latest/meta-data/").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://10.0.0.1/internal.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://192.168.1.1/internal.glb").has_value());
+    EXPECT_FALSE(NetworkFetcher::FetchSync("http://[::1]:9/internal.glb").has_value());
+
+    // Spin up a one-shot loopback HTTP server to verify ScopedAllowLoopbackHttpForTests and HTTP status handling
+    const int srvFd = ::socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(srvFd, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = 0;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::bind(srvFd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(srvFd, 4) != 0) {
+        ::close(srvFd);
+        GTEST_SKIP() << "Could not bind loopback test socket";
+    }
+    socklen_t len = sizeof(addr);
+    ASSERT_EQ(::getsockname(srvFd, reinterpret_cast<sockaddr*>(&addr), &len), 0);
+    const uint16_t port = ntohs(addr.sin_port);
+
+    std::jthread serverThread([srvFd]() {
+        for (int i = 0; i < 2; ++i) {
+            const int cli = ::accept(srvFd, nullptr, nullptr);
+            if (cli < 0)
+                break;
+            char reqBuf[512]{};
+            (void)::recv(cli, reqBuf, sizeof(reqBuf) - 1, 0);
+            const std::string_view req{reqBuf};
+            std::string resp;
+            if (req.find("GET /ok.bin") != std::string_view::npos) {
+                resp = "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nBGL1";
+            } else {
+                resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nNot Found";
+            }
+            (void)::send(cli, resp.data(), resp.size(), 0);
+            ::close(cli);
+        }
+        ::close(srvFd);
+    });
+
+    const std::string baseUrl = "http://127.0.0.1:" + std::to_string(port);
+    // Blocked without test scope
+    EXPECT_FALSE(NetworkFetcher::FetchSync(baseUrl + "/ok.bin").has_value());
+
+    {
+        NetworkFetcher::ScopedAllowLoopbackHttpForTests allowLoopback;
+        auto okRes = NetworkFetcher::FetchSync(baseUrl + "/ok.bin");
+        ASSERT_TRUE(okRes.has_value()) << okRes.error();
+        EXPECT_EQ(std::string(okRes->begin(), okRes->end()), "BGL1");
+
+        auto errRes = NetworkFetcher::FetchSync(baseUrl + "/missing.bin");
+        EXPECT_FALSE(errRes.has_value());
+    }
+}
+#endif
 
 } // namespace

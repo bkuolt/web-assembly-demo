@@ -349,7 +349,22 @@ void FontAtlas::RasterizeAndPack(FT_Face face, uint32_t faceGlyphIndex, uint32_t
         const size_t absPitch = static_cast<size_t>(bitmap.pitch >= 0 ? bitmap.pitch : -bitmap.pitch);
         const uint8_t* rowPtr = bitmap.buffer + static_cast<size_t>(srcRow) * absPitch;
         for (uint32_t x = 0; x < bitmap.width; ++x) {
-            const uint8_t alpha = rowPtr[x];
+            uint8_t alpha = 0;
+            if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
+                if (x < absPitch) {
+                    alpha = rowPtr[x];
+                }
+            } else if (bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
+                const size_t byteIdx = static_cast<size_t>(x) >> 3u;
+                if (byteIdx < absPitch) {
+                    alpha = ((rowPtr[byteIdx] & (0x80u >> (x & 7u))) != 0u) ? 255u : 0u;
+                }
+            } else if (bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
+                const size_t byteIdx = static_cast<size_t>(x) * 4u + 3u;
+                if (byteIdx < absPitch) {
+                    alpha = rowPtr[byteIdx];
+                }
+            }
             const size_t dstIdx = (static_cast<size_t>(targetY + y) * atlasDim_ + (targetX + x)) * 4u;
             cpuAtlas_[dstIdx + 0] = 255;
             cpuAtlas_[dstIdx + 1] = 255;

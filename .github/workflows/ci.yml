@@ -8,6 +8,13 @@ on:
     branches: [ main, master, develop ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web-validation:
     name: Web App Syntax & Assets Validation
@@ -86,7 +93,7 @@ jobs:
         em++ --version
         mkdir -p web/dist
         em++ -O3 -std=c++23 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -ffreestanding -c src/wasm/wasm_bridge.cpp -o /tmp/wasm_bridge.o
-        wasm-ld --no-entry --strip-debug --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
+        wasm-ld --no-entry --strip-debug --stack-first --import-memory --initial-memory=16777216 --max-memory=67108864 -z stack-size=65536 \
           --export=malloc --export=free \
           --export=bgl_init --export=bgl_resize --export=bgl_load_file_buffer \
           --export=bgl_select_node --export=bgl_clear_selection --export=bgl_pick_node \
@@ -156,7 +163,7 @@ jobs:
 
     - name: Install Conan 2.x
       run: |
-        pip install "conan>=2.0"
+        pip install "conan>=2.0,<3.0"
         conan --version
 
     - name: Cache Conan Packages
@@ -164,16 +171,15 @@ jobs:
       with:
         path: ~/.conan2/p
         key: conan-${{ runner.os }}-${{ hashFiles('conan.lock', 'conanfile.py') }}
-        restore-keys: |
-          conan-${{ runner.os }}-
 
     - name: Install Dependencies via Conan
       run: |
         conan profile detect --force
         conan install . -s build_type=Release --build=missing --lockfile=conan.lock
 
-    - name: Configure CMake
+    - name: Verify Bundled wgpu-native Integrity & Configure CMake
       run: |
+        (cd third_party/wgpu-native && sha256sum -c wgpu-native-meta/SHA256SUMS)
         cmake -B build/Release -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -181,10 +187,14 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
           -DBGL_BUILD_TESTING=ON
 
-    - name: Run Clang-Tidy Static Analysis (Core & GPU Passes)
+    - name: Run Clang-Tidy Static Analysis (Core, Scene & GPU Passes)
       run: |
         clang-tidy -p build/Release --config-file=.clang-tidy \
-          src/core/Camera.cpp src/core/MemoryPool.cpp src/gpu/ShadowPass.cpp
+          src/core/Camera.cpp src/core/CrashHandler.cpp src/core/MemoryPool.cpp \
+          src/core/NetworkFetcher.cpp src/scene/FastGltfParser.cpp \
+          src/scene/FastGltfSceneBuilder.cpp src/scene/TextureDecoder.cpp \
+          src/gpu/Context.cpp src/gpu/PipelineScene.cpp \
+          src/gpu/RayTracingPass.cpp src/gpu/ShadowPass.cpp
 
     - name: Build Libraries and Viewer Executable
       run: |

@@ -4,7 +4,12 @@ set -euo pipefail
 OUT_DIR="${1:-_site}"
 DOCS_DIR="${2:-build/docs/html}"
 
-rm -rf "${OUT_DIR}"
+if [[ -z "${OUT_DIR}" || "${OUT_DIR}" == "/" || "${OUT_DIR}" == "." || "${OUT_DIR}" == ".." ]]; then
+  echo "Refusing unsafe output directory: '${OUT_DIR}'" >&2
+  exit 1
+fi
+
+rm -rf -- "${OUT_DIR}"
 mkdir -p "${OUT_DIR}/dist" "${OUT_DIR}/assets" "${OUT_DIR}/js" "${OUT_DIR}/web"
 
 # 1. Root site: WebGPU/WASM viewer directly at /
@@ -26,11 +31,10 @@ cat > "${OUT_DIR}/web/index.html" <<'EOF'
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';">
   <meta http-equiv="refresh" content="0; url=../index.html">
   <title>Redirecting to bgl-Engine Web Viewer</title>
-  <script>
-    window.location.replace("../index.html" + window.location.search + window.location.hash);
-  </script>
 </head>
 <body style="background:#0b0f19;color:#f1f5f9;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;">
   <p>Redirecting to <a href="../index.html" style="color:#38bdf8;">bgl-Engine Web Viewer</a>...</p>
@@ -47,11 +51,10 @@ if [[ -d "${DOCS_DIR}" ]] && [[ -n "$(ls -A "${DOCS_DIR}" 2>/dev/null)" ]]; then
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';">
   <meta http-equiv="refresh" content="0; url=../../docs/index.html">
   <title>Redirecting to bgl-Engine API Docs</title>
-  <script>
-    window.location.replace("../../docs/index.html" + window.location.search + window.location.hash);
-  </script>
 </head>
 <body>
   <p>Redirecting to <a href="../../docs/index.html">API Documentation</a>...</p>

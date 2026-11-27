@@ -389,17 +389,22 @@ core::Result<FontDescriptor> FontLibrary::Find(std::string_view nameOrPath, Font
 }
 
 core::Result<std::vector<uint8_t>> FontLibrary::ReadFontBytes(const std::filesystem::path& filePath) {
-    std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+    constexpr uintmax_t kMaxFontFileBytes{64u * 1024u * 1024u};
+    std::error_code ec{};
+    if (!std::filesystem::is_regular_file(filePath, ec) || ec) {
+        return std::unexpected("Font path is not a regular file: " + filePath.string());
+    }
+    const uintmax_t fileSize = std::filesystem::file_size(filePath, ec);
+    if (ec || fileSize == 0 || fileSize > kMaxFontFileBytes) {
+        return std::unexpected("Font file size invalid or exceeds 64 MiB limit: " + filePath.string());
+    }
+
+    std::ifstream file(filePath, std::ios::binary);
     if (!file.is_open()) {
         return std::unexpected("Cannot open font file: " + filePath.string());
     }
-    const std::streamsize size = file.tellg();
-    if (size <= 0) {
-        return std::unexpected("Empty or unreadable font file: " + filePath.string());
-    }
-    file.seekg(0, std::ios::beg);
-    std::vector<uint8_t> bytes(static_cast<size_t>(size));
-    if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) {
+    std::vector<uint8_t> bytes(static_cast<size_t>(fileSize));
+    if (!file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(fileSize))) {
         return std::unexpected("Failed to read font file: " + filePath.string());
     }
     return bytes;

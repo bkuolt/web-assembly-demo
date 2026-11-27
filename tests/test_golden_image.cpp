@@ -84,10 +84,11 @@ TEST(GoldenImageTest, HeadlessOffscreenBufferGoldenDeterminism) {
         frameChecksum = (frameChecksum * 33) ^ px;
     }
     EXPECT_NE(frameChecksum, 0u);
+    EXPECT_EQ(frameBuffer.front(), (0xFFu << 24) | (static_cast<uint32_t>(0.9f * 255.0f) << 16));
 
-    // Deterministic golden verification
-    uint64_t expectedHash = frameChecksum;
-    EXPECT_EQ(frameChecksum, expectedHash);
+    // Deterministic golden verification against precomputed reference hash
+    constexpr uint64_t kExpectedChecksum = 0xabff3006d207d800ULL;
+    EXPECT_EQ(frameChecksum, kExpectedChecksum);
 }
 
 TEST(GoldenImageTest, Fnv1aDeterministicContentHashing) {

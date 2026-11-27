@@ -13,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <memory_resource>
 #include <span>
 #include <utility>
@@ -44,6 +45,9 @@ struct PrimitiveStaging {
 [[nodiscard]] WGPUBuffer CreateAndUploadTrackedBuffer(WGPUDevice device, WGPUQueue queue, size_t byteSize,
                                                       WGPUBufferUsage usage, const char* label, const void* initData,
                                                       size_t writeBytes, uint64_t& outTrackedSize) {
+    if (!device || byteSize == 0u || byteSize > (std::numeric_limits<size_t>::max() - 3u)) {
+        return nullptr;
+    }
     WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
     desc.size = (byteSize + 3u) & ~size_t{3};
     desc.usage = usage;
@@ -52,7 +56,7 @@ struct PrimitiveStaging {
     if (buf) {
         outTrackedSize = desc.size;
         core::MemoryTracker::Instance().TrackBufferAlloc(outTrackedSize);
-        if (initData && writeBytes > 0) {
+        if (initData && writeBytes > 0 && writeBytes <= desc.size) {
             wgpuQueueWriteBuffer(queue, buf, 0, initData, writeBytes);
         }
     }
@@ -108,7 +112,12 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
         }
         ++validMips;
     }
-    validMips = std::max(1u, validMips);
+    if (validMips == 0u) {
+        if ((img.width % 4u) != 0u || (img.height % 4u) != 0u || img.rgba.empty()) {
+            return;
+        }
+        validMips = 1u;
+    }
 
     WGPUTextureDescriptor texDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     texDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
@@ -119,6 +128,13 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
     texDesc.sampleCount = 1;
     texDesc.label = ToWgpuStringView("glTF_KTX2_CompressedTexture");
     WGPUTexture tex = wgpuDeviceCreateTexture(device, &texDesc);
+    if (!tex) {
+        return;
+    }
+    if (!tex) {
+        BGL_LOG_WARN("[WebGPU Upload] Failed to create compressed 2D texture #{} ({}x{})", idx, img.width, img.height);
+        return;
+    }
 
     size_t compressedVramBytes{0};
     for (uint32_t level{0}; level < validMips; ++level) {
@@ -128,6 +144,9 @@ void UploadCompressedSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSample
             (level < img.mipLevels.size())
                 ? std::span<const uint8_t>{img.mipLevels[level].data.data(), img.mipLevels[level].data.size()}
                 : std::span<const uint8_t>{img.rgba.data(), img.rgba.size()}};
+        if (mipBytes.empty()) {
+            break;
+        }
 
         const uint32_t blocksX{std::max(1u, (mipW + 3u) / 4u)};
         const uint32_t blocksY{std::max(1u, (mipH + 3u) / 4u)};
@@ -171,7 +190,16 @@ void UploadRgbaSceneTexture(WGPUDevice device, WGPUQueue queue, WGPUSampler defa
     texDesc.mipLevelCount = mipLevels;
     texDesc.sampleCount = 1;
     texDesc.label = ToWgpuStringView("glTF_Texture");
+    const size_t requiredRgbaBytes{static_cast<size_t>(img.width) * static_cast<size_t>(img.height) * 4u};
+    if (img.width == 0 || img.height == 0 || img.rgba.size() < requiredRgbaBytes) {
+        BGL_LOG_WARN("[WebGPU Upload] Skipped RGBA texture #{} due to invalid dimensions or buffer size", idx);
+        return;
+    }
     WGPUTexture tex = wgpuDeviceCreateTexture(device, &texDesc);
+    if (!tex) {
+        BGL_LOG_WARN("[WebGPU Upload] Failed to create 2D RGBA texture #{} ({}x{})", idx, img.width, img.height);
+        return;
+    }
 
     WGPUTexelCopyTextureInfo copyDst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
     copyDst.texture = tex;
@@ -282,27 +310,35 @@ void StageSinglePrimitive(scene::MeshPrimitive& prim, PrimitiveStaging& st) {
         }
     }
 
-    if (!prim.gpuMorphDeltaBuffer && !prim.morphTargets.empty()) {
-        const uint32_t tCount{static_cast<uint32_t>(prim.morphTargets.size())};
+    if (!prim.gpuMorphDeltaBuffer && !prim.morphTargets.empty() && !prim.vertices.empty()) {
+        constexpr uint64_t kMaxMorphBufferBytes{128ULL * 1024ULL * 1024ULL};
+        constexpr uint32_t kMaxGpuMorphTargets{8u};
         const uint32_t vCount{static_cast<uint32_t>(prim.vertices.size())};
-        st.morphDeltas.resize(static_cast<size_t>(tCount) * vCount * 3u, glm::vec4{0.0f});
-        for (uint32_t t{0}; t < tCount; ++t) {
-            const auto& mt = prim.morphTargets[t];
-            for (uint32_t v{0}; v < vCount; ++v) {
-                const size_t base{(static_cast<size_t>(t) * vCount + v) * 3u};
-                if (v < mt.positionDeltas.size()) {
-                    st.morphDeltas[base + 0u] = glm::vec4{mt.positionDeltas[v], 0.0f};
-                }
-                if (v < mt.normalDeltas.size()) {
-                    st.morphDeltas[base + 1u] = glm::vec4{mt.normalDeltas[v], 0.0f};
-                }
-                if (v < mt.tangentDeltas.size()) {
-                    st.morphDeltas[base + 2u] = glm::vec4{mt.tangentDeltas[v], 0.0f};
+        const uint64_t perTargetBytes{static_cast<uint64_t>(vCount) * 3ULL * sizeof(glm::vec4)};
+        const uint32_t maxTargetsByBytes{
+            perTargetBytes > 0u ? static_cast<uint32_t>(kMaxMorphBufferBytes / perTargetBytes) : 0u};
+        const uint32_t tCount{std::min<uint32_t>(
+            {static_cast<uint32_t>(prim.morphTargets.size()), kMaxGpuMorphTargets, maxTargetsByBytes})};
+        if (tCount > 0u) {
+            st.morphDeltas.resize(static_cast<size_t>(tCount) * vCount * 3u, glm::vec4{0.0f});
+            for (uint32_t t{0}; t < tCount; ++t) {
+                const auto& mt = prim.morphTargets[t];
+                for (uint32_t v{0}; v < vCount; ++v) {
+                    const size_t base{(static_cast<size_t>(t) * vCount + v) * 3u};
+                    if (v < mt.positionDeltas.size()) {
+                        st.morphDeltas[base + 0u] = glm::vec4{mt.positionDeltas[v], 0.0f};
+                    }
+                    if (v < mt.normalDeltas.size()) {
+                        st.morphDeltas[base + 1u] = glm::vec4{mt.normalDeltas[v], 0.0f};
+                    }
+                    if (v < mt.tangentDeltas.size()) {
+                        st.morphDeltas[base + 2u] = glm::vec4{mt.tangentDeltas[v], 0.0f};
+                    }
                 }
             }
+            st.morphTargetCount = tCount;
+            st.morphVertexCount = vCount;
         }
-        st.morphTargetCount = tCount;
-        st.morphVertexCount = vCount;
     }
 }
 

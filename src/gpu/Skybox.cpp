@@ -245,13 +245,19 @@ void Skybox::Render(WGPURenderPassEncoder pass, const glm::mat4& viewProj, const
         return;
 
     SkyboxUniforms uniforms{};
-    uniforms.invViewProj = glm::inverse(viewProj);
+    const float det = glm::determinant(viewProj);
+    uniforms.invViewProj = (std::isfinite(det) && std::abs(det) > 1e-12f) ? glm::inverse(viewProj) : glm::mat4{1.0f};
     const float sunLen = glm::length(sunDir);
-    const glm::vec3 safeSun = (sunLen > 1e-4f) ? (sunDir / sunLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
-    uniforms.sunDir = glm::vec4{safeSun, solarElevation};
-    uniforms.cameraPos = glm::vec4{cameraPos, static_cast<float>(weatherMode)};
+    const glm::vec3 safeSun =
+        (std::isfinite(sunLen) && sunLen > 1e-4f) ? (sunDir / sunLen) : glm::normalize(glm::vec3{0.35f, 1.0f, 0.25f});
+    uniforms.sunDir = glm::vec4{safeSun, std::isfinite(solarElevation) ? solarElevation : 0.5f};
+    uniforms.cameraPos = glm::vec4{
+        (std::isfinite(cameraPos.x) && std::isfinite(cameraPos.y) && std::isfinite(cameraPos.z)) ? cameraPos
+                                                                                                 : glm::vec3{0.0f},
+        static_cast<float>(weatherMode)};
     const float blurLod{(mode_ == SkyboxMode::Blurred) ? (blurRoughness_ * 5.0f) : 0.0f};
-    uniforms.params = glm::vec4{rotation_, blurLod, hasCustomCubemap_ ? 1.0f : 0.0f, weatherIntensity};
+    uniforms.params = glm::vec4{rotation_, blurLod, hasCustomCubemap_ ? 1.0f : 0.0f,
+                                std::isfinite(weatherIntensity) ? weatherIntensity : 0.0f};
 
     wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &uniforms, sizeof(uniforms));
 

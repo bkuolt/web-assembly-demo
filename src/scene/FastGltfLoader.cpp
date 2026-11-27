@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <unordered_set>
 
 namespace bgl::scene {
 
@@ -86,9 +87,11 @@ core::Result<void> ResolveExternalBuffers(fastgltf::Asset& asset, std::string_vi
 void LogSceneSummary(const fastgltf::Asset& asset, const Scene& scene, size_t totalBufferBytes) {
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
     BGL_LOG_INFO("[glTF Loader] Scene Graph Tree Diagram (Root Scene):");
-    auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix,
-                         bool isLast) -> void {
-        if (!n) {
+    std::unordered_set<const SceneNode*> visited{};
+    constexpr size_t kMaxPrintDepth{128u};
+    auto printTree = [&](auto& self, const std::shared_ptr<SceneNode>& n, const std::string& prefix, bool isLast,
+                         size_t depth) -> void {
+        if (!n || depth > kMaxPrintDepth || !visited.insert(n.get()).second) {
             return;
         }
         std::string nodeInfo{n->name.empty() ? "(Unnamed Node)" : n->name};
@@ -106,11 +109,11 @@ void LogSceneSummary(const fastgltf::Asset& asset, const Scene& scene, size_t to
         BGL_LOG_INFO("{}{}-- {}", prefix, isLast ? "`" : "|", nodeInfo);
         for (size_t c{0}; c < n->children.size(); ++c) {
             const bool childLast{c + 1 == n->children.size()};
-            self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast);
+            self(self, n->children[c], prefix + (isLast ? "   " : "|  "), childLast, depth + 1u);
         }
     };
     for (size_t r{0}; r < scene.rootNodes.size(); ++r) {
-        printTree(printTree, scene.rootNodes[r], "  ", (r + 1 == scene.rootNodes.size()));
+        printTree(printTree, scene.rootNodes[r], "  ", (r + 1 == scene.rootNodes.size()), 0u);
     }
     BGL_LOG_INFO("--------------------------------------------------------------------------------");
 
@@ -180,16 +183,14 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::ParseAndAssembleScene(fastg
         return std::unexpected("Loading cancelled");
     }
 
+    // Keep external buffer loading disabled on fastgltf parser so every external URI passes through
+    // ResolveExternalBuffers -> NetworkFetcher::ResolveExternalAssetUri() containment and SSRF validation.
     std::filesystem::path baseDir{std::filesystem::current_path()};
-    fastgltf::Options parseOptions{fastgltf::Options::LoadGLBBuffers | fastgltf::Options::DecomposeNodeMatrices};
+    const fastgltf::Options parseOptions{fastgltf::Options::LoadGLBBuffers | fastgltf::Options::DecomposeNodeMatrices};
     if (!baseUri.empty() && !core::NetworkFetcher::IsUrl(baseUri)) {
         const std::filesystem::path localParent{std::filesystem::path{baseUri}.parent_path()};
         if (!localParent.empty()) {
             baseDir = localParent;
-        }
-        std::error_code ec{};
-        if (std::filesystem::exists(baseDir, ec)) {
-            parseOptions |= fastgltf::Options::LoadExternalBuffers;
         }
     }
 
@@ -256,6 +257,11 @@ core::Result<std::shared_ptr<Scene>> FastGltfLoader::LoadFromFile(std::string_vi
         std::error_code ec{};
         if (!cleanPath.empty() && !core::NetworkFetcher::IsUrl(cleanPath) &&
             std::filesystem::is_regular_file(cleanPath, ec)) {
+            constexpr uintmax_t kMaxLocalGltfBytes{2ULL * 1024ULL * 1024ULL * 1024ULL};
+            const uintmax_t fileSize{std::filesystem::file_size(cleanPath, ec)};
+            if (ec || fileSize == 0 || fileSize > kMaxLocalGltfBytes) {
+                return std::unexpected("glTF file is empty or exceeds maximum allowed local asset size");
+            }
             fastgltf::GltfDataBuffer dataBuffer{};
             if (dataBuffer.loadFromFile(std::filesystem::path(cleanPath))) {
                 auto sp = static_cast<fastgltf::span<std::byte>>(dataBuffer);

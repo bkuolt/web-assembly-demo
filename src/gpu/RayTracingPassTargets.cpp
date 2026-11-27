@@ -2,6 +2,7 @@
  * @file RayTracingPassTargets.cpp
  * @brief Offscreen G-Buffer, RT denoiser target allocation, release, and bind group management.
  */
+#include "core/Log.hpp"
 #include "core/MemoryTracker.hpp"
 #include "gpu/RayTracingPass.hpp"
 #include <algorithm>
@@ -146,7 +147,17 @@ void RayTracingPass::EnsureResolutionTargets(uint32_t fullW, uint32_t fullH) {
                 reflHistoryTex_[1], reflHistoryView_[1]);
 
     // 5. Progressive Path Tracer FP32 Accumulation Buffer
-    const uint64_t accumBytes = static_cast<uint64_t>(fullWidth_) * fullHeight_ * sizeof(glm::vec4);
+    uint64_t accumBytes = static_cast<uint64_t>(fullWidth_) * fullHeight_ * sizeof(glm::vec4);
+    WGPULimits devLimits = WGPU_LIMITS_INIT;
+    const uint64_t maxStorageBytes =
+        (wgpuDeviceGetLimits(device_, &devLimits) == WGPUStatus_Success && devLimits.maxStorageBufferBindingSize > 0)
+            ? devLimits.maxStorageBufferBindingSize
+            : (128ULL * 1024ULL * 1024ULL);
+    if (accumBytes > maxStorageBytes) {
+        BGL_LOG_WARN("[RayTracingPass] Requested pathAccumBuffer ({} bytes) exceeds device limit ({} bytes); clamping",
+                     accumBytes, maxStorageBytes);
+        accumBytes = std::max<uint64_t>(sizeof(glm::vec4), maxStorageBytes & ~uint64_t{15});
+    }
     WGPUBufferDescriptor accDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
     accDesc.size = accumBytes;
     accDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;

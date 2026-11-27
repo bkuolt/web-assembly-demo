@@ -32,19 +32,19 @@
     log(category, message, ...args) {
       const style = this.badgeStyles[category] || this.badgeStyles.Engine;
       const ts = this.formatTimestamp();
-      console.log(`%c[${category}]%c ${ts} - ${message}`, style, 'color: inherit;', ...args);
+      console.log('%c[%s]%c %s - %s', style, category, 'color: inherit;', ts, String(message), ...args);
     },
 
     warn(category, message, ...args) {
       const style = this.badgeStyles.Warning;
       const ts = this.formatTimestamp();
-      console.warn(`%c[${category} ⚠️]%c ${ts} - ${message}`, style, 'color: inherit;', ...args);
+      console.warn('%c[%s ⚠️]%c %s - %s', style, category, 'color: inherit;', ts, String(message), ...args);
     },
 
     error(category, message, ...args) {
       const style = this.badgeStyles.Error;
       const ts = this.formatTimestamp();
-      console.error(`%c[${category} ✕]%c ${ts} - ${message}`, style, 'color: inherit;', ...args);
+      console.error('%c[%s ✕]%c %s - %s', style, category, 'color: inherit;', ts, String(message), ...args);
     },
 
     timeStart(label) {
@@ -64,7 +64,7 @@
 
     banner() {
       console.log(
-        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v1.1.0 ',
+        '%c bgl-Engine %c WebAssembly & WebGPU 3D Runtime v1.2.0 ',
         'background: #0284c7; color: #fff; font-weight: 900; font-size: 13px; border-radius: 4px 0 0 4px; padding: 4px 8px;',
         'background: #0f172a; color: #38bdf8; font-weight: 600; font-size: 13px; border-radius: 0 4px 4px 0; border: 1px solid #0284c7; padding: 3px 8px;'
       );
@@ -200,7 +200,9 @@
   window.BglNotifier = BglNotifier;
 
   // ============================================================================
-  // Application State
+  // Application State & UI Coordinator
+  // ============================================================================
+  // Keep global BglFrameScheduler removal clean inside app.js by exporting it here.
   // ============================================================================
   const BglState = {
     backend: 'webgpu',
@@ -346,7 +348,28 @@
   // ============================================================================
   const BglModelCache = {
     CACHE_NAME: 'bgl-gltf-models-v1',
+    MAX_MEMORY_ENTRIES: 4,
+    MAX_MEMORY_BYTES: 160 * 1024 * 1024,
     memoryFallback: new Map(),
+
+    _isCacheableUrl(url) {
+      if (typeof url !== 'string' || !url || /^local:/i.test(url)) return false;
+      return !BglNetwork || BglNetwork.validateAssetUrl(url, { allowData: false, allowCustomHttps: true }).ok;
+    },
+
+    _enforceMemoryCap() {
+      let total = 0;
+      for (const buf of this.memoryFallback.values()) {
+        total += buf ? buf.byteLength : 0;
+      }
+      while (this.memoryFallback.size > this.MAX_MEMORY_ENTRIES || total > this.MAX_MEMORY_BYTES) {
+        const oldestKey = this.memoryFallback.keys().next().value;
+        if (oldestKey === undefined) break;
+        const oldBuf = this.memoryFallback.get(oldestKey);
+        this.memoryFallback.delete(oldestKey);
+        total -= oldBuf ? oldBuf.byteLength : 0;
+      }
+    },
 
     async getCache() {
       if ('caches' in window) {
@@ -360,6 +383,7 @@
     },
 
     async has(url) {
+      if (!this._isCacheableUrl(url)) return false;
       try {
         const cache = await this.getCache();
         if (cache) {
@@ -373,6 +397,7 @@
     },
 
     async get(url) {
+      if (!this._isCacheableUrl(url)) return null;
       try {
         const cache = await this.getCache();
         if (cache) {
@@ -393,6 +418,9 @@
     },
 
     async put(url, arrayBuffer) {
+      if (!this._isCacheableUrl(url) || !arrayBuffer || !(arrayBuffer instanceof ArrayBuffer)) {
+        return;
+      }
       try {
         const cache = await this.getCache();
         if (cache) {
@@ -412,6 +440,7 @@
         BglLogger.warn('Cache', `CacheStorage put failed for ${url}:`, e);
       }
       this.memoryFallback.set(url, arrayBuffer.slice(0));
+      this._enforceMemoryCap();
       await this.updateCacheStatusUI();
     },
 
@@ -569,113 +598,290 @@
   // High-Speed Streaming Network Fetcher
   // ============================================================================
   const BglNetwork = {
+    MAX_MODEL_BYTES: 128 * 1024 * 1024,
+    FETCH_TIMEOUT_MS: 60000,
+    ALLOWED_QUERY_HOSTS: new Set(['raw.githubusercontent.com']),
+
     /**
-     * Download binary resource with real-time streaming progress.
+     * Validate asset URLs against strict scheme, credential, path, and CORS allowlist policies.
+     * @param {string} rawUrl
+     * @param {{ allowData?: boolean, allowCustomHttps?: boolean }} [opts]
+     * @returns {{ ok: boolean, url?: string, reason?: string }}
+     */
+    validateAssetUrl(rawUrl, opts = {}) {
+      const { allowData = false, allowCustomHttps = false } = opts || {};
+      if (typeof rawUrl !== 'string') {
+        return { ok: false, reason: 'URL must be a string' };
+      }
+      const url = rawUrl.trim();
+      if (!url || /[\u0000-\u001F\u007F]/.test(url)) {
+        return { ok: false, reason: 'Empty URL or control characters detected' };
+      }
+      if (/^(?:javascript|vbscript|file|blob|ftp):/i.test(url)) {
+        return { ok: false, reason: 'Disallowed URI scheme' };
+      }
+      if (/^data:/i.test(url)) {
+        if (!allowData) {
+          return { ok: false, reason: 'Data URI not permitted in this context' };
+        }
+        const safeDataRe = /^data:(?:application\/octet-stream|model\/gltf-binary|model\/gltf\+json|image\/(?:png|jpeg|webp))(?:[;,]|$)/i;
+        if (!safeDataRe.test(url)) {
+          return { ok: false, reason: 'Disallowed data URI MIME type' };
+        }
+        return { ok: true, url };
+      }
+
+      const loc = globalThis.location || (typeof window !== 'undefined' ? window.location : null);
+      const baseHref = (loc && loc.href)
+        ? loc.href
+        : (loc && loc.protocol && loc.host ? `${loc.protocol}//${loc.host}${loc.pathname || '/'}` : 'https://localhost/web/index.html');
+
+      let parsed;
+      let baseParsed;
+      try {
+        baseParsed = new URL(baseHref);
+        parsed = new URL(url, baseParsed);
+      } catch (_) {
+        return { ok: false, reason: 'Malformed URL' };
+      }
+
+      if (parsed.username || parsed.password) {
+        return { ok: false, reason: 'Embedded URL credentials are prohibited' };
+      }
+
+      const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]';
+      if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+        return { ok: false, reason: `Insecure scheme '${parsed.protocol}' is not allowed` };
+      }
+
+      const sameOrigin = parsed.origin === baseParsed.origin;
+      if (sameOrigin) {
+        if (/\/\.\.(\/|$)/.test(url)) {
+          return { ok: false, reason: 'Path traversal sequence prohibited' };
+        }
+        return { ok: true, url: parsed.href };
+      }
+
+      if (!allowCustomHttps && !this.ALLOWED_QUERY_HOSTS.has(parsed.hostname.toLowerCase())) {
+        return { ok: false, reason: `Untrusted external host '${parsed.hostname}'` };
+      }
+      return { ok: true, url: parsed.href };
+    },
+
+    /**
+     * Download binary resource with real-time streaming progress, size cap, and timeout.
      * @param {string} url
      * @param {function(object): void} onProgress ({ percent, msg, transferredBytes, totalBytes, speedMbS })
      * @param {AbortSignal} [signal]
      * @returns {Promise<ArrayBuffer>}
      */
     async fetchWithProgress(url, onProgress, signal) {
+      const check = this.validateAssetUrl(url, { allowData: true, allowCustomHttps: true });
+      if (!check.ok) {
+        throw new Error(`Blocked unsafe asset URL '${url}': ${check.reason}`);
+      }
+      const safeUrl = check.url;
+
       const startTime = performance.now();
-      BglLogger.log('Network', `Initiating fetch for resource: ${url}`);
+      BglLogger.log('Network', `Initiating fetch for resource: ${safeUrl}`);
+
+      const fetchCtrl = new AbortController();
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        fetchCtrl.abort();
+      }, this.FETCH_TIMEOUT_MS);
+
+      const onExternalAbort = () => fetchCtrl.abort();
+      if (signal) {
+        if (signal.aborted) {
+          clearTimeout(timeoutId);
+          throw new Error('Download aborted by user.');
+        }
+        signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
 
       let response;
       try {
-        response = await fetch(url, { signal });
+        response = await fetch(safeUrl, {
+          signal: fetchCtrl.signal,
+          credentials: 'omit',
+          mode: 'cors',
+          referrerPolicy: 'no-referrer'
+        });
       } catch (networkErr) {
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onExternalAbort);
+        if (timedOut) {
+          throw new Error(`Request timed out after ${this.FETCH_TIMEOUT_MS / 1000}s while fetching '${safeUrl}'.`);
+        }
         if (signal && signal.aborted) {
           throw new Error('Download aborted by user.');
         }
-        throw new Error(`Network connection error fetching '${url}': ${networkErr.message}`);
+        throw new Error(`Network connection error fetching '${safeUrl}': ${networkErr.message}`);
       }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status} (${response.statusText || 'Not Found'}) while fetching '${url}'`);
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onExternalAbort);
+        throw new Error(`HTTP ${response.status} (${response.statusText || 'Not Found'}) while fetching '${safeUrl}'`);
       }
 
-      const contentLengthHeader = response.headers.get('content-length');
-      const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+      const contentLengthHeader = response.headers ? response.headers.get('content-length') : null;
+      let totalBytes = 0;
+      if (contentLengthHeader) {
+        const trimmedLen = contentLengthHeader.trim();
+        if (!/^\d+$/.test(trimmedLen)) {
+          clearTimeout(timeoutId);
+          if (signal) signal.removeEventListener('abort', onExternalAbort);
+          throw new Error(`Invalid Content-Length header '${trimmedLen}'`);
+        }
+        totalBytes = Number(trimmedLen);
+        if (!Number.isSafeInteger(totalBytes) || totalBytes > this.MAX_MODEL_BYTES) {
+          clearTimeout(timeoutId);
+          if (signal) signal.removeEventListener('abort', onExternalAbort);
+          throw new Error(`Asset exceeds maximum allowed size (${this.MAX_MODEL_BYTES / (1024 * 1024)} MB).`);
+        }
+      }
       const totalMbStr = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toFixed(1) : 'unknown';
 
       BglLogger.log('Network', `HTTP ${response.status} OK. Content-Length: ${totalBytes.toLocaleString()} bytes (${totalMbStr} MB)`);
 
-      // Fallback for browsers or responses without ReadableStream body
-      if (!response.body || !window.ReadableStream) {
-        BglLogger.log('Network', 'Streaming not supported on this response body, falling back to arrayBuffer()');
-        const buf = await response.arrayBuffer();
-        if (onProgress) {
-          onProgress({
-            percent: 100,
-            msg: `Downloaded ${(buf.byteLength / (1024 * 1024)).toFixed(1)} MB`,
-            transferredBytes: buf.byteLength,
-            totalBytes: buf.byteLength,
-            speedMbS: '0.0'
-          });
+      try {
+        // Fallback for browsers or responses without ReadableStream body
+        if (!response.body || typeof ReadableStream === 'undefined') {
+          BglLogger.log('Network', 'Streaming not supported on this response body, falling back to arrayBuffer()');
+          const buf = await response.arrayBuffer();
+          if (buf.byteLength > this.MAX_MODEL_BYTES) {
+            throw new Error(`Asset exceeds maximum allowed size (${this.MAX_MODEL_BYTES / (1024 * 1024)} MB).`);
+          }
+          if (onProgress) {
+            onProgress({
+              percent: 100,
+              msg: `Downloaded ${(buf.byteLength / (1024 * 1024)).toFixed(1)} MB`,
+              transferredBytes: buf.byteLength,
+              totalBytes: buf.byteLength,
+              speedMbS: '0.0'
+            });
+          }
+          return buf;
         }
-        return buf;
-      }
 
-      const reader = response.body.getReader();
-      const chunks = [];
-      let receivedBytes = 0;
-      let lastReportTime = startTime;
+        const reader = response.body.getReader();
+        const chunks = [];
+        let receivedBytes = 0;
+        let lastReportTime = startTime;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value || value.length === 0) continue;
 
-        chunks.push(value);
-        receivedBytes += value.length;
+          if (receivedBytes + value.length > this.MAX_MODEL_BYTES) {
+            try { await reader.cancel(); } catch (_) {}
+            throw new Error(`Asset download exceeded ${this.MAX_MODEL_BYTES / (1024 * 1024)} MB security limit.`);
+          }
 
-        const now = performance.now();
-        // Report progress every 50ms to maintain 60fps UI
-        if (now - lastReportTime > 50 || receivedBytes === totalBytes) {
-          lastReportTime = now;
-          const elapsedSec = (now - startTime) / 1000;
-          const speedMbS = elapsedSec > 0 ? ((receivedBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
-          const receivedMb = (receivedBytes / (1024 * 1024)).toFixed(1);
+          chunks.push(value);
+          receivedBytes += value.length;
 
-          if (totalBytes > 0) {
-            const percent = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
-            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} / ${totalMbStr} MB (${percent}%)`;
-            if (onProgress) {
-              onProgress({
-                percent,
-                msg,
-                transferredBytes: receivedBytes,
-                totalBytes,
-                speedMbS
-              });
-            }
-          } else {
-            const msg = `Downloading ${url.split('/').pop()}: ${receivedMb} MB received`;
-            if (onProgress) {
-              onProgress({
-                percent: 50,
-                msg,
-                transferredBytes: receivedBytes,
-                totalBytes: 0,
-                speedMbS
-              });
+          const now = performance.now();
+          // Report progress every 50ms to maintain 60fps UI
+          if (now - lastReportTime > 50 || receivedBytes === totalBytes) {
+            lastReportTime = now;
+            const elapsedSec = (now - startTime) / 1000;
+            const speedMbS = elapsedSec > 0 ? ((receivedBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
+            const receivedMb = (receivedBytes / (1024 * 1024)).toFixed(1);
+            const shortName = safeUrl.split(/[?#]/)[0].split('/').pop() || 'model.glb';
+
+            if (totalBytes > 0) {
+              const percent = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
+              const msg = `Downloading ${shortName}: ${receivedMb} / ${totalMbStr} MB (${percent}%)`;
+              if (onProgress) {
+                onProgress({
+                  percent,
+                  msg,
+                  transferredBytes: receivedBytes,
+                  totalBytes,
+                  speedMbS
+                });
+              }
+            } else {
+              const msg = `Downloading ${shortName}: ${receivedMb} MB received`;
+              if (onProgress) {
+                onProgress({
+                  percent: 50,
+                  msg,
+                  transferredBytes: receivedBytes,
+                  totalBytes: 0,
+                  speedMbS
+                });
+              }
             }
           }
         }
+
+        // Combine chunks into a single ArrayBuffer and free chunk references promptly
+        const combined = new Uint8Array(receivedBytes);
+        let offset = 0;
+        for (let i = 0; i < chunks.length; ++i) {
+          combined.set(chunks[i], offset);
+          offset += chunks[i].length;
+          chunks[i] = null;
+        }
+
+        const totalElapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        const avgSpeed = (totalElapsed > 0 ? (receivedBytes / (1024 * 1024)) / parseFloat(totalElapsed) : 0).toFixed(1);
+        BglLogger.log('Network', `Finished transfer (${(receivedBytes / (1024 * 1024)).toFixed(2)} MB in ${totalElapsed}s, avg ${avgSpeed} MB/s)`);
+
+        return combined.buffer;
+      } finally {
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onExternalAbort);
       }
+    }
+  };
 
-      // Combine chunks into a single ArrayBuffer
-      const combined = new Uint8Array(receivedBytes);
-      let offset = 0;
-      for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
+  // ============================================================================
+  // Unified Frame Scheduler (Shared across Core/Renderer/App)
+  // ============================================================================
+  const BglFrameScheduler = {
+    _started: false,
+    _rendererStep: null,
+    _navStep: null,
+    _gamepadStep: null,
+    _fpsStep: null,
+    _lastErrorMs: 0,
+
+    registerRenderer(fn) { this._rendererStep = fn; this.start(); },
+    registerNav(fn) { this._navStep = fn; this.start(); },
+    registerGamepad(fn) { this._gamepadStep = fn; this.start(); },
+    registerFps(fn) { this._fpsStep = fn; this.start(); },
+
+    _safeCall(fn, now) {
+      if (!fn) return;
+      try {
+        fn(now);
+      } catch (err) {
+        const curMs = performance.now();
+        if (curMs - this._lastErrorMs > 2000) {
+          this._lastErrorMs = curMs;
+          BglLogger.error('FrameScheduler', 'Uncaught frame callback exception:', err && err.message ? err.message : err);
+        }
       }
+    },
 
-      const totalElapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-      const avgSpeed = (totalElapsed > 0 ? (receivedBytes / (1024 * 1024)) / parseFloat(totalElapsed) : 0).toFixed(1);
-      BglLogger.log('Network', `Finished transfer of ${url.split('/').pop()}: ${(receivedBytes / (1024 * 1024)).toFixed(2)} MB in ${totalElapsed}s (avg ${avgSpeed} MB/s)`);
-
-      return combined.buffer;
+    start() {
+      if (this._started || typeof requestAnimationFrame !== 'function') return;
+      this._started = true;
+      const tick = (now) => {
+        this._safeCall(this._navStep, now);
+        this._safeCall(this._gamepadStep, now);
+        this._safeCall(this._rendererStep, now);
+        this._safeCall(this._fpsStep, now);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
     }
   };
 
@@ -690,11 +896,6 @@
     async init() {
       BglLogger.timeStart('Wasm-Init');
       BglUI.setProgress(20, 'Preparing WebAssembly runtime environment...');
-
-      const isCompat = await checkBrowserCompatibility();
-      if (!isCompat) {
-        BglLogger.warn('Wasm', 'Browser compatibility checks reported issues.');
-      }
 
       if (typeof WebAssembly === 'undefined' || !WebAssembly.instantiate) {
         const msg = 'WebAssembly is not supported or execution is disabled in this browser.';
@@ -774,17 +975,9 @@
 
       try {
         const uint8 = new Uint8Array(arrayBuffer);
-        // If buffer exceeds available Wasm memory, dynamically grow heap if within limits
-        if (BglState.wasmMemory) {
-          const curBytes = BglState.wasmMemory.buffer.byteLength;
-          if (uint8.length + 65536 > curBytes) {
-            const pagesNeeded = Math.ceil((uint8.length + 65536 - curBytes) / 65536) + 16;
-            try {
-              BglState.wasmMemory.grow(pagesNeeded);
-            } catch (growErr) {
-              // Maximum memory limit reached
-            }
-          }
+        if (uint8.length >= 64 * 1024 * 1024) {
+          BglLogger.log('Wasm', `Buffer '${name}' exceeds 64 MiB WASM heap ceiling. Model renders directly via WebGPU.`);
+          return false;
         }
 
         const bufPtr = BglState.wasmExports.malloc(uint8.length);
@@ -820,12 +1013,19 @@
   };
 
 
-  globalThis.BglLogger = BglLogger;
-  globalThis.BglNotifier = BglNotifier;
-  globalThis.BglState = BglState;
-  globalThis.BglUI = BglUI;
-  globalThis.BglModelCache = BglModelCache;
-  globalThis.BglLoadingScreen = BglLoadingScreen;
-  globalThis.BglNetwork = BglNetwork;
-  globalThis.BglWasmBridge = BglWasmBridge;
+  const exportsMap = {
+    BglLogger,
+    BglNotifier,
+    BglState,
+    BglUI,
+    BglModelCache,
+    BglLoadingScreen,
+    BglNetwork,
+    BglWasmBridge,
+    BglFrameScheduler
+  };
+  Object.assign(globalThis, exportsMap);
+  if (typeof window !== 'undefined' && window !== globalThis) {
+    Object.assign(window, exportsMap);
+  }
 })();

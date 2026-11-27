@@ -82,7 +82,7 @@ core::Result<void> EngineCore::LoadSceneFromUri(std::string_view uri) {
     }
 
     BGL_LOG_INFO("Loading glTF/GLB asset from {} '{}'...", core::NetworkFetcher::IsUrl(sanitizedUri) ? "URL" : "path",
-                 sanitizedUri);
+                 core::SanitizeForLog(sanitizedUri));
     auto fetchRes = core::NetworkFetcher::FetchSync(sanitizedUri);
     if (!fetchRes) {
         return std::unexpected("Failed to fetch glTF asset '" + sanitizedUri + "': " + fetchRes.error());
@@ -91,11 +91,12 @@ core::Result<void> EngineCore::LoadSceneFromUri(std::string_view uri) {
 }
 
 void EngineCore::OnFileDrop(std::string_view filename, std::span<const uint8_t> data) {
-    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", filename, data.size());
-    if (auto res = LoadScene(data, filename); res) {
-        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", filename);
+    const std::string safeName{core::NetworkFetcher::SanitizeUri(filename)};
+    BGL_LOG_INFO("Ingesting drag-and-dropped buffer '{}' ({} bytes)", core::SanitizeForLog(safeName), data.size());
+    if (auto res = LoadScene(data, "memory://" + (safeName.empty() ? std::string{"dropped.glb"} : safeName)); res) {
+        BGL_LOG_INFO("Successfully activated dropped glTF model '{}'", core::SanitizeForLog(safeName));
     } else {
-        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", filename, res.error());
+        BGL_LOG_ERROR("Failed to load dropped glTF buffer '{}': {}", core::SanitizeForLog(safeName), res.error());
     }
 }
 
@@ -171,7 +172,7 @@ void EngineCore::SelectNode(std::shared_ptr<scene::SceneNode> node, int index) n
             pipelineManager_.GetPostProcessPass().SetDoFFocusDistance(distToNode);
         }
         BGL_LOG_INFO("Selected Node #{} '{}' (AABB min=[{:.2f}, {:.2f}, {:.2f}], max=[{:.2f}, {:.2f}, {:.2f}])",
-                     selectedNodeIndex_, selectedNode_->name, selectedNode_->worldAABB.minBound.x,
+                     selectedNodeIndex_, core::SanitizeForLog(selectedNode_->name), selectedNode_->worldAABB.minBound.x,
                      selectedNode_->worldAABB.minBound.y, selectedNode_->worldAABB.minBound.z,
                      selectedNode_->worldAABB.maxBound.x, selectedNode_->worldAABB.maxBound.y,
                      selectedNode_->worldAABB.maxBound.z);

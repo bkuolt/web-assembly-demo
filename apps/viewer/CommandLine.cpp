@@ -147,12 +147,31 @@ template <typename T>
     return val;
 }
 
+[[nodiscard]] bool IsCliFlagToken(std::string_view tok) noexcept {
+    if (tok.starts_with("--")) {
+        return true;
+    }
+    if (tok.size() >= 2 && tok[0] == '-') {
+        const unsigned char ch = static_cast<unsigned char>(tok[1]);
+        // Treat `-2.0` / `-.5` as numeric arguments, not short flags.
+        return !std::isdigit(ch) && ch != '.';
+    }
+    return false;
+}
+
 [[nodiscard]] std::optional<std::string_view> ConsumeValue(std::optional<std::string_view> inlineVal,
                                                            std::span<const char* const> args, size_t& index) noexcept {
     if (inlineVal.has_value()) {
         return inlineVal;
     }
-    return (index + 1 < args.size() && args[index + 1]) ? std::optional<std::string_view>{args[++index]} : std::nullopt;
+    if (index + 1 < args.size() && args[index + 1]) {
+        const std::string_view candidate{args[index + 1]};
+        if (!IsCliFlagToken(candidate)) {
+            ++index;
+            return candidate;
+        }
+    }
+    return std::nullopt;
 }
 
 [[nodiscard]] bool MatchFlag(std::string_view flag, std::string_view shortFlag, std::string_view longFlag) noexcept {
@@ -177,7 +196,7 @@ template <typename Range, typename ApplyFn>
                                   std::span<const char* const> args, size_t& index) {
     for (const auto& entry : kBoolOpts) {
         if (flag.starts_with("--no-") && flag.substr(5) == entry.stem) {
-            opt.*(entry.field) = false;
+            opt.*(entry.field) = inlineVal.has_value() && (*inlineVal == "false" || *inlineVal == "0");
             return true;
         }
         if (flag.starts_with("--") && flag.substr(2) == entry.stem) {
@@ -196,14 +215,14 @@ template <typename Range, typename ApplyFn>
         return true;
     }
     if (DispatchValue(kUIntOpts, flag, inlineVal, args, index, [&](const RangeOpt<uint32_t>& e, std::string_view val) {
-            if (const auto n = TryParseNumber<long>(val); n && *n >= e.minVal && *n <= e.maxVal) {
-                opt.*(e.field) = static_cast<uint32_t>(*n);
+            if (const auto n = TryParseNumber<uint32_t>(val); n && *n >= e.minVal && *n <= e.maxVal) {
+                opt.*(e.field) = *n;
             }
         })) {
         return true;
     }
     if (DispatchValue(kFloatOpts, flag, inlineVal, args, index, [&](const RangeOpt<float>& e, std::string_view val) {
-            if (const auto n = TryParseNumber<float>(val)) {
+            if (const auto n = TryParseNumber<float>(val); n && std::isfinite(*n)) {
                 if (e.wrapMod24) {
                     const float wrapped = std::fmod(*n, 24.0f);
                     opt.*(e.field) = wrapped < 0.0f ? wrapped + 24.0f : wrapped;
@@ -215,7 +234,9 @@ template <typename Range, typename ApplyFn>
         return true;
     }
     return DispatchValue(kEnumOpts, flag, inlineVal, args, index, [&](const EnumOpt& e, std::string_view val) {
-        opt.*(e.field) = LookupChoice(e.choices, val).value_or(0u);
+        if (const auto choice = LookupChoice(e.choices, val)) {
+            opt.*(e.field) = *choice;
+        }
     });
 }
 
@@ -296,7 +317,9 @@ CliOptions CliOptions::Parse(std::span<const char* const> args) {
             continue;
         }
 
-        (void)TryApplyOption(opt, flag, inlineVal, args, i);
+        if (!TryApplyOption(opt, flag, inlineVal, args, i)) {
+            std::cerr << std::format("Warning: ignoring unrecognized option '{}'\n", rawArg);
+        }
     }
 
     return opt;

@@ -620,6 +620,7 @@ TEST(RenderingFeaturesTest, NetworkFetcherDataUriAndExternalGltfLoading) {
     }};
 
     const std::string httpModelUrl{"http://127.0.0.1:" + std::to_string(port) + "/models/scene.gltf"};
+    core::NetworkFetcher::ScopedAllowLoopbackHttpForTests allowLoopback{};
     const auto httpSceneRes{loader.LoadFromFile(httpModelUrl)};
     ASSERT_TRUE(httpSceneRes.has_value()) << httpSceneRes.error();
     EXPECT_EQ((*httpSceneRes)->rootNodes.size(), 1u);

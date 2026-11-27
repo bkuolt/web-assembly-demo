@@ -1,10 +1,10 @@
-# bgl Engine (v1.1.0)
+# bgl Engine (v1.2.0)
 
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue?style=flat)](https://en.cppreference.com/w/cpp/23)
 [![Backend](https://img.shields.io/badge/Backend-WebGPU-0284c7?style=flat)](https://gpuweb.github.io/gpuweb/)
 [![API Docs](https://img.shields.io/badge/Docs-Doxygen-0f766e?style=flat)](https://bkuolt.github.io/web-assembly-demo/docs/)
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub_Pages-15803d?style=flat)](https://bkuolt.github.io/web-assembly-demo/)
-[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.1.0-d97706?style=flat)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v0.6.0_%E2%86%92_v1.2.0-d97706?style=flat)](CHANGELOG.md)
 
 Modular C++23 3D graphics engine built on WebGPU (`wgpu-native` + SDL2 on Linux desktop, paired with an Emscripten WebAssembly core and native WebGPU client for browsers). It supports glTF 2.0/2.1 PBR rendering, HDR Image-Based Lighting (IBL), Forward+ clustered lighting, directional PCF shadows, desktop hybrid ray tracing and progressive path tracing, spatial Quadtree culling, and an SDF immediate-mode UI behind a backend-free public API (`#include <bgl/bgl.hpp>`).
 
@@ -13,7 +13,6 @@ Modular C++23 3D graphics engine built on WebGPU (`wgpu-native` + SDL2 on Linux 
 | Resource | Purpose | Link |
 | :--- | :--- | :--- |
 | **Web Viewer (GitHub Pages)** | Primary hosted browser build (WebGPU + `bgl_engine.wasm`) | [bkuolt.github.io/web-assembly-demo](https://bkuolt.github.io/web-assembly-demo/) |
-| **Direct Mirror (GitHack)** | Static CDN preview directly from `main/web/index.html` | [raw.githack.com/.../web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html) |
 | **API Reference (Doxygen)** | Generated HTML reference across `bgl` modules and headers | [bkuolt.github.io/web-assembly-demo/docs](https://bkuolt.github.io/web-assembly-demo/docs/) |
 | **Web Client Architecture** | Browser WebGPU renderer, WGSL pipeline, and touch/worker notes | [`web/README.md`](web/README.md) |
 
@@ -185,7 +184,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 .
 ├── CMakeLists.txt                     # C++23 target-based CMake configuration (+ optional Doxygen target)
 ├── CMakePresets.json                  # Release, Clang, ASan, UBSan & TSan presets
-├── CHANGELOG.md                       # Release history (v0.6.0 -> v1.1.0)
+├── CHANGELOG.md                       # Release history (v0.6.0 -> v1.2.0)
 ├── Doxyfile                           # Doxygen + Graphviz SVG configuration
 ├── Taskfile.yml                       # Format, lint, build, test, docs & web helper tasks
 ├── conanfile.py                       # Conan 2.x package recipe
@@ -302,7 +301,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── 01_hello_engine/main.cpp       # Minimal model load, orbit camera, and exposure slider
 │   ├── 02_entities_and_lights/main.cpp# Scene entities and orbiting point light
 │   └── 03_sprites_and_billboards/main.cpp # 2D animated sprites & 3D HDR billboards
-├── tests/                             # C++ GTest (325 tests across 51 suites) + Web Unit/E2E suites
+├── tests/                             # C++ GTest (334 tests across 51 suites) + Web Unit/E2E suites
 │   ├── test_main.cpp
 │   ├── test_types_math.cpp            # AABB, Ray, Plane, Frustum math, 96-byte Vertex layout
 │   ├── test_camera.cpp                # Orbit, Pan, Zoom, ScreenPointToRay, bookmarks
@@ -328,7 +327,7 @@ The desktop viewer (`bgl_viewer`) in [`apps/viewer/`](apps/viewer/) serves as a 
 │   ├── test_entity.cpp                # Scene graph reparenting, cycle guard & Entity handle safety
 │   ├── test_engine_api.cpp            # Live Engine API, gui safety & scene reload invalidation
 │   ├── test_sprites.cpp               # Sprites, AnimatedSprites, SpriteClips & SpriteRenderer
-│   ├── test_web_unit.js               # 74 Node.js web math, shader, glTF, frustum & LOD tests
+│   ├── test_web_unit.js               # 79 Node.js web math, shader, security, glTF, frustum & LOD tests
 │   ├── test_webgpu_path.js            # Headless WebGPU pipeline + bgl_engine.wasm verification
 │   └── test_browsers_e2e.py           # Playwright/Selenium Firefox & Chrome native WebGPU E2E checks
 ├── scripts/
@@ -543,7 +542,7 @@ The executable resolves relative RPATHs to its shared libraries and WebGPU backe
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
 | `-h`, `--help` | — | Display formatted help screen with arguments and controls | — |
-| `-v`, `--version` | — | Print engine version string | `1.1.0` |
+| `-v`, `--version` | — | Print engine version string | `1.2.0` |
 | `--formats` | — | Query compiled texture decoders and `libcurl` availability | — |
 | `-a`, `--asset` | `<path\|url>` | Load `.glb` or `.gltf` model from path or HTTP/HTTPS URL | Auto-detect |
 | `-w`, `--width` | `<pixels>` | Initial window width | `1280` |
@@ -610,7 +609,6 @@ HTML API documentation (with module groups, Graphviz collaboration/dependency SV
 You can run the WebAssembly and WebGPU viewer directly in a supported desktop browser (Chrome / Edge / Firefox Nightly with WebGPU enabled) without installing local build tools:
 
 - **GitHub Pages (Primary):** [https://bkuolt.github.io/web-assembly-demo/](https://bkuolt.github.io/web-assembly-demo/)
-- **GitHack (Direct `main` Branch Mirror):** [https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html](https://raw.githack.com/bkuolt/web-assembly-demo/main/web/index.html)
 
 ### Serving the Web Viewer Locally
 
@@ -640,42 +638,43 @@ Produces `dist/bgl_web_app_minimal.zip` (~5.8 MB) with the web runtime and core 
 
 ## Test Suite Overview
 
-The repository includes **325 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **74 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), and cross-browser Playwright/Selenium tests (`BrowserE2ETest`).
+The repository includes **334 C++ GoogleTests across 51 suites**, a static module dependency check (`LayeringCheck`), a headless GPU smoke check (`NativeHeadlessSmokeTest`), **79 Node.js web unit tests**, a headless WebGPU/WASM pipeline check (`WebGPUPipelineTest`), ASan/UBSan sanitizer verification (both locally via CMake presets and in CI), and cross-browser Chrome/Firefox tests (`BrowserE2ETest`).
 
 | Test Suite | Tests | Scope |
 | :--- | :---: | :--- |
 | `RenderingFeaturesTest` | 58 | Tangents & handedness, mipmaps & normal renormalization, shadow matrices, cubemap IBL, uniform packing, Forward+ clusters, POM, GTAO, lens flare, tonemappers, KTX2 targets, transmission attenuation, bloom, weather (`rain`/`snow`/`fog`/`smoke`), diurnal sun, gamepad response curves, `GpuCuller`/`GpuRayPicker`, `DebugOverlay`, `KHR_texture_transform`, split passes & headless WebGPU validation. |
 | `TypesMathTest` | 24 | AABB/ray intersections, Hesse planes, WebGPU frustum extraction, 96-byte Vertex alignment, tangents, mipmap helpers, shadow matrices, cubemap mips, Arvo box transform, slerp/affine inversion, and degenerate geometry guards. |
-| `CommandLineTest` | 20 | Default config, `--help`, `--version`, `--formats`, resolution flags, symmetric toggles, `--flag=value` & `--`, weather/time-of-day flags, LOD bias/heatmap, debug views, crash options, `--headless`, and `ApplicationConfig` slicing. |
+| `CommandLineTest` | 22 | Default config, `--help`, `--version`, `--formats`, resolution & non-positive dimension guards, symmetric toggles, `--flag=value` & `--`, flag-swallow protection, weather/time-of-day flags, LOD bias/heatmap, debug views, crash options, `--headless`, and `ApplicationConfig` slicing. |
 | `CameraTest` | 18 | Orbit, pan, zoom clamping, view/projection composition, `ScreenPointToRay` unprojection, pitch limits, aspect ratios, WASD/fly navigation, bounds framing, bookmarks, and glTF camera import. |
+| `GltfLoaderTest` | 19 | `ToyCar.glb` parsing, KHR extensions, corrupted GLB rejection, oversized-accessor bounds, cycle/diamond-DAG guards, morph-target cap, hierarchy transforms, monotonic async progress & cancellation, 19-model presets, worker teardown safety, and optional 1 GB megacity stress test. |
 | `MemoryPoolTest` | 15 | Fixed-size block allocation, multi-block chaining, free-list reuse, destructor tracking, move semantics, LIFO safety, 64-byte alignment, and PMR `ScratchArena`. |
-| `GltfLoaderTest` | 16 | `ToyCar.glb` parsing, KHR extensions, corrupted GLB rejection, oversized-accessor bounds protection, hierarchy transforms, monotonic async progress & cancellation, 19-model presets, worker teardown safety, and optional 1 GB megacity stress test. |
 | `RayPickerTest` | 14 | Möller-Trumbore ray-triangle hit/miss, backface/negative-t rejection, normal orthogonality, hierarchical transforms, and empty/multi-root scenes. |
 | `AnimationTest` | 14 | Step/Linear/Slerp/CubicSpline samplers, edge-case keyframes, TRS decoupling, hierarchy propagation, morph blending, time wrapping, and skeletal skin matrices. |
 | `QuadtreeTest` | 13 | 4-way XZ subdivision, loose bounds, `Refit()` relocation, `ContainsXZ`, Sponza culling ratios, Hi-Z `OcclusionBuffer` tile queries, and `LOD0`–`LOD3` bias scaling. |
 | `TextRenderingTest` | 11 | Embedded Liberation Mono integrity, FreeType alpha/SDF atlases, glyph rasterization, HarfBuzz shaping, UTF-8/CRLF/empty strings, multi-line layout, and tinting. |
-| `TextureDecoderTest` | 10 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` headers, PMR decoding, NPOT mip levels, and crafted WebP/EXR overflow guards. |
+| `TextureDecoderTest` | 10 | Format capability queries, empty/corrupt payload rejection, magic-byte sniffing (`PNG`, `JPEG`, `WebP`, `KTX2`), `HDR`/`EXR` headers, PMR decoding, NPOT mip levels, and crafted PNG/HDR/WebP/KTX2/EXR overflow guards. |
 | `ThreadPoolTest` | 9 | Worker lifecycle, singleton identity, async futures, `ParallelFor` partitioning, empty/inverted bounds, nested deadlock guard, and exception propagation. |
+| `NetworkFetcherTest` & `MemoryTrackerTest` | 10 | URI scheme/sanitization/percent-decoding, SSRF & HTTPS-only filtering (including live loopback test server), `file://` host validation, relative & cross-scheme subresource containment, `FetchSync`/`FetchAsync`, and saturated GPU VRAM alloc/free counters. |
 | `AssetManagerTest` | 8 | 64-bit FNV-1a hashing, texture cache insertion/deduplication/replacement, KTX2 handling, scratch arena reset, bit-avalanche, and missing path errors. |
-| `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall, `std::stacktrace` output, boundary safety, and idempotent re-installation. |
-| `SoundEngineTest` | 6 | Audio lifecycle & initialization, missing-file error handling, repeated stop safety, and idempotent shutdown. |
+| `SoundEngineTest` | 7 | Audio lifecycle & initialization, missing-file error handling, `NaN`/non-finite spatial safety, repeated stop safety, and idempotent shutdown. |
+| `CrashHandlerTest` | 6 | POSIX signal handler install/uninstall, async-signal-safe formatting, boundary safety, and idempotent re-installation. |
 | `RayTracingSceneTest` & `RayTracingPassTest` | 10 | WGSL ABI struct sizes (`RtVertex`/`RtBvhNode`/`RtInstance`/`RtMaterial`/`RtPassUniforms`), binned-SAH BLAS builder, scene BVH + unindexed geometry + non-uniform scale normals + CPU ray tracing, `UpdateTlas`, `EXT_mesh_gpu_instancing` multi-instance tracing, singular transform rejection, RT parameter clamping, shader reload filtering, and headless WebGPU hybrid & path-trace execution. |
-| `NetworkFetcherTest` & `MemoryTrackerTest` | 9 | URI scheme/sanitization/percent-decoding, relative & cross-scheme subresource containment, `FetchSync` (`file://`, `data:`, NUL/control guards, progress & cancellation), `FetchAsync`, and saturated GPU VRAM alloc/free counters. |
 | `SceneMeshTest` | 7 | `MeshPrimitive::GenerateLODs` dense/small/collapsed-area reduction, `ComputeTangents` (indexed, unindexed, degenerate UVs), `ApplyMorphTargets`, copy/move buffer ownership guards, and instanced `Scene::Update` bounds. |
 | `ImmediateUIAdvancedWidgetsTest` | 5 | SDF & backdrop blur flags, HSV conversion, sliders/collapsing headers/sparklines/scroll areas, `ColorEdit3` popup, and scrollable `Dropdown`/`ProgressBar`/`DrawLoadingBanner`. |
-| `GoldenImageTest` | 4 | Headless GLB golden geometry validation, buffer determinism, FNV-1a content hashing, and instancing checks. |
+| `GoldenImageTest` | 4 | Headless GLB golden geometry validation, fixed-checksum buffer determinism, FNV-1a content hashing, and instancing checks. |
 | `ShaderManagerTest` | 4 | WGSL `#include` & `#pragma once`, circular/missing include detection, entry-point checks, and hot-reload detection. |
 | Public SDK & Engine Suites | 20 | `InputState` (7), `EntityOps` (7), `RenderSettings` (2), `GuiPublicApi` (2), `EnginePublicApi` (1), and `EntityHandle` (1). |
-| UI Scoping, Modal, Hover & Font Suites | 10 | `ImmediateUIModalAndLoadingTest` (2), `ImmediateUIScopingAndDisabledTest` (2), `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, and `ImmediateUILayoutAndControlsTest`. |
+| UI Scoping, Modal, Hover & Font Suites | 13 | `ImmediateUIModalAndLoadingTest` (2), `ImmediateUIScopingAndDisabledTest` (3), `ImmediateUiSafetyTest` (2), `FontLibraryTest`, `TextShaperTest`, `TextRendererTest`, `ImmediateUIHoverAndTooltipTest`, `ImmediateUIMultiFontTest`, and `ImmediateUILayoutAndControlsTest`. |
 | Sprites & Billboards Suites | 6 | `SpriteTextureTest`, `SpriteClipAndAnimatorTest`, `AnimatedSpriteAndBillboardTest`, `BillboardBasisTest`, `SpriteRendererCpuTest`, and `EnginePublicSpriteApiTest`. |
-| Single-Test Targeted Suites | 8 | `GamepadTest` (1), `ImmediateUITest` (1), `ImmediateUiSafetyTest` (1), `PipelineDelegationTest` (1), `PostProcessPassTest` (1), `QuadtreeLodTest` (1), `ShaderManagerSecurityTest` (1), and `TextureDecoderHdrTest` (1). |
+| Single-Test Targeted Suites | 7 | `GamepadTest`, `ImmediateUITest`, `PipelineDelegationTest`, `PostProcessPassTest`, `QuadtreeLodTest`, `ShaderManagerSecurityTest`, and `TextureDecoderHdrTest`. |
 
 ---
 
 ## Changelog & Release History
 
-See [**CHANGELOG.md**](CHANGELOG.md) for version notes from `v0.6.0` through **`v1.1.0`**:
+See [**CHANGELOG.md**](CHANGELOG.md) for version notes from `v0.6.0` through **`v1.2.0`**:
 
+- **[1.2.0](CHANGELOG.md#120---2026-11-22)**: End-to-end security, safety & compliance hardening across glTF/mesh/animation ingestion, texture decoders, async-signal-safe crash diagnostics, SSRF-filtered `NetworkFetcher`, WebGPU/BVH/WGSL bounds & context-loss guards, strict CSP without inline script attributes (`script-src-attr 'none'`), ELF/WASM stack-first hardening with `libwgpu_native.so` SHA256 verification, ASan+UBSan CI job, and **334 C++ GoogleTests + 79 Web unit tests**.
 - **[1.1.0](CHANGELOG.md#110---2026-11-22)**: Public backend-free C++23 SDK (`include/bgl/`, `EngineCore`, `samples/01..03`), desktop compute-shader hybrid ray tracing & progressive path tracer (`RayTracingScene` + `RayTracingPass`), 2D sprites & 3D HDR billboards, cross-platform font discovery (`FontLibrary`) & frosted-glass modals, SDF studio UI & full post-processing suite (GTAO, Bloom, Auto-Exposure, SSR, DoF, God Rays, FXAA), security & overflow hardening, modular source/JS splits, 324 C++ GoogleTests + 74 Web unit tests, and Doxygen/GitHub Pages deployment.
 - **[1.0.0](CHANGELOG.md#100---2026-11-16)**: Production 1.0 release with RAII `Handle<>` WebGPU lifecycle, modularized `FastGltfLoader` / `PipelineManager` / `Application`, consolidated swapchain/attachment helpers, zero `clang-tidy`/compiler warnings, and cross-compiler/sanitizer/browser E2E parity.
 - **[0.9.18](CHANGELOG.md#0918---2026-11-16)**: Modular `.wgsl` shader pipeline with `#include`/`#pragma once` and hot-reload, split Opaque/Skybox/Transparent+Transmission HDR pass, `EXT_mesh_gpu_instancing`, `Quadtree::Refit()`, modular web client (`web/js/`), and Conan 2 dependency upgrades.

@@ -31,12 +31,18 @@ Camera::Camera(glm::vec3 target, float distance) : target_{target}, distance_{di
 }
 
 void Camera::Orbit(float deltaYaw, float deltaPitch) noexcept {
+    if (!std::isfinite(deltaYaw) || !std::isfinite(deltaPitch)) {
+        return;
+    }
     yaw_ += deltaYaw;
     pitch_ += deltaPitch;
-    pitch_ = std::clamp(pitch_, -1.55f, 1.55f);
+    pitch_ = std::isfinite(pitch_) ? std::clamp(pitch_, -1.55f, 1.55f) : 0.0f;
 }
 
 void Camera::Pan(float deltaX, float deltaY) noexcept {
+    if (!std::isfinite(deltaX) || !std::isfinite(deltaY)) {
+        return;
+    }
     const glm::vec3 forward{SafeNormalize(target_ - position_, glm::vec3{0.0f, 0.0f, -1.0f})};
     const glm::vec3 right{SafeRightFromForward(forward)};
     const glm::vec3 up{SafeNormalize(glm::cross(right, forward), glm::vec3{0.0f, 1.0f, 0.0f})};
@@ -48,6 +54,9 @@ void Camera::Pan(float deltaX, float deltaY) noexcept {
 }
 
 void Camera::MoveForward(float delta) noexcept {
+    if (!std::isfinite(delta)) {
+        return;
+    }
     glm::vec3 forward{target_ - position_};
     forward.y = 0.0f; // Constrain to ground plane for smooth WASD navigation
     forward = SafeNormalize(forward, glm::vec3{0.0f, 0.0f, -1.0f});
@@ -58,6 +67,9 @@ void Camera::MoveForward(float delta) noexcept {
 }
 
 void Camera::MoveRight(float delta) noexcept {
+    if (!std::isfinite(delta)) {
+        return;
+    }
     glm::vec3 forward{target_ - position_};
     forward.y = 0.0f;
     forward = SafeNormalize(forward, glm::vec3{0.0f, 0.0f, -1.0f});
@@ -69,6 +81,9 @@ void Camera::MoveRight(float delta) noexcept {
 }
 
 void Camera::MoveUp(float delta) noexcept {
+    if (!std::isfinite(delta)) {
+        return;
+    }
     target_.y += delta;
     if (mode_ == CameraMode::Fly) {
         position_.y += delta;
@@ -76,7 +91,11 @@ void Camera::MoveUp(float delta) noexcept {
 }
 
 void Camera::Zoom(float deltaZoom) noexcept {
-    distance_ = std::clamp(distance_ - deltaZoom, 0.001f, 10000.0f);
+    if (!std::isfinite(deltaZoom)) {
+        return;
+    }
+    const float nextDist = distance_ - deltaZoom;
+    distance_ = std::isfinite(nextDist) ? std::clamp(nextDist, 0.001f, 10000.0f) : 5.0f;
 }
 
 void Camera::FocusOnBounds(const AABB& bounds, float margin) noexcept {
@@ -133,6 +152,10 @@ const CameraBookmark* Camera::GetBookmark(size_t slot) const noexcept {
 }
 
 void Camera::SetPositionAndTarget(const glm::vec3& position, const glm::vec3& target) noexcept {
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+        !std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z)) {
+        return;
+    }
     position_ = position;
     target_ = target;
     const glm::vec3 diff = target - position;
@@ -144,16 +167,22 @@ void Camera::SetPositionAndTarget(const glm::vec3& position, const glm::vec3& ta
 }
 
 void Camera::SetFromTransform(const glm::mat4& transform, float fovY, float nearPlane, float farPlane) noexcept {
-    position_ = glm::vec3(transform[3]);
+    const glm::vec3 pos{transform[3]};
+    const glm::vec3 fwdAxis{transform[2]};
+    if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z) || !std::isfinite(fwdAxis.x) ||
+        !std::isfinite(fwdAxis.y) || !std::isfinite(fwdAxis.z)) {
+        return;
+    }
+    position_ = pos;
     // glTF camera looks toward -Z
-    const glm::vec3 forward = -SafeNormalize(glm::vec3(transform[2]), glm::vec3{0.0f, 0.0f, 1.0f});
+    const glm::vec3 forward = -SafeNormalize(fwdAxis, glm::vec3{0.0f, 0.0f, 1.0f});
     distance_ = 5.0f;
     target_ = position_ + forward * distance_;
     pitch_ = std::asin(std::clamp(forward.y, -0.999f, 0.999f));
     yaw_ = std::atan2(-forward.x, -forward.z);
-    fovY_ = fovY > 0.0f ? fovY : glm::radians(45.0f);
-    nearPlane_ = nearPlane > 0.0f ? nearPlane : 0.1f;
-    farPlane_ = farPlane > nearPlane_ ? farPlane : 1000.0f;
+    fovY_ = (std::isfinite(fovY) && fovY > 0.0f && fovY < glm::pi<float>()) ? fovY : glm::radians(45.0f);
+    nearPlane_ = (std::isfinite(nearPlane) && nearPlane > 0.0f) ? nearPlane : 0.1f;
+    farPlane_ = (std::isfinite(farPlane) && farPlane > nearPlane_) ? farPlane : 1000.0f;
     mode_ = CameraMode::Fly;
     Update(16.0f / 9.0f);
 }

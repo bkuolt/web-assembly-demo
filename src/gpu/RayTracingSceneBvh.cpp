@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <span>
+#include <unordered_set>
 #include <vector>
 
 namespace bgl::gpu {
@@ -77,7 +78,9 @@ template <typename RefT>
         const float scale = static_cast<float>(kSahBins) / extent;
         for (uint32_t i = 0; i < count; ++i) {
             const float c = refs[start + i].centroid[axis];
-            const uint32_t bIdx = std::min(kSahBins - 1u, static_cast<uint32_t>((c - minC) * scale));
+            const float rawBin = std::isfinite(c) ? ((c - minC) * scale) : 0.0f;
+            const uint32_t bIdx =
+                std::min(kSahBins - 1u, (std::isfinite(rawBin) && rawBin > 0.0f) ? static_cast<uint32_t>(rawBin) : 0u);
             bins[bIdx].count += 1u;
             bins[bIdx].bounds.Expand(refs[start + i].bounds);
         }
@@ -243,6 +246,9 @@ void TraverseInstanceBlas(const core::Ray& worldRay, const RtInstance& inst, uin
 
     while (sp > 0u) {
         const uint32_t localNodeIdx = stack[--sp];
+        if (static_cast<size_t>(inst.blasRootNode) + localNodeIdx >= blasNodes.size()) {
+            continue;
+        }
         const RtBvhNode& bNode = blasNodes[inst.blasRootNode + localNodeIdx];
         if (IntersectAabbT(localRo, localInvD, bNode.aabbMin, bNode.aabbMax, best.distance) >= best.distance) {
             continue;
@@ -255,9 +261,15 @@ void TraverseInstanceBlas(const core::Ray& worldRay, const RtInstance& inst, uin
         for (uint32_t t = 0u; t < bNode.triCount; ++t) {
             const uint32_t localTri = bNode.leftFirst + t;
             const uint32_t gTri = inst.triOffset + localTri;
+            if (static_cast<size_t>(gTri) * 3u + 2u >= indices.size()) {
+                continue;
+            }
             const uint32_t i0 = inst.vertexOffset + indices[gTri * 3u + 0u];
             const uint32_t i1 = inst.vertexOffset + indices[gTri * 3u + 1u];
             const uint32_t i2 = inst.vertexOffset + indices[gTri * 3u + 2u];
+            if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size()) {
+                continue;
+            }
             const glm::vec3 p0 = glm::vec3{vertices[i0].posU};
             const glm::vec3 p1 = glm::vec3{vertices[i1].posU};
             const glm::vec3 p2 = glm::vec3{vertices[i2].posU};
@@ -312,12 +324,17 @@ uint32_t RayTracingScene::BuildBinnedSahBlas(std::span<const RtVertex> vertices,
         return 0u;
     }
 
+    auto safeFinite = [](const glm::vec3& v) noexcept {
+        return glm::vec3{std::isfinite(v.x) ? v.x : 0.0f, std::isfinite(v.y) ? v.y : 0.0f,
+                         std::isfinite(v.z) ? v.z : 0.0f};
+    };
+
     std::vector<TriBuildRef> refs(triCount);
     const uint32_t vertCount = static_cast<uint32_t>(vertices.size());
     for (uint32_t t = 0; t < triCount; ++t) {
-        const glm::vec3 p0 = glm::vec3{vertices[std::min(sourceIndices[t * 3u + 0u], vertCount - 1u)].posU};
-        const glm::vec3 p1 = glm::vec3{vertices[std::min(sourceIndices[t * 3u + 1u], vertCount - 1u)].posU};
-        const glm::vec3 p2 = glm::vec3{vertices[std::min(sourceIndices[t * 3u + 2u], vertCount - 1u)].posU};
+        const glm::vec3 p0 = safeFinite(glm::vec3{vertices[std::min(sourceIndices[t * 3u + 0u], vertCount - 1u)].posU});
+        const glm::vec3 p1 = safeFinite(glm::vec3{vertices[std::min(sourceIndices[t * 3u + 1u], vertCount - 1u)].posU});
+        const glm::vec3 p2 = safeFinite(glm::vec3{vertices[std::min(sourceIndices[t * 3u + 2u], vertCount - 1u)].posU});
 
         core::AABB b{};
         b.Expand(p0);
@@ -333,9 +350,9 @@ uint32_t RayTracingScene::BuildBinnedSahBlas(std::span<const RtVertex> vertices,
     outReorderedIndices.resize(static_cast<size_t>(triCount) * 3u);
     for (uint32_t t = 0; t < triCount; ++t) {
         const uint32_t origT = refs[t].origTriIdx;
-        outReorderedIndices[t * 3u + 0u] = sourceIndices[origT * 3u + 0u];
-        outReorderedIndices[t * 3u + 1u] = sourceIndices[origT * 3u + 1u];
-        outReorderedIndices[t * 3u + 2u] = sourceIndices[origT * 3u + 2u];
+        outReorderedIndices[t * 3u + 0u] = std::min(sourceIndices[origT * 3u + 0u], vertCount - 1u);
+        outReorderedIndices[t * 3u + 1u] = std::min(sourceIndices[origT * 3u + 1u], vertCount - 1u);
+        outReorderedIndices[t * 3u + 2u] = std::min(sourceIndices[origT * 3u + 2u], vertCount - 1u);
     }
 
     return static_cast<uint32_t>(outNodes.size());
@@ -349,9 +366,10 @@ void RayTracingScene::RebuildTlasInternal(const scene::Scene& scene, bool forceU
     instances_.clear();
     tlasNodes_.clear();
 
-    auto appendInstances = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
-                               const glm::mat4& parentMat) -> void {
-        if (!node) {
+    std::unordered_set<const scene::SceneNode*> visitedNodes{};
+    auto appendInstances = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node, const glm::mat4& parentMat,
+                               size_t depth) -> void {
+        if (!node || depth > 256u || !visitedNodes.insert(node.get()).second) {
             return;
         }
         const glm::mat4 worldMat = parentMat * node->localTransform;
@@ -369,6 +387,13 @@ void RayTracingScene::RebuildTlasInternal(const scene::Scene& scene, bool forceU
             const uint32_t instFlags = (rtMat.flagsAlpha.z != 0u ? 1u : 0u) | (rtMat.flagsAlpha.w != 0u ? 2u : 0u);
 
             auto pushInstance = [&](const glm::mat4& modelMat) {
+                for (int c = 0; c < 4; ++c) {
+                    for (int r = 0; r < 4; ++r) {
+                        if (!std::isfinite(modelMat[c][r])) {
+                            return;
+                        }
+                    }
+                }
                 const float det = glm::determinant(glm::mat3{modelMat});
                 if (!std::isfinite(det) || std::abs(det) < 1e-24f) {
                     return;
@@ -397,12 +422,12 @@ void RayTracingScene::RebuildTlasInternal(const scene::Scene& scene, bool forceU
             }
         }
         for (const auto& child : node->children) {
-            self(self, child, worldMat);
+            self(self, child, worldMat, depth + 1u);
         }
     };
 
     for (const auto& root : scene.rootNodes) {
-        appendInstances(appendInstances, root, glm::mat4{1.0f});
+        appendInstances(appendInstances, root, glm::mat4{1.0f}, 0u);
     }
 
     if (!instances_.empty()) {
@@ -447,6 +472,9 @@ RtCpuHit RayTracingScene::TraceRayCpu(const core::Ray& ray, float maxDist) const
 
     while (tlasSp > 0u) {
         const uint32_t nodeIdx = tlasStack[--tlasSp];
+        if (nodeIdx >= tlasNodes_.size()) {
+            continue;
+        }
         const RtBvhNode& node = tlasNodes_[nodeIdx];
         if (IntersectAabbT(ray.origin, worldInvD, node.aabbMin, node.aabbMax, best.distance) >= best.distance) {
             continue;
@@ -458,6 +486,9 @@ RtCpuHit RayTracingScene::TraceRayCpu(const core::Ray& ray, float maxDist) const
         }
         for (uint32_t i = 0u; i < node.triCount; ++i) {
             const uint32_t instIdx = node.leftFirst + i;
+            if (instIdx >= instances_.size()) {
+                continue;
+            }
             const RtInstance& inst = instances_[instIdx];
             if (IntersectAabbT(ray.origin, worldInvD, inst.aabbMin, inst.aabbMax, best.distance) < best.distance) {
                 TraverseInstanceBlas(ray, inst, instIdx, blasNodes_, indices_, vertices_, best);

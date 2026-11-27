@@ -1,8 +1,9 @@
 # LeakSanitizer suppressions for external OS and graphics driver libraries
 leak:libp11-kit
-leak:newlocale
 leak:libvulkan
 leak:libGLX
 leak:libX11
-leak:pthread_once
+leak:newlocale
+leak:__pthread_once_slow
+leak:___pthread_once
 

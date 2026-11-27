@@ -16,6 +16,7 @@
 #include <limits>
 #include <ranges>
 #include <span>
+#include <unordered_set>
 
 namespace bgl::gpu {
 using namespace detail;
@@ -87,18 +88,26 @@ void PipelineManager::BuildClusteredLightGrid(std::span<const GpuPunctualLight> 
 
         const glm::vec3 viewPos{glm::vec3{viewMatrix * glm::vec4{glm::vec3{light.posOrDir}, 1.0f}}};
         const float intensityMag{glm::length(glm::vec3{light.colorInt})};
-        const float radius{(light.colorInt.w > 0.0f) ? light.colorInt.w
-                                                     : std::clamp(std::sqrt(intensityMag * 25.0f), 2.0f, 100.0f)};
+        if (!std::isfinite(viewPos.x) || !std::isfinite(viewPos.y) || !std::isfinite(viewPos.z) ||
+            !std::isfinite(intensityMag)) {
+            continue;
+        }
+        const float radius{(std::isfinite(light.colorInt.w) && light.colorInt.w > 0.0f)
+                               ? light.colorInt.w
+                               : std::clamp(std::sqrt(std::max(0.0f, intensityMag) * 25.0f), 2.0f, 100.0f)};
 
         const float minZ{-viewPos.z - radius};
         const float maxZ{-viewPos.z + radius};
-        if (maxZ < safeNear || minZ > safeFar) {
+        if (!std::isfinite(minZ) || !std::isfinite(maxZ) || maxZ < safeNear || minZ > safeFar) {
             continue;
         }
 
         const float normMinZ{std::clamp(std::log(std::max(minZ, safeNear) / safeNear) / logRatio, 0.0f, 0.9999f)};
         const float normMaxZ{
             std::clamp(std::log(std::clamp(maxZ, safeNear, safeFar) / safeNear) / logRatio, 0.0f, 0.9999f)};
+        if (!std::isfinite(normMinZ) || !std::isfinite(normMaxZ)) {
+            continue;
+        }
         const uint32_t sliceMin{static_cast<uint32_t>(normMinZ * static_cast<float>(kClusterCountZ))};
         const uint32_t sliceMax{
             std::min(kClusterCountZ - 1u, static_cast<uint32_t>(normMaxZ * static_cast<float>(kClusterCountZ)))};
@@ -114,6 +123,10 @@ void PipelineManager::BuildClusteredLightGrid(std::span<const GpuPunctualLight> 
             const float halfAngleY{radius * p11 / closestDepth};
             const float centerNdcX{(viewPos.x * p00) / (-viewPos.z)};
             const float centerNdcY{(viewPos.y * p11) / (-viewPos.z)};
+            if (!std::isfinite(halfAngleX) || !std::isfinite(halfAngleY) || !std::isfinite(centerNdcX) ||
+                !std::isfinite(centerNdcY)) {
+                continue;
+            }
 
             const float minScreenX{std::clamp((centerNdcX - halfAngleX) * 0.5f + 0.5f, 0.0f, 0.9999f)};
             const float maxScreenX{std::clamp((centerNdcX + halfAngleX) * 0.5f + 0.5f, 0.0f, 0.9999f)};
@@ -184,7 +197,12 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
     uint32_t lightCount{0};
     bool hasExplicitDirectional{false};
 
-    auto collectNodeLights = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform) -> void {
+    std::unordered_set<const scene::SceneNode*> visitedLights{};
+    auto collectNodeLights = [&](auto& self, const scene::SceneNode& node, const glm::mat4& parentTransform,
+                                 size_t depth) -> void {
+        if (depth > 256u || !visitedLights.insert(&node).second) {
+            return;
+        }
         const glm::mat4 worldMat{parentTransform * node.localTransform};
         if (node.lightIndex >= 0 && static_cast<size_t>(node.lightIndex) < scene.lights.size() && lightCount < 16u) {
             const auto& srcLight = scene.lights[static_cast<size_t>(node.lightIndex)];
@@ -208,14 +226,14 @@ void PipelineManager::UpdateSceneLightingUniforms(scene::Scene& scene, const glm
 
         for (const auto& child : node.children) {
             if (child) {
-                self(self, *child, worldMat);
+                self(self, *child, worldMat, depth + 1u);
             }
         }
     };
 
     for (const auto& rootNode : scene.rootNodes) {
         if (rootNode) {
-            collectNodeLights(collectNodeLights, *rootNode, glm::mat4{1.0f});
+            collectNodeLights(collectNodeLights, *rootNode, glm::mat4{1.0f}, 0u);
         }
     }
 
@@ -446,9 +464,11 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
             });
         }
     } else {
-        auto collectNode = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node,
-                               const glm::mat4& parentMat) -> void {
-            if (!node) {
+        std::unordered_set<const scene::SceneNode*> visitedNodes;
+        constexpr uint32_t kMaxTraversalDepth{256u};
+        auto collectNode = [&](auto& self, const std::shared_ptr<scene::SceneNode>& node, const glm::mat4& parentMat,
+                               uint32_t depth) -> void {
+            if (!node || depth >= kMaxTraversalDepth || !visitedNodes.insert(node.get()).second) {
                 return;
             }
             const glm::mat4 worldMat{parentMat * node->localTransform};
@@ -488,16 +508,21 @@ void PipelineManager::PrepareFrameScene(scene::Scene& scene, const glm::mat4& vi
                 });
             }
             for (const auto& child : node->children) {
-                self(self, child, worldMat);
+                self(self, child, worldMat, depth + 1u);
             }
         };
         for (const auto& root : scene.rootNodes) {
-            collectNode(collectNode, root, glm::mat4{1.0f});
+            collectNode(collectNode, root, glm::mat4{1.0f}, 0u);
         }
         lastVisiblePrimitiveCount_ = renderItemsScratch_.size();
     }
 
     // Opaques front-to-back (early-Z & material coherence), transparents back-to-front (painter's order)
+    for (auto& item : renderItemsScratch_) {
+        if (!std::isfinite(item.distance)) {
+            item.distance = 0.0f;
+        }
+    }
     std::sort(renderItemsScratch_.begin(), renderItemsScratch_.end(), [](const RenderItem& a, const RenderItem& b) {
         if (a.isTransparent != b.isTransparent) {
             return !a.isTransparent;

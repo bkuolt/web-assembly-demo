@@ -41,6 +41,13 @@ private:
  */
 void InitLogging(std::string_view logLevel = "info");
 
+/**
+ * @brief Escape ASCII control characters (CR/LF/ESC/NUL) and truncate untrusted strings before logging (CWE-117).
+ * @param input Raw string such as a dropped URI or parsed glTF node name.
+ * @return Sanitized printable ASCII/UTF-8 string safe for structured single-line logs.
+ */
+[[nodiscard]] std::string SanitizeForLog(std::string_view input);
+
 } // namespace bgl::core
 
 #define BGL_LOG_TRACE(...) SPDLOG_TRACE(__VA_ARGS__)

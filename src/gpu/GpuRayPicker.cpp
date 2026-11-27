@@ -240,7 +240,8 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
 
     GpuRayPickUniforms uniforms{};
     uniforms.rayOrigin = glm::vec4{ray.origin, 10000.0f};
-    uniforms.rayDirection = glm::vec4{ray.direction, static_cast<float>(primitiveCount)};
+    uniforms.rayDirection = glm::vec4{ray.direction, 0.0f};
+    uniforms.primitiveCount = primitiveCount;
     wgpuQueueWriteBuffer(queue_, uniformBuffer_.Get(), 0, &uniforms, sizeof(uniforms));
 
     GpuRayPickResult initialResult{};
@@ -250,7 +251,7 @@ void GpuRayPicker::Dispatch(WGPUCommandEncoder encoder, WGPUBuffer boundsBuffer,
     initialResult.hitFound = 0;
     wgpuQueueWriteBuffer(queue_, resultBuffer_.Get(), 0, &initialResult, sizeof(initialResult));
 
-    const uint32_t workgroups = (primitiveCount + 63) / 64;
+    const uint32_t workgroups = (primitiveCount / 64u) + ((primitiveCount % 64u) != 0u ? 1u : 0u);
 
     auto dispatchStage = [&](WGPUComputePipeline pipeline, const char* label) {
         WGPUComputePassDescriptor cpDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;

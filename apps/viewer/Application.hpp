@@ -63,7 +63,7 @@ public:
     /**
      * @brief Gracefully releases WebGPU device resources, pipelines, and native window handles.
      */
-    void Shutdown();
+    void Shutdown() override;
 
     /** @brief Toggles procedural atmospheric skybox rendering. */
     void ToggleSkybox() noexcept { skybox_.Toggle(); }

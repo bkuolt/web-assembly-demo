@@ -197,6 +197,8 @@ void PostProcessPass::ReleaseResolutionTargets() noexcept {
     fxaaBindGroup_.Reset();
     gtaoBlurBindGroup_.Reset();
     gtaoBindGroup_.Reset();
+    depthLinBindGroup_.Reset();
+    autoExpBindGroup_.Reset();
     tonemapBindGroup_.Reset();
     for (auto& bg : bloomBindGroups_) {
         bg.Reset();
@@ -218,6 +220,8 @@ void PostProcessPass::ReleaseResolutionTargets() noexcept {
     cachedBloomView_ = nullptr;
     cachedGtaoView_ = nullptr;
     cachedBloomHdrView_ = nullptr;
+    cachedDepthReadView_ = nullptr;
+    cachedAutoExpHdrView_ = nullptr;
     targetWidth_ = 0;
     targetHeight_ = 0;
     bloomMipCount_ = 0;

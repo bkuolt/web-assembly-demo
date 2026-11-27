@@ -146,9 +146,10 @@ void Application::Update(float deltaTime) {
                 running_ = false;
                 return;
             } else if (event.type == SDL_WINDOWEVENT) {
-                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                if (event.window.event == SDL_WINDOWEVENT_RESIZED && event.window.data1 > 0 && event.window.data2 > 0) {
                     gpuContext_.Resize(static_cast<uint32_t>(event.window.data1),
                                        static_cast<uint32_t>(event.window.data2));
+                    pipelineManager_.GetPostProcessPass().InvalidateBindGroup();
                 }
             } else if (event.type == SDL_KEYDOWN) {
                 HandleKeyDown(event.key.keysym.sym, event.key.keysym.mod);
@@ -193,7 +194,8 @@ void Application::Update(float deltaTime) {
                     const std::string sanitized{core::NetworkFetcher::SanitizeUri(droppedStr)};
                     if (!sanitized.empty()) {
                         BGL_LOG_INFO("Asset/URL dropped via OS ({}): '{}'",
-                                     event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE", sanitized);
+                                     event.type == SDL_DROPTEXT ? "SDL_DROPTEXT" : "SDL_DROPFILE",
+                                     core::SanitizeForLog(sanitized));
                         LoadSceneFromUriAsync(sanitized);
                     }
                     SDL_free(droppedStr);
@@ -204,7 +206,7 @@ void Application::Update(float deltaTime) {
 
     const Uint8* keyState = SDL_GetKeyboardState(nullptr);
     if (keyState) {
-        const float moveSpeed = std::max(camera_.GetDistance() * 1.5f, 1.0f) * deltaTime;
+        const float moveSpeed = std::max(camera_.GetDistance() * 1.5f, 1.0f) * clampedDelta;
         if (keyState[SDL_SCANCODE_W] || keyState[SDL_SCANCODE_UP]) {
             camera_.MoveForward(moveSpeed);
         }
@@ -220,20 +222,20 @@ void Application::Update(float deltaTime) {
     }
 #endif
 
-    gamepad_.Update(deltaTime);
+    gamepad_.Update(clampedDelta);
     const auto& gp = gamepad_.GetState();
 
     if (gp.connected) {
         if (camera_.GetMode() == core::CameraMode::Fly) {
-            camera_.MoveForward(-gp.smoothedMove.y * deltaTime * 6.0f);
-            camera_.MoveRight(gp.smoothedMove.x * deltaTime * 6.0f);
+            camera_.MoveForward(-gp.smoothedMove.y * clampedDelta * 6.0f);
+            camera_.MoveRight(gp.smoothedMove.x * clampedDelta * 6.0f);
         } else {
-            camera_.Pan(gp.smoothedMove.x * deltaTime * camera_.GetDistance(),
-                        gp.smoothedMove.y * deltaTime * camera_.GetDistance());
+            camera_.Pan(gp.smoothedMove.x * clampedDelta * camera_.GetDistance(),
+                        gp.smoothedMove.y * clampedDelta * camera_.GetDistance());
         }
         // PS5 smooth exponential response curve and stabilized pitch
-        camera_.Orbit(gp.smoothedLook.x * deltaTime * 2.8f, gp.smoothedLook.y * deltaTime * 2.8f);
-        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * deltaTime * camera_.GetDistance() * 1.5f);
+        camera_.Orbit(gp.smoothedLook.x * clampedDelta * 2.8f, gp.smoothedLook.y * clampedDelta * 2.8f);
+        camera_.Zoom((gp.rightTrigger - gp.leftTrigger) * clampedDelta * camera_.GetDistance() * 1.5f);
         if (gp.buttonY && !prevGamepadY_) {
             ToggleBoundingBoxes();
         }
@@ -248,11 +250,11 @@ void Application::Update(float deltaTime) {
     }
 
     if (turntableActive_) {
-        camera_.Orbit(turntableSpeed_ * deltaTime, 0.0f);
+        camera_.Orbit(turntableSpeed_ * clampedDelta, 0.0f);
     }
 
-    PollAsyncSceneLoad(deltaTime);
-    UpdateSimulation(deltaTime);
+    PollAsyncSceneLoad(clampedDelta);
+    UpdateSimulation(clampedDelta);
 
     // Collect telemetry stats for the in-engine debug HUD overlay
     ui::OverlayStats& stats{cachedOverlayStats_};

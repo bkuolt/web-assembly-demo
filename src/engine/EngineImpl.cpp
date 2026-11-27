@@ -138,6 +138,7 @@ bool Engine::Impl::PollEvents() {
                     const auto w = static_cast<uint32_t>(std::max(1, static_cast<int>(event.window.data1)));
                     const auto h = static_cast<uint32_t>(std::max(1, static_cast<int>(event.window.data2)));
                     gpuContext_.Resize(w, h);
+                    pipelineManager_.GetPostProcessPass().InvalidateBindGroup();
                     if (resizeCb_) {
                         resizeCb_(w, h);
                     }
